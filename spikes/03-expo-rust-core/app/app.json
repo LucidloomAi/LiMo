@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "LiMo spike 03",
+    "slug": "limo-spike-03",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "android": {
+      "package": "ai.lucidloom.limo.spike03",
+      "versionCode": 1,
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.INTERNET",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.VIBRATE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": ["./plugins/with-spike-gradle-properties"]
+  }
+}

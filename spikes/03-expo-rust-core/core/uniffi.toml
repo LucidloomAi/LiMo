@@ -1,0 +1,4 @@
+[bindings.kotlin]
+# Package of the generated Kotlin file. The library it loads stays
+# liblimo_core_spike.so, named after the crate.
+package_name = "ai.lucidloom.limo.core.ffi"

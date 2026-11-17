@@ -1,0 +1,31 @@
+# Rust build output
+target/
+
+# Node and Expo
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+*.tsbuildinfo
+.metro-health-check*
+npm-debug.*
+
+# Native folders: made by `npx expo prebuild`, nothing in them is written by hand
+app/android/
+app/ios/
+
+# Android and Gradle build output
+build/
+.gradle/
+.kotlin/
+.cxx/
+local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Made by app/scripts/build-core.mjs: UniFFI Kotlin bindings and Rust libraries
+app/modules/limo-core/android/src/generated/
+*.so

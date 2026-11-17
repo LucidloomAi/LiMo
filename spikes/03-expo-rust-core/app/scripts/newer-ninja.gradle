@@ -1,0 +1,74 @@
+// Applied from android/build.gradle (the config plugin
+// plugins/with-spike-gradle-properties.js adds the line during prebuild).
+//
+// Why: on Windows, the C++ parts of the build (expo-modules-core and React
+// Native's libappmodules.so) make folders whose full path is longer than 260
+// characters when the project sits in a deep folder, as this one does. The SDK's
+// CMake 3.22.1 comes with ninja 1.10.2, which cannot create such folders even
+// with Windows long paths turned on. Ninja 1.12 and later can.
+//
+// What: finds a ninja 1.12 or later and passes it to every CMake build as
+// CMAKE_MAKE_PROGRAM. The Android Gradle Plugin then uses it for both the
+// CMake configure step and the build step. Nothing is installed.
+//
+// Where it looks, in order:
+//   1. the LIMO_NINJA environment variable (full path to ninja.exe);
+//   2. the ninja that comes with Visual Studio's "C++ CMake tools for Windows",
+//      found with vswhere.
+// On other systems, or when none is found, the build uses the SDK's ninja and
+// a warning says so.
+
+def ninjaVersion = { File exe ->
+  try {
+    def proc = [exe.absolutePath, '--version'].execute()
+    proc.waitFor()
+    return proc.text.trim()
+  } catch (Exception ignored) {
+    return null
+  }
+}
+
+def isNewEnough = { String version ->
+  def m = version =~ /^(\d+)\.(\d+)/
+  if (!m.find()) return false
+  def major = m.group(1) as int
+  def minor = m.group(2) as int
+  return major > 1 || (major == 1 && minor >= 12)
+}
+
+def findNewerNinja = {
+  def fromEnv = System.getenv('LIMO_NINJA')
+  if (fromEnv) {
+    def exe = new File(fromEnv)
+    if (!exe.isFile()) throw new GradleException("LIMO_NINJA points to ${fromEnv}, which is not a file")
+    return exe
+  }
+  if (!System.getProperty('os.name').toLowerCase().contains('windows')) return null
+  def programFilesX86 = System.getenv('ProgramFiles(x86)') ?: 'C:\\Program Files (x86)'
+  def vswhere = new File(programFilesX86, 'Microsoft Visual Studio\\Installer\\vswhere.exe')
+  if (!vswhere.isFile()) return null
+  def proc = [vswhere.absolutePath, '-all', '-products', '*', '-property', 'installationPath'].execute()
+  proc.waitFor()
+  def found = proc.text.readLines().collect { it.trim() }.findAll { it }
+    .collect { new File(it, 'Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja\\ninja.exe') }
+    .findAll { it.isFile() }
+    .find { isNewEnough(ninjaVersion(it) ?: '') }
+  return found
+}
+
+def newerNinja = findNewerNinja()
+if (newerNinja != null) {
+  logger.lifecycle("[LiMo spike 03] CMake builds use ninja ${ninjaVersion(newerNinja)} at ${newerNinja}")
+  def ninjaArg = "-DCMAKE_MAKE_PROGRAM=${newerNinja.absolutePath.replace('\\', '/')}"
+  def useNinja = { project ->
+    project.android.defaultConfig.externalNativeBuild.cmake.arguments(ninjaArg)
+  }
+  allprojects { p ->
+    p.plugins.withId('com.android.library') { useNinja(p) }
+    p.plugins.withId('com.android.application') { useNinja(p) }
+  }
+} else if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+  logger.warn("[LiMo spike 03] No ninja 1.12 or later found. The C++ build may fail with " +
+    "'ninja: error: mkdir(...): No such file or directory' when paths pass 260 characters. " +
+    "Install Visual Studio's C++ CMake tools, or set LIMO_NINJA to a ninja.exe 1.12 or later.")
+}

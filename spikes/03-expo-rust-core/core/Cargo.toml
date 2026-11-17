@@ -1,0 +1,31 @@
+[package]
+name = "limo_core_spike"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "LiMo spike 03: a tiny piece of the time rules, called from Windows and from an Expo app on Android"
+publish = false
+
+[lib]
+# "lib" is the ordinary Rust library used by `cargo test` and, later, by the
+# Windows program. "cdylib" is the shared library the Android app loads.
+crate-type = ["lib", "cdylib"]
+
+# UniFFI's own bindings generator, built only when asked for, so the Android
+# library build does not compile the generator and its command line parser.
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli", "uniffi/cargo-metadata"]
+
+[dependencies]
+uniffi = { version = "0.32.2", default-features = false }
+
+[profile.release]
+# Smaller library, slower release build. Measured in the README.
+lto = true
+codegen-units = 1
+opt-level = "s"
