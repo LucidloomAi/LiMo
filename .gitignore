@@ -1,0 +1,9 @@
+# Internal only. Owner decision, 16 Nov 2026: the control tower and the planning notes
+# stay out of the public repo. Do not remove these lines and do not force add these paths.
+/control-tower/
+/docs/PLAN.md
+/docs/REPO_RESEARCH.md
+/docs/FUNCTIONALITY.md
+
+# Rust build output
+target/
