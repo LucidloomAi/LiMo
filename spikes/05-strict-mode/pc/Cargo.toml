@@ -1,0 +1,17 @@
+[package]
+name = "limo-strict-spike"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Throwaway proof: set up, check and release LiMo strict mode (Device Owner) on an Android phone over adb"
+publish = false
+
+[[bin]]
+name = "limo-strict-spike"
+path = "src/main.rs"
+
+# No dependencies: only the Rust standard library.
+[dependencies]
+
+[profile.release]
+opt-level = 2

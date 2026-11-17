@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LiMo spike 05</string>
+    <string name="admin_label">LiMo spike 05 strict mode</string>
+    <string name="admin_description">Test build. Blocks uninstalling, safe mode, factory reset from Settings, adding users and changing the clock while it is Device Owner. It releases the phone by itself within 30 minutes unless extended, never more than 120.</string>
+</resources>

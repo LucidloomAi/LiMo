@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+No policies at all, on purpose. The things this spike does as Device Owner
+(user restrictions, blocking its own uninstall, suspending packages) need no
+entry here. Leaving the list empty means Android refuses this admin the old
+device admin powers: wiping the phone, resetting or changing the screen lock
+password, locking the screen, disabling the camera or keyguard features.
+-->
+<device-admin>
+    <uses-policies />
+</device-admin>
