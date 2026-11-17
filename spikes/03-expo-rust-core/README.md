@@ -412,8 +412,8 @@ are rough.
 
 Installed over USB with `adb install -r` on the Galaxy S20 Ultra (SM-G988B,
 Android 13, One UI 5.1) and started with `adb shell am start`. No development
-server was running. The phone was locked at the time, so the screen itself has
-not been looked at yet; the startup check ran and logged:
+server was running. The phone was locked at the first start, so the startup
+check was read from the log first:
 
 ```
 I/LiMoSpike03: core_version=0.1.0 decide_lease(3600,3300,600) granted=300 remaining=0 locked=false
@@ -429,6 +429,18 @@ loading. After that a call cost about 0.3 ms from JavaScript, of which about
 microseconds" guessed above, and was measured with the screen locked, when
 Android may slow the processor. It is still far below anything a person
 notices, but the real core should not be called in a tight loop.
+
+Later the same evening, with the phone unlocked, the screen was looked at
+from a screenshot taken over USB. It showed the version 0.1.0, the three
+fields with their starting values and the startup check lines. One tap on
+"Ask the Rust core" showed: Granted 300 s, Remaining 0 s, Locked no, and
+"Call took 771.7 microseconds, JavaScript to Rust and back", of which 527.2
+from Kotlin into Rust and back. A single call costs more than the average
+over a thousand, because nothing is warm yet.
+
+One thing to fix in the real app, seen in that screenshot: the bottom of the
+page is drawn under the phone's navigation buttons. Expo SDK 55 draws edge to
+edge by default, so every screen has to leave room for the navigation bar.
 
 ## Unknowns
 
