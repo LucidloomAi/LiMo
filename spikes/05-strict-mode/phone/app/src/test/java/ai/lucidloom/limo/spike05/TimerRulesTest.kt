@@ -7,6 +7,7 @@ import ai.lucidloom.limo.spike05.TimerRules.MAX_MS
 import ai.lucidloom.limo.spike05.TimerRules.MINUTE_MS
 import ai.lucidloom.limo.spike05.TimerRules.Record
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -198,6 +199,23 @@ class TimerRulesTest {
         assertEquals(MAX_MS, TimerRules.leftMs(r, t0))
         val negative = TimerRules.startIn(t0, -5L)
         assertEquals(0L, TimerRules.leftMs(negative, t0))
+    }
+
+    // a second release right after the first
+
+    @Test
+    fun aReleaseThatJustRanStopsAnotherOneButNotTheRetry() {
+        val end = 1_000_000L
+        assertFalse(TimerRules.releaseJustRan(null, end))
+        // The second alarm, 15 ms after the first release ended (as on the phone).
+        assertTrue(TimerRules.releaseJustRan(end, end + 15L))
+        // "admin disabled" arriving 5 seconds later.
+        assertTrue(TimerRules.releaseJustRan(end, end + 5_000L))
+        assertFalse(TimerRules.releaseJustRan(end, end + TimerRules.RELEASE_QUIET_MS))
+        // The retry of a release that did not finish is not held back.
+        assertFalse(TimerRules.releaseJustRan(end, end + TimerRules.RETRY_MS))
+        // A clock that went backwards (a new process after a restart) never blocks.
+        assertFalse(TimerRules.releaseJustRan(end, end - 1L))
     }
 
     // text

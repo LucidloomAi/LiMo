@@ -633,6 +633,10 @@ pub enum UninstallOutcome {
     Success,
     StillAdmin,
     Blocked,
+    /// No reason given. Android answers this for a package that is not
+    /// installed, and on the test phone (Samsung, Android 13) also for an
+    /// uninstall blocked by the owner. Only a fresh look tells which.
+    InternalError,
     NotInstalled,
     Failed(String),
 }
@@ -645,7 +649,9 @@ pub fn uninstall(text: &str) -> UninstallOutcome {
         UninstallOutcome::StillAdmin
     } else if text.contains("DELETE_FAILED_OWNER_BLOCKED") {
         UninstallOutcome::Blocked
-    } else if text.contains("DELETE_FAILED_INTERNAL_ERROR") || text.contains("Unknown package") {
+    } else if text.contains("DELETE_FAILED_INTERNAL_ERROR") {
+        UninstallOutcome::InternalError
+    } else if text.contains("Unknown package") {
         UninstallOutcome::NotInstalled
     } else {
         UninstallOutcome::Failed(first_error_line(text))
@@ -936,7 +942,9 @@ mod tests {
         assert_eq!(uninstall("Success\n"), UninstallOutcome::Success);
         assert_eq!(uninstall("Failure [DELETE_FAILED_DEVICE_POLICY_MANAGER]\n"), UninstallOutcome::StillAdmin);
         assert_eq!(uninstall("Failure [DELETE_FAILED_OWNER_BLOCKED]\n"), UninstallOutcome::Blocked);
-        assert_eq!(uninstall("Failure [DELETE_FAILED_INTERNAL_ERROR]\n"), UninstallOutcome::NotInstalled);
+        // Seen on the test phone for an uninstall blocked by the owner.
+        assert_eq!(uninstall("Failure [DELETE_FAILED_INTERNAL_ERROR]\n"), UninstallOutcome::InternalError);
+        assert_eq!(uninstall("Unknown package: ai.lucidloom.limo.spike05\n"), UninstallOutcome::NotInstalled);
         assert_eq!(uninstall("Failure [WHAT]\n"), UninstallOutcome::Failed("Failure [WHAT]".into()));
     }
 

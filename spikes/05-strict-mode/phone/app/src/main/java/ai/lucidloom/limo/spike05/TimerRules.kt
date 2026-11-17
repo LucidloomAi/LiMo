@@ -32,6 +32,22 @@ object TimerRules {
     /** After a release that did not finish, the next try comes this much later. */
     const val RETRY_MS = 60_000L
 
+    /**
+     * After a release, the timer does not start another one for this long.
+     * Checks queued during a release (the second alarm, "admin disabled") can
+     * still see the admin listed for a moment, and must not run it all again.
+     * Shorter than [RETRY_MS], so a release that did not finish is still
+     * tried again on time.
+     */
+    const val RELEASE_QUIET_MS = 20_000L
+
+    /** Whether a release ended less than [RELEASE_QUIET_MS] ago, on the elapsed clock. */
+    fun releaseJustRan(lastEndElapsedMs: Long?, nowElapsedMs: Long): Boolean {
+        if (lastEndElapsedMs == null) return false
+        val ago = nowElapsedMs - lastEndElapsedMs
+        return ago in 0L until RELEASE_QUIET_MS
+    }
+
     /** The clocks at one moment. [bootCount] is -1 when it could not be read. */
     data class Clocks(val wallMs: Long, val elapsedMs: Long, val bootCount: Int)
 

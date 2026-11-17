@@ -13,7 +13,9 @@ import android.os.SystemClock
  *
  * - one on the elapsed clock, which no clock change can move;
  * - one on the wall clock, which fires early if someone moves the clock
- *   forward, and that ends the timer early too.
+ *   forward, and that ends the timer early too. It is set [WALL_LAG_MS]
+ *   after the deadline, so that with no clock change the elapsed alarm comes
+ *   first, and the release it starts replaces this one before it fires.
  *
  * Alarms do not survive a restart; the boot receiver sets them again.
  */
@@ -22,6 +24,7 @@ object Alarms {
     const val ACTION_TIMER = "ai.lucidloom.limo.spike05.TIMER"
     private const val CODE_ELAPSED = 1
     private const val CODE_WALL = 2
+    private const val WALL_LAG_MS = 5_000L
 
     private fun pending(c: Context, code: Int): PendingIntent =
         PendingIntent.getBroadcast(
@@ -34,7 +37,7 @@ object Alarms {
     fun schedule(c: Context, r: TimerRules.Record) {
         val am = c.getSystemService(AlarmManager::class.java) ?: return
         val exactElapsed = set(am, AlarmManager.ELAPSED_REALTIME_WAKEUP, r.elapsedMs, pending(c, CODE_ELAPSED))
-        val exactWall = set(am, AlarmManager.RTC_WAKEUP, r.wallMs, pending(c, CODE_WALL))
+        val exactWall = set(am, AlarmManager.RTC_WAKEUP, r.wallMs + WALL_LAG_MS, pending(c, CODE_WALL))
         val inMs = r.elapsedMs - SystemClock.elapsedRealtime()
         SpikeLog.i("alarm scheduled exact=${LogText.yesNo(exactElapsed && exactWall)} in_min=${TimerRules.minutesText(inMs)}")
     }
@@ -45,6 +48,17 @@ object Alarms {
         val at = SystemClock.elapsedRealtime() + TimerRules.RETRY_MS
         val exact = set(am, AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending(c, CODE_ELAPSED))
         SpikeLog.i("alarm scheduled exact=${LogText.yesNo(exact)} retry_s=${TimerRules.RETRY_MS / 1000L}")
+    }
+
+    /**
+     * At the start of a release: drop the wall clock alarm and put the retry
+     * in place of the elapsed one, so no deadline alarm fires in the middle of
+     * the release, and a retry still comes if this process dies half way.
+     */
+    fun armRetryOnly(c: Context) {
+        val am = c.getSystemService(AlarmManager::class.java) ?: return
+        am.cancel(pending(c, CODE_WALL))
+        scheduleRetry(c)
     }
 
     fun cancel(c: Context) {

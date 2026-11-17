@@ -129,21 +129,33 @@ Why each is safe to undo:
   - it writes the package down in its own storage before it asks Android to
     suspend it;
   - release lifts that list, then looks at every installed package and lifts
-    any suspension it can (the "sweep"), in case the list was lost;
+    any suspension it can (the "sweep"), in case the list was lost.
+    Switching suspension off (`--ez suspend_apps false`) does the same two
+    things;
+  - `force-release` first asks the app, while it is still the owner, to lift
+    its suspensions (`--ez suspend_apps false`), waits up to 10 seconds, and
+    only then removes the owner. If the app is broken it goes on without it;
   - the PC program's `status`, `force-release` and `uninstall` read every
     suspended package from the phone and say which are left and how to lift
     them;
   - the list is at most 10 apps, each must have an icon in the app drawer,
     and a never suspend list (below) applies.
-  If a suspension is left behind (after `force-release`, say), `setup` then
-  `release --pin 2468` lifts it. That needs a phone with no accounts, so do it
-  before anyone adds one. The adb shell's own `pm unsuspend` is no help: in
-  Android 13's source it names the shell (`com.android.shell`) as the one
-  lifting, not `android` (how the package manager treats that difference was
-  not read in the source; from memory it lifts only the shell's own
-  suspensions).
-  `TESTING.md` has an optional step that checks all this on the real phone,
-  since Samsung's build could differ from Android's source.
+
+  If a suspension is left behind anyway (the owner was removed with the raw
+  `dpm remove-active-admin`, or the app could not be asked), the way to lift
+  it is, before anyone adds an account (setup needs a phone with none):
+
+  1. `limo-strict-spike setup --apk phone\app\build\outputs\apk\debug\app-debug.apk`
+  2. `adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --ez suspend_apps false`
+  3. `limo-strict-spike release --pin 2468` (release lifts suspensions too;
+     step 2 lets you see it happen before the owner goes)
+
+  The adb shell's own `pm unsuspend` is no help: in Android 13's source it
+  names the shell (`com.android.shell`) as the one lifting, not the platform
+  (how the package manager treats that difference was not read in the
+  source; from memory it lifts only the shell's own suspensions). Step 4.4 of
+  `TESTING.md` shows all this on the real phone, since Samsung's build could
+  differ from Android's source.
 
 Never suspended, whatever the list says: this app; every launcher, dialer,
 Settings app and keyboard; the default SMS app; every active device admin;
@@ -193,10 +205,32 @@ try block, so one failure cannot stop the rest, and each writes one log line.
 Device Owner must go before the admin: Android silently ignores a request to
 remove an admin that is still the owner. Clearing the owner also starts
 removing the admin by itself, and Android finishes that only after it has
-told the app "admin disabled" and the app has answered, which is why the app
-answers that at once and never waits on its own work there. If the app is
-still owner or admin at the end, the timer stays armed and the release runs
-again a minute later.
+delivered "admin disabled" to the app and the app has answered. Two things
+follow, both learned the hard way:
+
+- the app answers "admin disabled" at once and never waits on its own work
+  there;
+- Android delivers this app's broadcasts one after another, so "admin
+  disabled" also queues behind any broadcast the app is still holding open.
+  The timer's alarm receiver holds its broadcast open (`goAsync`) while the
+  release runs, to keep the process alive. In the first build that alarm, and
+  a second one queued behind it, made the timer's release wait on itself: the
+  admin step failed after 5 seconds, twice, and the admin went only once both
+  had given up. Now, just before step 9 waits, the release finishes every
+  broadcast the app is holding (`HoldSet`), and holds no new one until the
+  wait is over. The work those broadcasts started still runs. The log shows
+  how many it let go: `broadcasts_finished=N`.
+
+If the app is still owner or admin at the end, the timer stays armed and the
+release runs again a minute later. A release first replaces the deadline
+alarms with that one minute retry alarm, so no deadline alarm fires in the
+middle of it, and a retry still comes if the process dies half way. For 20
+seconds after a release ends, the timer does not start another one: a check
+queued during the release (a second alarm, "admin disabled") can still see
+the admin listed for a moment, and is logged as
+`timer skipped ... reason=release_just_ran` instead of running it all again.
+That window is shorter than the one minute retry, so a release that did not
+finish is still tried again on time.
 
 After step 9 nothing of the app's remains in force and `adb uninstall`
 works.
@@ -219,14 +253,21 @@ Read in Android 13's own source (AOSP, branch `android13-release`, file
   lifts every uninstall block. So the four restrictions and the uninstall
   block go with the owner, by either route.
 - Nothing in those methods lifts package suspensions. The Device Owner's
-  `setPackagesSuspended` suspends under `PLATFORM_PACKAGE_NAME` ("android"),
-  and the only calls that lift those (`unsuspendForSuspendingPackage`) are in
-  the code for a work profile's personal app suspension, not in any path
-  that clears an owner.
+  `setPackagesSuspended` suspends under `PLATFORM_PACKAGE_NAME`, and the only
+  calls that lift those (`unsuspendForSuspendingPackage`) are in the code for
+  a work profile's personal app suspension, not in any path that clears an
+  owner. The value of `PLATFORM_PACKAGE_NAME` was not checked in the source;
+  it is believed to be `android`, and the PC program treats a suspension by
+  `android` (or by an unnamed suspender) as a Device Owner's. The phone shows
+  the real name as `suspendingPackage=` in `adb shell dumpsys package NAME`.
+- With `no_safe_boot` set, Android writes the global setting
+  `safe_boot_disallowed` as 1, and as 0 when it is cleared (Android 13's
+  `UserRestrictionsUtils`). It can be read with
+  `adb shell settings get global safe_boot_disallowed`; `status` shows it.
 
 That is stock Android. Samsung builds its own from it and could differ, so
 the test checks it on the phone: step 4.4 in `TESTING.md` applies full
-strict mode, runs `force-release`, and looks at what is left.
+strict mode, removes the owner from the PC, and looks at what is left.
 
 Android also does a few things of its own when an owner is set, and undoes
 them when it goes: adb's `set-device-owner` marks the user's provisioning
@@ -263,12 +304,16 @@ until the next restart.
    ```
    .\pc\target\release\limo-strict-spike.exe force-release
    ```
-   which runs `adb shell dpm remove-active-admin ai.lucidloom.limo.spike05/.AdminReceiver`
-   and checks the result. It needs no app code to run. Afterwards it says
-   whether any of the four restrictions or any suspension is left. Android
-   clears the restrictions with the owner but leaves suspensions (see above),
-   so a suspended app stays suspended until `setup` and
-   `release --pin 2468`.
+   It first says, in plain words, that Android lifts the restrictions when the
+   owner is removed this way but not suspended apps. Then, if the app is
+   still the owner and any app is suspended, it asks the app to lift them
+   (`--ez suspend_apps false`) and waits up to 10 seconds. Then, whatever
+   happened, it runs
+   `adb shell dpm remove-active-admin ai.lucidloom.limo.spike05/.AdminReceiver`
+   and checks the result. That last part needs no app code at all, so it
+   works even if the app is broken. Afterwards it says whether any of the
+   four restrictions or any suspension is left, and if a suspension is left,
+   how to lift it (above).
 4. **Factory reset from the recovery menu**, for completeness only. It works
    below Android, so nothing this app does can block it, but it erases
    everything on the phone: apps, photos, settings, and the owner with them.
@@ -292,15 +337,24 @@ until the next restart.
   boot. If the deadline passed while the phone was off, the phone is released
   as soon as the timer can run.
 - It runs when the activity is closed and after a restart: two exact alarms
-  (one on each clock), a receiver for the restart, for an update of the app
-  and for a change of the clock, and a check every time any part of the app
-  starts (the process itself, the screen, every receiver), plus every 5
-  seconds while the screen is open.
-- After a restart the app runs only once the phone has been unlocked for the
-  first time (it is not "direct boot aware"), and Android only lets an owner
-  step down while the phone is unlocked. So a deadline that passes while a
-  freshly restarted phone is still locked is acted on right after the first
-  unlock.
+  (one on each clock; the wall clock one is set 5 seconds after the deadline,
+  so that with no clock change the elapsed one comes first and the release
+  it starts cancels the other), a receiver for the restart, the first
+  unlock, an update of the app and a change of the clock, and a check every
+  time any part of the app starts (the process itself, the screen, every
+  receiver), plus every 5 seconds while the screen is open.
+- Android lets an owner step down only once the phone has been unlocked since
+  it started: `clearDeviceOwner` and `removeActiveAdmin` both call
+  `enforceUserUnlocked` (Android 13's source). The app is not "direct boot
+  aware", so after a restart it cannot run before that first unlock anyway.
+  A deadline that passed while the phone was off or still locked is acted on
+  right after the first unlock (`BOOT_COMPLETED`, and `USER_UNLOCKED` if
+  Android delivers it to this kind of receiver, which from memory it may
+  not).
+- The timer never gives up. If a release does not finish, the app logs
+  `release incomplete ...` (with `user_unlocked=`), keeps the deadline, and
+  tries again a minute later, and on every unlock, restart and start of any
+  part of the app.
 - `--ei deadline_minutes N` (0 to 120) only ever lowers it; 0 releases at
   once. "Extend 30 minutes" (`--ez extend true`) adds exactly 30, up to 120
   from now. Being made an admin again never extends a running deadline.
@@ -365,7 +419,7 @@ once:
 
 ```
 adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --ez apply true
-adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --es suspend "com.sec.android.app.popupcalculator,com.android.chrome"
+adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --es suspend "com.samsung.android.calendar"
 adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --ez release true --es pin 2468
 adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --ei deadline_minutes 2
 adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --ez extend true
@@ -383,7 +437,9 @@ adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --ez no_factory_re
 ```
 
 - `--es suspend` replaces the list and suspends it; an empty list
-  (`--es suspend ""`) lifts every suspension this app made. Names that are
+  (`--es suspend ""`) lifts every suspension this app made.
+  `--ez suspend_apps false` also lifts them, then sweeps every installed
+  package for any other suspension it can lift, the same as release does. Names that are
   not package names, packages on the never suspend list, packages without an
   app drawer icon and anything past the tenth are left out and logged as
   `suspend refused`.
@@ -402,12 +458,13 @@ with `adb logcat -s LiMoSpike05`. The screen shows the same lines.
 | --- | --- |
 | `state admin=yes|no owner=yes|no deadline_min=N` | After every check, action and release. `N` is whole minutes left, rounded up, or `none`. While the screen is open it is logged only when it changes. |
 | `apply start source=S steps=...` | A set of switch changes begins, in the order listed. |
-| `apply step=NAME ok value=on|off` | One item done. `count=N` for suspension. |
+| `apply step=NAME ok value=on|off` | One item done. For suspension: `count=N` when on; `count=N swept=M` when off (its own list, then the sweep). |
 | `apply step=NAME failed value=on|off error=TEXT` | One item failed; `error=not_owner` when the app is not the owner. |
 | `suspend list=a,b|none source=S` | The list to suspend was set. |
 | `suspend refused package=P reason=R` | Left out: `bad_name`, `this_app`, `never_suspend`, `no_launcher_entry`, `too_many`. |
 | `suspended list=a,b|none` | Packages this app suspended that are suspended now. |
-| `release start trigger=button|adb|timer owner=... admin=...` | A release begins. |
+| `release start trigger=button|adb|timer owner=... admin=... user_unlocked=yes|no` | A release begins. |
+| `release incomplete owner=... admin=... user_unlocked=... next_try_s=60` | The release did not finish; the deadline is kept and it tries again. |
 | `release step=NAME ok` | A release step worked. The names, in order: `no_factory_reset`, `unsuspend`, `unsuspend_sweep`, `no_safe_boot`, `no_add_user`, `no_config_date_time`, `uninstall_block`, `device_owner`, `active_admin`. |
 | `release step=NAME failed error=TEXT` | A release step failed; the rest still ran. |
 | `release step=NAME skipped reason=not_owner|not_admin` | Nothing to do for that step: the app was no longer owner (so Android had already cleared it) or no longer admin. |
@@ -418,6 +475,9 @@ with `adb logcat -s LiMoSpike05`. The screen shows the same lines.
 | `timer set deadline_min=N`, `timer extended deadline_min=N` | Lowered, or extended by 30. |
 | `timer refused ... reason=R` | `not_lower`, `out_of_range`, `at_most`, `already_due`, `no_deadline`, `not_admin`. |
 | `timer fired source=S reason=R` | The timer released the phone. `R` is `deadline_passed`, `clock_moved_forward` or `deadline_too_far`. `S` says which check found it: `alarm`, `boot`, `activity`, `process_start` and so on. |
+| `timer skipped source=S reason=release_just_ran ago_ms=N` | A check found the deadline passed less than 20 seconds after a release ended, and did not run another one. |
+| `release step=active_admin ok waited_ms=N broadcasts_finished=N` | The admin went after N ms; the release let go of N held broadcasts first. `failed error=still_admin_after_ms=5000 ...` means it did not go within 5 seconds (the release then retries in a minute). |
+| `broadcast not held source=S reason=release_waiting` | A timer broadcast arrived while a release was waiting for Android to remove the admin; its check still runs, but the broadcast is let go at once. |
 | `timer cleared reason=not_admin source=S` | The app is no longer an admin (for example after `force-release`): the deadline is forgotten. |
 | `alarm scheduled exact=yes|no in_min=N`, `... retry_s=60` | The timer's alarms were set. |
 | `boot seen owner=yes|no` | The phone restarted and was unlocked. |
@@ -445,10 +505,10 @@ writes no files.
 | --- | --- |
 | `check` | Read only. adb's version, the one device, Android version and model, users (`pm list users`), accounts (`dumpsys account`; only their types are shown, never the names), owners (`dpm list-owners`), whether the app is installed and test only, whether it is an admin (`dumpsys device_policy`), and whether setup has finished on the phone. Then, in plain words, whether `set-device-owner` can work and, if not, exactly what is in the way. Anything it cannot read counts as in the way. |
 | `setup --apk PATH [--deadline-minutes N]` | Runs `check` and refuses if anything is in the way. Then `adb install -t -r`, then checks the installed copy is test only (and refuses if not), then `dpm set-device-owner` once, then reads back `dpm list-owners`, then opens the app (`am start`, with `--ei deadline_minutes N` if given, 1 to 29) so its timer starts at once. It recognises the known failures and explains them. It never retries and changes nothing else. |
-| `status` | Read only. Owner, admin, installed and test only, the restrictions in force on user 0 (`dumpsys user`), every suspended package (`dumpsys package packages`), and the app's last `state`, `suspended`, `timer`, `release done` and `boot seen` lines (`logcat -d`). |
+| `status` | Read only. Owner, admin, installed and test only, the restrictions in force on user 0 (`dumpsys user`), the setting `safe_boot_disallowed`, every suspended package (`dumpsys package packages`), and the app's last `state`, `suspended`, `timer`, `release done` and `boot seen` lines (`logcat -d`). |
 | `release --pin PIN` | Sends the adb intent, waits up to 15 seconds, and checks with `dpm list-owners` and `dumpsys device_policy` that no owner and no admin is left. Then reports any restriction or suspension still in force. On failure it prints the app's release log lines. |
-| `force-release` | `dpm remove-active-admin`, then the same checks and report. It runs even when nothing could be read; it does nothing when the app is known to be neither owner nor admin. |
-| `uninstall` | Refuses while the app is owner or admin, or when that cannot be read. Warns about any suspension still in force. Then `adb uninstall`. |
+| `force-release` | Says in plain words that Android does not lift suspended apps when the owner is removed. Step 1: if the app is (or may be) still the owner and an app is suspended by a Device Owner, asks the app to lift its suspensions (`am start ... --ez suspend_apps false`) and checks every 2 seconds for up to 10; if the app cannot be asked or does not manage it, it goes on. Step 2: `dpm remove-active-admin`, then the same checks and report as `release`, including any suspension left and how to lift it. It never sends the PIN or asks for a release. It runs even when nothing could be read; it does nothing when the app is known to be neither owner nor admin. |
+| `uninstall` | Refuses while the app is owner or admin, or when that cannot be read. Warns about any suspension still in force. Then `adb uninstall`, and then looks again with `pm list packages`: on the test phone a blocked uninstall answers `DELETE_FAILED_INTERNAL_ERROR`, the same as a package that is not there, so only the second look says whether the app went. |
 
 Exit codes: 0 success, 1 refused or failed, 2 bad arguments. `check` exits
 1 when `set-device-owner` cannot work.
@@ -479,15 +539,17 @@ cargo test
 ```
 
 The program is `pc\target\release\limo-strict-spike.exe`. The unit tests
-(60) cover every parser with canned adb output (devices, getprop, users,
+(66) cover every parser with canned adb output (devices, getprop, users,
 accounts, owners, admins, package flags, suspended packages, restrictions,
 log lines, install, set-device-owner with each known error, remove admin,
 uninstall, am start), every refusal rule (no phone, an unauthorized phone,
 two phones, accounts found, two users, an owner already set, anything
-unreadable, not test only, still owner or admin), and every command run
-against a fake adb that records each call: setup refuses before changing
-anything, never runs set-device-owner twice, release waits and gives up after
-15 seconds without doing anything else, and so on.
+unreadable, not test only, still owner or admin, which suspensions are a
+Device Owner's), and every command run against a fake adb that records each
+call: setup refuses before changing anything, never runs set-device-owner
+twice, release waits and gives up after 15 seconds without doing anything
+else, force-release asks the app to lift suspensions before it removes the
+owner and goes on when the app cannot help, and so on.
 
 ### Phone
 
@@ -500,12 +562,14 @@ Needs JDK 17 and the Android SDK with platform `android-36` and build tools
 ```
 
 The APK is `phone\app\build\outputs\apk\debug\app-debug.apk`. The unit tests
-(34) cover the pure parts: the deadline arithmetic (starts at 30, never more
+(40) cover the pure parts: the deadline arithmetic (starts at 30, never more
 than 120 ahead, a clock moved forward releases, a clock moved back cannot
 extend, a clock moved far back releases, restarts, being made admin again,
-lowering, extending), parsing the package list, the never suspend rules and
-the limit of 10, the order of apply and release steps, planning switch
-changes, the PIN, and the log line shapes.
+lowering, extending, no second release within 20 seconds of one), parsing
+the package list, the never suspend rules and the limit of 10, the order of
+apply and release steps, planning switch changes, the PIN, the log line
+shapes, and the held broadcasts (`HoldSet`: let go of all before the wait,
+none held during it, never finished twice).
 
 Versions: Gradle 8.14.3 (wrapper), Android Gradle Plugin 8.11.0, Kotlin
 2.1.20, compileSdk and targetSdk 36, minSdk 28.
@@ -544,9 +608,10 @@ Gradle's own, copied unchanged from spike 02.
 
 - Whether Samsung's build behaves like Android 13's source when the owner
   goes: restrictions and the uninstall block cleared, suspensions left in
-  place. The app's own release lifts suspensions explicitly, so the first two
-  ways out do not depend on it; the optional step 4.4 in `TESTING.md` checks
-  it.
+  place. The app's own release lifts suspensions explicitly, and
+  `force-release` asks the app to lift them first, so only a broken app
+  leaves one behind; step 4.4 in `TESTING.md` checks all of it.
+- The value of `PLATFORM_PACKAGE_NAME`, believed to be `android` (see above).
 - Whether One UI's power menu honours `no_safe_boot` the way stock Android's
   does, and what it shows. The test records it.
 - What Samsung shows for each blocked setting (greyed out, a message, or

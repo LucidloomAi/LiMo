@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.SystemClock
+import android.os.UserManager
 import android.provider.Settings
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -25,6 +26,13 @@ object Strict {
 
     private val lock = Any()
     private var lastState: String? = null
+
+    /** Broadcasts held open by [TimerReceiver]; see [HoldSet]. */
+    val holds = HoldSet()
+
+    /** When the last release ended, on the elapsed clock. In memory only. */
+    @Volatile
+    private var lastReleaseEndElapsed: Long? = null
 
     const val SOURCE_TICK = "tick"
 
@@ -107,6 +115,16 @@ object Strict {
                     if (source != SOURCE_TICK) Alarms.schedule(c, d.record)
                 }
                 is TimerRules.Decision.Release -> {
+                    val nowElapsed = SystemClock.elapsedRealtime()
+                    val lastEnd = lastReleaseEndElapsed
+                    if (TimerRules.releaseJustRan(lastEnd, nowElapsed)) {
+                        // A check queued while a release ran (the second
+                        // alarm, "admin disabled"). Do not run it all again;
+                        // a release that did not finish has its own retry.
+                        SpikeLog.i("timer skipped source=$source reason=release_just_ran ago_ms=${nowElapsed - (lastEnd ?: nowElapsed)}")
+                        logState(c, force = true)
+                        return
+                    }
                     SpikeLog.i("timer fired source=$source reason=${d.reason}")
                     releaseEverything(c, "timer")
                     return
@@ -233,10 +251,17 @@ object Strict {
                 }
                 on -> suspendWanted(c)
                 else -> {
+                    // Switching suspension off lifts this app's own list and
+                    // then sweeps, the same as release does, so it also works
+                    // when the list was lost. The PC's force-release sends this
+                    // first, because Android does not lift suspensions when the
+                    // owner is removed from the PC.
                     val mine = Store.mine(c)
                     val still = unsuspend(c, mine)
-                    if (still.isNotEmpty()) throw IllegalStateException("still_suspended=${still.joinToString(",")}")
-                    "count=${mine.size}"
+                    val (swept, stillSwept) = sweepSuspensions(c)
+                    val left = (still + stillSwept).distinct()
+                    if (left.isNotEmpty()) throw IllegalStateException("still_suspended=${left.joinToString(",")}")
+                    "count=${mine.size} swept=${swept.size}"
                 }
             }
             SpikeLog.i("apply step=${step.key} ok value=$value" + if (detail.isEmpty()) "" else " $detail")
@@ -275,6 +300,28 @@ object Strict {
         return still
     }
 
+    /**
+     * Lifts every suspension Android reports on an installed package other
+     * than this app, in case this app's own list was lost. A Device Owner's
+     * unsuspend only takes back suspensions made through a Device Owner;
+     * anything still suspended afterwards was suspended by someone else.
+     * Returns the packages found suspended, and those still suspended.
+     */
+    private fun sweepSuspensions(c: Context): Pair<List<String>, List<String>> {
+        val found = installedPackages(c).filter { it != c.packageName && isSuspendedNow(c, it) == true }
+        if (found.isEmpty()) return Pair(emptyList(), emptyList())
+        dpm(c).setPackagesSuspended(admin(c), found.toTypedArray(), false)
+        val still = found.filter { isSuspendedNow(c, it) == true }
+        Store.saveMine(c, Store.mine(c).filter { it !in found || it in still })
+        return Pair(found, still)
+    }
+
+    private fun userUnlocked(c: Context): Boolean = try {
+        c.getSystemService(UserManager::class.java).isUserUnlocked
+    } catch (_: Exception) {
+        true
+    }
+
     private fun logSuspended(c: Context) {
         val now = Store.mine(c).filter { isSuspendedNow(c, it) == true }
         SpikeLog.i("suspended list=${SuspendRules.joinList(now)}")
@@ -305,7 +352,14 @@ object Strict {
     fun releaseEverything(ctx: Context, trigger: String) {
         val c = ctx.applicationContext
         synchronized(lock) {
-            SpikeLog.i("release start trigger=$trigger owner=${LogText.yesNo(isOwner(c))} admin=${LogText.yesNo(isAdmin(c))}")
+            SpikeLog.i(
+                "release start trigger=$trigger owner=${LogText.yesNo(isOwner(c))} admin=${LogText.yesNo(isAdmin(c))} " +
+                    "user_unlocked=${LogText.yesNo(userUnlocked(c))}",
+            )
+            // Arm the retry first: if this process dies half way, the retry
+            // alarm still comes. It also replaces the deadline alarms, so the
+            // other one cannot fire in the middle of this release.
+            Alarms.armRetryOnly(c)
             for (name in Steps.RELEASE_STEPS) {
                 try {
                     releaseStep(c, name)
@@ -319,8 +373,17 @@ object Strict {
                 Store.clearTimer(c)
                 Alarms.cancel(c)
             } else {
+                // Never give up. Android lets an owner step down only once the
+                // phone has been unlocked since it started; the deadline stays
+                // stored, so the next alarm, unlock, restart or start of any
+                // part of the app tries again.
+                SpikeLog.w(
+                    "release incomplete owner=${LogText.yesNo(owner)} admin=${LogText.yesNo(admin)} " +
+                        "user_unlocked=${LogText.yesNo(userUnlocked(c))} next_try_s=${TimerRules.RETRY_MS / 1000L}",
+                )
                 Alarms.scheduleRetry(c)
             }
+            lastReleaseEndElapsed = SystemClock.elapsedRealtime()
             SpikeLog.i(LogText.releaseDone(owner, admin))
             logState(c, force = true)
         }
@@ -352,14 +415,10 @@ object Strict {
                     skipped(name, "not_owner")
                     return
                 }
-                val found = installedPackages(c).filter { it != c.packageName && isSuspendedNow(c, it) == true }
+                val (found, still) = sweepSuspensions(c)
                 if (found.isEmpty()) {
                     ok(name, "found=0")
-                    return
-                }
-                dpm.setPackagesSuspended(admin, found.toTypedArray(), false)
-                val still = found.filter { isSuspendedNow(c, it) == true }
-                if (still.isEmpty()) {
+                } else if (still.isEmpty()) {
                     ok(name, "found=${found.size} lifted=${found.joinToString(",")}")
                 } else {
                     failed(name, "found=${found.joinToString(",")} still_suspended=${still.joinToString(",")}")
@@ -388,14 +447,28 @@ object Strict {
                     return
                 }
                 dpm.removeActiveAdmin(admin)
-                // Android removes the admin a moment later, once this app's
-                // "admin disabled" callback has run on the main thread.
+                // Android removes the admin a moment later, once it has
+                // delivered "admin disabled" to this app's main thread. It
+                // delivers this app's broadcasts one after another, so first
+                // let go of every broadcast this app is holding open (the
+                // alarm that started this release, a second alarm queued
+                // behind it), and hold no new one until the wait is over.
+                // Otherwise the release waits on itself.
+                val finished = holds.finishAllAndClose()
                 var waited = 0L
-                while (isAdmin(c) && waited < 5_000L) {
-                    SystemClock.sleep(250L)
-                    waited += 250L
+                try {
+                    while (isAdmin(c) && waited < 5_000L) {
+                        SystemClock.sleep(250L)
+                        waited += 250L
+                    }
+                } finally {
+                    holds.reopen()
                 }
-                if (isAdmin(c)) failed(name, "still_admin_after_ms=$waited") else ok(name, "waited_ms=$waited")
+                if (isAdmin(c)) {
+                    failed(name, "still_admin_after_ms=$waited broadcasts_finished=$finished")
+                } else {
+                    ok(name, "waited_ms=$waited broadcasts_finished=$finished")
+                }
             }
             else -> {
                 // The four user restrictions, by their Android names.

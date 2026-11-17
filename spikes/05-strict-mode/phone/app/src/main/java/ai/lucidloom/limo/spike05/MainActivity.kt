@@ -384,7 +384,7 @@ class MainActivity : Activity() {
         col.addView(body().also { it.text = "Package names, separated by commas. At most ${SuspendRules.MAX_PACKAGES}. Launchers, dialers, Settings, keyboards and this app are never suspended." })
         listEdit = EditText(this)
         listEdit.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        listEdit.hint = "com.sec.android.app.popupcalculator"
+        listEdit.hint = "com.samsung.android.calendar"
         col.addView(listEdit)
         col.addView(button("Suspend these") {
             val raw = listEdit.text.toString()

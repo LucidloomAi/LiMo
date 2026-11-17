@@ -229,10 +229,73 @@ fn report_leftovers(adb: &mut dyn Adb, serial: &str) {
                 let by = if s.by.is_empty() { "not shown".to_string() } else { s.by.join(", ") };
                 say(format!("  Still suspended: {} (suspended by: {by})", s.package));
             }
-            say("  A suspension by \"android\" is one a Device Owner made, and Android does not lift it when the owner goes. To lift it: setup, then release --pin 2468 (release lifts every suspension it can find). Do it before adding any account to the phone: setup needs a phone with none.");
+            if !rules::owner_suspensions(&list).is_empty() {
+                say(RECOVERY_TEXT);
+            }
         }
         None => say("  Suspended packages: could not read (dumpsys package packages)."),
     }
+}
+
+/// What to do about a suspension a Device Owner left behind, in plain words.
+const RECOVERY_TEXT: &str = "  A suspension by \"android\" is one a Device Owner made. Android does not lift it when the owner is removed, and with no owner left nothing else can. \
+To lift it, before anyone adds an account to the phone (setup needs a phone with none): \
+1. setup --apk ...; \
+2. adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --ez suspend_apps false; \
+3. release --pin 2468 (release also lifts every suspension it can find).";
+
+/// How many times force-release looks again after asking the app to lift its suspensions.
+const LIFT_CHECKS: u32 = 5;
+const LIFT_EVERY: Duration = Duration::from_secs(2);
+
+/// Before force-release removes the owner: while the app is still the owner,
+/// ask it to lift its suspensions, because Android will not once the owner is
+/// gone. Best effort only: the escape hatch must work even if the app is
+/// broken, so whatever happens here, force-release goes on.
+fn lift_suspensions_first(adb: &mut dyn Adb, serial: &str) {
+    say("Step 1 of 2: lift suspended apps while LiMo spike 05 is still the owner.");
+    match read_suspended(adb, serial) {
+        Some(list) if rules::owner_suspensions(&list).is_empty() => {
+            say("  No app is suspended by a Device Owner. Nothing to lift.");
+            return;
+        }
+        Some(list) => say(format!(
+            "  Suspended by a Device Owner: {}. Asking the app to lift them.",
+            rules::owner_suspensions(&list).join(", ")
+        )),
+        None => say("  Could not read which apps are suspended. Asking the app to lift its suspensions anyway."),
+    }
+    let asked = run_on(
+        adb,
+        serial,
+        &["shell", "am", "start", "-n", ACTIVITY, "--ez", "suspend_apps", "false"],
+        T_SHORT,
+    )
+    .map(|o| parse::am_start(&o.text()));
+    match asked {
+        Some(Ok(())) => {}
+        Some(Err(e)) => {
+            say(format!("  The app could not be asked ({e}). Going on without it."));
+            return;
+        }
+        None => {
+            say("  Asking the app did not answer. Going on without it.");
+            return;
+        }
+    }
+    for _ in 0..LIFT_CHECKS {
+        adb.sleep(LIFT_EVERY);
+        if let Some(list) = read_suspended(adb, serial) {
+            if rules::owner_suspensions(&list).is_empty() {
+                say("  Lifted: no app is suspended by a Device Owner any more.");
+                return;
+            }
+        }
+    }
+    say(format!(
+        "  Still suspended after {} seconds. Going on; the report below says what is left and how to lift it.",
+        LIFT_CHECKS as u64 * LIFT_EVERY.as_secs()
+    ));
 }
 
 // the commands
@@ -400,6 +463,11 @@ pub fn status(adb: &mut dyn Adb) -> i32 {
         }
         None => say("Restrictions in force: could not read (dumpsys user)."),
     }
+    // Android writes this setting when no_safe_boot is set (1) and cleared (0).
+    say(format!(
+        "safe_boot_disallowed: {}",
+        read_setting(adb, &serial, "global", "safe_boot_disallowed").unwrap_or_else(|| "could not read".to_string())
+    ));
     match read_suspended(adb, &serial) {
         Some(list) if list.is_empty() => say("Suspended packages: none"),
         Some(list) => {
@@ -501,9 +569,11 @@ pub fn release(adb: &mut dyn Adb, pin: &str) -> i32 {
     1
 }
 
-/// The escape hatch: dpm remove-active-admin, then check.
+/// The escape hatch: lift suspensions through the app if it still can, then
+/// dpm remove-active-admin, then check.
 pub fn force_release(adb: &mut dyn Adb) -> i32 {
-    say("force-release: the escape hatch. Removes LiMo spike 05 as admin and Device Owner with adb, without the app.");
+    say("force-release: the escape hatch. Removes LiMo spike 05 as admin and Device Owner with adb, without needing the app.");
+    say("In plain words: Android lifts the restrictions when the owner is removed this way, but NOT suspended apps, and once the owner is gone nothing can lift them. So while LiMo spike 05 is still the owner, this first asks it to lift them.");
     let Some(serial) = device_or_say(adb) else {
         return 1;
     };
@@ -515,6 +585,10 @@ pub fn force_release(adb: &mut dyn Adb) -> i32 {
         return 0;
     }
     say(format!("Before: Device Owner {}, active admin {}.", yn(owner), yn(admin)));
+    if owner != Some(false) {
+        lift_suspensions_first(adb, &serial);
+    }
+    say("Step 2 of 2: remove the owner and admin.");
     match shell(adb, &serial, &["dpm", "remove-active-admin", COMPONENT], T_SHORT).map(|o| parse::remove_admin(&o.text())) {
         Some(RemoveOutcome::Success) => say("  Android said Success."),
         Some(RemoveOutcome::NotTestOnly) => say(
@@ -562,37 +636,42 @@ pub fn uninstall(adb: &mut dyn Adb) -> i32 {
     if let Some(list) = read_suspended(adb, &serial) {
         if !list.is_empty() {
             say(format!(
-                "Note: still suspended: {}. Android does not lift these by itself. Once the app is gone, setup and release can still lift them (release lifts every suspension it can find), as long as no account has been added to the phone; it is simpler to do that first.",
+                "Note: still suspended: {}. Android does not lift these by itself. Once the app is gone, setup, then --ez suspend_apps false, then release can still lift them, as long as no account has been added to the phone; it is simpler to do that first.",
                 list.iter().map(|s| s.package.as_str()).collect::<Vec<_>>().join(", ")
             ));
         }
     }
-    match run_on(adb, &serial, &["uninstall", PACKAGE], T_LONG).map(|o| parse::uninstall(&o.text())) {
-        Some(UninstallOutcome::Success) => {
-            say("Uninstalled.");
-            0
-        }
-        Some(UninstallOutcome::NotInstalled) => {
-            say("Android says it is not installed.");
-            0
-        }
-        Some(UninstallOutcome::StillAdmin) => {
-            say("Android refused: the app is still an admin or owner (DELETE_FAILED_DEVICE_POLICY_MANAGER). Run status.");
-            1
-        }
-        Some(UninstallOutcome::Blocked) => {
-            say("Android refused: uninstalling is still blocked (DELETE_FAILED_OWNER_BLOCKED). Run status.");
-            1
-        }
-        Some(UninstallOutcome::Failed(e)) => {
-            say(format!("Android refused: {e}"));
-            1
-        }
-        None => {
-            say("adb uninstall did not answer.");
-            1
-        }
+    let outcome = run_on(adb, &serial, &["uninstall", PACKAGE], T_LONG).map(|o| parse::uninstall(&o.text()));
+    // adb's answer alone is not enough: on the test phone a blocked uninstall
+    // answers DELETE_FAILED_INTERNAL_ERROR, which is also the answer for a
+    // package that is not there. So look again before saying anything.
+    let still_installed = read_installed(adb, &serial);
+    if still_installed == Some(false) {
+        say("Uninstalled: LiMo spike 05 is no longer listed on the phone.");
+        return 0;
     }
+    let still = yn(still_installed);
+    match outcome {
+        Some(UninstallOutcome::Success) => say(format!(
+            "adb said Success, but LiMo spike 05 is still listed: {still}. Run status."
+        )),
+        Some(UninstallOutcome::StillAdmin) => say(
+            "Android refused: the app is still an admin or owner (DELETE_FAILED_DEVICE_POLICY_MANAGER). Run status.",
+        ),
+        Some(UninstallOutcome::Blocked) => say(
+            "Android refused: uninstalling is still blocked (DELETE_FAILED_OWNER_BLOCKED). Run status.",
+        ),
+        Some(UninstallOutcome::InternalError) => say(format!(
+            "Android refused without a reason (DELETE_FAILED_INTERNAL_ERROR), and LiMo spike 05 is still listed: {still}. \
+             On the test phone that is also what a blocked uninstall answers. Run status; if the app is still owner or admin, release it first."
+        )),
+        Some(UninstallOutcome::NotInstalled) => say(format!(
+            "Android says it is not installed, yet it is still listed: {still}. Run status."
+        )),
+        Some(UninstallOutcome::Failed(e)) => say(format!("Android refused: {e}")),
+        None => say("adb uninstall did not answer."),
+    }
+    1
 }
 
 #[cfg(test)]
@@ -898,8 +977,67 @@ mod tests {
             .on("remove-active-admin", &[REMOVE_OK]);
         assert_eq!(force_release(&mut f), 0);
         assert_eq!(f.count("dpm remove-active-admin ai.lucidloom.limo.spike05/.AdminReceiver"), 1);
+        // Nothing suspended: the app is not asked.
         assert_eq!(f.count("am start"), 0);
-        assert_eq!(f.count("dumpsys package packages"), 1);
+        // Once before (step 1) and once in the report.
+        assert_eq!(f.count("dumpsys package packages"), 2);
+    }
+
+    #[test]
+    fn force_release_asks_the_app_to_lift_suspensions_first() {
+        let mut f = Fake::clean()
+            .on("dpm list-owners", &[OWNER_US, NO_OWNERS])
+            .on("dumpsys device_policy", &[DP_ADMIN, DP_NONE])
+            .on("dumpsys package packages", &[PACKAGES_ONE_SUSPENDED, PACKAGES_NONE_SUSPENDED])
+            .on("am start", &[AM_OK])
+            .on("remove-active-admin", &[REMOVE_OK]);
+        assert_eq!(force_release(&mut f), 0);
+        assert!(f.calls.iter().any(|c| c
+            == "-s R5CN70 shell am start -n ai.lucidloom.limo.spike05/.MainActivity --ez suspend_apps false"));
+        assert!(f.index("--ez suspend_apps false") < f.index("remove-active-admin"));
+        assert_eq!(f.count("remove-active-admin"), 1);
+        // Never the app's release, and never a PIN.
+        assert_eq!(f.count("--ez release"), 0);
+    }
+
+    #[test]
+    fn force_release_goes_on_when_the_app_cannot_be_asked() {
+        let mut f = Fake::clean()
+            .on("dpm list-owners", &[OWNER_US, NO_OWNERS])
+            .on("dumpsys device_policy", &[DP_ADMIN, DP_NONE])
+            .on("dumpsys package packages", &[PACKAGES_ONE_SUSPENDED])
+            .on("am start", &[AM_MISSING])
+            .on("remove-active-admin", &[REMOVE_OK]);
+        assert_eq!(force_release(&mut f), 0);
+        assert_eq!(f.count("am start"), 1);
+        assert_eq!(f.count("remove-active-admin"), 1);
+        // Read before asking, then in the report: no waiting on a broken app.
+        assert_eq!(f.count("dumpsys package packages"), 2);
+    }
+
+    #[test]
+    fn force_release_goes_on_when_the_suspension_stays() {
+        let mut f = Fake::clean()
+            .on("dpm list-owners", &[OWNER_US, NO_OWNERS])
+            .on("dumpsys device_policy", &[DP_ADMIN, DP_NONE])
+            .on("dumpsys package packages", &[PACKAGES_ONE_SUSPENDED])
+            .on("am start", &[AM_OK])
+            .on("remove-active-admin", &[REMOVE_OK]);
+        assert_eq!(force_release(&mut f), 0);
+        assert_eq!(f.count("remove-active-admin"), 1);
+        // Once before asking, LIFT_CHECKS while waiting, once in the report.
+        assert_eq!(f.count("dumpsys package packages"), 1 + LIFT_CHECKS as usize + 1);
+    }
+
+    #[test]
+    fn force_release_does_not_ask_a_mere_admin() {
+        let mut f = Fake::clean()
+            .on("dumpsys device_policy", &[DP_ADMIN, DP_NONE])
+            .on("dumpsys package packages", &[PACKAGES_ONE_SUSPENDED])
+            .on("remove-active-admin", &[REMOVE_OK]);
+        assert_eq!(force_release(&mut f), 0);
+        assert_eq!(f.count("am start"), 0);
+        assert_eq!(f.count("remove-active-admin"), 1);
     }
 
     #[test]
@@ -947,11 +1085,32 @@ mod tests {
     #[test]
     fn uninstall_runs_once_free_and_warns_about_suspensions() {
         let mut f = Fake::clean()
-            .on("pm list packages", &[PKG_LISTED])
+            .on("pm list packages", &[PKG_LISTED, ""])
             .on("dumpsys package packages", &[PACKAGES_ONE_SUSPENDED])
             .on("uninstall ai.lucidloom", &["Success\n"]);
         assert_eq!(uninstall(&mut f), 0);
         assert_eq!(f.count("uninstall ai.lucidloom"), 1);
+        // Checked before and after.
+        assert_eq!(f.count("pm list packages"), 2);
+    }
+
+    #[test]
+    fn uninstall_internal_error_is_judged_by_looking_again() {
+        // As seen on the test phone for a blocked uninstall: still installed.
+        let mut f = Fake::clean()
+            .on("pm list packages", &[PKG_LISTED])
+            .on("uninstall ai.lucidloom", &["Failure [DELETE_FAILED_INTERNAL_ERROR]\n"]);
+        assert_eq!(uninstall(&mut f), 1);
+        // The same answer, but the package really is gone.
+        let mut g = Fake::clean()
+            .on("pm list packages", &[PKG_LISTED, ""])
+            .on("uninstall ai.lucidloom", &["Failure [DELETE_FAILED_INTERNAL_ERROR]\n"]);
+        assert_eq!(uninstall(&mut g), 0);
+        // adb said Success, yet it is still listed.
+        let mut h = Fake::clean()
+            .on("pm list packages", &[PKG_LISTED])
+            .on("uninstall ai.lucidloom", &["Success\n"]);
+        assert_eq!(uninstall(&mut h), 1);
     }
 
     #[test]

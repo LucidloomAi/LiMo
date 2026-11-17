@@ -72,15 +72,16 @@
         </receiver>
 
         <!--
-        The dead man's timer: its own alarm, a restart, an update of this app,
-        and a change of the clock. Not exported: only Android itself and this
-        app can reach it.
+        The dead man's timer: its own alarm, a restart, the first unlock after
+        a restart, an update of this app, and a change of the clock. Not
+        exported: only Android itself and this app can reach it.
         -->
         <receiver
             android:name=".TimerReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>

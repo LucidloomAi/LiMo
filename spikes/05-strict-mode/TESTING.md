@@ -29,12 +29,14 @@ it runs it, so window B always shows exactly what was sent to the phone.
 - **The last resort** is a factory reset from the recovery menu. It erases
   everything on the phone. Use it only if all three ways out have failed. How
   is in step 5.
-- **`force-release` does not lift suspended apps.** Android 13 lifts the
-  restrictions and the uninstall block when the owner goes, but not a
-  suspension. Only the app's own release does that. So after a
-  `force-release` with an app suspended, run `setup` then
-  `release --pin 2468` to lift it, before anyone adds an account. Suspend only
-  a harmless app (Calculator) in this test.
+- **Removing the owner from the PC does not lift suspended apps.** Android
+  13 lifts the restrictions and the uninstall block when the owner goes, but
+  not a suspension, and with no owner left nothing else can. So
+  `force-release` first asks the app to lift its suspensions while it is
+  still the owner; the raw `adb shell dpm remove-active-admin` does not. If a
+  suspension is ever left behind, lift it before anyone adds an account
+  (step 5 has the three commands). Suspend only ONE harmless app in this
+  test: Calendar (see 2.2).
 - **Never confirm a factory reset in this test.** Step 2 only looks at
   whether the Settings entry is blocked. If a screen with a Reset or Delete all
   button appears, press Back.
@@ -190,11 +192,14 @@ The phone is still the owner from 1.3.
 $LASTEXITCODE
 ```
 
-Pass: exit code 0, `Android said Success.`,
-`After: Device Owner no, active admin no.`, `Released from the PC.`, and
+Pass: exit code 0; the plain words about suspended apps; under "Step 1 of
+2" `No app is suspended by a Device Owner. Nothing to lift.` (nothing is
+suspended yet, so the app is not asked); under "Step 2 of 2"
+`Android said Success.`; then `After: Device Owner no, active admin no.`,
+`Released from the PC.`, and
 `Restrictions this spike sets, in force now: none.` Window A shows nothing
-from the app at that moment: force-release does not run the app. Later (when
-its alarm comes, or when you open it) it logs
+from the app at that moment: removing the owner from the PC does not tell
+the app. Later (when its alarm comes, or when you open it) it logs
 `timer cleared reason=not_admin`.
 
 Write down: exactly what window B printed after `> adb ... remove-active-admin ...`.
@@ -222,12 +227,29 @@ shows `timer set deadline_min=2` and `alarm scheduled exact=yes ...`.
    ```
 
 Pass: `LiMo spike 05 is the Device Owner: no` and
-`LiMo spike 05 is an active admin: no`. Window A shows
-`timer fired source=alarm reason=deadline_passed`, the nine release steps and
-`release done owner=no admin=no`, about 2 minutes after 1.5.
+`LiMo spike 05 is an active admin: no`. Window A shows, about 2 minutes after
+1.5:
+- `timer fired source=alarm reason=deadline_passed` (or `source=process_start`
+  if Android had to start the app's process for the alarm);
+- exactly one `release start trigger=timer`, then the nine release steps,
+  with `admin disabled` appearing before
+  `release step=active_admin ok waited_ms=N broadcasts_finished=N`, where
+  `waited_ms` is well under 5000 (about the same as with the PIN in 1.2) and
+  `broadcasts_finished` is at least 1;
+- `release done owner=no admin=no`.
+
+A `timer skipped ... reason=release_just_ran` or
+`broadcast not held ... reason=release_waiting` line is fine: that is a
+second alarm or check arriving while the release ran, and being kept from
+running it again. Fail: `release step=active_admin failed`, or a second
+`release start` within a few seconds of the first. (The first build of this
+spike did both: the alarm that started the release held its broadcast open,
+so Android could not deliver "admin disabled" until it gave up after 5
+seconds.)
 
 Write down: the time of `timer fired` (window A shows times if saved with
-`-v time`, see below), its `source=`, and `exact=` from the alarm line.
+`-v time`, see below), its `source=`, `exact=` from the alarm line, and
+`waited_ms` and `broadcasts_finished` from the `active_admin` line.
 
 If it did not fire within 5 minutes: unlock the phone and open the app (any
 start of the app runs the same check). Write down whether that released it,
@@ -253,27 +275,32 @@ minutes.
 
 ### 2.2 Choose one harmless app to suspend
 
-Calculator is a good choice. Check its package name:
+Suspend exactly one app, and only one nobody needs during the test. On this
+phone that is Samsung Calendar (the phone has no Samsung Calculator). It holds
+no appointments here, as the phone has no accounts; on a phone in use, note
+that Android also hides a suspended app's notifications, so its reminders
+would not show. Never suspend Clock, Messages, Phone or anything someone
+relies on. Check the package name:
 ```
-adb shell pm list packages calculator
+adb shell pm list packages calendar
 ```
-On this phone it is expected to be `com.sec.android.app.popupcalculator`. Use
-what it prints below.
+It is expected to be `com.samsung.android.calendar`. Use what it prints
+below.
 
 ### 2.3 Apply strict mode
 
 ```
-adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --es suspend "com.sec.android.app.popupcalculator" --ez apply true
+adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --es suspend "com.samsung.android.calendar" --ez apply true
 ```
 
 (The app's text field and "Suspend these", then "Apply strict mode", do the
 same.)
 
 Pass: window A shows
-`suspend list=com.sec.android.app.popupcalculator source=adb`, then
+`suspend list=com.samsung.android.calendar source=adb`, then
 `apply start source=adb steps=block_uninstall:on,no_config_date_time:on,no_add_user:on,no_safe_boot:on,suspend_apps:on,no_factory_reset:on`,
 six `apply step=... ok value=on` lines in that order, and
-`suspended list=com.sec.android.app.popupcalculator`. In the app every switch
+`suspended list=com.samsung.android.calendar`. In the app every switch
 is on, and each restriction says `Set by this app: yes, in force on this phone: yes`.
 
 ### 2.4 Check by adb
@@ -283,8 +310,10 @@ is on, and each restriction says `Set by this app: yes, in force on this phone: 
 ```
 
 Pass: `Of the four this spike sets: no_safe_boot, no_factory_reset, no_add_user, no_config_date_time`
-(in any order) and `Suspended: com.sec.android.app.popupcalculator (by: android)`.
-Write down the whole "Restrictions in force on user 0" line.
+(in any order), `safe_boot_disallowed: 1` and
+`Suspended: com.samsung.android.calendar (by: android)`. Write down
+the whole "Restrictions in force on user 0" line, and the name after `by:`
+(that is the real suspender name; it is expected to be `android`).
 
 ### 2.5 Uninstalling is blocked
 
@@ -296,14 +325,16 @@ Write down the whole "Restrictions in force on user 0" line.
    ```
    adb uninstall ai.lucidloom.limo.spike05
    ```
-   Pass: `Failure [DELETE_FAILED_OWNER_BLOCKED]` or
-   `Failure [DELETE_FAILED_DEVICE_POLICY_MANAGER]`. Write down which.
+   Pass: a `Failure [...]`: `DELETE_FAILED_OWNER_BLOCKED`,
+   `DELETE_FAILED_DEVICE_POLICY_MANAGER`, or `DELETE_FAILED_INTERNAL_ERROR`
+   (the answer this phone gave in the first run). Write down which, and check
+   with `adb shell pm list packages spike05` that the app is still there.
 
 ### 2.6 The suspended app cannot be opened
 
-Tap Calculator in the app drawer. Pass: it does not open; Android shows a
-message instead (something like "Calculator isn't available"). Write down the
-message, and whether the icon looks greyed out. If Calculator was in Recents,
+Tap Calendar in the app drawer. Pass: it does not open; Android shows a
+message instead (something like "Calendar isn't available"). Write down the
+message, and whether the icon looks greyed out. If Calendar was in Recents,
 tap its card too.
 
 ### 2.7 Date and time are locked
@@ -332,6 +363,11 @@ counts as a fail. Write down exactly what you saw.
 
 Keep at least 15 minutes on the timer before this one.
 
+0. By adb, first:
+   ```
+   adb shell settings get global safe_boot_disallowed
+   ```
+   Pass: `1`. Android writes this when the restriction is set.
 1. The power menu way: press the Side key and Volume down together briefly
    (or swipe down twice from the top and tap the power icon). Touch and hold
    "Power off".
@@ -376,7 +412,7 @@ adb logcat -s LiMoSpike05
   `state admin=yes owner=yes deadline_min=N` where N is what was left before
   the restart minus the minutes it took, and `alarm scheduled ...`;
 - `.\pc\target\release\limo-strict-spike.exe status` shows the owner, all
-  four restrictions and Calculator suspended;
+  four restrictions and Calendar suspended;
 - the app shows the timer counting down from about the same point, and every
   switch on.
 
@@ -402,10 +438,11 @@ Pass: exit code 0, `Released: ...`,
 (or `skipped`), and `release done owner=no admin=no`.
 
 4.2. Check by hand that everything is back:
-- Calculator opens normally.
+- Calendar opens normally.
 - Settings, General management, Date and time: no longer greyed out.
 - Settings, General management, Reset: "Factory data reset" opens its
   explanation screen. **Do not reset: press Back.**
+- `adb shell settings get global safe_boot_disallowed` prints `0`.
 - Power menu, touch and hold "Power off": the safe mode prompt appears again
   (if it did not appear before the test, write that down instead). Tap
   Cancel.
@@ -417,42 +454,68 @@ Pass: exit code 0, `Released: ...`,
 .\pc\target\release\limo-strict-spike.exe uninstall
 $LASTEXITCODE
 ```
-Pass: exit code 0 and `Uninstalled.` Then
+Pass: exit code 0 and `Uninstalled: LiMo spike 05 is no longer listed on the phone.`
+(the program looks again after `adb uninstall`, because this phone's
+`DELETE_FAILED_INTERNAL_ERROR` does not say whether the app went). Then
 ```
 adb shell pm list packages spike05
 ```
 prints nothing.
 
-4.4. Optional, but worth it: `force-release` with strict mode on. Android
-13's source says removing the owner from the PC lifts the four restrictions
-and the uninstall block, but leaves a Device Owner's suspension in place.
-This checks that Samsung's build does the same, and that the way to lift the
-suspension works.
+4.4. Removing the owner from the PC with an app suspended. Do not skip this
+one. Android 13's source says removing the owner from the PC lifts the four
+restrictions and the uninstall block, but leaves a Device Owner's suspension
+in place, with nothing left that could lift it. Part A shows `force-release`
+getting the app to lift the suspension first. Part B shows what happens when
+the app cannot help (the raw adb command, as if the app were broken), and
+that the way back works. Keep to Calendar only.
+
+**Part A: `force-release` with strict mode on.**
 ```
 .\pc\target\release\limo-strict-spike.exe setup --apk phone\app\build\outputs\apk\debug\app-debug.apk
-adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --es suspend "com.sec.android.app.popupcalculator" --ez apply true
+adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --es suspend "com.samsung.android.calendar" --ez apply true
 .\pc\target\release\limo-strict-spike.exe status
 .\pc\target\release\limo-strict-spike.exe force-release
 ```
-Pass for `status`: all four restrictions in force and Calculator suspended,
+Pass for `status`: all four restrictions in force and Calendar suspended,
 as in 2.4.
 
-Expected from `force-release`: `After: Device Owner no, active admin no.`,
-`Restrictions this spike sets, in force now: none.`, and
-`Still suspended: com.sec.android.app.popupcalculator (suspended by: android)`.
-Write down what it reported if different. By hand: Date and time is usable
-again, and Calculator still does not open. If any of the four restrictions
-is still in force, that is the most important finding of this step: write it
-down, then lift it as below.
+Pass for `force-release`: exit code 0; under "Step 1 of 2"
+`Suspended by a Device Owner: com.samsung.android.calendar. Asking the app to lift them.`
+and then `Lifted: ...`; window A shows
+`apply step=suspend_apps ok value=off count=1 swept=0`; then
+`Android said Success.`, `After: Device Owner no, active admin no.`,
+`Restrictions this spike sets, in force now: none.` and
+`Suspended packages: none.` By hand: Calendar opens, and Date and time is
+usable again. If any of the four restrictions is still in force, that is the
+most important finding of this step: write it down, then lift it with the
+way back in part B.
 
-Then lift the suspension and clean up:
+**Part B: as if the app were broken.**
 ```
 .\pc\target\release\limo-strict-spike.exe setup --apk phone\app\build\outputs\apk\debug\app-debug.apk
+adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --es suspend "com.samsung.android.calendar"
+adb shell dpm remove-active-admin ai.lucidloom.limo.spike05/.AdminReceiver
+.\pc\target\release\limo-strict-spike.exe status
+```
+Expected: `dpm` prints `Success: Admin removed ComponentInfo{...}`. `status`
+shows `LiMo spike 05 is the Device Owner: no`, `... an active admin: no`, and
+`Suspended: com.samsung.android.calendar (by: android)`. By hand:
+Calendar still does not open, and nothing on the phone can lift it now.
+Write down what `status` showed if different.
+
+The way back (the same three commands as in step 5):
+```
+.\pc\target\release\limo-strict-spike.exe setup --apk phone\app\build\outputs\apk\debug\app-debug.apk
+adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --ez suspend_apps false
+.\pc\target\release\limo-strict-spike.exe status
 .\pc\target\release\limo-strict-spike.exe release --pin 2468
 .\pc\target\release\limo-strict-spike.exe uninstall
 ```
-Pass for the clean up: release reports `Suspended packages: none.` and
-Calculator opens. Window A's `unsuspend` or `unsuspend_sweep` line names it.
+Pass: after the second command window A shows
+`apply step=suspend_apps ok value=off ...`; `status` shows
+`Suspended packages: none`; Calendar opens; `release` exits 0;
+`uninstall` says `Uninstalled: ...`.
 
 ---
 
@@ -482,16 +545,25 @@ see where things stand:
    stopped, Android dropped its alarm: open the app once, or restart the
    phone, and the timer acts at once if it is due.
 3. **force-release**:
-   `.\pc\target\release\limo-strict-spike.exe force-release`. It works even if
-   the app crashes on start. Then run `uninstall`.
+   `.\pc\target\release\limo-strict-spike.exe force-release`. It first asks the
+   app to lift suspended apps, then removes the owner whether or not the app
+   could help, so it works even if the app crashes on start. Then run
+   `uninstall`.
 
 Particular cases:
 
 - `setup` says something is in the way: nothing was changed on the phone. Fix
   what it names by hand and run `check` again.
-- `status` after `force-release` still shows one of the four restrictions or a
-  suspended package: set up again and release with the PIN (`setup`, then
-  `release --pin 2468`). Release lifts everything it can find.
+- An app is still suspended after the owner was removed (`status` shows
+  `Suspended: ... (by: android)`): Android will not lift it by itself. Before
+  anyone adds an account to the phone, run:
+  ```
+  .\pc\target\release\limo-strict-spike.exe setup --apk phone\app\build\outputs\apk\debug\app-debug.apk
+  adb shell am start -n ai.lucidloom.limo.spike05/.MainActivity --ez suspend_apps false
+  .\pc\target\release\limo-strict-spike.exe release --pin 2468
+  ```
+- `status` after `force-release` still shows one of the four restrictions:
+  the same three commands; release lifts everything it can find.
 - `uninstall` is refused with `DELETE_FAILED_OWNER_BLOCKED` after a release:
   run `status`; then `force-release`, then `uninstall` again.
 - The app itself is broken: `force-release` first. A fixed build can also be
@@ -567,18 +639,22 @@ before step 3 and again at the end. All log lines are explained in
 | 1.5 setup with 2 minutes | | |
 | 1.6 the timer released the phone by itself | | |
 | 1.6 `timer fired` source, minutes after setup, `exact=` | | |
+| 1.6 `active_admin` line: `waited_ms`, `broadcasts_finished` (ok, well under 5000) | | |
+| 1.6 only one `release start` | | |
 
 ### Step 2: strict mode
 
 | Check | Expected | What happened |
 | --- | --- | --- |
 | 2.3 apply: six `ok` lines in order | yes | |
-| 2.4 `status`: the four restrictions, Calculator suspended | yes | |
+| 2.4 `status`: the four restrictions, Calendar suspended | yes | |
 | 2.4 full restriction list | | |
+| 2.4 `safe_boot_disallowed` | 1 | |
+| 2.4 suspended by (the name after `by:`) | `android` | |
 | 2.5 Uninstall in Settings | greyed out or refused | |
 | 2.5 Uninstall from the icon | refused | |
 | 2.5 `adb uninstall` | `DELETE_FAILED_OWNER_BLOCKED` or `DELETE_FAILED_DEVICE_POLICY_MANAGER` | |
-| 2.6 Calculator | does not open, a message instead | |
+| 2.6 Calendar | does not open, a message instead | |
 | 2.7 Date and time | greyed out or blocked | |
 | 2.8 Adding users | `no_add_user` in force | |
 | 2.9 Factory data reset in Settings | blocked; never confirmed | |
@@ -595,7 +671,7 @@ before step 3 and again at the end. All log lines are explained in
 | `state` line after the restart | |
 | Still owner | |
 | Restrictions after the restart | |
-| Calculator still suspended | |
+| Calendar still suspended | |
 | Timer consistent with the time that passed | |
 
 ### Step 4: release with the PIN, everything back
@@ -604,16 +680,18 @@ before step 3 and again at the end. All log lines are explained in
 | --- | --- | --- |
 | 4.1 release exit code and report | 0, none in force, none suspended | |
 | 4.1 release steps in order | `no_factory_reset` first, `active_admin` last | |
-| 4.2 Calculator opens | yes | |
+| 4.2 Calendar opens | yes | |
 | 4.2 Date and time usable | yes | |
 | 4.2 Factory data reset reachable (not confirmed) | yes | |
 | 4.2 Safe mode prompt back | yes | |
+| 4.2 `safe_boot_disallowed` | 0 | |
 | 4.2 Uninstall available in Settings | yes | |
-| 4.3 `uninstall` | `Uninstalled.` | |
-| 4.4 optional: force-release with strict mode on: owner and admin gone | yes | |
-| 4.4 optional: the four restrictions gone after force-release | yes, per Android 13's source | |
-| 4.4 optional: Calculator still suspended after force-release | yes, per Android 13's source | |
-| 4.4 optional: setup and release lifted it | yes | |
+| 4.3 `uninstall` | `Uninstalled: ...` | |
+| 4.4 A: force-release asked the app, Calendar lifted before the owner went | yes | |
+| 4.4 A: owner and admin gone, the four restrictions gone | yes | |
+| 4.4 B: raw `dpm remove-active-admin` output | `Success: Admin removed ComponentInfo{...}` | |
+| 4.4 B: Calendar still suspended after the raw removal, and by whom | yes, `android`, per Android 13's source | |
+| 4.4 B: the way back (setup, `suspend_apps false`, release) lifted it | yes | |
 
 ### Notes
 

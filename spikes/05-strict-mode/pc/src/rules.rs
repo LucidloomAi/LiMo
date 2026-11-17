@@ -1,7 +1,7 @@
 //! What may run, what must be refused, and what each known failure means in
 //! plain words. Pure, so every rule is unit tested.
 
-use crate::parse::{Accounts, DeviceLine, Owner, OwnerError, User};
+use crate::parse::{Accounts, DeviceLine, Owner, OwnerError, Suspended, User};
 
 pub const PACKAGE: &str = "ai.lucidloom.limo.spike05";
 pub const COMPONENT: &str = "ai.lucidloom.limo.spike05/.AdminReceiver";
@@ -198,6 +198,18 @@ pub fn anything_to_release(owner: Option<bool>, admin: Option<bool>) -> bool {
     !(owner == Some(false) && admin == Some(false))
 }
 
+/// Suspensions a Device Owner may have made: those whose suspender is
+/// "android" (Android 13 suspends a Device Owner's packages under
+/// PLATFORM_PACKAGE_NAME, believed to be "android"; that value was not
+/// checked in the source), and, to be safe, those whose suspender is not
+/// shown. A suspension that names only some other app is that app's.
+pub fn owner_suspensions(list: &[Suspended]) -> Vec<String> {
+    list.iter()
+        .filter(|s| s.by.is_empty() || s.by.iter().any(|b| b == "android"))
+        .map(|s| s.package.clone())
+        .collect()
+}
+
 /// The four restrictions this spike sets, by their Android names.
 pub const SPIKE_RESTRICTIONS: [&str; 4] = ["no_safe_boot", "no_factory_reset", "no_add_user", "no_config_date_time"];
 
@@ -387,6 +399,25 @@ mod tests {
         assert!(explain_install_failure("INSTALL_FAILED_UPDATE_INCOMPATIBLE").contains("different key"));
         assert!(explain_install_failure("INSTALL_PARSE_FAILED_NO_CERTIFICATES").contains("not signed"));
         assert!(explain_install_failure("INSTALL_FAILED_SOMETHING").contains("INSTALL_FAILED_SOMETHING"));
+    }
+
+    #[test]
+    fn owner_suspensions_are_the_ones_by_android_or_unknown() {
+        let list = vec![
+            Suspended { package: "com.sec.android.app.popupcalculator".into(), by: vec!["android".into()] },
+            Suspended { package: "com.example.unknown".into(), by: vec![] },
+            Suspended { package: "com.example.wellbeing".into(), by: vec!["com.google.android.apps.wellbeing".into()] },
+            Suspended { package: "com.example.both".into(), by: vec!["com.android.shell".into(), "android".into()] },
+        ];
+        assert_eq!(
+            owner_suspensions(&list),
+            vec![
+                "com.sec.android.app.popupcalculator".to_string(),
+                "com.example.unknown".to_string(),
+                "com.example.both".to_string()
+            ]
+        );
+        assert!(owner_suspensions(&[]).is_empty());
     }
 
     #[test]
