@@ -12,7 +12,7 @@ use windows::core::{Result as WinResult, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, LUID, WAIT_OBJECT_0};
 use windows::Win32::Security::{
     AdjustTokenPrivileges, DuplicateTokenEx, LookupPrivilegeValueW, SecurityImpersonation,
-    SetTokenInformation, TokenPrimary, TokenSessionId, LUID_AND_ATTRIBUTES,
+    SetTokenInformation, TokenPrimary, TokenSessionId, TokenUIAccess, LUID_AND_ATTRIBUTES,
     SE_ASSIGNPRIMARYTOKEN_NAME, SE_INCREASE_QUOTA_NAME, SE_PRIVILEGE_ENABLED, SE_TCB_NAME,
     TOKEN_ADJUST_DEFAULT, TOKEN_ADJUST_PRIVILEGES, TOKEN_ADJUST_SESSIONID, TOKEN_ALL_ACCESS,
     TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_PRIVILEGES, TOKEN_QUERY,
@@ -124,6 +124,7 @@ fn run_service() -> windows_service::Result<()> {
     // Last values logged, so a steady state is logged once, not every tick.
     let mut last_session_logged: Option<u32> = None;
     let mut last_launch_error: Option<String> = None;
+    let mut last_uiaccess_error: Option<String> = None;
     let mut last_ignored_deadline: Option<i64> = None;
 
     loop {
@@ -193,34 +194,36 @@ fn run_service() -> windows_service::Result<()> {
             if session != NO_SESSION && helper.is_none() && may_try {
                 let mode = read_mode();
                 match unsafe { launch_helper(mode, session, &exe) } {
-                    Ok(h) => {
-                        match died_at.take() {
-                            Some(t) => log(&format!(
-                                "relaunched helper pid={} session={} mode={} gap_ms={} \
-                                 (death noticed within one {} ms tick)",
-                                h.pid,
-                                session,
-                                mode.as_str(),
-                                t.elapsed().as_millis(),
-                                TICK_MS
-                            )),
-                            None => log(&format!(
-                                "helper launch pid={} session={} mode={}",
-                                h.pid,
-                                session,
-                                mode.as_str()
-                            )),
+                    Ok((h, uiaccess)) => {
+                        let gap_ms = died_at.take().map(|t| t.elapsed().as_millis());
+                        log(&launch_line(
+                            h.pid,
+                            session,
+                            mode.as_str(),
+                            uiaccess.is_ok(),
+                            gap_ms,
+                        ));
+                        match uiaccess {
+                            Ok(()) => last_uiaccess_error = None,
+                            Err(e) => {
+                                let msg = win_error_text(&e);
+                                if last_uiaccess_error.as_deref() != Some(msg.as_str()) {
+                                    log(&format!(
+                                        "could not set UIAccess on the helper token: {msg}. \
+                                         The helper was launched without it, so other always \
+                                         on top windows can show over the lock (repeats of \
+                                         this error are not logged)"
+                                    ));
+                                    last_uiaccess_error = Some(msg);
+                                }
+                            }
                         }
                         helper = Some(h);
                         retry_at = None;
                         last_launch_error = None;
                     }
                     Err(e) => {
-                        let msg = format!(
-                            "Win32 error {}: {}",
-                            win32_code_from_hresult(e.code().0),
-                            e.message().trim()
-                        );
+                        let msg = win_error_text(&e);
                         if last_launch_error.as_deref() != Some(msg.as_str()) {
                             log(&format!(
                                 "helper launch failed: {msg} (retrying every second, \
@@ -236,6 +239,7 @@ fn run_service() -> windows_service::Result<()> {
             died_at = None;
             retry_at = None;
             last_launch_error = None;
+            last_uiaccess_error = None;
             last_session_logged = None;
 
             // Normally the managed overlay has already ended itself. If it is
@@ -300,6 +304,35 @@ fn read_mode() -> HelperMode {
         .unwrap_or(HelperMode::User)
 }
 
+/// "Win32 error N: text" for a failed call, as the log shows it.
+fn win_error_text(e: &windows::core::Error) -> String {
+    format!(
+        "Win32 error {}: {}",
+        win32_code_from_hresult(e.code().0),
+        e.message().trim()
+    )
+}
+
+/// The log line for a helper start. `gap_ms` is set when this start replaces a
+/// helper that died while the lock held. `uiaccess_set` says whether the
+/// UIAccess flag was set on the helper's token.
+fn launch_line(
+    pid: u32,
+    session: u32,
+    mode: &str,
+    uiaccess_set: bool,
+    gap_ms: Option<u128>,
+) -> String {
+    let ui = if uiaccess_set { 1 } else { 0 };
+    match gap_ms {
+        Some(gap) => format!(
+            "relaunched helper pid={pid} session={session} mode={mode} uiaccess={ui} \
+             gap_ms={gap} (death noticed within one {TICK_MS} ms tick)"
+        ),
+        None => format!("helper launch pid={pid} session={session} mode={mode} uiaccess={ui}"),
+    }
+}
+
 fn build_cmdline(exe: &Path) -> Vec<u16> {
     let line = format!("\"{}\" overlay --managed", exe.display());
     line.encode_utf16().chain(std::iter::once(0)).collect()
@@ -315,22 +348,47 @@ unsafe fn exit_code(handle: HANDLE) -> u32 {
     code
 }
 
-unsafe fn launch_helper(mode: HelperMode, session: u32, exe: &Path) -> WinResult<Helper> {
-    let pi = match mode {
+/// Start a helper. Alongside it comes the result of setting UIAccess on its
+/// token: a failure there does not stop the launch, because a lock without
+/// UIAccess is better than no lock.
+unsafe fn launch_helper(
+    mode: HelperMode,
+    session: u32,
+    exe: &Path,
+) -> WinResult<(Helper, WinResult<()>)> {
+    let (pi, uiaccess) = match mode {
         HelperMode::User => create_as_user(session, exe)?,
         HelperMode::System => create_as_system(session, exe)?,
     };
     // We only need to watch the process; the thread handle can go.
     let _ = CloseHandle(pi.hThread);
-    Ok(Helper {
+    let helper = Helper {
         handle: pi.hProcess,
         pid: pi.dwProcessId,
         session,
-    })
+    };
+    Ok((helper, uiaccess))
+}
+
+/// Set the UIAccess flag on a primary token. Topmost windows of a process with
+/// this flag go into the UIAccess z order band, above every ordinary always on
+/// top window. Needs SeTcbPrivilege, which the service enables at start. No
+/// code signing or manifest is needed when the flag is set this way.
+unsafe fn set_uiaccess(token: HANDLE) -> WinResult<()> {
+    let on: u32 = 1;
+    SetTokenInformation(
+        token,
+        TokenUIAccess,
+        &on as *const u32 as *const c_void,
+        std::mem::size_of::<u32>() as u32,
+    )
 }
 
 /// Launch the helper as the logged in user.
-unsafe fn create_as_user(session: u32, exe: &Path) -> WinResult<PROCESS_INFORMATION> {
+unsafe fn create_as_user(
+    session: u32,
+    exe: &Path,
+) -> WinResult<(PROCESS_INFORMATION, WinResult<()>)> {
     let mut user_token = HANDLE::default();
     WTSQueryUserToken(session, &mut user_token)?;
 
@@ -346,14 +404,18 @@ unsafe fn create_as_user(session: u32, exe: &Path) -> WinResult<PROCESS_INFORMAT
     let _ = CloseHandle(user_token);
     dup?;
 
+    let uiaccess = set_uiaccess(primary);
     let pi = spawn_with_token(primary, exe);
     let _ = CloseHandle(primary);
-    pi
+    Ok((pi?, uiaccess))
 }
 
 /// Launch the helper as SYSTEM inside the user's session, so a standard user
 /// cannot end it.
-unsafe fn create_as_system(session: u32, exe: &Path) -> WinResult<PROCESS_INFORMATION> {
+unsafe fn create_as_system(
+    session: u32,
+    exe: &Path,
+) -> WinResult<(PROCESS_INFORMATION, WinResult<()>)> {
     let mut proc_token = HANDLE::default();
     OpenProcessToken(
         GetCurrentProcess(),
@@ -388,9 +450,10 @@ unsafe fn create_as_system(session: u32, exe: &Path) -> WinResult<PROCESS_INFORM
         return Err(e);
     }
 
+    let uiaccess = set_uiaccess(primary);
     let pi = spawn_with_token(primary, exe);
     let _ = CloseHandle(primary);
-    pi
+    Ok((pi?, uiaccess))
 }
 
 /// Common tail of both launch paths: build the environment and start the
@@ -462,4 +525,35 @@ unsafe fn enable_privilege(name: PCWSTR) {
         let _ = AdjustTokenPrivileges(token, false, Some(&tp), 0, None, None);
     }
     let _ = CloseHandle(token);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launch_lines_say_whether_uiaccess_was_set() {
+        assert_eq!(
+            launch_line(4242, 1, "user", true, None),
+            "helper launch pid=4242 session=1 mode=user uiaccess=1"
+        );
+        assert_eq!(
+            launch_line(4242, 1, "system", false, None),
+            "helper launch pid=4242 session=1 mode=system uiaccess=0"
+        );
+    }
+
+    #[test]
+    fn relaunch_lines_keep_the_gap_and_say_uiaccess() {
+        assert_eq!(
+            launch_line(77, 2, "user", true, Some(35)),
+            "relaunched helper pid=77 session=2 mode=user uiaccess=1 gap_ms=35 \
+             (death noticed within one 100 ms tick)"
+        );
+        assert_eq!(
+            launch_line(77, 2, "user", false, Some(0)),
+            "relaunched helper pid=77 session=2 mode=user uiaccess=0 gap_ms=0 \
+             (death noticed within one 100 ms tick)"
+        );
+    }
 }

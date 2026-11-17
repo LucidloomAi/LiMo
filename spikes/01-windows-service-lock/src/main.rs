@@ -13,6 +13,7 @@
 
 #![cfg(windows)]
 
+mod band;
 mod config;
 mod logging;
 mod monitors;
@@ -64,6 +65,7 @@ fn dispatch(args: &[String]) -> i32 {
         Some("unlock") => cmd_unlock(),
         Some("status") => cmd_status(),
         Some("probe") => cmd_probe(&args[1..]),
+        Some("bandcheck") => cmd_bandcheck(),
         Some("service") => cmd_service(),
         _ => {
             print_usage();
@@ -83,10 +85,25 @@ fn print_usage() {
     println!("  limo-spike uninstall                (needs administrator)");
     println!("  limo-spike lock --seconds N         set the lock for N seconds (5..120, admin)");
     println!("  limo-spike unlock                   clear the lock (admin)");
-    println!("  limo-spike status                   show service, mode, lock and recent log");
+    println!("  limo-spike status                   show service, mode, lock, recent log and helper report");
     println!("  limo-spike probe --after N          wait N s (0..60), then try to stop or damage the");
     println!("                                      spike as this account; report to %TEMP%");
+    println!("  limo-spike bandcheck                print this process's UIAccess flag and the z order");
+    println!("                                      band of one hidden test window (shows nothing)");
     println!("  limo-spike service                  service control manager entry point only");
+}
+
+fn cmd_bandcheck() -> i32 {
+    match band::bandcheck() {
+        Ok(line) => {
+            println!("{line}");
+            0
+        }
+        Err(msg) => {
+            println!("{msg}");
+            1
+        }
+    }
 }
 
 fn cmd_probe(args: &[String]) -> i32 {
@@ -313,6 +330,26 @@ fn cmd_status() -> i32 {
     } else {
         for line in lines {
             println!("  {line}");
+        }
+    }
+
+    // What the last helper actually got. The SYSTEM helper writes to the data
+    // folder; the user mode helper cannot, so it writes to the temp folder.
+    println!("helper report:");
+    let reports = band::read_reports();
+    if reports.is_empty() {
+        let places: Vec<String> = band::report_paths()
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+        println!("  (none found; looked in {})", places.join(" and "));
+    } else {
+        for (path, text) in reports {
+            let when = band::report_time(&text).unwrap_or("an unknown time");
+            println!("  {}, written {}:", path.display(), when);
+            for line in text.lines() {
+                println!("    {line}");
+            }
         }
     }
     0
