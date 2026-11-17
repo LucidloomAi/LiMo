@@ -3,8 +3,9 @@
 This checklist is for a person at the PC. Part A is a safe developer check.
 Part B runs as an administrator. Part U, also as the administrator, checks that
 the lock stays above other always on top apps. Part C is the real test, signed
-in as a standard account. Parts B, U and C are done twice, once per helper
-mode.
+in as a standard account. Parts B, U and C are done twice, once for each of
+the helper modes `user` and `system`. Part G then tries the third mode,
+`guarded`, from your own account.
 
 Important: while the lock is up the keyboard does nothing. That is the point
 of the test, and it is why every step below is either a one line command, or
@@ -53,9 +54,10 @@ A2. Show the overlay and press nothing:
 ```
 Pass: every monitor shows a dark screen reading "LiMo spike: locked" with
 "Unlocks in N s" counting down. Typing does nothing. After 8 seconds it goes
-away by itself, it prints one report line with `mode=developer`, and
-`$LASTEXITCODE` is 0. The line is expected to say `uiaccess=0` and band 1 for
-each window: only a helper started by the service gets UIAccess. For the same
+away by itself, it prints the report, two lines, the first with
+`mode=developer`, and `$LASTEXITCODE` is 0. The first line is expected to say
+`uiaccess=0` and band 1 for each window: only a helper started by the service
+gets UIAccess. For the same
 reason an always on top app may still show over this developer overlay; that
 is expected here, and Part U checks the real lock.
 
@@ -70,9 +72,14 @@ A4. Check the band reading code. This shows nothing on screen:
 ```
 .\limo-spike bandcheck
 ```
-Pass: one line ending `uiaccess=0 windows=1 band[1]=1 (normal desktop band)`,
-no window appears, and `$LASTEXITCODE` is 0. If the band is any other number,
-or unknown, write the line down exactly.
+Pass: two lines. The first ends
+`uiaccess=0 integrity=0x2000 (medium) windows=1 band[1]=1 (normal desktop band)`.
+The second starts `process_sddl=O:` followed by your own SID, and ends with
+the label `S:AI(ML;;NWNR;;;ME)`. No window appears, and `$LASTEXITCODE` is 0.
+That is from a normal terminal; an administrator terminal says
+`integrity=0x3000 (high)` and a different descriptor instead. If the band is
+any other number, or unknown, or the second line says `unknown`, write the
+lines down exactly.
 
 ---
 
@@ -199,9 +206,13 @@ Then:
 & "$env:ProgramFiles\LiMoSpike\limo-spike.exe" status
 ```
 Pass: every attempt (a to e) is REFUSED, the summary reads
-`5 refused, 0 succeeded, 0 not applicable`, and `status` still shows the
+`6 refused, 0 succeeded, 0 not applicable`, and `status` still shows the
 service `Running`. Attempt b lists the service process; its line may say the
-image path was unreadable, which is fine as long as it is REFUSED.
+image path was unreadable, which is fine as long as it is REFUSED. Because
+ending it was refused, b has a second line for the service process,
+"b. open pid N to rewrite its access list", which must be REFUSED too: that
+is the right a determined user would need to hand themselves the right to end
+it. The probe only opens and closes; it never changes anything.
 
 C2. Under a lock.
 
@@ -235,12 +246,14 @@ C2. Under a lock.
 
 Expected in `user` mode:
 - a, stop the service: REFUSED.
-- b, end the service process: REFUSED.
+- b, end the service process: REFUSED, and open it to rewrite its access
+  list: REFUSED.
 - b, end the helper process: SUCCEEDED, and the overlay comes back within about
   a second. The log shows "helper exited ... code=1" followed by "relaunched
-  helper ... uiaccess=1 gap_ms=N".
+  helper ... uiaccess=1 integrity=unchanged dacl=unchanged gap_ms=N". The
+  helper was ended, so there is no access list line for it.
 - c, d and e: REFUSED.
-- Summary: `5 refused, 1 succeeded`.
+- Summary: `6 refused, 1 succeeded, 0 not applicable`.
 - Alt+Tab, the Windows key, Ctrl+Shift+Esc and Alt+F4 do nothing.
   Ctrl+Alt+Del does show its screen (nothing can block that). End task on the
   helper in Task Manager works, and the overlay comes back within about a
@@ -261,9 +274,117 @@ uninstall itself. Then repeat Part B (B1 is the install you just did), Part U
 and Part C. In Part C, make the temp copy again, because the installed exe is
 new.
 
-Expected in `system` mode: everything is refused, including ending the helper.
-The C2 summary reads `6 refused, 0 succeeded`, and End task on the helper in
-Task Manager is denied.
+Expected in `system` mode: everything is refused, including ending the helper
+and opening it to rewrite its access list. The C1 summary reads
+`6 refused, 0 succeeded, 0 not applicable`, the C2 summary reads
+`8 refused, 0 succeeded, 0 not applicable`, and End task on the helper in Task
+Manager is denied.
+
+---
+
+## Part G: guarded mode, tested in your own account
+
+The `guarded` mode runs the helper as the signed in user, with UIAccess, at
+medium plus integrity, one step above the user's ordinary programs, and with
+an access list on its process that does not let the user end it (see "Why the
+guarded mode exists" in README.md). The question is whether the user's own
+ordinary programs can end it, or open it to rewrite that access list.
+
+No second Windows account is needed for this part. A helper that runs as you,
+attacked from a normal (not elevated) terminal, is the same situation as a
+child's helper attacked by the child: the same account on both sides, and the
+attacker at ordinary medium integrity. So stay signed in as yourself.
+
+G1. Open PowerShell with "Run as administrator" and go to the build folder
+(`target\release`). If the spike is installed, remove it first, then install
+it in guarded mode:
+```
+.\limo-spike uninstall
+.\limo-spike install --helper-as guarded
+```
+Pass: it reports `helper mode set to guarded`, and that the service was
+created and started. If you have an always on top app such as the desktop
+ticker, start it now and leave it where you can see it.
+
+G2. Still in the administrator PowerShell, type this but do NOT press Enter
+yet:
+```
+.\limo-spike lock --seconds 60
+```
+
+G3. Open a second, normal PowerShell (not as administrator), go to the build
+folder (`target\release`) and start the probe:
+```
+.\limo-spike probe --after 20
+```
+The probe runs from the build folder copy, not the installed exe, so attempt e
+is a fair test.
+
+G4. Click into the administrator PowerShell and press Enter, within about 10
+seconds of starting the probe. The lock starts, and the probe makes its
+attempts about 20 seconds after you started it, while the screen is locked.
+The report's first lines show the time it ran; if the lock had not started by
+then, the helper line will be missing, so run G2 to G4 again.
+
+G5. While locked:
+- watch that the always on top app, if you started one, stays hidden the whole
+  time, not even a flicker;
+- try Alt+Tab, the Windows key and Ctrl+Shift+Esc;
+- then press Ctrl+Alt+Del, open Task Manager from that screen, and note
+  whether it can be seen over the lock, and if it can, whether End task on
+  `limo-spike.exe` is refused. If it cannot be seen, write "hidden". Note that
+  your account is an administrator, and Windows usually runs Task Manager
+  elevated for an administrator without asking. An elevated program sits above
+  medium plus, so End task may well work here. Write down what happens, but it
+  does not count against guarded mode: on a child's standard account Task
+  Manager is not elevated. The probe, run from the normal terminal, is the
+  check that counts.
+
+G6. After the lock ends, in the normal PowerShell:
+```
+Get-Content "$env:TEMP\limo-spike-probe.txt"
+.\limo-spike status
+```
+Then in the administrator PowerShell:
+```
+.\limo-spike uninstall
+```
+
+Pass:
+- the probe summary reads `8 refused, 0 succeeded, 0 not applicable`: a, c, d
+  and e are REFUSED, and so are all four b lines: ending the service process,
+  opening it to rewrite its access list, ending the helper, and opening the
+  helper to rewrite its access list (the helper's lines name your own
+  account);
+- the "helper launch" line in the log for this lock says
+  `mode=guarded uiaccess=1 integrity=set` and then either
+  `dacl=admin-owner` or `dacl=owner-rights`. Either passes; write down which;
+- under "helper report:", the report in your temp folder written at the time
+  of this lock has two lines. The first says `mode=managed`, `uiaccess=1`,
+  `integrity=0x2100 (medium plus)` and `band[N]=2 (UIAccess band)` for every
+  window. The second, `process_sddl=`, shows what Windows really applied, and
+  gives your own SID (the long `S-1-5-21-...` one) only `0x101000`. With
+  `dacl=admin-owner` it starts with `O:BA` (owner Administrators). With
+  `dacl=owner-rights` it starts with whatever owner Windows picked (write it
+  down) and its access list includes `(A;;0x101000;;;OW)`;
+- nothing else shows over the lock at any moment.
+
+The service tries the `admin-owner` access list first and moves to
+`owner-rights` if Windows refuses it. A log line starting "launching the
+helper with its protective access list, variant admin-owner, failed" followed
+by `dacl=owner-rights` is therefore a finding, not a failure: write down its
+Win32 error number. Error 1307 there would mean Windows refused Administrators
+as the owner of a process started with your token.
+
+These are failures; write the lines down exactly:
+- a log line starting "could not raise the helper token to medium plus
+  integrity", or `integrity=failed` in the launch line;
+- `dacl=failed` in the launch line. The log then has one line per variant,
+  each naming the variant and its Win32 error; copy both;
+- SUCCEEDED on any b line for the helper. With `dacl=admin-owner` or
+  `dacl=owner-rights` and `integrity=0x2100 (medium plus)` in the report, that
+  would mean the two layers do not do what README.md says, which is the thing
+  this part exists to find out.
 
 ---
 
@@ -281,8 +402,9 @@ The second run reports the service was not installed and finishes cleanly.
 
 As the standard account you may also delete `%TEMP%\limo-probe.exe`,
 `%TEMP%\limo-spike-probe.txt` and `%TEMP%\helper-report.txt`. The
-administrator's own `%TEMP%\helper-report.txt`, left by A2, A3 and the `user`
-mode locks, may be deleted too.
+administrator's own `%TEMP%\helper-report.txt`, left by A2, A3, the `user`
+mode locks and Part G, may be deleted too, and so may the
+`%TEMP%\limo-spike-probe.txt` that Part G left there.
 
 ---
 
@@ -293,7 +415,7 @@ Fill in what you saw. "R" refused, "S" succeeded, or a short note.
 | Check | Expected `user` | Expected `system` | Seen `user` | Seen `system` |
 | --- | --- | --- | --- | --- |
 | A2, A3: overlay on both monitors, escape chord exits 3 | yes | yes | | |
-| A4: bandcheck says uiaccess=0 and band 1, nothing appears | yes | yes | | |
+| A4: bandcheck says uiaccess=0, integrity 0x2000 (medium) and band 1, then a process_sddl line, nothing appears | yes | yes | | |
 | B3: lock appears within about 1 s and ends by itself | yes | yes | | |
 | B4: early unlock ends the lock after about 10 s | yes | yes | | |
 | B5: far future deadline ignored, no overlay | yes | yes | | |
@@ -302,15 +424,19 @@ Fill in what you saw. "R" refused, "S" succeeded, or a short note.
 | U3: helper report says uiaccess=1 and band 2 for every window | yes | yes | | |
 | C1 a: stop the service | R | R | | |
 | C1 b: end the service process | R | R | | |
+| C1 b: open the service process to rewrite its access list | R | R | | |
 | C1 c: overwrite control.txt | R | R | | |
 | C1 d: create a file in Program Files\LiMoSpike | R | R | | |
 | C1 e: delete the installed exe | R | R | | |
+| C1 probe summary line | 6 refused, 0 succeeded | 6 refused, 0 succeeded | | |
 | C1: service still Running afterwards | yes | yes | | |
 | C2 a: stop the service under a lock | R | R | | |
 | C2 b: end the service process | R | R | | |
+| C2 b: open the service process to rewrite its access list | R | R | | |
 | C2 b: end the helper process | S | R | | |
+| C2 b: open the helper to rewrite its access list | no line (helper was ended) | R | | |
 | C2 c, d, e | R | R | | |
-| C2 probe summary line | 5 refused, 1 succeeded | 6 refused, 0 succeeded | | |
+| C2 probe summary line | 6 refused, 1 succeeded | 8 refused, 0 succeeded | | |
 | Alt+Tab, Windows key, Ctrl+Shift+Esc, Alt+F4 | nothing happens | nothing happens | | |
 | Ctrl+Alt+Del screen appears | yes | yes | | |
 | Task Manager End task on the helper | works, overlay returns | denied | | |
@@ -320,3 +446,27 @@ How long between the helper dying and the overlay coming back (user mode):
 The logged figure runs from the moment the service noticed the death to the
 moment the new helper process started; the service checks every 100 ms, so the
 real gap is at most 100 ms more, plus the moment the new window takes to draw.
+
+Part G, helper mode `guarded`, in your own account:
+
+| Check | Expected `guarded` | Seen `guarded` |
+| --- | --- | --- |
+| G1: install reports helper mode guarded | yes | |
+| G5: the always on top app never shows over the lock | yes | |
+| G5: Alt+Tab, Windows key, Ctrl+Shift+Esc | nothing happens | |
+| G5: Ctrl+Alt+Del screen appears | yes | |
+| G5: Task Manager can be seen over the lock | note it | |
+| G5: Task Manager End task on the helper | note it (may work, see G5) | |
+| G6 a: stop the service | R | |
+| G6 b: end the service process | R | |
+| G6 b: open the service process to rewrite its access list | R | |
+| G6 b: end the helper process | R | |
+| G6 b: open the helper to rewrite its access list | R | |
+| G6 c, d, e | R | |
+| G6 probe summary line | 8 refused, 0 succeeded, 0 not applicable | |
+| G6: launch line says mode=guarded uiaccess=1 integrity=set | yes | |
+| G6: launch line's dacl= value (admin-owner or owner-rights both pass) | note which | |
+| G6: Win32 error logged for admin-owner, if it was refused | note it | |
+| G6: helper report says uiaccess=1, integrity 0x2100 (medium plus) and band 2 for every window | yes | |
+| G6: helper report's process_sddl owner (O:BA for admin-owner) | note it | |
+| G6: process_sddl gives your SID only 0x101000 (and has an OW entry for owner-rights) | yes | |

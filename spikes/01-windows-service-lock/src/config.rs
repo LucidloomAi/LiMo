@@ -29,6 +29,12 @@ pub enum HelperMode {
     User,
     /// Launch the helper as SYSTEM inside the user's session.
     System,
+    /// Launch the helper as the logged in user, but at medium plus integrity,
+    /// one step above the user's ordinary programs. Windows' integrity rules
+    /// are meant to keep those programs from ending it, injecting into it or
+    /// posting messages to it, while a bug in it yields only the user's own
+    /// rights.
+    Guarded,
 }
 
 impl HelperMode {
@@ -36,6 +42,7 @@ impl HelperMode {
         match self {
             HelperMode::User => "user",
             HelperMode::System => "system",
+            HelperMode::Guarded => "guarded",
         }
     }
 
@@ -43,6 +50,7 @@ impl HelperMode {
     pub fn parse(s: &str) -> HelperMode {
         match s.trim().to_ascii_lowercase().as_str() {
             "system" => HelperMode::System,
+            "guarded" => HelperMode::Guarded,
             _ => HelperMode::User,
         }
     }
@@ -318,5 +326,22 @@ mod tests {
         assert_eq!(HelperMode::parse("SYSTEM"), HelperMode::System);
         assert_eq!(HelperMode::parse("garbage"), HelperMode::User);
         assert_eq!(HelperMode::parse(""), HelperMode::User);
+    }
+
+    #[test]
+    fn guarded_mode_parses_and_is_named_guarded() {
+        assert_eq!(HelperMode::parse("guarded"), HelperMode::Guarded);
+        assert_eq!(HelperMode::parse("  Guarded\r\n"), HelperMode::Guarded);
+        assert_eq!(HelperMode::parse("GUARDED"), HelperMode::Guarded);
+        assert_eq!(HelperMode::Guarded.as_str(), "guarded");
+        // a near miss is still unknown text, so it falls back to user
+        assert_eq!(HelperMode::parse("guard"), HelperMode::User);
+    }
+
+    #[test]
+    fn every_mode_name_reads_back_as_the_same_mode() {
+        for mode in [HelperMode::User, HelperMode::System, HelperMode::Guarded] {
+            assert_eq!(HelperMode::parse(mode.as_str()), mode);
+        }
     }
 }

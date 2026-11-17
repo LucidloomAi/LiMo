@@ -12,8 +12,9 @@
 //!              the control file says.
 //!
 //! Once the windows are up, both modes write helper-report.txt: the process's
-//! UIAccess flag and each window's z order band (see band.rs). The developer
-//! mode also prints that line when it ends.
+//! UIAccess flag, its integrity level, each window's z order band, and a
+//! second line with its process security descriptor (see band.rs). The
+//! developer mode also prints the report when it ends.
 
 use std::cell::RefCell;
 use std::mem::size_of;
@@ -179,15 +180,16 @@ unsafe fn run_inner(managed: bool, dev_seconds: u64) -> i32 {
     }
     let _ = SetForegroundWindow(primary);
 
-    // Say what this helper actually got: its UIAccess flag and each window's
-    // z order band. Done after the windows are up, and every failure is
-    // swallowed, so this can never stop or delay the lock.
+    // Say what this helper actually got: its UIAccess flag, its integrity
+    // level, each window's z order band, and its process security descriptor.
+    // Done after the windows are up, and every failure is swallowed, so this
+    // can never stop or delay the lock.
     let mode = if managed {
         band::MODE_MANAGED
     } else {
         band::MODE_DEVELOPER
     };
-    let report = band::collect_line(mode, &windows);
+    let report = band::collect_report(mode, &windows);
     let _ = band::write_report(&report);
 
     let mut msg = MSG::default();
@@ -210,7 +212,9 @@ unsafe fn run_inner(managed: bool, dev_seconds: u64) -> i32 {
     STATE.with(|s| *s.borrow_mut() = None);
 
     if !managed {
-        println!("{report}");
+        for line in &report {
+            println!("{line}");
+        }
     }
     exit_code
 }

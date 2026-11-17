@@ -81,22 +81,25 @@ fn print_usage() {
     println!("  limo-spike monitors                 list the attached monitors");
     println!("  limo-spike overlay --seconds N      developer lock for N seconds (1..30)");
     println!("  limo-spike overlay --managed        the mode the service launches");
-    println!("  limo-spike install [--helper-as user|system]   (needs administrator)");
+    println!("  limo-spike install [--helper-as user|system|guarded]   (needs administrator)");
     println!("  limo-spike uninstall                (needs administrator)");
     println!("  limo-spike lock --seconds N         set the lock for N seconds (5..120, admin)");
     println!("  limo-spike unlock                   clear the lock (admin)");
     println!("  limo-spike status                   show service, mode, lock, recent log and helper report");
     println!("  limo-spike probe --after N          wait N s (0..60), then try to stop or damage the");
     println!("                                      spike as this account; report to %TEMP%");
-    println!("  limo-spike bandcheck                print this process's UIAccess flag and the z order");
-    println!("                                      band of one hidden test window (shows nothing)");
+    println!("  limo-spike bandcheck                print this process's UIAccess flag, its integrity level,");
+    println!("                                      its process security descriptor and the z order band");
+    println!("                                      of one hidden test window (shows nothing)");
     println!("  limo-spike service                  service control manager entry point only");
 }
 
 fn cmd_bandcheck() -> i32 {
     match band::bandcheck() {
-        Ok(line) => {
-            println!("{line}");
+        Ok(lines) => {
+            for line in lines {
+                println!("{line}");
+            }
             0
         }
         Err(msg) => {

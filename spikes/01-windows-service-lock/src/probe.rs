@@ -7,6 +7,11 @@
 //! any other program), the spike's control file, and the spike's Program Files
 //! folder. Every attempt is recorded as succeeded, refused (with the Win32
 //! error), or not applicable (nothing there to attack).
+//!
+//! For each spike process it was refused permission to end, it also tries to
+//! open that process with WRITE_DAC, the right a determined user would need to
+//! hand themselves terminate back. It only opens and closes the handle; it
+//! never changes an access list.
 
 use std::ffi::c_void;
 use std::fs::OpenOptions;
@@ -26,7 +31,7 @@ use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken,
     QueryFullProcessImageNameW, TerminateProcess, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, PROCESS_WRITE_DAC,
 };
 
 use windows_service::service::ServiceAccess;
@@ -99,6 +104,29 @@ pub fn summary_line(refused: usize, succeeded: usize, not_applicable: usize) -> 
     format!(
         "summary: {refused} refused, {succeeded} succeeded, {not_applicable} not applicable"
     )
+}
+
+/// The attempts recorded for one spike process: the attempt to end it, then,
+/// only when that was refused, the attempt to open it to rewrite its access
+/// list. A process that was ended has nothing left to attack.
+pub fn process_attempts<F>(
+    pid: u32,
+    end_label: String,
+    end: Outcome,
+    try_write_dac: F,
+) -> Vec<(String, Outcome)>
+where
+    F: FnOnce(u32) -> Outcome,
+{
+    let refused = matches!(end, Outcome::Refused { .. });
+    let mut attempts = vec![(end_label, end)];
+    if refused {
+        attempts.push((
+            format!("b. open pid {pid} to rewrite its access list"),
+            try_write_dac(pid),
+        ));
+    }
+    attempts
 }
 
 // ---------------------------------------------------------------------------
@@ -330,34 +358,34 @@ unsafe fn attempt_end_processes(installed: &str) -> (Vec<(String, Outcome)>, Vec
         let account: String = account.unwrap_or_else(|why| format!("unknown, {why}"));
         let label = format!("b. end pid {pid} (session {session}, account {account})");
 
-        match path {
+        let (label, end) = match path {
             Ok(p) if !same_path(&p, installed) => {
                 notes.push(format!(
                     "   skipped pid {pid}: its image path {p} is not the installed exe, so it was not touched"
                 ));
+                continue;
             }
-            Ok(_) => results.push((label, terminate(pid))),
+            Ok(_) => (label, terminate(pid)),
             Err(c) => {
                 // The path could not be confirmed. Ask only for terminate
                 // rights, to learn whether we would be refused, and never end a
                 // process we could not confirm.
                 let label = format!("{label}, image path unreadable (Win32 error {c})");
-                match OpenProcess(PROCESS_TERMINATE, false, pid) {
-                    Err(e) => results.push((label, outcome_from_win(&e))),
+                let end = match OpenProcess(PROCESS_TERMINATE, false, pid) {
+                    Err(e) => outcome_from_win(&e),
                     Ok(h) => {
                         let _ = CloseHandle(h);
-                        results.push((
-                            label,
-                            Outcome::Succeeded(
-                                "terminate access was granted; not used because the image \
-                                 path could not be confirmed"
-                                    .to_string(),
-                            ),
-                        ));
+                        Outcome::Succeeded(
+                            "terminate access was granted; not used because the image \
+                             path could not be confirmed"
+                                .to_string(),
+                        )
                     }
-                }
+                };
+                (label, end)
             }
-        }
+        };
+        results.extend(process_attempts(pid, label, end, |p| open_for_write_dac(p)));
     }
 
     if results.is_empty() {
@@ -380,6 +408,23 @@ unsafe fn terminate(pid: u32) -> Outcome {
                 Ok(()) => Outcome::Succeeded("the process was ended".to_string()),
                 Err(e) => outcome_from_win(&e),
             }
+        }
+    }
+}
+
+/// Try to open a process with WRITE_DAC, the right needed to rewrite its
+/// access list and so hand yourself terminate back. Nothing is changed: a
+/// handle that is granted is closed at once.
+unsafe fn open_for_write_dac(pid: u32) -> Outcome {
+    match OpenProcess(PROCESS_WRITE_DAC, false, pid) {
+        Err(e) => outcome_from_win(&e),
+        Ok(h) => {
+            let _ = CloseHandle(h);
+            Outcome::Succeeded(
+                "write access to its access list was granted; the handle was closed and \
+                 nothing was changed"
+                    .to_string(),
+            )
         }
     }
 }
@@ -541,5 +586,70 @@ mod tests {
             "summary: 2 refused, 1 succeeded, 1 not applicable"
         );
         assert_eq!(tally(&[]), (0, 0, 0));
+    }
+
+    fn denied() -> Outcome {
+        outcome_from_code(5, "Access is denied.")
+    }
+
+    #[test]
+    fn a_refused_end_is_followed_by_an_access_list_attempt() {
+        let mut asked = Vec::new();
+        let got = process_attempts(42, "b. end pid 42".to_string(), denied(), |pid| {
+            asked.push(pid);
+            denied()
+        });
+        assert_eq!(asked, vec![42]);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[1].0, "b. open pid 42 to rewrite its access list");
+        assert_eq!(
+            format_line(&got[1].0, &got[1].1),
+            "b. open pid 42 to rewrite its access list: REFUSED (Win32 error 5: Access is denied.)"
+        );
+    }
+
+    #[test]
+    fn an_ended_process_gets_no_second_attempt() {
+        let ended = Outcome::Succeeded("the process was ended".into());
+        let got = process_attempts(7, "b. end pid 7".to_string(), ended, |_| {
+            panic!("must not be tried on a process that was ended")
+        });
+        assert_eq!(got.len(), 1);
+        // nor when terminate was granted but not used, or nothing was there
+        let granted = Outcome::Succeeded("terminate access was granted; not used".into());
+        assert_eq!(process_attempts(7, "x".into(), granted, |_| denied()).len(), 1);
+        let gone = outcome_from_code(2, "gone");
+        assert_eq!(process_attempts(7, "x".into(), gone, |_| denied()).len(), 1);
+    }
+
+    /// The summaries TESTING.md quotes, built the way run() builds them: a,
+    /// then b for each spike process (the service, then the helper if a lock is
+    /// up), then c, d and e.
+    #[test]
+    fn summaries_match_the_testing_checklist() {
+        let summary = |helper_end: Option<Outcome>| {
+            let mut outcomes = vec![denied()]; // a
+            let service = process_attempts(1, "svc".into(), denied(), |_| denied());
+            outcomes.extend(service.into_iter().map(|(_, o)| o));
+            if let Some(end) = helper_end {
+                let helper = process_attempts(2, "helper".into(), end, |_| denied());
+                outcomes.extend(helper.into_iter().map(|(_, o)| o));
+            }
+            outcomes.extend([denied(), denied(), denied()]); // c, d, e
+            let (r, s, n) = tally(&outcomes);
+            summary_line(r, s, n)
+        };
+        // no lock (C1), any mode
+        assert_eq!(summary(None), "summary: 6 refused, 0 succeeded, 0 not applicable");
+        // lock up, user mode: the helper is ended, so it gets no second attempt
+        assert_eq!(
+            summary(Some(Outcome::Succeeded("the process was ended".into()))),
+            "summary: 6 refused, 1 succeeded, 0 not applicable"
+        );
+        // lock up, system or guarded mode: everything refused
+        assert_eq!(
+            summary(Some(denied())),
+            "summary: 8 refused, 0 succeeded, 0 not applicable"
+        );
     }
 }

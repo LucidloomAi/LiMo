@@ -20,10 +20,17 @@ pub fn timestamp() -> String {
 
 /// Append one line to the log. Failures are swallowed on purpose: logging must
 /// never be the reason the service misbehaves.
+///
+/// The whole line, line ending included, goes to the file in one write. Each
+/// write on an append handle lands at the end of the file, so two processes
+/// logging at the same moment (the service and the install command, say) no
+/// longer run their lines together, as they did when one line went out in
+/// several small writes.
 pub fn log(line: &str) {
     let path = log_path();
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = writeln!(f, "{} {}", timestamp(), line);
+        let text = format!("{} {}\n", timestamp(), line);
+        let _ = f.write_all(text.as_bytes());
     }
 }
 
