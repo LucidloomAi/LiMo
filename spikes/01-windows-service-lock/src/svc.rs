@@ -108,7 +108,7 @@ impl GuardStep {
     }
 }
 
-/// The two protective access lists for the guarded helper's process object,
+/// The protective access lists for the guarded helper's process object,
 /// tried in this order; the first that launches is kept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DaclVariant {
@@ -117,17 +117,25 @@ enum DaclVariant {
     /// No explicit owner; an OWNER RIGHTS entry caps whatever owner Windows
     /// picks to the same rights as the user (owner_rights_sddl).
     OwnerRights,
+    /// The same as OwnerRights without the label, so Windows assigns the
+    /// label itself (owner_rights_no_label_sddl).
+    OwnerRightsNoLabel,
 }
 
 impl DaclVariant {
     /// The order the variants are tried in.
-    const ORDER: [DaclVariant; 2] = [DaclVariant::AdminOwner, DaclVariant::OwnerRights];
+    const ORDER: [DaclVariant; 3] = [
+        DaclVariant::AdminOwner,
+        DaclVariant::OwnerRights,
+        DaclVariant::OwnerRightsNoLabel,
+    ];
 
     /// The name the log and the launch line use.
     fn name(self) -> &'static str {
         match self {
             DaclVariant::AdminOwner => "admin-owner",
             DaclVariant::OwnerRights => "owner-rights",
+            DaclVariant::OwnerRightsNoLabel => "owner-rights-no-label",
         }
     }
 
@@ -137,11 +145,13 @@ impl DaclVariant {
         Self::ORDER.get(at + 1).copied()
     }
 
-    /// This variant's SDDL for the given user SID and label level.
+    /// This variant's SDDL for the given user SID and label level. The no
+    /// label variant has no label, so it does not use the level.
     fn sddl(self, user_sid: &str, level: u32) -> String {
         match self {
             DaclVariant::AdminOwner => admin_owner_sddl(user_sid, level),
             DaclVariant::OwnerRights => owner_rights_sddl(user_sid, level),
+            DaclVariant::OwnerRightsNoLabel => owner_rights_no_label_sddl(user_sid),
         }
     }
 }
@@ -604,11 +614,15 @@ fn admin_owner_sddl(user_sid: &str, level: u32) -> String {
 /// then caps the owner's implied rights to the same as the user's, so being
 /// the owner gives no right to rewrite the access list.
 fn owner_rights_sddl(user_sid: &str, level: u32) -> String {
+    format!("{}{}", owner_rights_no_label_sddl(user_sid), guarded_label(level))
+}
+
+/// Variant owner-rights-no-label, tried third: exactly owner-rights without
+/// the `S:` part, so Windows assigns the process label itself. It is there in
+/// case Windows refuses a label set at creation.
+fn owner_rights_no_label_sddl(user_sid: &str) -> String {
     let dacl = guarded_dacl(user_sid);
-    format!(
-        "{dacl}(A;;{USER_PROCESS_RIGHTS:#x};;;OW){}",
-        guarded_label(level)
-    )
+    format!("{dacl}(A;;{USER_PROCESS_RIGHTS:#x};;;OW)")
 }
 
 fn build_cmdline(exe: &Path) -> Vec<u16> {
@@ -1086,15 +1100,28 @@ mod tests {
     }
 
     #[test]
-    fn variants_are_tried_admin_owner_first_then_owner_rights() {
+    fn variants_are_tried_admin_owner_then_owner_rights_then_no_label() {
         assert_eq!(
             DaclVariant::ORDER,
-            [DaclVariant::AdminOwner, DaclVariant::OwnerRights]
+            [
+                DaclVariant::AdminOwner,
+                DaclVariant::OwnerRights,
+                DaclVariant::OwnerRightsNoLabel
+            ]
         );
         assert_eq!(DaclVariant::AdminOwner.next(), Some(DaclVariant::OwnerRights));
-        assert_eq!(DaclVariant::OwnerRights.next(), None);
+        assert_eq!(
+            DaclVariant::OwnerRights.next(),
+            Some(DaclVariant::OwnerRightsNoLabel)
+        );
+        assert_eq!(DaclVariant::OwnerRightsNoLabel.next(), None);
         assert_eq!(DaclVariant::AdminOwner.name(), "admin-owner");
         assert_eq!(DaclVariant::OwnerRights.name(), "owner-rights");
+        assert_eq!(DaclVariant::OwnerRightsNoLabel.name(), "owner-rights-no-label");
+        assert_eq!(
+            DaclField::Applied(DaclVariant::OwnerRightsNoLabel).as_str(),
+            "owner-rights-no-label"
+        );
     }
 
     #[test]
@@ -1109,13 +1136,14 @@ mod tests {
         assert!(failed.is_empty());
         assert_eq!(tried, vec![DaclVariant::AdminOwner]);
 
-        // any launch failure on admin-owner, not only 1307, moves on
+        // any launch failure on admin-owner, not only 1307, moves on, and
+        // owner-rights-no-label is never tried once owner-rights launches
         let mut tried = Vec::new();
         let (got, failed) = first_variant_that_launches::<u32, u32>(|v| {
             tried.push(v);
             match v {
                 DaclVariant::AdminOwner => Err((DaclStage::Launch, 87)),
-                DaclVariant::OwnerRights => Ok(2),
+                _ => Ok(2),
             }
         });
         assert_eq!(got, Some((2, DaclVariant::OwnerRights)));
@@ -1125,12 +1153,26 @@ mod tests {
         // so does a failure to build a variant
         let (got, failed) = first_variant_that_launches::<u32, u32>(|v| match v {
             DaclVariant::AdminOwner => Err((DaclStage::Build, 1337)),
-            DaclVariant::OwnerRights => Ok(3),
+            _ => Ok(3),
         });
         assert_eq!(got, Some((3, DaclVariant::OwnerRights)));
         assert_eq!(failed, vec![(DaclVariant::AdminOwner, DaclStage::Build, 1337)]);
 
-        // both fail: nothing launched, both failures kept in order
+        // both labelled variants refused: the no label variant launches
+        let (got, failed) = first_variant_that_launches::<u32, u32>(|v| match v {
+            DaclVariant::OwnerRightsNoLabel => Ok(4),
+            _ => Err((DaclStage::Launch, 1314)),
+        });
+        assert_eq!(got, Some((4, DaclVariant::OwnerRightsNoLabel)));
+        assert_eq!(
+            failed,
+            vec![
+                (DaclVariant::AdminOwner, DaclStage::Launch, 1314),
+                (DaclVariant::OwnerRights, DaclStage::Launch, 1314),
+            ]
+        );
+
+        // all three fail: nothing launched, every failure kept in order
         let (got, failed) =
             first_variant_that_launches::<u32, u32>(|_| Err((DaclStage::Launch, 1307)));
         assert_eq!(got, None);
@@ -1139,6 +1181,7 @@ mod tests {
             vec![
                 (DaclVariant::AdminOwner, DaclStage::Launch, 1307),
                 (DaclVariant::OwnerRights, DaclStage::Launch, 1307),
+                (DaclVariant::OwnerRightsNoLabel, DaclStage::Launch, 1307),
             ]
         );
     }
@@ -1160,16 +1203,27 @@ mod tests {
         );
         assert!(first.contains("Trying variant owner-rights next."), "{first}");
 
-        let last = DaclFailure {
+        let second = DaclFailure {
             variant: DaclVariant::OwnerRights,
+            stage: DaclStage::Launch,
+            error: denied(),
+        }
+        .message();
+        assert!(
+            second.contains("Trying variant owner-rights-no-label next."),
+            "{second}"
+        );
+
+        let last = DaclFailure {
+            variant: DaclVariant::OwnerRightsNoLabel,
             stage: DaclStage::Build,
             error: denied(),
         }
         .message();
         assert!(
             last.starts_with(
-                "could not build the helper's protective access list, variant owner-rights: \
-                 Win32 error 5:"
+                "could not build the helper's protective access list, variant \
+                 owner-rights-no-label: Win32 error 5:"
             ),
             "{last}"
         );
@@ -1231,11 +1285,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn owner_rights_no_label_sddl_is_owner_rights_without_the_label() {
+        let user = "S-1-5-21-1-2-3-1001";
+        assert_eq!(
+            owner_rights_no_label_sddl(user),
+            "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x101000;;;S-1-5-21-1-2-3-1001)\
+             (A;;0x101000;;;OW)"
+        );
+        // exactly owner-rights with the S: part cut off, at any level
+        for level in [IL_MEDIUM, IL_MEDIUM_PLUS] {
+            let with_label = owner_rights_sddl(user, level);
+            let cut = &with_label[..with_label.find("S:").unwrap()];
+            assert_eq!(owner_rights_no_label_sddl(user), cut);
+            // the level makes no difference to the no label variant
+            assert_eq!(
+                DaclVariant::OwnerRightsNoLabel.sddl(user, level),
+                owner_rights_no_label_sddl(user)
+            );
+        }
+        assert!(!owner_rights_no_label_sddl(user).contains("S:"));
+    }
+
     /// Builds the real descriptor of each variant for this test process's own
     /// user and reads it back. Only parses text into memory: no object is
     /// created or changed.
     #[test]
-    fn both_guarded_descriptors_parse_for_this_user() {
+    fn all_guarded_descriptors_parse_for_this_user() {
         unsafe {
             let mut token = HANDLE::default();
             OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).unwrap();
@@ -1267,18 +1343,22 @@ mod tests {
                 assert!(sddl.contains("D:P(A;;GA;;;SY)(A;;GA;;;BA)"), "{sddl}");
                 assert!(sddl.contains(&format!("(A;;0x101000;;;{user})")), "{sddl}");
                 // the label may come back as the SID or as its SDDL alias
-                assert!(
-                    sddl.contains("S:(ML;;NWNR;;;S-1-16-8448)")
-                        || sddl.contains("S:(ML;;NWNR;;;MP)"),
-                    "{sddl}"
-                );
+                let labelled = sddl.contains("S:(ML;;NWNR;;;S-1-16-8448)")
+                    || sddl.contains("S:(ML;;NWNR;;;MP)");
                 match variant {
                     DaclVariant::AdminOwner => {
                         assert!(sddl.starts_with("O:BAG:SYD:P"), "{sddl}");
+                        assert!(labelled, "{sddl}");
                     }
                     DaclVariant::OwnerRights => {
                         assert!(sddl.starts_with("D:P"), "no owner or group: {sddl}");
                         assert!(sddl.contains("(A;;0x101000;;;OW)"), "{sddl}");
+                        assert!(labelled, "{sddl}");
+                    }
+                    DaclVariant::OwnerRightsNoLabel => {
+                        assert!(sddl.starts_with("D:P"), "no owner or group: {sddl}");
+                        assert!(sddl.contains("(A;;0x101000;;;OW)"), "{sddl}");
+                        assert!(!sddl.contains("S:"), "no label: {sddl}");
                     }
                 }
             }

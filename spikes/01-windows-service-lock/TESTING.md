@@ -357,34 +357,41 @@ Pass:
   helper to rewrite its access list (the helper's lines name your own
   account);
 - the "helper launch" line in the log for this lock says
-  `mode=guarded uiaccess=1 integrity=set` and then either
-  `dacl=admin-owner` or `dacl=owner-rights`. Either passes; write down which;
+  `mode=guarded uiaccess=1 integrity=set` and then `dacl=admin-owner`,
+  `dacl=owner-rights` or `dacl=owner-rights-no-label`. Any of the three
+  passes; write down which;
 - under "helper report:", the report in your temp folder written at the time
   of this lock has two lines. The first says `mode=managed`, `uiaccess=1`,
   `integrity=0x2100 (medium plus)` and `band[N]=2 (UIAccess band)` for every
   window. The second, `process_sddl=`, shows what Windows really applied, and
   gives your own SID (the long `S-1-5-21-...` one) only `0x101000`. With
   `dacl=admin-owner` it starts with `O:BA` (owner Administrators). With
-  `dacl=owner-rights` it starts with whatever owner Windows picked (write it
-  down) and its access list includes `(A;;0x101000;;;OW)`;
+  `dacl=owner-rights` or `dacl=owner-rights-no-label` it starts with whatever
+  owner Windows picked (write it down) and its access list includes
+  `(A;;0x101000;;;OW)`. With `dacl=owner-rights-no-label`, also write down the
+  label Windows chose itself: the `S:` part at the end, expected
+  `S:(ML;;NWNR;;;MP)` (medium plus);
 - nothing else shows over the lock at any moment.
 
-The service tries the `admin-owner` access list first and moves to
-`owner-rights` if Windows refuses it. A log line starting "launching the
-helper with its protective access list, variant admin-owner, failed" followed
-by `dacl=owner-rights` is therefore a finding, not a failure: write down its
-Win32 error number. Error 1307 there would mean Windows refused Administrators
-as the owner of a process started with your token.
+The service tries the access lists in the order `admin-owner`, `owner-rights`,
+`owner-rights-no-label`, and moves to the next whenever Windows refuses one. A
+log line starting "launching the helper with its protective access list,
+variant admin-owner, failed" (or "variant owner-rights") followed by a later
+variant in the launch line is therefore a finding, not a failure: write down
+each Win32 error number. Error 1307 on `admin-owner` would mean Windows
+refused Administrators as the owner of a process started with your token. A
+refused `owner-rights` followed by `owner-rights-no-label` would mean Windows
+refused the label set at creation.
 
 These are failures; write the lines down exactly:
 - a log line starting "could not raise the helper token to medium plus
   integrity", or `integrity=failed` in the launch line;
 - `dacl=failed` in the launch line. The log then has one line per variant,
-  each naming the variant and its Win32 error; copy both;
-- SUCCEEDED on any b line for the helper. With `dacl=admin-owner` or
-  `dacl=owner-rights` and `integrity=0x2100 (medium plus)` in the report, that
-  would mean the two layers do not do what README.md says, which is the thing
-  this part exists to find out.
+  each naming the variant and its Win32 error; copy all three;
+- SUCCEEDED on any b line for the helper. With any of the three `dacl=` values
+  and `integrity=0x2100 (medium plus)` in the report, that would mean the two
+  layers do not do what README.md says, which is the thing this part exists
+  to find out.
 
 ---
 
@@ -465,8 +472,9 @@ Part G, helper mode `guarded`, in your own account:
 | G6 c, d, e | R | |
 | G6 probe summary line | 8 refused, 0 succeeded, 0 not applicable | |
 | G6: launch line says mode=guarded uiaccess=1 integrity=set | yes | |
-| G6: launch line's dacl= value (admin-owner or owner-rights both pass) | note which | |
-| G6: Win32 error logged for admin-owner, if it was refused | note it | |
+| G6: launch line's dacl= value (admin-owner, owner-rights or owner-rights-no-label all pass) | note which | |
+| G6: Win32 error logged for each refused variant, if any | note them | |
 | G6: helper report says uiaccess=1, integrity 0x2100 (medium plus) and band 2 for every window | yes | |
 | G6: helper report's process_sddl owner (O:BA for admin-owner) | note it | |
-| G6: process_sddl gives your SID only 0x101000 (and has an OW entry for owner-rights) | yes | |
+| G6: process_sddl gives your SID only 0x101000 (and has an OW entry for the owner-rights variants) | yes | |
+| G6: label Windows chose, the S: part of process_sddl (owner-rights-no-label only; expected MP) | note it | |

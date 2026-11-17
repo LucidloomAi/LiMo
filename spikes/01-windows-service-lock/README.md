@@ -143,8 +143,8 @@ How it is done:
    has it from the moment it exists, with no gap between launch and
    protection. Threads are left with their defaults: the integrity level
    already blocks tampering with them from below.
-3. There are two variants of that descriptor, tried in this order; the first
-   that launches is kept:
+3. There are three variants of that descriptor, tried in this order; the
+   first that launches is kept:
    - `admin-owner`:
      ```
      O:BAG:SYD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x101000;;;<user SID>)S:(ML;;NWNR;;;S-1-16-8448)
@@ -162,31 +162,40 @@ How it is done:
      the owner. The OWNER RIGHTS entry (`OW`) then caps whatever the owner may
      do to the same rights the user gets, so being the owner gives no right to
      rewrite the access list.
+   - `owner-rights-no-label`:
+     ```
+     D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x101000;;;<user SID>)(A;;0x101000;;;OW)
+     ```
+     Exactly `owner-rights` without the label part, so Windows assigns the
+     process label itself (expected to follow the token, medium plus). It is
+     there in case Windows refuses a label set at creation, which both earlier
+     variants carry.
 
-   In both, SYSTEM and Administrators get full access, and the user gets only
-   0x101000, that is SYNCHRONIZE and PROCESS_QUERY_LIMITED_INFORMATION: the
-   user can see the process and wait for it, and nothing else. The label
-   matches the level the token really has: medium plus, or medium if raising
-   it failed.
+   In all three, SYSTEM and Administrators get full access, and the user gets
+   only 0x101000, that is SYNCHRONIZE and PROCESS_QUERY_LIMITED_INFORMATION:
+   the user can see the process and wait for it, and nothing else. Where there
+   is a label, it matches the level the token really has: medium plus, or
+   medium if raising it failed.
 
 Every step that fails still ends in a launch, because a weaker lock is better
 than no lock. If raising the level fails, the helper runs at the user's own
 level. If a variant cannot be built, or the launch with it fails for any
-reason, the next variant is tried; if both fail, the helper is launched with
-no descriptor, so a mistake in the descriptors can never mean no lock. The
-launch line says which access list the helper got: `dacl=admin-owner`,
-`dacl=owner-rights`, or `dacl=failed`. The Win32 error of every variant that
-failed is logged once per lock, naming the variant, so one hardware run shows
-which variant Windows accepts. A refused `admin-owner` followed by
-`dacl=owner-rights` is a finding, not a failure.
+reason, the next variant is tried; if all three fail, the helper is launched
+with no descriptor, so a mistake in the descriptors can never mean no lock.
+The launch line says which access list the helper got: `dacl=admin-owner`,
+`dacl=owner-rights`, `dacl=owner-rights-no-label`, or `dacl=failed`. The Win32
+error of every variant that failed is logged once per lock, naming the
+variant and what is tried next, so one hardware run shows which variants
+Windows accepts. A refused earlier variant followed by a later one that
+launches is a finding, not a failure.
 
 What is and is not proven:
 
 - Proven by unit tests: the mode is accepted, stored and shown; the launch
-  line and the helper report carry the new fields; both descriptor texts are
-  the ones above, and both parse, for the account running the tests, into
-  descriptors that read back the same; the variants are tried in order and
-  any failure moves on to the next.
+  line and the helper report carry the new fields; the three descriptor texts
+  are the ones above, and all three parse, for the account running the tests,
+  into descriptors that read back the same; the variants are tried in order
+  and any failure moves on to the next.
 - Not yet proven on real hardware: that the integrity call succeeds, which
   variant Windows accepts at launch, that the helper then reports 0x2100 with
   UIAccess, band 2 and that descriptor, and above all that a normal (not
@@ -218,10 +227,10 @@ or manifest is needed when the flag is set on the token this way.
 If setting the flag fails, the helper is launched anyway: a lock without
 UIAccess is better than no lock. The launch lines in the log carry
 `uiaccess=1` or `uiaccess=0`, then `integrity=` (`set` or `failed` in guarded
-mode) and `dacl=` (`admin-owner`, `owner-rights` or `failed` in guarded mode),
-both `unchanged` in the other two modes (a relaunch line has `gap_ms` after
-that), and a failure's Win32 error is logged once per lock, not on every
-relaunch.
+mode) and `dacl=` (`admin-owner`, `owner-rights`, `owner-rights-no-label` or
+`failed` in guarded mode), both `unchanged` in the other two modes (a relaunch
+line has `gap_ms` after that), and a failure's Win32 error is logged once per
+lock, not on every relaunch.
 
 To show what a helper really got, it writes `helper-report.txt` once its
 windows are up. The first line has the time, its pid, `managed` or
@@ -238,8 +247,10 @@ process_sddl=O:BAD:P(A;;0x1fffff;;;SY)(A;;0x1fffff;;;BA)(A;;0x101000;;;S-1-5-21-
 ```
 
 With `owner-rights`, the owner is whatever Windows picked (likely the user's
-own SID) and the access list ends with `(A;;0x101000;;;OW)`. That second line
-is a forecast: how Windows prints the applied descriptor (for example 0x1fffff
+own SID) and the access list ends with `(A;;0x101000;;;OW)`. With
+`owner-rights-no-label` it is the same, and the `S:` part shows the label
+Windows chose by itself (expected medium plus, `MP`). That second line is a
+forecast: how Windows prints the applied descriptor (for example 0x1fffff
 for full access, `MP` for the medium plus label) is only seen on real
 hardware. A failed read prints `process_sddl=unknown (Win32 error N)`.
 
@@ -302,7 +313,7 @@ logic: the clamps, the deadline rule, path comparison, Win32 error decoding,
 the helper mode names, the probe's result classification and formatting, its
 access list attempt and the summaries TESTING.md expects, the helper report
 lines with their band and integrity labels, the choice of where the report is
-written, the medium plus label SID, both guarded security descriptors (their
+written, the medium plus label SID, all three guarded security descriptors (their
 text, and that they parse for the account running the tests), the order the
 variants are tried in, and the launch log lines.
 
