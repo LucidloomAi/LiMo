@@ -632,9 +632,27 @@ owner lifts the user restrictions, the uninstall block and the safe boot
 setting, by either route. It does not lift package suspensions, and nothing
 but a Device Owner can lift them afterwards.
 
-Not done yet in this run, because both need the phone's PIN: looking at the
-screen with strict mode on (what a child sees on opening the suspended app,
-and how Settings shows the restrictions), and a restart while owner.
+Later the same evening, with the phone unlocked, the screen was looked at
+from screenshots taken over USB, and the phone was restarted while owner:
+
+| Check | Result |
+| --- | --- |
+| The app's own screen with strict mode on | owner yes, every switch on and "in force on this phone: yes", the timer counting down |
+| Opening the suspended app | a system dialog: "Can't open this app. You do not have permission to perform this action. Contact your organisation's IT administrator for more information." |
+| Settings, Date and time | "Automatic date and time" and "Automatic time zone" greyed out, each marked "Enabled by admin" |
+| Settings, Reset | the "Factory data reset" entry is not greyed out, but opening it gives "Action not allowed", with the same IT administrator wording |
+| A restart while owner (`adb reboot`) | 55 s later: still owner, all restrictions in force, Calendar still suspended, `safe_boot_disallowed` 1. The app logged `boot seen owner=yes` 20 s after that and set its alarm again with the time left unchanged (27 minutes) |
+| Release with the PIN after the restart | clean: no owner, no restrictions, Calendar opens again, `safe_boot_disallowed` 0 |
+| `limo-strict-spike uninstall` | the app is gone from the phone |
+
+One thing for the real product, seen in those screenshots: the words a child
+sees are Samsung's, written for a company phone ("your organisation's IT
+administrator"). A Device Owner can supply its own short and long support
+messages for these dialogs, and LiMo should, in plain family words.
+
+Not tried: safe mode by hand (Android reports it disallowed), adding a user
+from Settings (this phone shows no such page), and a phone with a newer
+Android version.
 
 ## Unknowns
 

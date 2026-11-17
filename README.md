@@ -84,6 +84,26 @@ These are the plain test screens the proofs use, not the finished product.
       the phone app.
     </td>
   </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/images/android-strict-mode.png" alt="The strict mode test app on a phone: it is the Device Owner, a timer says when it will release the phone by itself, and every restriction is switched on" width="270">
+    </td>
+    <td align="center">
+      <img src="docs/images/android-cannot-open.png" alt="A phone home screen with a system dialog that says Can't open this app" width="270">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>Strict mode, with its way out on the same screen.</b><br>
+      The test app owns the phone, and a timer releases the phone by itself
+      if nobody does.
+    </td>
+    <td align="center">
+      <b>What a child sees in strict mode.</b><br>
+      A blocked app cannot be opened at all. The wording is Samsung's own;
+      the product will use plain family words.
+    </td>
+  </tr>
 </table>
 
 ## What the proofs showed
@@ -94,7 +114,7 @@ These are the plain test screens the proofs use, not the finished product.
 | [2. Android base protection](spikes/02-android-base-lock/) | Without owning the phone, can LiMo cover a blocked app fast enough? | Yes, in well under a second, without reading the screen. But Force stop in Settings switches it off, and Google Play Protect refuses to install such an app when its file is tapped. An install from the PC over USB works. |
 | [3. One Rust core](spikes/03-expo-rust-core/) | Can the phone app call the same Rust rules code that Windows uses? | Yes. The Rust part adds about 3 percent to the app, and a call takes less than a thousandth of a second. |
 | [4. Finding the PC](spikes/04-lan-discovery/) | Can a phone find the master PC on home Wi-Fi by itself? | Yes, in about a quarter of a second, once the Windows Firewall allows the program. The installer will add its own narrow firewall rule, so a family never has to answer a prompt. |
-| [5. Strict mode](spikes/05-strict-mode/) | Can the PC make LiMo the owner of the phone over USB, and can it always be released? | Setup worked every time on a phone with no accounts. Three ways out were built and tested first: a release with the guardian's PIN, a timer that releases the phone by itself, and a forced release from the PC. |
+| [5. Strict mode](spikes/05-strict-mode/) | Can the PC make LiMo the owner of the phone over USB, and can it always be released? | Setup worked every time on a phone with no accounts. Three ways out were built and tested first: a release with the guardian's PIN, a timer that releases the phone by itself, and a forced release from the PC. With strict mode on, uninstalling, factory reset from Settings and changing the clock were refused, it all survived a restart, and a release put everything back. |
 
 Each folder has a `README.md` that says what was built and what was found,
 and a `TESTING.md` with the exact steps that were run.
