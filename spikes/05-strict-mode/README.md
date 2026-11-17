@@ -604,6 +604,38 @@ Phone app:
 The Gradle wrapper files (`gradlew`, `gradlew.bat`, `gradle\wrapper\`) are
 Gradle's own, copied unchanged from spike 02.
 
+## First run on the phone, 17 Nov 2026
+
+A spare Galaxy S20 Ultra (SM-G988B, Android 13, One UI 5.1), factory reset by
+its owner with no account added, one user, USB debugging on. Everything was
+run from the PC over USB with `limo-strict-spike` and plain `adb`. The phone
+sat at its PIN screen for most of the run; the commands still reached the app.
+
+| Check | Result |
+| --- | --- |
+| `check` | "Can set-device-owner work: yes" |
+| `setup` | Android said Success and the owner was confirmed, eight times out of eight |
+| Way out 1, `release --pin 2468`, nothing restricted | every step ok, owner and admin gone in about a second |
+| Way out 3, `force-release`, nothing restricted | Android said Success, owner and admin gone |
+| Way out 2, the timer at 2 minutes, app closed, screen off, first build | the phone released itself, but the admin was removed about 10 s late (the flaw described under "The ways out") |
+| The same on the fixed build | one release run, 1.3 s from the alarm to "release done", `active_admin ok waited_ms=750 broadcasts_finished=1` |
+| Strict mode applied, Samsung Calendar suspended | all six apply steps ok |
+| `status` with strict mode on | the four restrictions in force, plus `no_add_managed_profile` and `no_add_clone_profile`, which Android adds by itself; `safe_boot_disallowed` 1; Calendar suspended by `android` |
+| A raw `adb uninstall` with strict mode on | `Failure [DELETE_FAILED_INTERNAL_ERROR]`, the app stayed |
+| `release --pin 2468` with strict mode on | every step ok, `unsuspend ok count=1`; afterwards no restrictions, Calendar not suspended, `safe_boot_disallowed` 0 |
+| `force-release` with strict mode on (step 4.4 part A) | the app lifted the suspension first, then Android removed the owner; nothing left behind |
+| The raw `dpm remove-active-admin` with strict mode on (part B) | owner, admin and all restrictions gone, but Calendar still suspended by `android`; `pm unsuspend` from the shell answered "new suspended state: true" and changed nothing |
+| The way back after part B | `setup`, then `--ez suspend_apps false` (Calendar no longer suspended), then `release`: clean |
+
+So on this Samsung build Android behaves as its source says. Clearing the
+owner lifts the user restrictions, the uninstall block and the safe boot
+setting, by either route. It does not lift package suspensions, and nothing
+but a Device Owner can lift them afterwards.
+
+Not done yet in this run, because both need the phone's PIN: looking at the
+screen with strict mode on (what a child sees on opening the suspended app,
+and how Settings shows the restrictions), and a restart while owner.
+
 ## Unknowns
 
 - Whether Samsung's build behaves like Android 13's source when the owner
