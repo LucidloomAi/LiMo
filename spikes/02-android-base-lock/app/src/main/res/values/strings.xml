@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LiMo spike 02</string>
+    <string name="service_label">LiMo spike 02 blocker</string>
+    <string name="service_description">A test build of the LiMo screen time limiter. It notes which app comes to the front, by package name only, and covers the apps you ticked as blocked. It never reads what is on the screen. Blocking turns itself off 10 minutes after it is switched on.</string>
+</resources>
