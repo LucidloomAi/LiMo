@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+    Two permissions, both granted at install with no prompt:
+
+    INTERNET: an app needs it to open any socket, so the TCP HELLO needs it.
+
+    ACCESS_NETWORK_STATE: to find the Wi-Fi network (ConnectivityManager),
+    read the phone's own address from it, and bind the HELLO socket to it.
+
+    Not asked for: ACCESS_WIFI_STATE (nothing here reads WifiManager),
+    CHANGE_WIFI_MULTICAST_STATE (the app holds no multicast lock; NsdManager
+    does the multicast in the system's own process; see README.md), and no
+    location permission (the network's name is never read).
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="stateHidden|adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

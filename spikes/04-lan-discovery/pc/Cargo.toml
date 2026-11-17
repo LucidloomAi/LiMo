@@ -1,0 +1,24 @@
+[package]
+name = "limo-hub-spike"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Throwaway proof: a phone finds the LiMo master PC on the home network with mDNS and says hello over TCP"
+publish = false
+
+[[bin]]
+name = "limo-hub-spike"
+path = "src/main.rs"
+
+[dependencies]
+# mDNS and DNS-SD responder and browser. Default features (async, log) are not needed.
+mdns-sd = { version = "=0.22.0", default-features = false }
+# This PC's interface addresses. Already used by mdns-sd, so it sees the same list.
+if-addrs = "0.15"
+# Ctrl+C handling, so serve can withdraw its announcement on the way out.
+ctrlc = "3.5.2"
+# The random 8 character id and the hello nonce. Already used by mdns-sd.
+fastrand = "2"
+
+[profile.release]
+opt-level = 2
