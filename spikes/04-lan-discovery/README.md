@@ -382,6 +382,70 @@ Phone app:
 The Gradle wrapper files (`gradlew`, `gradlew.bat`, `gradle\wrapper\`) are
 Gradle's own, copied unchanged from spike 02.
 
+## First run on a real home network, 17 Nov 2026
+
+The PC (Windows 11 Home, Wi-Fi at 192.168.68.200/22, the network marked
+Public in Windows, a Tailscale interface also present) and the phone (Galaxy
+S20 Ultra, SM-G988B, Android 13, Wi-Fi at 192.168.68.51/22) were on the same
+home Wi-Fi. `serve` was started from a normal terminal, not elevated. The
+phone was driven over USB.
+
+What Windows did:
+
+- The moment `serve` started listening, Windows added two inbound Block rules
+  named after the program, for the Private and Public profiles, and showed its
+  firewall prompt.
+- The owner read the prompt on a second run: the boxes for Private networks
+  and Public networks were both ticked. The owner clicked Allow.
+- Windows then turned the two rules into Allow rules: Private and Public
+  profiles, TCP and UDP, every port, any remote address. That is much wider
+  than this program needs.
+- Windows' own mDNS service already uses UDP port 5353. The program shared
+  the port with it without trouble and joined the multicast group on Wi-Fi,
+  Tailscale and loopback.
+
+What the phone did, with the Allow rules in place:
+
+| Check | Result |
+| --- | --- |
+| Search, first run | found after 233 ms, resolved after 251 ms, to 192.168.68.200 (the Wi-Fi address, not the Tailscale one) |
+| First HELLO | ok, 103 ms |
+| Repeat, 12 HELLOs in 60 s | 12 ok, 0 failed, slowest 57 ms |
+| After the phone's screen was off for 2 minutes | found after 174 ms, HELLO ok in 12 ms |
+| Direct path, no discovery | HELLO ok in 12 ms, `net=wifi` |
+| `browse` from the PC itself | found after 87 ms, HELLO ok on all three of its addresses |
+| The PC program stopping (its safety stop) | the phone logged `lost` within a second of the announcement being withdrawn |
+
+After the program had stopped, the phone's HELLOs failed with a 3 second
+connect timeout, not with "connection refused": with nothing listening,
+Windows drops the connection attempt silently. So from the failure alone a
+phone cannot tell "the program is not running" from "a firewall is in the
+way". The withdrawn announcement is what tells it.
+
+Not seen in this run: what the phone gets while the Block rules are still in
+place, because the owner answered the prompt within seconds both times; a
+network where the router keeps devices apart; and a prompt answered with
+Cancel.
+
+What this means for the real product:
+
+- Finding the master PC over mDNS works on an ordinary home network, on a
+  network Windows calls Public, once the firewall allows the program.
+- The installer runs as an administrator anyway, so it should add its own
+  narrow rule (this program, its one TCP port and UDP 5353, the local subnet
+  only, both profiles) and the family never sees the prompt. Leaving it to
+  the prompt needs an administrator at the PC at the right moment and ends
+  with a rule far wider than needed.
+- The uninstaller must remove that rule.
+
+Afterwards both test apps were removed from the phone. The four rules Windows
+made (two for the program, two for a renamed copy used to see the prompt a
+second time) need an administrator to remove:
+
+```
+Get-NetFirewallApplicationFilter | Where-Object Program -like '*limo-hub-spike*' | Get-NetFirewallRule | Remove-NetFirewallRule
+```
+
 ## Unknowns
 
 - Whether Windows shows its firewall prompt at all, which boxes it ticks by
