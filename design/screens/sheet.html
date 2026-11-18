@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiMo on the PC</title>
+<link rel="stylesheet" href="pc.css">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 16px 60px; color: var(--ink); font-family: var(--body);
+    background-color: var(--paper);
+    background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px);
+    background-size: 18px 18px;
+  }
+  main { max-width: 1120px; margin: 0 auto; }
+  h1 { font-family: var(--display); font-size: 34px; margin: 0 0 4px; letter-spacing: -.01em; }
+  h2 { font-family: var(--display); font-size: 22px; margin: 38px 0 4px; }
+  p { margin: 0 0 14px; max-width: 760px; line-height: 1.5; color: var(--ink-soft); }
+  .eyebrow { font-family: var(--mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--teal); }
+  a { color: inherit; }
+
+  /* A screen, drawn at 1366 by 768 and scaled to the room it has. */
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 22px; }
+  .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .shot { display: block; text-decoration: none; min-width: 0; }
+  .frame {
+    position: relative; overflow: hidden; border: 1.5px solid var(--ink); border-radius: 10px;
+    box-shadow: 4px 4px 0 rgba(27,38,56,.85); background: var(--paper);
+  }
+  .frame.mon { aspect-ratio: 1366 / 768; }
+  .frame.crop { aspect-ratio: 960 / 508; background: var(--paper2); }
+  .frame > .in { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
+  .frame.mon > .in { width: 1366px; height: 768px; }
+  .frame.crop > .in { width: 960px; height: 508px; padding: 18px 20px 22px 18px; }
+  .cap { display: flex; align-items: baseline; gap: 10px; margin-top: 10px; font-size: 14px; }
+  .cap b { font-family: var(--mono); font-size: 12px; font-weight: 600; }
+  .cap span { color: var(--ink-soft); }
+
+  .card { background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 rgba(27,38,56,.85); padding: 16px; }
+  .surfaces { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .surface { display: flex; flex-wrap: wrap; gap: 14px 12px; padding: 18px 16px 20px; border-radius: 12px; align-items: center; }
+  .surface.doc { background: #eef0f4; }
+  .surface.game { background: #1a1633; }
+  .surface.video { background: linear-gradient(135deg, #f39a5a 0%, #e8577a 45%, #7b4bd6 100%); }
+  .notices { display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start; }
+  .notices .nt { pointer-events: none; }
+
+  .line { display: flex; gap: 14px; padding: 10px 0; border-top: 1.5px dashed var(--border); font-size: 14.5px; line-height: 1.5; }
+  .line:first-child { border-top: 0; padding-top: 0; }
+  .line:last-child { padding-bottom: 0; }
+  .line .k { flex: none; width: 118px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); padding-top: 3px; }
+  code { font-family: var(--mono); font-size: 12.5px; }
+
+  @media (max-width: 760px) {
+    .grid, .grid.three, .surfaces { grid-template-columns: 1fr; }
+    h1 { font-size: 28px; }
+    .line { flex-direction: column; gap: 2px; }
+    .line .k { width: auto; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">LiMo · design · on the PC</div>
+  <h1>The lock screen and the time left display</h1>
+  <p>What a child sees on the master PC, in the Paper and Ink theme. These are drawings to agree the look: the real ones are drawn by LiMo’s helper. Every picture opens at its real size, and the lock screen there can be used.</p>
+
+  <h2>The lock screen</h2>
+  <p>One card on the paper page. The left half says why the PC is locked and when it opens again. The right half is what can be done about it. The left half stays while a way out is open, so the reason is never out of sight.</p>
+  <div id="main-shot"></div>
+
+  <h2>Every reason</h2>
+  <p>The picture and the words change with the reason. The stamp, the place of everything and the size of the card do not.</p>
+  <div class="grid" id="reasons"></div>
+
+  <h2>The ways out</h2>
+  <p>Three, each only when the family’s rules allow it: ask a guardian, type a code a guardian reads out, or a guardian types the PIN. Digits can be typed or tapped. After five wrong tries the next one has to wait.</p>
+  <div class="grid" id="ways"></div>
+
+  <h2>A second screen</h2>
+  <p>Every screen attached to the PC is covered. Only the main one carries the card.</p>
+  <div class="grid" id="second"></div>
+
+  <h2>The time left display</h2>
+  <p>While the PC is open, a small display floats above everything, by the clock. It is one line: the time left, and whether it is being counted. It can be dragged elsewhere.</p>
+  <div class="surfaces" id="pills"></div>
+
+  <h2>Notices</h2>
+  <p>A warning comes 15, 5 and 1 minute before a lock, and a notice when a blocked program is closed. They appear above the display and go away with OK, or by themselves.</p>
+  <div class="card"><div class="notices" id="notices"></div></div>
+  <div class="grid three" id="desks" style="margin-top:22px"></div>
+
+  <h2>For the build</h2>
+  <div class="card" id="notes"></div>
+</main>
+<script src="../icons/clay.js"></script>
+<script src="../icons/shapes.js"></script>
+<script src="pc.js"></script>
+<script>
+  var PC = window.LIMO_PC;
+  function byId(id) { return document.getElementById(id); }
+  function shot(kind, html, href, name, text) {
+    return '<a class="shot" href="' + href + '"><div class="frame ' + kind + '"><div class="in">' + html + '</div></div>' +
+      '<div class="cap"><b>' + name + '</b><span>' + text + '</span></div></a>';
+  }
+  function lockShot(over, query, name, text) {
+    return shot('mon', PC.lock(PC.fresh(over)), 'lock.html' + query, name, text);
+  }
+  function cardShot(over, query, name, text) {
+    return shot('crop', PC.card(PC.fresh(over)), 'lock.html' + query, name, text);
+  }
+
+  byId('main-shot').innerHTML = lockShot({}, '', 'time_used_up', 'Today’s time is used up, with all three ways out.');
+
+  byId('reasons').innerHTML = [
+    ['blocked_hours', 'Hours when the PC is not used, such as bedtime.'],
+    ['no_time_today', 'A day with no screen time.'],
+    ['guardian_lock', 'A guardian locked the child’s devices.'],
+    ['held_by_another_device', 'The rest of today’s time is on a phone that is out.'],
+    ['waiting_for_time', 'Passes in a moment.'],
+    ['account_not_linked', 'A Windows account LiMo has not been told about.'],
+    ['cannot_check', 'The family’s file cannot be read.']
+  ].map(function (r) { return lockShot({ why: r[0] }, '?why=' + r[0], r[0], r[1]); }).join('');
+
+  var asked = { minutes: 30, at: '9:32 pm', answer: 'waiting' };
+  byId('ways').innerHTML = [
+    cardShot({ panel: 'ask', reason: 'To finish my science project' }, '?panel=ask&reason=To%20finish%20my%20science%20project', 'ask', 'How long, and why if the child wants to say.'),
+    cardShot({ request: asked }, '?request=waiting', 'asked', 'The request waits. Asking comes back once it is answered.'),
+    cardShot({ request: { minutes: 30, at: '9:32 pm', answer: 'refused' } }, '?request=refused', 'answered', 'A guardian said no.'),
+    cardShot({ panel: 'code', typed: '13420' }, '?panel=code&typed=13420', 'code', '8 digits, in two groups of four.'),
+    cardShot({ panel: 'pin', typed: '2468' }, '?panel=pin&typed=2468', 'pin', 'The guardian chooses what the PIN gives.'),
+    cardShot({ panel: 'code', error: 'That code is not right. 3 more tries before a wait.', wrong: 2 }, '?panel=code', 'wrong', 'The message has its own room, so nothing moves.'),
+    cardShot({ waitUntil: '9:47 pm' }, '?wait=1', 'wait', 'After five wrong tries. Asking still works.'),
+    cardShot({ why: 'opened' }, '?panel=code&typed=1342071', 'opened', 'A right code or PIN, said before the screen goes.')
+  ].join('');
+
+  byId('second').innerHTML = lockShot({ second: true }, '?second=1', 'second', 'Any screen but the main one.');
+
+  byId('pills').innerHTML = ['doc', 'game', 'video'].map(function (bg) {
+    return '<div class="surface ' + bg + '">' + Object.keys(PC.PILLS).map(PC.pill).join('') + '</div>';
+  }).join('');
+
+  byId('notices').innerHTML = Object.keys(PC.NOTICES).map(PC.notice).join('');
+
+  byId('desks').innerHTML = [
+    ['doc', 'soon', 'warn15', 'Over a document.'],
+    ['game', 'last', 'warn1', 'Over a game, in the last minute.'],
+    ['video', 'paused', 'closed', 'A blocked program was closed.']
+  ].map(function (d) {
+    return shot('mon', PC.desk(d[0], d[1], d[2]), 'time-left.html?on=' + d[0] + '&pill=' + d[1] + '&notice=' + d[2], d[0], d[3]);
+  }).join('');
+
+  byId('notes').innerHTML = [
+    ['Size', 'Everything is laid out for a screen of 1366 by 768 and scaled as one piece: by the smaller of width over 1366 and height over 768, kept between 0.8 and 2.2. The card is 920 by 468 and never changes size.'],
+    ['Theme', 'The values are in <code>tokens.json</code>. The three fonts are bundled with the helper, so the lock looks the same on a PC that does not have them.'],
+    ['Icons', 'From the icon set, painted in light clay, at 88 for the reason, 34 on a 48 tile in a row and a notice, and 24 in the display.'],
+    ['Words', 'The detail line is the engine’s own message. The short title above it is new: the engine gives one sentence for each reason, and the screen wants a short one and a longer one.'],
+    ['Typing', 'Digits go to the code or the PIN from the keyboard and from the keys on the screen. Enter uses what is typed and Escape goes back. Nothing else typed goes anywhere.'],
+    ['Messages', 'A message under a field has its room kept empty when there is none. A picked choice is filled with ink and keeps its size.'],
+    ['Display', 'Starts above the clock, 16 from the right edge. Solid, not glass: it has to be read over any program. Its place is kept once the child drags it.'],
+    ['Not here', 'No picture of what is behind the lock, no list of programs, no window titles. The lock screen shows only what LiMo itself knows.']
+  ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
+
+  function fit() {
+    Array.prototype.forEach.call(document.querySelectorAll('.frame'), function (f) {
+      var base = f.classList.contains('crop') ? 960 : 1366;
+      f.firstChild.style.transform = 'scale(' + (f.clientWidth / base) + ')';
+    });
+  }
+  window.addEventListener('resize', fit);
+  fit();
+</script>
+</body>
+</html>

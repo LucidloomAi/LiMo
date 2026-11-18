@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiMo: the time left display on the PC</title>
+<link rel="stylesheet" href="pc.css">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  #screen { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<script src="../icons/clay.js"></script>
+<script src="../icons/shapes.js"></script>
+<script src="pc.js"></script>
+<script>
+  // The time left display at its real size, on a plain desktop that stands
+  // in for whatever the child has open.
+  //
+  //   time-left.html?on=doc | game | video     what is behind it
+  //   time-left.html?pill=counting | paused | soon | last | nolimit | unlocked
+  //   time-left.html?notice=warn15 | warn5 | warn1 | bed15 | unlock5 | closed
+  //
+  // OK puts a notice away.
+  var PC = window.LIMO_PC;
+  var q = new URLSearchParams(location.search);
+  var el = document.getElementById('screen');
+  var on = ['doc', 'game', 'video'].indexOf(q.get('on')) >= 0 ? q.get('on') : 'doc';
+  var notice = PC.NOTICES[q.get('notice')] ? q.get('notice') : '';
+  var pill = PC.PILLS[q.get('pill')] ? q.get('pill') : 'counting';
+  function draw() { el.innerHTML = PC.desk(on, pill, notice); }
+  el.addEventListener('click', function (e) {
+    if (e.target.closest('[data-act="ok"]')) { notice = ''; draw(); }
+  });
+  draw();
+</script>
+</body>
+</html>

@@ -1,0 +1,213 @@
+/* LiMo on the PC: the lock screen, the time left display and its notices,
+   in the Paper and Ink theme. A design sample, not the product: the real
+   ones are drawn by LiMo's helper in the child's session.
+
+   Sizes are for a screen of 1366 by 768. lock.html scales the whole screen
+   to fit the window, and the real helper does the same. */
+
+:root {
+  --paper: #f6f1e4; --paper2: #efe7d2; --card: #fffdf6; --ink: #1b2638; --ink-soft: #46506a;
+  --marigold: #e89c1c; --marigold-deep: #b97a08; --teal: #0e7c66; --coral: #cf4326;
+  --border: rgba(27,38,56,.16); --shadow: rgba(27,38,56,.85);
+  --display: Fraunces, Georgia, 'Times New Roman', serif;
+  --body: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Spline Sans Mono', Consolas, 'Courier New', monospace;
+}
+
+/* ---------- The lock screen ---------- */
+
+.lk {
+  position: relative; width: 100%; height: 100%; overflow: hidden;
+  display: flex; flex-direction: column;
+  color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.4;
+  background-color: var(--paper);
+  background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+}
+.lk *, .tl, .tl *, .nt, .nt * { box-sizing: border-box; }
+:where(.lk, .nt) button { font: inherit; color: inherit; cursor: pointer; }
+.lk svg, .tl svg, .nt svg { display: block; flex: none; }
+
+.lk-top { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 24px 34px 0; }
+.lk-mark { display: flex; align-items: center; gap: 8px; font: 600 24px/1 var(--display); letter-spacing: -.01em; }
+.lk-now { text-align: right; }
+.lk-now b { display: block; font: 600 28px/1 var(--display); }
+.lk-now span { display: block; margin-top: 7px; font: 500 11.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+
+.lk-mid { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.lk-card {
+  flex: none; width: 920px; height: 468px; display: grid; grid-template-columns: 404px minmax(0, 1fr);
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--shadow);
+}
+
+/* The left half: why it is locked, and when it opens again. */
+.lk-why { display: flex; flex-direction: column; min-width: 0; padding: 30px 32px 28px 36px; border-right: 1.5px dashed var(--border); }
+.lk-why-top { display: flex; align-items: flex-start; justify-content: space-between; }
+.lk-stamp {
+  margin: 12px 2px 0 0; padding: 7px 8px 6px 11px; border: 2px solid var(--coral); border-radius: 7px;
+  font: 600 13px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--coral);
+  transform: rotate(-4deg);
+}
+.lk-stamp.ink { color: var(--ink-soft); border-color: var(--ink-soft); }
+.lk-stamp.teal { color: var(--teal); border-color: var(--teal); }
+.lk-eyebrow, .lk-label, .lk-until span {
+  font: 500 11.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft);
+}
+.lk-eyebrow { margin-top: 20px; }
+.lk-why h1 { margin: 10px 0 0; font: 600 33px/1.12 var(--display); letter-spacing: -.012em; text-wrap: balance; }
+.lk-why p { margin: 12px 0 0; font-size: 15.5px; line-height: 1.45; color: var(--ink-soft); text-wrap: pretty; }
+.lk-until { margin-top: auto; height: 64px; padding-top: 16px; border-top: 1.5px dashed var(--border); }
+.lk-until span { display: block; }
+.lk-until b { display: block; margin-top: 8px; font: 600 24px/1.1 var(--display); color: var(--marigold-deep); }
+.lk-until b.plain { font-size: 19px; color: var(--ink); }
+
+/* The right half: what can be done. */
+.lk-do { display: flex; flex-direction: column; min-width: 0; padding: 30px 32px 28px; }
+.lk-label em { margin-left: 6px; font: 400 12.5px/1 var(--body); letter-spacing: 0; text-transform: none; }
+.lk-rows { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
+.lk-row {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 10px 14px 10px 10px; text-align: left;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--shadow);
+}
+.lk-row b { display: block; font-size: 16px; font-weight: 600; line-height: 1.25; }
+.lk-row i { display: block; margin-top: 2px; font-style: normal; font-size: 13.5px; line-height: 1.3; color: var(--ink-soft); }
+.lk-row .mk { margin-left: auto; }
+/* An icon in a row sits on a tile of the quieter paper, so a pale drawing
+   still has an edge on a card. */
+.lk-tile { flex: none; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 10px; background: var(--paper2); }
+.lk-row:active, .lk-btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--shadow); }
+.lk-row.off { border-style: dashed; box-shadow: none; opacity: .5; cursor: default; }
+.lk-row.off:active { transform: none; box-shadow: none; }
+
+.stamp {
+  flex: none; padding: 4px 7px 3px; border: 1.5px solid var(--ink); border-radius: 6px; white-space: nowrap;
+  font: 600 10.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+}
+.stamp.teal { color: var(--teal); border-color: var(--teal); }
+.stamp.coral { color: var(--coral); border-color: var(--coral); }
+.lk-req, .lk-wait {
+  display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 8px 12px 8px 10px;
+  border: 1.5px dashed rgba(27,38,56,.42); border-radius: 10px; font-size: 14px;
+}
+.lk-req .stamp { margin-left: auto; }
+.lk-wait { border: 1.5px solid var(--coral); background: rgba(207,67,38,.06); }
+.lk-none { display: flex; align-items: flex-start; gap: 14px; margin: auto 0; padding-bottom: 20px; }
+.lk-none b { display: block; font: 600 20px/1.2 var(--display); }
+.lk-none span { display: block; margin-top: 6px; font-size: 15px; line-height: 1.45; color: var(--ink-soft); }
+.lk-also { margin-top: auto; height: 64px; padding-top: 16px; display: flex; align-items: center; border-top: 1.5px dashed var(--border); font-size: 13.5px; line-height: 1.45; color: var(--ink-soft); }
+.lk-sample { margin-top: auto; font: 500 11.5px/1.4 var(--mono); color: var(--ink-soft); }
+.lk-sample button { padding: 0; background: none; border: 0; border-bottom: 1.5px solid var(--ink); font: inherit; color: var(--ink); }
+
+/* A way out, opened. */
+.lk-head { display: flex; align-items: center; gap: 14px; }
+.lk-back {
+  display: inline-flex; align-items: center; gap: 3px; padding: 6px 11px 6px 6px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 8px; font: 600 13px/1 var(--body);
+}
+.lk-head h2 { margin: 0; font: 600 23px/1 var(--display); letter-spacing: -.008em; }
+.lk-note { margin: 14px 0 0; font-size: 14.5px; line-height: 1.45; color: var(--ink-soft); text-wrap: pretty; }
+.lk-do .lk-label { margin-top: 18px; }
+.lk-do > .lk-label:first-child { margin-top: 0; }
+.lk-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.lk-chip { padding: 9px 12px 8px; background: var(--card); border: 1.5px solid var(--ink); border-radius: 8px; font: 500 13px/1 var(--mono); }
+.lk-chip.on { background: var(--ink); color: var(--card); }
+.lk-text {
+  display: block; width: 100%; flex: none; height: 118px; margin-top: 9px; padding: 10px 12px; resize: none; outline: none;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; font: 15px/1.4 var(--body); color: var(--ink);
+}
+.lk-text:focus, .lk-pinbox.at { box-shadow: inset 0 -4px 0 var(--marigold); }
+.lk-text::placeholder { color: rgba(70,80,106,.7); }
+.lk-count { margin-top: 6px; text-align: right; font: 500 11px/1 var(--mono); color: var(--ink-soft); }
+.lk-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--shadow);
+  font: 600 15px/1 var(--body);
+}
+.lk-btn.go { background: var(--marigold); }
+.lk-actions { display: flex; align-items: center; gap: 18px; margin-top: auto; }
+.lk-actions .lk-btn { flex: none; margin-left: auto; }
+
+.lk-cells { display: flex; gap: 6px; margin-top: 14px; }
+.lk-cell {
+  width: 40px; height: 48px; display: grid; place-items: center;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 8px; font: 600 21px/1 var(--mono);
+}
+.lk-cell.gap { margin-left: 12px; }
+.lk-cell.at { box-shadow: inset 0 -4px 0 var(--marigold); }
+.lk-pinbox {
+  display: flex; align-items: center; gap: 9px; height: 48px; margin-top: 14px; padding: 0 14px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px;
+}
+.lk-pinbox .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--ink); }
+.lk-pinbox .ph { font: 500 13px/1 var(--mono); color: rgba(70,80,106,.8); }
+.lk-err { min-height: 19px; margin-top: 7px; font-size: 13.5px; line-height: 19px; font-weight: 600; color: var(--coral); }
+.lk-entry { display: grid; grid-template-columns: 216px minmax(0, 1fr); gap: 22px; margin-top: 7px; flex: 1; min-height: 0; }
+.lk-pad { display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 40px; gap: 8px; align-content: start; }
+.lk-key {
+  display: grid; place-items: center; padding: 0;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 9px; font: 600 17px/1 var(--mono);
+}
+.lk-key:active { background: var(--paper2); }
+.lk-key.none { visibility: hidden; }
+.lk-side { display: flex; flex-direction: column; min-width: 0; height: 184px; }
+.lk-side .lk-label:first-child { margin-top: 0; }
+.lk-side .lk-label { margin-top: 14px; }
+.lk-side .lk-chip { padding: 8px 9px 7px; font-size: 12.5px; }
+.lk-side .lk-chips { gap: 6px; margin-top: 8px; }
+.lk-side .lk-btn { margin-top: auto; }
+.lk-small { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--ink-soft); }
+
+.lk-foot { flex: none; padding: 0 20px 24px; text-align: center; font: 500 12px/1.4 var(--mono); color: var(--ink-soft); }
+
+/* Any other screen attached to the PC. */
+.lk-second { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+.lk-second .lk-stamp { margin: 0; }
+.lk-second p { margin: 0; font-size: 16px; color: var(--ink-soft); }
+
+/* ---------- The time left display ---------- */
+
+.tl {
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px 0 6px;
+  background: var(--card); color: var(--ink); border: 1.5px solid var(--ink); border-radius: 999px;
+  box-shadow: 3px 3px 0 var(--shadow); font: 600 13px/1 var(--mono); white-space: nowrap;
+}
+.tl small { font: 500 10.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+.tl.paused svg { opacity: .5; }
+.tl.paused b { color: var(--ink-soft); font-weight: 500; }
+.tl.soon b { color: var(--marigold-deep); }
+.tl.last { border-color: var(--coral); }
+.tl.last b { color: var(--coral); }
+.tl.open b { color: var(--teal); }
+
+/* ---------- A notice: a warning before a lock, or a program closed ---------- */
+
+.nt {
+  width: 340px; padding: 14px 14px 12px; color: var(--ink); font-family: var(--body);
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--shadow);
+}
+.nt-top { display: flex; align-items: flex-start; gap: 12px; }
+.nt h3 { margin: 1px 0 0; font: 600 18px/1.2 var(--display); letter-spacing: -.005em; }
+.nt p { margin: 5px 0 0; font-size: 13.5px; line-height: 1.4; color: var(--ink-soft); }
+.nt-foot { display: flex; align-items: center; gap: 10px; min-height: 34px; margin-top: 12px; padding-top: 10px; border-top: 1.5px dashed var(--border); }
+.nt-foot .when { font: 500 11.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+.nt-foot .count { font: 600 22px/1 var(--display); color: var(--coral); }
+.nt-foot .lk-btn { margin-left: auto; padding: 8px 15px; font-size: 13.5px; box-shadow: 2px 2px 0 var(--shadow); }
+
+/* ---------- A plain desktop, to show where the display sits ---------- */
+
+.desk { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: var(--body); }
+.desk * { box-sizing: border-box; }
+.desk.doc { background: #cfd5df; }
+.desk.game { background: radial-gradient(120% 90% at 30% 20%, #3b2f6b 0%, #1a1633 55%, #0c0a1c 100%); }
+.desk.video { background: linear-gradient(135deg, #f39a5a 0%, #e8577a 45%, #7b4bd6 100%); }
+.desk-page { position: absolute; left: 50%; top: 56px; bottom: 48px; width: 62%; transform: translateX(-50%); background: #fff; padding: 56px 64px; }
+.desk-page i { display: block; height: 11px; margin-bottom: 15px; border-radius: 3px; background: #dfe3ea; }
+.desk-page i.h { height: 22px; width: 46%; margin-bottom: 30px; background: #c3c9d6; }
+.desk-strip { position: absolute; left: 0; right: 0; top: 0; height: 56px; background: #eef0f4; border-bottom: 1px solid #c3c9d6; }
+.desk-hill { position: absolute; left: -10%; right: -10%; bottom: -30%; height: 70%; border-radius: 50%; background: #241d49; }
+.desk-hill.b { left: 35%; right: -30%; bottom: -38%; background: #2f2760; }
+.desk-star { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #f6e7a8; }
+.desk-play { position: absolute; left: 50%; top: 44%; width: 0; height: 0; transform: translate(-40%, -50%); border: 34px solid transparent; border-left: 56px solid rgba(255,255,255,.85); border-right: 0; }
+.desk-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 48px; display: flex; align-items: center; justify-content: flex-end; padding: 0 18px; background: rgba(24,28,36,.94); color: #e9ecf2; font: 500 12px/1.35 var(--body); text-align: right; }
+.desk .tl { position: absolute; right: 16px; bottom: 62px; }
+.desk .nt { position: absolute; right: 16px; bottom: 110px; }

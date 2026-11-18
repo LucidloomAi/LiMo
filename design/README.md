@@ -17,6 +17,11 @@ icons/
   svg/               every icon as its own file
   ICONS.md           every icon, with its colour and what it is for
   preview.png        a picture of the review sheet
+screens/
+  sheet.html         the review sheet for the PC: open it in a browser
+  lock.html          the lock screen at its real size; it can be used
+  time-left.html     the time left display on a plain desktop
+  pc.js, pc.css      what those pages draw
 ```
 
 ![The LiMo icon set on its review sheet](icons/preview.png)
@@ -86,6 +91,48 @@ on a sample phone screen.
   can be scrolled clear of it.
 - **Where a phone cannot blur** what is behind, the bar is the card colour
   at nearly full strength instead.
+
+## On the PC
+
+What a child sees on the master PC: the lock screen, and the time left
+display with its notices. Open `screens/sheet.html` for every state. Each
+picture there opens at its real size, and the lock screen can be used: the
+buttons do what they would do, against made up answers.
+
+![The lock screen](screens/preview-lock.png)
+
+**The lock screen** is one card on the paper page. The left half says why
+the PC is locked and when it opens again. The right half is what can be
+done: ask a guardian for more time, type a code that a guardian reads out,
+or a guardian types the PIN. The left half stays while a way out is open,
+so the reason is never out of sight. The card never changes size.
+
+- The picture is the reason: an hourglass for time used up, a moon for
+  hours that are off limits, a lock for a guardian's lock. The stamp says
+  LOCKED in coral, the one use of coral on the screen.
+- The time it opens again is marigold, because it is a time.
+- Digits can be typed or tapped. A message under a field has its room kept
+  when there is none, so nothing moves when it appears.
+- It shows only what LiMo itself knows. No picture of what is behind it,
+  no list of programs, no window titles.
+- Every other screen attached to the PC is covered too, and only says to
+  look at the main one.
+
+![The time left display with a warning](screens/preview-time-left.png)
+
+**The time left display** is one line that floats above everything, by the
+clock: the time left, and whether it is being counted. It is solid, not
+glass, because it has to be read over any program. A warning 15, 5 and 1
+minute before a lock, and a notice when a blocked program is closed,
+appear above it.
+
+**Size.** Everything is laid out for a screen of 1366 by 768 and scaled as
+one piece, by the smaller of width over 1366 and height over 768, kept
+between 0.8 and 2.2.
+
+These pages are drawings to agree the look. The real lock screen is drawn
+by LiMo's helper in the child's session, not by a browser, and has to
+match them.
 
 ## The icons
 

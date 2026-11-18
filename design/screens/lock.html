@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiMo: the lock screen on the PC</title>
+<link rel="stylesheet" href="pc.css">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #f6f1e4; }
+  #screen { transform-origin: 0 0; }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<script src="../icons/clay.js"></script>
+<script src="../icons/shapes.js"></script>
+<script src="pc.js"></script>
+<script>
+  // The lock screen at its real size, filling the window. It can be used:
+  // every button does what it would do, against made up answers.
+  //
+  //   lock.html?why=blocked_hours        another reason (the names in pc.js)
+  //   lock.html?panel=ask | code | pin   a way out, opened
+  //   lock.html?request=waiting | refused | granted
+  //   lock.html?wait=1                   after too many wrong tries
+  //   lock.html?typed=1342               digits already typed
+  //   lock.html?second=1                 a screen that is not the main one
+  //
+  // In this sample the code 1342 0715 and the PIN 246810 are right.
+  var PC = window.LIMO_PC;
+  var q = new URLSearchParams(location.search);
+  var el = document.getElementById('screen');
+
+  function start() {
+    var s = PC.fresh({ why: PC.WHY[q.get('why')] ? q.get('why') : 'time_used_up', panel: q.get('panel') || 'ways', second: !!q.get('second') });
+    if (q.get('request')) {
+      s.request = { minutes: 30, at: '9:32 pm', answer: q.get('request'), given: 20 };
+    }
+    if (q.get('wait')) { s.waitUntil = '9:47 pm'; }
+    if (q.get('typed')) { s.typed = q.get('typed').replace(/\D/g, '').slice(0, 8); }
+    if (q.get('reason')) { s.reason = q.get('reason').slice(0, 200); }
+    return s;
+  }
+  var state = start();
+
+  // The design is made for 1366 by 768 and scaled as one piece, from a
+  // little smaller for a small laptop to much larger for a big monitor.
+  function fit() {
+    var k = Math.max(0.8, Math.min(2.2, Math.min(innerWidth / 1366, innerHeight / 768)));
+    el.style.width = (innerWidth / k) + 'px';
+    el.style.height = (innerHeight / k) + 'px';
+    el.style.transform = 'scale(' + k + ')';
+  }
+  function draw() { el.innerHTML = PC.lock(state); }
+
+  function wrongTry(what) {
+    state.wrong += 1;
+    state.typed = '';
+    if (state.wrong >= 5) {
+      state.waitUntil = '9:47 pm';
+      state.panel = 'ways';
+      state.error = '';
+      return;
+    }
+    var left = 5 - state.wrong;
+    state.error = 'That ' + what + ' is not right. ' + left + (left === 1 ? ' more try' : ' more tries') + ' before a wait.';
+  }
+  function opened(title) {
+    state = PC.fresh({ why: 'opened', title: title });
+  }
+  var PIN_DONE = {
+    add15: '15 minutes added.', add30: '30 minutes added.', add60: '1 hour added.',
+    open60: 'Open for 1 hour.', open120: 'Open for 2 hours.', today: 'Open for the rest of today.'
+  };
+
+  function act(name, v) {
+    if (name === 'open') { state.panel = v; state.typed = ''; state.error = ''; }
+    else if (name === 'back') { state.panel = 'ways'; state.typed = ''; state.error = ''; }
+    else if (name === 'minutes') { state.askMinutes = Number(v); }
+    else if (name === 'pin-act') { state.pinAct = v; }
+    else if (name === 'send') {
+      state.request = { minutes: state.askMinutes, at: state.now, answer: 'waiting' };
+      state.panel = 'ways';
+    }
+    else if (name === 'key') {
+      if (state.typed.length < 8) { state.typed += v; state.error = ''; }
+    }
+    else if (name === 'del') { state.typed = state.typed.slice(0, -1); state.error = ''; }
+    else if (name === 'use-code') {
+      if (state.typed.length < 8) { state.error = 'A code has 8 digits.'; }
+      else if (state.typed === '13420715') { opened('30 minutes added.'); }
+      else { wrongTry('code'); }
+    }
+    else if (name === 'use-pin') {
+      if (state.typed.length < 6) { state.error = 'A PIN has 6 to 8 digits.'; }
+      else if (state.typed === '246810') { opened(PIN_DONE[state.pinAct]); }
+      else { wrongTry('PIN'); }
+    }
+    else if (name === 'again') { state = PC.fresh(); }
+    else { return; }
+    draw();
+  }
+
+  el.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-act]');
+    if (b) { act(b.getAttribute('data-act'), b.getAttribute('data-v')); }
+  });
+  el.addEventListener('input', function (e) {
+    if (e.target.classList.contains('lk-text')) {
+      state.reason = e.target.value;
+      document.getElementById('lk-count').textContent = state.reason.length;
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (state.panel !== 'code' && state.panel !== 'pin') { return; }
+    if (/^[0-9]$/.test(e.key)) { act('key', e.key); }
+    else if (e.key === 'Backspace') { act('del'); }
+    else if (e.key === 'Enter') { act(state.panel === 'code' ? 'use-code' : 'use-pin'); }
+    else if (e.key === 'Escape') { act('back'); }
+  });
+  window.addEventListener('resize', fit);
+  fit();
+  draw();
+</script>
+</body>
+</html>
