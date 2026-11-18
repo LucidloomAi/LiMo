@@ -123,6 +123,7 @@ and a `TESTING.md` with the exact steps that were run.
 
 ```
 core/                        Rust: the rules core, the first part of the product
+hub/                         Rust: the family's database on the master PC
 spikes/
   01-windows-service-lock/   Rust: a Windows service and a lock on every monitor
   02-android-base-lock/      Kotlin: an accessibility service that covers a blocked app
@@ -141,6 +142,11 @@ The product has begun with [`core/`](core/): one Rust library that holds the
 time rules and keeps one daily budget honest across a PC and a phone with no
 server. Windows and Android will both use it. Its README explains the model
 in plain words, and its tests include a file of cases anyone can read.
+
+[`hub/`](hub/) is the second part: the family's database on the master PC.
+It keeps the children, their rules and devices, and the usage in one file,
+and it is where a guardian's actions are carried out. It has no network and
+no screens yet; those come next.
 
 **A warning about proof five.** It makes a test app the Device Owner of a
 phone. Run it only on a spare phone with no accounts on it, and read its
