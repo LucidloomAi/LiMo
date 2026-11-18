@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiMo icons</title>
+<style>
+  :root {
+    --paper: #f6f1e4; --paper2: #efe7d2; --card: #fffdf6; --ink: #1b2638; --ink-soft: #46506a;
+    --marigold: #e89c1c; --marigold-deep: #b97a08; --teal: #0e7c66; --coral: #cf4326;
+    --border: rgba(27,38,56,.16);
+    --display: Fraunces, Georgia, 'Times New Roman', serif;
+    --body: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
+    --mono: 'Spline Sans Mono', Consolas, 'Courier New', monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 16px 60px; color: var(--ink); font-family: var(--body);
+    background-color: var(--paper);
+    background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px);
+    background-size: 18px 18px;
+  }
+  main { max-width: 1120px; margin: 0 auto; }
+  h1 { font-family: var(--display); font-size: 34px; margin: 0 0 4px; letter-spacing: -.01em; }
+  h2 { font-family: var(--display); font-size: 22px; margin: 34px 0 4px; }
+  h3 { font-family: var(--mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); margin: 18px 0 10px; font-weight: 600; }
+  h3:first-child { margin-top: 0; }
+  p { margin: 4px 0 14px; color: var(--ink-soft); max-width: 68ch; line-height: 1.5; }
+  svg { display: block; flex: none; }
+  .eyebrow { font-family: var(--mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--teal); }
+  .card {
+    background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px;
+    box-shadow: 4px 4px 0 rgba(27,38,56,.85); padding: 18px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 16px 8px; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+  .name { font-family: var(--mono); font-size: 11.5px; }
+  .use { font-size: 11px; color: var(--ink-soft); line-height: 1.3; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .row.tight { gap: 8px; }
+  .looks { display: grid; grid-template-columns: 170px 1fr; gap: 14px 16px; align-items: center; }
+  .label { font-family: var(--mono); font-size: 12px; }
+  .label small { display: block; font-family: var(--body); color: var(--ink-soft); font-size: 11.5px; margin-top: 2px; }
+  .surface { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px 14px; border-radius: 12px; align-items: center; }
+  .on-paper { background: var(--paper); border: 1.5px dashed var(--border); }
+  .on-card { background: var(--card); border: 1.5px solid var(--ink); }
+  .on-ink { background: var(--ink); }
+  .on-teal { background: var(--teal); }
+  .on-marigold { background: var(--marigold); }
+  .pick { display: inline-block; font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; color: var(--card); background: var(--teal); border-radius: 4px; padding: 2px 6px; margin-left: 6px; vertical-align: middle; }
+
+  /* A sample of the icons at work, in the Paper and Ink theme. */
+  .sample { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 18px; align-items: start; }
+  .tile { background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 rgba(27,38,56,.85); padding: 16px; }
+  .tile-head { display: flex; align-items: center; gap: 10px; }
+  .tile-head b { font-family: var(--display); font-size: 20px; font-weight: 600; }
+  .stamp { margin-left: auto; font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; border: 1.5px solid var(--ink); border-radius: 6px; padding: 2px 7px; text-transform: uppercase; }
+  .stamp.teal { color: var(--teal); border-color: var(--teal); }
+  .stamp.coral { color: var(--coral); border-color: var(--coral); }
+  .big { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; }
+  .big .num { font-family: var(--display); font-size: 34px; font-weight: 600; color: var(--marigold-deep); line-height: 1; }
+  .big .of { font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); }
+  .bar { height: 10px; border: 1.5px solid var(--ink); border-radius: 999px; overflow: hidden; background: var(--paper2); margin: 10px 0 12px; }
+  .bar i { display: block; height: 100%; background: var(--marigold); border-right: 1.5px solid var(--ink); }
+  .line { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1.5px dashed var(--border); font-size: 14px; }
+  .line .meta { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); }
+  .btns { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; font: 600 14px var(--body); color: var(--ink); background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; padding: 8px 12px; box-shadow: 3px 3px 0 rgba(27,38,56,.85); }
+  .btn.go { background: var(--marigold); }
+  .tabs { display: flex; justify-content: space-around; border-top: 1.5px solid var(--ink); margin: 16px -16px -16px; padding: 9px 6px 8px; background: var(--paper2); border-radius: 0 0 12px 12px; }
+  .tab { display: flex; flex-direction: column; align-items: center; gap: 3px; font-family: var(--mono); font-size: 10px; letter-spacing: .06em; color: var(--ink-soft); }
+  .tab.on { color: var(--ink); font-weight: 600; }
+  @media (max-width: 560px) { .looks { grid-template-columns: 1fr; } h1 { font-size: 28px; } }
+</style>
+</head>
+<body>
+<main id="main">
+  <div class="eyebrow">LiMo · design · icons</div>
+  <h1>The icon set, in light clay</h1>
+  <p>Every icon is drawn once, as plain shapes, and painted by one theme. Its colour says what it means: honey for time and LiMo’s own things, teal for allowed and at home, coral for locked and stop, and paper with ink for plain things.</p>
+
+  <h2>The set</h2>
+  <p id="count"></p>
+  <div class="card" id="set"></div>
+
+  <h2>At work</h2>
+  <p>How the icons sit on a Paper and Ink screen, at the sizes a screen uses. The screens here are a sketch, not the product.</p>
+  <div class="sample" id="sample"></div>
+
+  <h2>Real sizes</h2>
+  <p>Every icon at 24, the size of a row or a tab, then at 32, the size of a tile.</p>
+  <div class="card">
+    <div class="row tight" id="s24"></div>
+    <div class="row tight" id="s32" style="margin-top:14px"></div>
+  </div>
+
+  <h2>On each surface</h2>
+  <p>Paper, a card, and the three filled surfaces an icon can meet.</p>
+  <div class="row" id="surfaces"></div>
+
+  <h2>The same drawings, three ways</h2>
+  <p>So the look can be judged against the others.</p>
+  <div class="card"><div class="looks" id="looks"></div></div>
+</main>
+<script src="clay.js"></script>
+<script src="shapes.js"></script>
+<script>
+  var CLAY = window.LIMO_CLAY, SHAPES = window.LIMO_SHAPES;
+  var names = Object.keys(SHAPES);
+  var query = new URLSearchParams(location.search);
+  var LOOK = query.get('look') || 'light';
+  function byId(id) { return document.getElementById(id); }
+  function icon(name, size, look, on) {
+    var d = SHAPES[name];
+    return CLAY.svg(d.shapes, { size: size, clay: d.clay, look: look || LOOK, on: on });
+  }
+
+  // sheet.html?close=1 shows only a close up of every icon, for checking a
+  // drawing. Add &look=full to see it in another look.
+  if (query.get('close')) {
+    byId('main').innerHTML = '<div class="eyebrow">LiMo · design · icons · close up</div>' +
+      '<div class="card" style="margin-top:10px"><div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">' +
+      names.map(function (n) { return '<div class="cell">' + icon(n, 132) + '<div class="name">' + n + '</div></div>'; }).join('') +
+      '</div></div>';
+  } else {
+    var GROUPS = [
+      ['Places and people', ['home', 'family', 'child', 'guardian', 'pc', 'phone', 'devices', 'apps', 'account']],
+      ['Time', ['clock', 'hourglass', 'calendar', 'sun', 'moon', 'addtime', 'bell']],
+      ['Locks and ways out', ['lock', 'unlock', 'key', 'pin', 'code', 'shield', 'hand']],
+      ['Answers and states', ['check', 'cross', 'block', 'star', 'add', 'info', 'help', 'alert']],
+      ['Away, links and set up', ['away', 'wifi', 'usb', 'qr', 'link', 'install', 'sync']],
+      ['Reading and settings', ['chart', 'list', 'gear', 'edit', 'trash', 'eyeoff']],
+    ];
+    var listed = {};
+    GROUPS.forEach(function (g) { g[1].forEach(function (n) { listed[n] = true; }); });
+    var rest = names.filter(function (n) { return !listed[n]; });
+    if (rest.length) GROUPS.push(['Not yet grouped', rest]);
+
+    byId('count').textContent = names.length + ' icons, shown at 56.';
+    byId('set').innerHTML = GROUPS.map(function (g) {
+      return '<h3>' + g[0] + '</h3><div class="grid">' + g[1].filter(function (n) { return SHAPES[n]; }).map(function (n) {
+        return '<div class="cell">' + icon(n, 56) + '<div class="name">' + n + '</div><div class="use">' + SHAPES[n].use + '</div></div>';
+      }).join('') + '</div>';
+    }).join('');
+
+    byId('sample').innerHTML =
+      '<div class="tile">' +
+        '<div class="tile-head">' + icon('child', 40) + '<b>Mira</b><span class="stamp teal">At home</span></div>' +
+        '<div class="big">' + icon('hourglass', 32) + '<span class="num">42 min</span><span class="of">LEFT OF 2 H</span></div>' +
+        '<div class="bar"><i style="width:65%"></i></div>' +
+        '<div class="line">' + icon('pc', 24) + 'Family PC<span class="meta">IN USE</span></div>' +
+        '<div class="line">' + icon('phone', 24) + 'Mira’s phone<span class="meta">9 MIN AGO</span></div>' +
+        '<div class="line">' + icon('hand', 24) + 'Asks for 15 more minutes<span class="meta">NOW</span></div>' +
+        '<div class="btns"><span class="btn go">' + icon('addtime', 24) + 'Give time</span><span class="btn">' + icon('lock', 24) + 'Lock now</span></div>' +
+      '</div>' +
+      '<div class="tile">' +
+        '<div class="tile-head">' + icon('calendar', 32) + '<b>Rules</b></div>' +
+        '<div class="line" style="border-top:0;margin-top:8px">' + icon('clock', 24) + 'Two hours on school days<span class="meta">MON TO FRI</span></div>' +
+        '<div class="line">' + icon('moon', 24) + 'Off limits from 21:00<span class="meta">TO 07:00</span></div>' +
+        '<div class="line">' + icon('star', 24) + 'Always allowed<span class="meta">3 APPS</span></div>' +
+        '<div class="line">' + icon('block', 24) + 'Blocked<span class="meta">2 APPS</span></div>' +
+        '<div class="line">' + icon('shield', 24) + 'Strict mode on the phone<span class="meta">ON</span></div>' +
+        '<div class="tabs">' +
+          '<span class="tab on">' + icon('sun', 24) + 'TODAY</span>' +
+          '<span class="tab">' + icon('family', 24) + 'FAMILY</span>' +
+          '<span class="tab">' + icon('devices', 24) + 'DEVICES</span>' +
+          '<span class="tab">' + icon('gear', 24) + 'SETTINGS</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="tile">' +
+        '<div class="tile-head">' + icon('phone', 32) + '<b>Mira’s phone</b><span class="stamp coral">Away</span></div>' +
+        '<div class="line" style="border-top:0;margin-top:8px">' + icon('away', 24) + 'Left home with 30 minutes<span class="meta">15:10</span></div>' +
+        '<div class="line">' + icon('wifi', 24) + 'Last in reach<span class="meta">2 H AGO</span></div>' +
+        '<div class="line">' + icon('code', 24) + 'One time code<span class="meta">15 MIN</span></div>' +
+        '<div class="line">' + icon('alert', 24) + 'Three wrong PIN tries<span class="meta">16:42</span></div>' +
+        '<div class="btns"><span class="btn">' + icon('usb', 24) + 'Set up again</span><span class="btn">' + icon('trash', 24) + 'Remove</span></div>' +
+      '</div>';
+
+    byId('s24').innerHTML = names.map(function (n) { return icon(n, 24); }).join('');
+    byId('s32').innerHTML = names.map(function (n) { return icon(n, 32); }).join('');
+
+    var few = ['home', 'child', 'pc', 'phone', 'clock', 'hourglass', 'lock', 'unlock', 'shield', 'hand', 'check', 'alert'];
+    byId('surfaces').innerHTML = ['on-paper', 'on-card', 'on-ink', 'on-teal', 'on-marigold'].map(function (s) {
+      return '<div class="surface ' + s + '">' + few.map(function (n) { return icon(n, 32, null, s === 'on-ink' ? 'dark' : null); }).join('') + '</div>';
+    }).join('');
+
+    var LOOK_TEXT = {
+      light: ['Light clay', 'Pale bodies, stronger parts, dark marks. LiMo’s look.'],
+      full: ['Full colour clay', 'Saturated bodies, white marks.'],
+      dark: ['Ink clay', 'Dark bodies, paper marks.'],
+    };
+    byId('looks').innerHTML = CLAY.LOOKS.map(function (l) {
+      return '<div class="label">' + LOOK_TEXT[l][0] + (l === 'light' ? '<span class="pick">LIMO</span>' : '') +
+        '<small>' + LOOK_TEXT[l][1] + '</small></div>' +
+        '<div class="row">' + few.map(function (n) { return icon(n, 40, l); }).join('') + '</div>';
+    }).join('');
+  }
+</script>
+</body>
+</html>

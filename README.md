@@ -124,6 +124,7 @@ and a `TESTING.md` with the exact steps that were run.
 ```
 core/                        Rust: the rules core, the first part of the product
 hub/                         Rust: the family's database on the master PC
+design/                      the Paper and Ink theme and LiMo's icons
 spikes/
   01-windows-service-lock/   Rust: a Windows service and a lock on every monitor
   02-android-base-lock/      Kotlin: an accessibility service that covers a blocked app
