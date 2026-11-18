@@ -1,0 +1,47 @@
+{
+  "child_id": "asha",
+  "device_id": "phone",
+  "message_number": 2,
+  "sent_at": 1794976800,
+  "rules_version": 1,
+  "grant_number": 2,
+  "away_percent": 50,
+  "day": 20775,
+  "used_secs": 400,
+  "lease_total_secs": 0,
+  "away_cap_secs": 3600,
+  "away_used_secs": 400,
+  "want_more": true,
+  "slices": [
+    {
+      "id": "phone/1",
+      "child_id": "asha",
+      "device_id": "phone",
+      "app_id": "game",
+      "day": 20775,
+      "start": 1794976200,
+      "end": 1794976500,
+      "counts": true
+    },
+    {
+      "id": "phone/2",
+      "child_id": "asha",
+      "device_id": "phone",
+      "app_id": "clock",
+      "day": 20775,
+      "start": 1794976500,
+      "end": 1794976600,
+      "counts": false
+    },
+    {
+      "id": "phone/3",
+      "child_id": "asha",
+      "device_id": "phone",
+      "app_id": "game",
+      "day": 20775,
+      "start": 1794976600,
+      "end": 1794976700,
+      "counts": true
+    }
+  ]
+}

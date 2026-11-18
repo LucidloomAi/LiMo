@@ -5,8 +5,9 @@
 use std::collections::BTreeMap;
 
 use limo_core::{
-    BlockedHours, BlockedWindow, CivilDate, DailyBudget, Decision, Holding, HomeCalendar,
-    LockReason, MasterWord, RuleSet, Warned, WarningCause, Weekday, decide,
+    BlockedHours, BlockedWindow, CivilDate, DailyBudget, Decision, GuardianMode, GuardianSetting,
+    Holding, HomeCalendar, LockReason, MasterWord, PinUnlock, RuleSet, Standing, Warned,
+    WarningCause, Weekday, decide,
 };
 use serde::Deserialize;
 
@@ -75,6 +76,20 @@ struct Case {
     warned_time: Vec<u32>,
     #[serde(default)]
     warned_blocked: Vec<u32>,
+    #[serde(default)]
+    warned_unlock: Vec<u32>,
+    added_left: Option<String>,
+    guardian_lock: Option<String>,
+    guardian_unlock: Option<String>,
+    guardian_set: Option<String>,
+    guardian_lifted: Option<bool>,
+    pin_unlock: Option<String>,
+    pin_set: Option<String>,
+    wrong_guesses: Option<u32>,
+    wait_until: Option<String>,
+    request_waiting: Option<bool>,
+    has_pin: Option<bool>,
+    has_codes: Option<bool>,
     expect: Expect,
 }
 
@@ -92,6 +107,12 @@ struct Expect {
     counts: Option<bool>,
     ask_master: Option<bool>,
     warned_time: Option<Vec<u32>>,
+    idle_check: Option<String>,
+    unlocked_until: Option<String>,
+    can_ask: Option<bool>,
+    can_use_pin: Option<bool>,
+    can_use_code: Option<bool>,
+    try_wait_until: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -262,6 +283,7 @@ fn reason_name(reason: Option<LockReason>) -> &'static str {
         Some(LockReason::TimeUsedUp) => "time used up",
         Some(LockReason::NeedsMaster) => "needs master",
         Some(LockReason::HeldByAnotherDevice) => "held by another device",
+        Some(LockReason::GuardianLock) => "guardian lock",
     }
 }
 
@@ -295,6 +317,7 @@ fn warning_text(d: &Decision) -> String {
             match w.cause {
                 WarningCause::TimeRunsOut => "time runs out",
                 WarningCause::BlockedHoursStart => "blocked hours",
+                WarningCause::UnlockEnds => "the unlock ends",
             }
         ),
     }
@@ -385,6 +408,43 @@ fn run_case(file: &CaseFile, case: &Case) -> Result<Vec<String>, String> {
         BlockedHours::Open { next_start } => next_start,
         BlockedHours::Blocked { .. } => None,
     };
+    // A time, or "until lifted" for a lock with no end.
+    let moment = |text: &Option<String>| -> Result<Option<i64>, String> {
+        match text {
+            None => Ok(None),
+            Some(t) => home_time(&cal, t).map(Some),
+        }
+    };
+    let set_at = |text: &Option<String>, before: i64| -> Result<i64, String> {
+        Ok(moment(text)?.unwrap_or(now - before))
+    };
+    let mode = match (&case.guardian_lock, &case.guardian_unlock) {
+        (Some(_), Some(_)) => return Err("give guardian_lock or guardian_unlock, not both".into()),
+        (Some(t), None) if t == "until lifted" => GuardianMode::Lock { until: None },
+        (Some(_), None) => GuardianMode::Lock { until: moment(&case.guardian_lock)? },
+        (None, Some(_)) => GuardianMode::Unlock { until: moment(&case.guardian_unlock)?.unwrap_or(now) },
+        (None, None) => GuardianMode::Nothing,
+    };
+    let lifted = case.guardian_lifted.unwrap_or(false);
+    if lifted && mode != GuardianMode::Nothing {
+        return Err("a lifted setting has no lock or unlock".into());
+    }
+    let standing = Standing {
+        from_master: GuardianSetting {
+            version: if mode == GuardianMode::Nothing && !lifted { 0 } else { 1 },
+            mode,
+            set_at: set_at(&case.guardian_set, 7_200)?,
+        },
+        pin_unlock: match moment(&case.pin_unlock)? {
+            Some(until) => Some(PinUnlock { until, set_at: set_at(&case.pin_set, 3_600)? }),
+            None => None,
+        },
+        wrong_guesses: case.wrong_guesses.unwrap_or(0),
+        try_wait_until: moment(&case.wait_until)?,
+        may_ask: !case.request_waiting.unwrap_or(false),
+        has_pin: case.has_pin.unwrap_or(false),
+        has_code_secret: case.has_codes.unwrap_or(false),
+    };
     let holding = Holding {
         day,
         lease_total_secs: used + lease_left,
@@ -405,9 +465,14 @@ fn run_case(file: &CaseFile, case: &Case) -> Result<Vec<String>, String> {
             time_points: case.warned_time.clone(),
             blocked_start: if case.warned_blocked.is_empty() { None } else { blocked_start },
             blocked_points: case.warned_blocked.clone(),
+            unlock_end: if case.warned_unlock.is_empty() { None } else { standing.unlocked_until(now) },
+            unlock_points: case.warned_unlock.clone(),
         },
+        added_secs: secs(&case.added_left)?,
+        added_used_secs: 0,
+        codes_used: Vec::new(),
     };
-    let d = decide(&rules, &holding, now, case.app.as_deref());
+    let d = decide(&rules, &holding, &standing, now, case.app.as_deref());
 
     let mut failures = Vec::new();
     let e = &case.expect;
@@ -452,6 +517,33 @@ fn run_case(file: &CaseFile, case: &Case) -> Result<Vec<String>, String> {
     }
     if let Some(v) = &e.warned_time {
         compare("warned_time", &format!("{v:?}"), format!("{:?}", d.warned.time_points));
+    }
+    if let Some(v) = &e.idle_check {
+        compare(
+            "idle_check",
+            &time_text(&cal, Some(home_time(&cal, v)?)),
+            time_text(&cal, Some(d.next_check_if_idle_at)),
+        );
+    }
+    // A time, or "no" when there is none.
+    let maybe_time = |v: &str| -> Result<String, String> {
+        if v == "no" { Ok("no".into()) } else { Ok(time_text(&cal, Some(home_time(&cal, v)?))) }
+    };
+    let got_time = |t: Option<i64>| t.map_or("no".to_string(), |t| time_text(&cal, Some(t)));
+    if let Some(v) = &e.unlocked_until {
+        compare("unlocked_until", &maybe_time(v)?, got_time(d.unlocked_until));
+    }
+    if let Some(v) = &e.try_wait_until {
+        compare("try_wait_until", &maybe_time(v)?, got_time(d.try_wait_until));
+    }
+    if let Some(v) = e.can_ask {
+        compare("can_ask", &v.to_string(), d.can_ask_for_time.to_string());
+    }
+    if let Some(v) = e.can_use_pin {
+        compare("can_use_pin", &v.to_string(), d.can_use_pin.to_string());
+    }
+    if let Some(v) = e.can_use_code {
+        compare("can_use_code", &v.to_string(), d.can_use_code.to_string());
     }
     Ok(failures)
 }
@@ -506,7 +598,7 @@ fn every_case_in_the_file_holds() {
         failures.len(),
         failures.join("\n")
     );
-    assert!(file.case.len() >= 40, "the file must hold at least 40 cases, it holds {}", file.case.len());
+    assert!(file.case.len() >= 75, "the file must hold at least 75 cases, it holds {}", file.case.len());
     println!("{} cases and {} rules checks hold", file.case.len(), file.rules_check.len());
 }
 

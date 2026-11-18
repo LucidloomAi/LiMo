@@ -300,16 +300,16 @@ impl RuleSet {
             );
         }
         for day in Weekday::ALL {
-            if let DailyBudget::Minutes(m) = self.budgets.get(day) {
-                if m > MINUTES_PER_DAY as u32 {
-                    add(
-                        format!("budgets.{}", day.name().to_ascii_lowercase()),
-                        format!(
-                            "{}'s budget is {m} minutes, more than a whole day. Use no limit instead.",
-                            day.name()
-                        ),
-                    );
-                }
+            if let DailyBudget::Minutes(m) = self.budgets.get(day)
+                && m > MINUTES_PER_DAY as u32
+            {
+                add(
+                    format!("budgets.{}", day.name().to_ascii_lowercase()),
+                    format!(
+                        "{}'s budget is {m} minutes, more than a whole day. Use no limit instead.",
+                        day.name()
+                    ),
+                );
             }
         }
         for (i, window) in self.blocked_hours.iter().enumerate() {

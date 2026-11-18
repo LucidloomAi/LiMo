@@ -21,7 +21,28 @@
 #                 "Tue 2026-11-17" (the device has not yet noticed a new day)
 #   away_percent  the device's away share for a new day (50 on a phone,
 #                 0 on the PC; 0 when left out)
-#   warned_time, warned_blocked   warnings already given, in minutes
+#   added_left    time added on this device by a one time code or the PIN,
+#                 not yet used
+#   warned_time, warned_blocked, warned_unlock   warnings already given, in
+#                 minutes
+#
+# The ways out, and what a guardian has done
+#
+#   guardian_lock    a lock from the master until this home time, or
+#                    "until lifted"
+#   guardian_unlock  an unlock from the master until this home time
+#   guardian_lifted  true when the guardian lifted the lock or unlock at the
+#                    master (at guardian_set)
+#   guardian_set     when the master set it (two hours before the case's time
+#                    when left out)
+#   pin_unlock       an unlock set with the PIN on this device, until this
+#                    home time
+#   pin_set          when the PIN unlock was set (an hour before the case's
+#                    time when left out)
+#   wrong_guesses    wrong guesses of codes and PIN on this device
+#   wait_until       the end of the wait before the next PIN or code try
+#   request_waiting  true when a request from this device waits for an answer
+#   has_pin, has_codes   true when the device holds a PIN record, a code secret
 #
 # What can be expected (leave out what does not matter for the case)
 #
@@ -39,6 +60,14 @@
 #   counts         true when time with this app counts against the budget
 #   ask_master     true when the device should ask the master for more time
 #   warned_time    the time warnings given after this answer, in minutes
+#   idle_check     when an idle device must look again, home time
+#   unlocked_until when the guardian's unlock in force ends, or "no"
+#   can_ask        true when the lock screen offers "ask for more time"
+#   can_use_pin, can_use_code   true when it offers the PIN, a code
+#   try_wait_until when the next PIN or code try may be made, or "no"
+#
+# Reasons also include "guardian lock", and warnings "15 minutes before the
+# unlock ends".
 #
 # Durations are written 4m, 90s, 1h 30m or 4m 30s. A weekday written before a
 # date must match the date, so a slip in either is caught.
@@ -605,6 +634,350 @@ rules = "no_screen_time"
 time = "Wed 2026-11-18 12:00"
 app = "game"
 expect = { allowed = false, reason = "no time today", until = "never" }
+
+# The ways out, and what a guardian can do at once.
+#
+# A guardian's lock beats everything but always allowed apps. An unlock lifts
+# blocked hours and a lack of time, never a blocked app, and time used during
+# it still counts. When a lock and an unlock are both in force, the one set
+# last wins until it ends.
+
+[[case]]
+name = "A guardian locks the devices until 18:00: locked, though time is in hand"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "game"
+used = "35m"
+lease_left = "10m"
+away_left = "45m"
+guardian_lock = "Wed 2026-11-18 18:00"
+expect = { allowed = false, reason = "guardian lock", until = "Wed 2026-11-18 18:00", in_hand = "55m", ask_master = false, can_ask = false, next_check = "Wed 2026-11-18 18:00" }
+
+[[case]]
+name = "A guardian lock until lifted has no end in sight"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "game"
+lease_left = "10m"
+guardian_lock = "until lifted"
+expect = { allowed = false, reason = "guardian lock", until = "never", next_check = "Wed 2026-11-18 21:00" }
+
+[[case]]
+name = "A guardian lock that ends inside bedtime keeps the device locked until bedtime ends"
+rules = "school_week"
+time = "Wed 2026-11-18 20:00"
+app = "game"
+used = "30m"
+lease_left = "10m"
+away_left = "20m"
+guardian_lock = "Wed 2026-11-18 22:00"
+expect = { allowed = false, reason = "guardian lock", until = "Thu 2026-11-19 07:00" }
+
+[[case]]
+name = "The phone app works during a guardian lock, and does not count"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "phone"
+guardian_lock = "until lifted"
+expect = { allowed = true, counts = false, device_reason = "guardian lock" }
+
+[[case]]
+name = "A blocked app during a guardian lock is refused as a blocked app"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "casino"
+lease_left = "10m"
+guardian_lock = "until lifted"
+expect = { allowed = false, reason = "app blocked", until = "never", device_reason = "guardian lock" }
+
+[[case]]
+name = "A guardian lock on a day already used up: it opens the next morning, and the device does not ask for time"
+rules = "school_week"
+time = "Wed 2026-11-18 19:00"
+app = "game"
+used = "90m"
+guardian_lock = "Wed 2026-11-18 20:00"
+expect = { allowed = false, reason = "guardian lock", until = "Thu 2026-11-19 07:00", ask_master = false }
+
+[[case]]
+name = "A guardian lock that has ended changes nothing"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "game"
+used = "35m"
+lease_left = "10m"
+away_left = "45m"
+guardian_lock = "Wed 2026-11-18 15:00"
+guardian_set = "Wed 2026-11-18 14:00"
+expect = { allowed = true, reason = "none", in_hand = "55m" }
+
+[[case]]
+name = "An unlock over bedtime: the device stays open, and time still counts"
+rules = "school_week"
+time = "Wed 2026-11-18 21:30"
+app = "game"
+used = "52m"
+lease_left = "8m"
+away_left = "30m"
+guardian_unlock = "Wed 2026-11-18 22:30"
+expect = { allowed = true, counts = true, device_reason = "none", unlocked_until = "Wed 2026-11-18 22:30", in_hand = "38m", warning = "none", ask_master = false, next_check = "Wed 2026-11-18 21:33", idle_check = "Wed 2026-11-18 22:15" }
+
+[[case]]
+name = "Fifteen minutes before an unlock ends at bedtime, the warning is about the unlock"
+rules = "school_week"
+time = "Wed 2026-11-18 22:15"
+app = "game"
+used = "40m"
+lease_left = "10m"
+away_left = "30m"
+guardian_unlock = "Wed 2026-11-18 22:30"
+expect = { allowed = true, warning = "15 minutes before the unlock ends", unlocked_until = "Wed 2026-11-18 22:30" }
+
+[[case]]
+name = "The unlock warning is not given twice"
+rules = "school_week"
+time = "Wed 2026-11-18 22:16"
+app = "game"
+used = "41m"
+lease_left = "9m"
+away_left = "30m"
+guardian_unlock = "Wed 2026-11-18 22:30"
+warned_unlock = [15]
+expect = { allowed = true, warning = "none", idle_check = "Wed 2026-11-18 22:25" }
+
+[[case]]
+name = "An unlock over no time left: open with nothing in hand, asking the master every minute"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "90m"
+guardian_unlock = "Wed 2026-11-18 18:00"
+expect = { allowed = true, device_reason = "none", left = "0m", in_hand = "0m", ask_master = true, can_ask = true, unlocked_until = "Wed 2026-11-18 18:00", warning = "none", next_check = "Wed 2026-11-18 17:01", idle_check = "Wed 2026-11-18 17:45" }
+
+[[case]]
+name = "A blocked app stays blocked during an unlock"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "casino"
+used = "90m"
+guardian_unlock = "Wed 2026-11-18 18:00"
+expect = { allowed = false, reason = "app blocked", until = "never", device_reason = "none" }
+
+[[case]]
+name = "An unlock in the morning that ends after bedtime: no lock follows it, so no unlock warning"
+rules = "school_week"
+time = "Thu 2026-11-19 06:30"
+app = "game"
+away_left = "90m"
+guardian_unlock = "Thu 2026-11-19 07:30"
+expect = { allowed = true, warning = "none", unlocked_until = "Thu 2026-11-19 07:30", next_check = "Thu 2026-11-19 07:00" }
+
+[[case]]
+name = "Time running out during an unlock gets no warning: the unlock covers it"
+rules = "school_week"
+time = "Wed 2026-11-18 20:00"
+app = "game"
+used = "86m"
+lease_left = "4m"
+guardian_unlock = "Wed 2026-11-18 20:30"
+expect = { allowed = true, warning = "none", ask_master = true, next_check = "Wed 2026-11-18 20:04" }
+
+[[case]]
+name = "Time running out after an unlock ends is warned of as usual"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "40m"
+lease_left = "10m"
+away_left = "4m"
+guardian_unlock = "Wed 2026-11-18 17:10"
+expect = { allowed = true, warning = "15 minutes before time runs out", unlocked_until = "Wed 2026-11-18 17:10" }
+
+[[case]]
+name = "Bedtime starting during an unlock gives no bedtime warning"
+rules = "school_week"
+time = "Wed 2026-11-18 20:50"
+app = "game"
+used = "30m"
+lease_left = "10m"
+away_left = "30m"
+guardian_unlock = "Wed 2026-11-18 21:20"
+expect = { allowed = true, warning = "none", unlocked_until = "Wed 2026-11-18 21:20" }
+
+[[case]]
+name = "A PIN unlock typed after a lock from the master opens the device until it ends"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "game"
+lease_left = "10m"
+guardian_lock = "until lifted"
+guardian_set = "Wed 2026-11-18 15:00"
+pin_unlock = "Wed 2026-11-18 16:30"
+pin_set = "Wed 2026-11-18 15:55"
+expect = { allowed = true, device_reason = "none", unlocked_until = "Wed 2026-11-18 16:30", warning = "none" }
+
+[[case]]
+name = "When that PIN unlock is about to end, the lock from the master follows: warned"
+rules = "school_week"
+time = "Wed 2026-11-18 16:15"
+app = "game"
+lease_left = "10m"
+guardian_lock = "until lifted"
+guardian_set = "Wed 2026-11-18 15:00"
+pin_unlock = "Wed 2026-11-18 16:30"
+pin_set = "Wed 2026-11-18 15:55"
+expect = { allowed = true, warning = "15 minutes before the unlock ends" }
+
+[[case]]
+name = "A lock from the master set after a PIN unlock wins, and the PIN unlock follows it"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "game"
+lease_left = "10m"
+guardian_lock = "Wed 2026-11-18 17:00"
+guardian_set = "Wed 2026-11-18 15:58"
+pin_unlock = "Wed 2026-11-18 18:00"
+pin_set = "Wed 2026-11-18 15:00"
+expect = { allowed = false, reason = "guardian lock", until = "Wed 2026-11-18 17:00" }
+
+[[case]]
+name = "Lifting at the master ends a PIN unlock set before it"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "game"
+used = "90m"
+guardian_lifted = true
+guardian_set = "Wed 2026-11-18 15:30"
+pin_unlock = "Wed 2026-11-18 17:00"
+pin_set = "Wed 2026-11-18 15:00"
+expect = { allowed = false, reason = "time used up", unlocked_until = "no" }
+
+[[case]]
+name = "Time added on the device with a code, on a day already used up, is spent at once"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "90m"
+added_left = "30m"
+expect = { allowed = true, in_hand = "30m", left = "30m", warning = "none", ask_master = true, next_check = "Wed 2026-11-18 17:15" }
+
+[[case]]
+name = "Time added on the device opens a day with no screen time"
+rules = "holiday"
+time = "Mon 2026-11-23 10:00"
+app = "game"
+added_left = "15m"
+expect = { allowed = true, left = "15m", warning = "15 minutes before time runs out" }
+
+[[case]]
+name = "With a lease and time added on the device, the lease is still topped up as usual"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "game"
+used = "20m"
+lease_left = "4m"
+added_left = "15m"
+expect = { allowed = true, in_hand = "19m", ask_master = true }
+
+[[case]]
+name = "Away from home, time added on the device adds to the away allowance"
+rules = "school_week"
+time = "Wed 2026-11-18 10:00"
+app = "game"
+away_left = "20m"
+added_left = "30m"
+expect = { allowed = true, in_hand = "50m", left = "50m" }
+
+[[case]]
+name = "After wrong guesses a wait is in force: the lock screen says until when"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "90m"
+wrong_guesses = 6
+wait_until = "Wed 2026-11-18 17:02"
+has_pin = true
+has_codes = true
+expect = { allowed = false, reason = "time used up", try_wait_until = "Wed 2026-11-18 17:02", can_use_pin = true, can_use_code = true, idle_check = "Wed 2026-11-18 17:01" }
+
+[[case]]
+name = "A wait that has ended is not shown"
+rules = "school_week"
+time = "Wed 2026-11-18 17:05"
+app = "game"
+used = "90m"
+wrong_guesses = 6
+wait_until = "Wed 2026-11-18 17:02"
+has_codes = true
+expect = { try_wait_until = "no", can_use_code = true, can_use_pin = false }
+
+[[case]]
+name = "Without a PIN record or a code secret the lock screen offers neither"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "90m"
+expect = { can_use_pin = false, can_use_code = false, try_wait_until = "no" }
+
+[[case]]
+name = "An idle device looks again when the wait ends"
+rules = "school_week"
+time = "Wed 2026-11-18 12:00"
+lease_left = "10m"
+away_left = "30m"
+wrong_guesses = 7
+wait_until = "Wed 2026-11-18 12:04"
+expect = { allowed = true, try_wait_until = "Wed 2026-11-18 12:04", idle_check = "Wed 2026-11-18 12:04" }
+
+[[case]]
+name = "Locked because today's time is used up: the child can ask for more"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "90m"
+expect = { allowed = false, reason = "time used up", can_ask = true }
+
+[[case]]
+name = "With time left the child can still ask for more"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "80m"
+lease_left = "10m"
+expect = { allowed = true, can_ask = true }
+
+[[case]]
+name = "At bedtime the child cannot ask for more time: it would not open the device"
+rules = "school_week"
+time = "Wed 2026-11-18 22:00"
+app = "game"
+lease_left = "10m"
+expect = { allowed = false, reason = "blocked hours", can_ask = false }
+
+[[case]]
+name = "With a request already waiting the child cannot ask again"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "90m"
+request_waiting = true
+expect = { allowed = false, can_ask = false }
+
+[[case]]
+name = "Under a guardian lock the child cannot ask for more time"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "90m"
+guardian_lock = "Wed 2026-11-18 19:00"
+expect = { allowed = false, reason = "guardian lock", can_ask = false }
+
+[[case]]
+name = "On a day with no limit there is nothing to ask for"
+rules = "holiday"
+time = "Sun 2026-11-22 15:00"
+app = "game"
+expect = { allowed = true, can_ask = false }
 
 # Rules checks: what the guardian's screen must refuse, in the words it uses.
 # `problems` lists words each problem must contain; there must be no others.

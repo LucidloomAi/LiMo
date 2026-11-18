@@ -1,0 +1,294 @@
+{
+  "child_id": "asha",
+  "rules": [
+    {
+      "version": 1,
+      "utc_offset_secs": 19800,
+      "day_start_minute": 0,
+      "budgets": {
+        "monday": {
+          "minutes": 120
+        },
+        "tuesday": {
+          "minutes": 120
+        },
+        "wednesday": {
+          "minutes": 120
+        },
+        "thursday": {
+          "minutes": 120
+        },
+        "friday": {
+          "minutes": 120
+        },
+        "saturday": {
+          "minutes": 120
+        },
+        "sunday": {
+          "minutes": 180
+        }
+      },
+      "blocked_hours": [
+        {
+          "days": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday"
+          ],
+          "start_minute": 1260,
+          "end_minute": 420
+        }
+      ],
+      "always_allowed_apps": [
+        "clock"
+      ],
+      "blocked_apps": [
+        "casino"
+      ],
+      "away_share_percent": 50,
+      "lease_minutes": 10,
+      "warning_minutes": [
+        15,
+        5,
+        1
+      ]
+    },
+    {
+      "version": 2,
+      "utc_offset_secs": 19800,
+      "day_start_minute": 0,
+      "budgets": {
+        "monday": {
+          "minutes": 120
+        },
+        "tuesday": {
+          "minutes": 120
+        },
+        "wednesday": {
+          "minutes": 120
+        },
+        "thursday": {
+          "minutes": 120
+        },
+        "friday": {
+          "minutes": 120
+        },
+        "saturday": {
+          "minutes": 120
+        },
+        "sunday": {
+          "minutes": 180
+        }
+      },
+      "blocked_hours": [
+        {
+          "days": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday"
+          ],
+          "start_minute": 1260,
+          "end_minute": 420
+        }
+      ],
+      "always_allowed_apps": [
+        "clock"
+      ],
+      "blocked_apps": [
+        "casino"
+      ],
+      "away_share_percent": 50,
+      "lease_minutes": 5,
+      "warning_minutes": [
+        15,
+        5,
+        1
+      ]
+    }
+  ],
+  "devices": [
+    {
+      "device_id": "pc",
+      "kind": "on_master",
+      "last_report": {
+        "message_number": 7,
+        "day": 20775,
+        "rules_version": 1,
+        "grant_number": 8,
+        "away_percent": 0,
+        "used_secs": 3600,
+        "lease_total_secs": 3600,
+        "away_cap_secs": 0,
+        "away_used_secs": 0
+      },
+      "unacknowledged": [
+        {
+          "number": 9,
+          "day": 20775,
+          "lease_total_secs": 3600,
+          "away_cap_secs": 0,
+          "away_percent": 0,
+          "rules_version": 1,
+          "sent_at": 1794976200
+        }
+      ],
+      "last_seen": 1794976200,
+      "need": {
+        "day": 20775,
+        "secs": 600,
+        "since": 9,
+        "at": 1794976200
+      }
+    },
+    {
+      "device_id": "phone",
+      "kind": "portable",
+      "last_report": {
+        "message_number": 2,
+        "day": 20775,
+        "rules_version": 1,
+        "grant_number": 2,
+        "away_percent": 50,
+        "used_secs": 400,
+        "lease_total_secs": 0,
+        "away_cap_secs": 3600,
+        "away_used_secs": 400
+      },
+      "unacknowledged": [
+        {
+          "number": 10,
+          "day": 20775,
+          "lease_total_secs": 0,
+          "away_cap_secs": 3600,
+          "away_percent": 50,
+          "rules_version": 1,
+          "sent_at": 1794976600
+        },
+        {
+          "number": 11,
+          "day": 20775,
+          "lease_total_secs": 300,
+          "away_cap_secs": 3600,
+          "away_percent": 50,
+          "rules_version": 2,
+          "sent_at": 1794976800
+        }
+      ],
+      "last_seen": 1794976800,
+      "need": null
+    }
+  ],
+  "days": [
+    {
+      "day": 20775,
+      "extra_secs": 900,
+      "slices": {
+        "pc/1": {
+          "id": "pc/1",
+          "child_id": "asha",
+          "device_id": "pc",
+          "app_id": "game",
+          "day": 20775,
+          "start": 1794972600,
+          "end": 1794973200,
+          "counts": true
+        },
+        "pc/2": {
+          "id": "pc/2",
+          "child_id": "asha",
+          "device_id": "pc",
+          "app_id": "game",
+          "day": 20775,
+          "start": 1794973200,
+          "end": 1794973800,
+          "counts": true
+        },
+        "pc/3": {
+          "id": "pc/3",
+          "child_id": "asha",
+          "device_id": "pc",
+          "app_id": "game",
+          "day": 20775,
+          "start": 1794973800,
+          "end": 1794974400,
+          "counts": true
+        },
+        "pc/4": {
+          "id": "pc/4",
+          "child_id": "asha",
+          "device_id": "pc",
+          "app_id": "game",
+          "day": 20775,
+          "start": 1794974400,
+          "end": 1794975000,
+          "counts": true
+        },
+        "pc/5": {
+          "id": "pc/5",
+          "child_id": "asha",
+          "device_id": "pc",
+          "app_id": "game",
+          "day": 20775,
+          "start": 1794975000,
+          "end": 1794975600,
+          "counts": true
+        },
+        "pc/6": {
+          "id": "pc/6",
+          "child_id": "asha",
+          "device_id": "pc",
+          "app_id": "game",
+          "day": 20775,
+          "start": 1794975600,
+          "end": 1794976200,
+          "counts": true
+        },
+        "phone/1": {
+          "id": "phone/1",
+          "child_id": "asha",
+          "device_id": "phone",
+          "app_id": "game",
+          "day": 20775,
+          "start": 1794976200,
+          "end": 1794976500,
+          "counts": true
+        },
+        "phone/2": {
+          "id": "phone/2",
+          "child_id": "asha",
+          "device_id": "phone",
+          "app_id": "clock",
+          "day": 20775,
+          "start": 1794976500,
+          "end": 1794976600,
+          "counts": false
+        },
+        "phone/3": {
+          "id": "phone/3",
+          "child_id": "asha",
+          "device_id": "phone",
+          "app_id": "game",
+          "day": 20775,
+          "start": 1794976600,
+          "end": 1794976700,
+          "counts": true
+        }
+      },
+      "counted": {
+        "pc": 3600,
+        "phone": 400
+      }
+    }
+  ],
+  "next_grant": 12,
+  "forgotten_before": null,
+  "clock": 1794976800
+}

@@ -1,0 +1,85 @@
+{
+  "child_id": "asha",
+  "device_id": "pc",
+  "rules": {
+    "version": 1,
+    "utc_offset_secs": 19800,
+    "day_start_minute": 0,
+    "budgets": {
+      "monday": {
+        "minutes": 120
+      },
+      "tuesday": {
+        "minutes": 120
+      },
+      "wednesday": {
+        "minutes": 120
+      },
+      "thursday": {
+        "minutes": 120
+      },
+      "friday": {
+        "minutes": 120
+      },
+      "saturday": {
+        "minutes": 120
+      },
+      "sunday": {
+        "minutes": 180
+      }
+    },
+    "blocked_hours": [
+      {
+        "days": [
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+          "sunday"
+        ],
+        "start_minute": 1260,
+        "end_minute": 420
+      }
+    ],
+    "always_allowed_apps": [
+      "clock"
+    ],
+    "blocked_apps": [
+      "casino"
+    ],
+    "away_share_percent": 50,
+    "lease_minutes": 10,
+    "warning_minutes": [
+      15,
+      5,
+      1
+    ]
+  },
+  "holding": {
+    "day": 20775,
+    "lease_total_secs": 3600,
+    "lease_used_secs": 3600,
+    "away_cap_secs": 0,
+    "away_used_secs": 0,
+    "away_percent": 0,
+    "master_word": {
+      "left_secs": 0,
+      "used_then_secs": 3600,
+      "held_elsewhere_secs": 3600
+    },
+    "warned": {
+      "time_day": 20775,
+      "time_points": [
+        15
+      ],
+      "blocked_start": null,
+      "blocked_points": []
+    }
+  },
+  "grant_taken": 9,
+  "last_message": 7,
+  "last_slice": 6,
+  "unconfirmed": []
+}

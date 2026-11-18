@@ -2,7 +2,7 @@
 name = "limo-core"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "Apache-2.0"
 description = "LiMo rules core: screen time rules, and one daily budget shared by a PC and a phone with no server"
 publish = false
@@ -12,13 +12,46 @@ name = "limo_core"
 
 [dependencies]
 # Every public data type is stored and sent between devices, so all of them
-# derive Serialize and Deserialize. Nothing else is used by the library.
+# derive Serialize and Deserialize.
 serde = { version = "1.0.229", features = ["derive"] }
+# One time codes and the guardian PIN: HMAC-SHA256, PBKDF2-HMAC-SHA256 and
+# constant time comparison (`ctutils`, which `digest` itself uses), all from
+# the RustCrypto project. Default features off: nothing of std or alloc, no
+# extra hash families. sha2 0.11 uses the ARMv8 SHA-256 instructions on phones
+# that have them, found at run time, with no assembler; that keeps the PIN
+# check short on a phone, and needs Rust 1.88.
+hmac = { version = "0.13.0", default-features = false }
+sha2 = { version = "0.11.1", default-features = false }
+pbkdf2 = { version = "0.13.0", default-features = false, features = ["hmac"] }
+ctutils = { version = "0.4.8", default-features = false }
 
 [profile.test]
 # The simulation plays hundreds of generated days. A little optimisation makes
 # `cargo test` take seconds instead of a minute; overflow checks stay on.
 opt-level = 1
+
+# The PIN hash is slow on purpose. Fully optimised hashing in debug and test
+# builds keeps a PIN check in the tests as fast as it is in the product.
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.digest]
+opt-level = 3
+[profile.dev.package.block-buffer]
+opt-level = 3
+[profile.test.package.sha2]
+opt-level = 3
+[profile.test.package.hmac]
+opt-level = 3
+[profile.test.package.pbkdf2]
+opt-level = 3
+[profile.test.package.digest]
+opt-level = 3
+[profile.test.package.block-buffer]
+opt-level = 3
 
 [dev-dependencies]
 # Tests only: JSON round trips of the public types, and the file of cases.

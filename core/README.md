@@ -11,10 +11,16 @@ It answers two questions:
 2. **How does one daily budget stay honest across a PC and a phone, with no
    server?**
 
+It also holds the **ways out**, so that a child is never stuck and a guardian
+can act with no server: extra time, given at home or asked for by the child;
+one time codes read over a phone call; the guardian PIN typed on the child's
+device; and a lock or an unlock a guardian sets from the master.
+
 The library is pure. It has no clock, no files, no network, no threads, no
 randomness and nothing global. Every function that needs the time is given
-it. The same inputs always give the same answer, on Windows and on a phone.
-It has no unsafe code.
+it, and every random byte (a code secret, a salt) is made by the caller and
+passed in. The same inputs always give the same answer, on Windows and on a
+phone. It has no unsafe code.
 
 This is the first real piece of the product. The proofs in `spikes/` are not
 used by it.
@@ -26,6 +32,8 @@ used by it.
 - [The decision on a device](#the-decision-on-a-device)
 - [One budget across devices](#one-budget-across-devices)
 - [A worked day](#a-worked-day)
+- [The ways out](#the-ways-out)
+- [Security of codes and the PIN](#security-of-codes-and-the-pin)
 - [What it guarantees](#what-it-guarantees)
 - [Where the guarantee stops](#where-the-guarantee-stops)
 - [Things a family will notice](#things-a-family-will-notice)
@@ -82,18 +90,22 @@ budget to 0."). App identifiers are opaque strings.
 
 ## The decision on a device
 
-`decide(rules, holding, now, app)`, or `DeviceState::decide(now, app)`, gives a
-`Decision` that a Windows or Android service can act on without knowing any
-rule:
+`decide(rules, holding, standing, now, app)`, or
+`DeviceState::decide(now, app)`, gives a `Decision` that a Windows or Android
+service can act on without knowing any rule. `standing` says how the
+guardian's actions and the ways out stand on the device (a lock or unlock, a
+wait after wrong guesses, whether the child may ask for time, whether the
+device holds a PIN record and a code secret); `DeviceState` builds it.
 
 - **allowed**, for the app in front (or for the device when no app is given);
 - **lock**: the reason and when it lifts. The reasons are: this app is
   blocked (never lifts), blocked hours (until they end, joining windows that
   touch), no time today (a budget of 0), today's time is used up, "needs
   master" (the device has spent all it holds, while as far as it knows there
-  is more at home), and "held by another device" (the master has nothing free,
+  is more at home), "held by another device" (the master has nothing free,
   but a phone still holds the rest as away time; it comes when that phone
-  reports from home);
+  reports from home), and "locked by a guardian" (from the master, until a
+  given time or until lifted);
 - **device_lock**: the lock for ordinary apps, whatever is in front, for the
   lock screen; an always allowed app stays usable under it;
 - **counts**: whether time with this app counts (not for always allowed apps);
@@ -101,19 +113,31 @@ rule:
 - **seconds_in_hand**: what this device may spend without asking anyone; the
   lock comes when it runs out;
 - **warning**: when a warning point has just been reached, for time running
-  out or for blocked hours about to start. Each point comes once; if two
-  points pass at once only the nearer one is given. If more time arrives, the
-  points come again;
+  out, for blocked hours about to start, or for a guardian's unlock about to
+  end when a lock follows it. Each point comes once; if two points pass at
+  once only the nearer one is given. If more time arrives, the points come
+  again. While an unlock keeps the device open, a lock it covers gets no
+  warning;
 - **ask_master**: the lease is down to half; ask the master if it can be
-  reached;
+  reached. Never under a guardian's lock: time would not open the device;
 - **next_check_at**: when to decide again while the app in front stays in use
   (the next warning point, the lock, blocked hours starting or ending, the
-  lease running low, the day changing), and **next_check_if_idle_at**, the
+  lease running low, the day changing, a guardian's lock or unlock ending,
+  the wait after wrong guesses ending), and **next_check_if_idle_at**, the
   same for an idle device, with only the moments that come with the clock.
-  Nobody has to poll every second.
+  Nobody has to poll every second;
+- **unlocked_until**: when a guardian's unlock keeps the device open, when it
+  ends;
+- what the lock screen should offer: **can_ask_for_time** (today has a limit,
+  the device is not locked for blocked hours or by a guardian, and no request
+  from it is waiting), **can_use_pin**, **can_use_code**, and
+  **try_wait_until**, the end of a wait in force before the next PIN or code
+  try.
 
 An always allowed app is allowed in every case and does not count. A blocked
-app is refused in every case.
+app is refused in every case, under an unlock too. Otherwise a guardian's
+lock comes first, then a guardian's unlock (which lifts blocked hours and a
+lack of time), then the rules.
 
 "Until when" is worked out by walking forward through blocked hours and days:
 at 21:00 with the day used up and bedtime until 07:00, the answer is 07:00 the
@@ -137,12 +161,19 @@ may spend when its lease is gone and the master cannot be reached. For a day,
 it is the away share (half by default) of that day's budget, less the away
 time already used that day. Spending always takes the lease first.
 
+**Time added on the device.** A device may hold a third figure: time added on
+it by a one time code or the guardian PIN (see [The ways out](#the-ways-out)),
+and how much of it is used. Spending takes the lease first, then the time
+added on the device, then the away allowance, which is the part the master
+can ask a phone at home to give back.
+
 **Reservations.** The master **reserves**, for every device, everything that
-device might still spend without telling it: the lease it may hold and its
-away allowance. Reserved time is handed to no one else. A reservation shrinks
-only when the device reports what it really used, or its day is over. A lease
-that was sent but never confirmed stays reserved, because the device may have
-received and spent it.
+device might still spend without telling it: the lease it may hold, its away
+allowance, and the time added on it that the master has heard of. Reserved
+time is handed to no one else. A reservation shrinks only when the device
+reports what it really used, or its day is over. A lease that was sent but
+never confirmed stays reserved, because the device may have received and
+spent it.
 
 **Slices.** Use is reported as **slices**: child, device, app, day, start,
 end, whether it counts, and an id unique for the child. A slice handed over
@@ -154,12 +185,18 @@ report, so a lost report loses nothing.
 
 - a **report** (device to master): its day, what it holds and has used, the
   newest grant and rules it has taken (that is the acknowledgement), its
-  unconfirmed slices, and whether it wants more time;
+  unconfirmed slices, and whether it wants more time. Also the time added on
+  it and each unconfirmed piece of it, its unconfirmed requests for more time,
+  its wrong guesses, the PIN version it holds, the newest guardian news it has
+  taken, and a PIN unlock in force;
 - a **grant** (master to device): the lease it may have for the day, in all;
   its away allowance for the day; its away share for later days; the current
   rules; which slices are now counted; what the master would say is left for
   it; how much away time other phones still hold; and whether to acknowledge
-  at once (when its away allowance was just lowered).
+  at once (when its away allowance was just lowered). Also which pieces of
+  added time and which requests the master now has, the guardian's lock or
+  unlock, the PIN record while the device may not hold its newest version,
+  the day's requests with their answers, and the guardian news number.
 
 Every figure is a level ("your lease for today is 1800 seconds in all"),
 never a change ("600 more"), and every message carries a number that only
@@ -225,7 +262,9 @@ device gets it at its next ask.
   back up to its share at its next report, never above what is free.
 - `MasterBook::wanted_reports(now)` names the devices worth asking to report
   right away: phones that could give time back, phones that must acknowledge a
-  lowered allowance, and waiting devices once time is free for them.
+  lowered allowance, waiting devices once time is free for them, and devices
+  that have not yet taken the guardian's newest lock or unlock, PIN, or answer
+  to a request.
 
 ## A worked day
 
@@ -249,21 +288,227 @@ Total: 120 minutes, exactly the budget, though the phone was out of reach
 half the day and the master never knew where it was. The PC got 75 minutes,
 the phone 45.
 
+## The ways out
+
+A child must never be stuck, and a guardian must be able to act with no
+server. These are the ways, all here as pure logic; the services show them
+and carry the messages.
+
+**Extra time given at home.** A guardian gives minutes for today at the
+master: `MasterBook::give_extra(id, minutes, now)`, 1 to 1440 minutes. Every
+piece of extra time is a record with an id. The same id given twice counts
+once, so a screen that sends one tap twice gives nothing more, and
+`MasterBook::extra_time(day)` shows where a day's extra came from: given at
+the master, a request granted, a code, or the PIN, with the device. The time
+goes into the day's pool, and devices in reach get it with their next leases
+(a device waiting at the lock screen within a minute). `add_extra_secs`, from
+the first piece, still works; it records each call under a new id.
+
+**Asking for more time.** On any device the child can ask for 1 to 240 minutes,
+with a short reason or none (`DeviceState::ask_for_time`). The request travels
+with the next report, and with every report after until the master confirms
+it, like a slice: a request made at school reaches the master when the phone
+comes home, and a lost message loses nothing. The master keeps it once, by its
+id (`MasterBook::waiting_requests`). A guardian answers it once
+(`MasterBook::answer_request`): granted, with a number of minutes that may
+differ from the number asked for, or refused. Granted minutes go into the
+pool of the request's day as extra time, once. Every grant carries the day's
+requests and their answers, so the answer reaches all of the child's devices
+and their lock screens can say what happened (`DeviceState::requests_today`).
+A device has at most one request waiting and makes at most five a day. A
+request can be answered only while its day lasts.
+
+**Time added on a device.** With no network, time can be added on the device
+itself, by a one time code or the guardian PIN. It belongs to that device and
+that day, and can be spent at once. Each piece has an id (the device, `code`,
+the day and the code's selector; or the device, `pin` and a number), travels
+with every report until the master confirms it, and joins that day's extra
+time at the master once. From then on the master holds back, for that device,
+the part not yet used, as it does its lease and its away allowance. It is not
+given back to other devices.
+
+**One time codes.** A guardian who is not at home reads a short code over a
+phone call; the child types it on the lock screen.
+
+- Each device has its own code secret: 32 random bytes made by the caller at
+  pairing, kept by the master (`MasterBook::set_code_secret`) and by the
+  device (`DeviceState::set_code_secret`). The master hands it to guardian
+  phones while they are at home (`MasterBook::code_secret`).
+- A guardian phone makes the next code with
+  `next_code(secret, device, day, minutes, counters made today)`: 15, 30 or
+  60 minutes, for that device and that home day. A device takes at most ten
+  codes a day (counters 0 to 9); running out is an error to show.
+- A code is 8 digits, shown as two groups of four: "1342 0715". The first two
+  are the selector: the minutes' index times ten plus the counter, so 13 is
+  the fourth code of the day, worth 30 minutes. The last six come from
+  HMAC-SHA256 keyed with the code secret, over: the label
+  `LiMo one time code v1` and a zero byte; the device id's length as 8 bytes
+  big-endian, then the id in UTF-8; the home day as 8 bytes big-endian; the
+  selector as one byte. The first 8 bytes of the result, read big-endian,
+  modulo one million, are the six digits. Known answer tests fix all of it.
+- On the device (`DeviceState::try_code`) spaces and hyphens are ignored, and
+  anything that is not then 8 digits is refused without counting as a guess.
+  A well formed code that is not right for this device today counts as a
+  wrong guess: a code for another device, a code from another day, or one
+  made up. A right code works once (the device remembers the selectors it has
+  used that day); typed again it is refused as used, without counting. The
+  secret digits are compared in constant time.
+- Guardian phones that make codes for the same device on the same day must
+  know each other's counters, or two of them can make the same code (the
+  second is then refused as used). Phones that cannot share can split the
+  counters between them.
+
+**The guardian PIN.** 4 to 8 digits, typed by a guardian on the child's
+device, with no network.
+
+- It is set at the master (`MasterBook::set_pin(pin, salt)`, with a salt of 16
+  bytes or more made by the caller) and kept only as a salted slow hash. The
+  record reaches every device with grants, with a version, so a changed PIN
+  replaces the old one wherever a grant arrives; `MasterBook::clear_pin`
+  removes it. A device that has not heard of a change keeps the old PIN. A
+  device with no record refuses PIN actions.
+- A right PIN on the device (`DeviceState::try_pin`) can add minutes for
+  today, as time added on the device; unlock the device until a given time, at
+  most a day ahead, whatever the budget or the blocked hours say; or confirm
+  "release this device" (the library only says the PIN was right; the service
+  releases the device). An action that could not be done (no minutes, an
+  unlock in the past) is refused before the PIN is looked at.
+
+**The wait after wrong guesses.** Codes and the PIN share one counter of
+wrong guesses on each device. The first four are free. After the fifth, the
+next try must wait a minute, and each further wrong guess doubles the wait:
+1, 2, 4, 8, 16 and 32 minutes, then an hour each time. During a wait nothing
+is tried, so nothing is counted. A right PIN clears the counter; a right code
+does not. The counter and the end of the wait are part of the device's saved
+state, so a restart changes nothing. The wait is kept as the moment it ends,
+so a clock set back makes it longer, never shorter. Reports carry the count,
+so the guardian sees it (`DeviceView::wrong_guesses`).
+
+**Lock now and unlock, from the master.**
+
+- **Lock now** (`MasterBook::lock_now(until, now)`): all of the child's
+  devices lock, until a given time or until lifted, with their own reason,
+  "locked by a guardian". Always allowed apps stay usable, and a blocked app
+  stays blocked. A locked device does not ask for time.
+- **Unlock** (`MasterBook::unlock_until(until, now)`, at most a day ahead):
+  blocked hours and a lack of time are lifted until then. Blocked apps stay
+  blocked.
+- **Lift** (`MasterBook::lift(now)`): the rules alone decide again.
+
+Each is a level with a version, carried by every grant, and
+`wanted_reports` names the devices that have not taken it yet, so the hub can
+ask them to report at once. A device out of reach hears of it when it is back.
+
+The PIN can unlock one device on the spot. When a lock and an unlock are both
+in force on a device, the one set last wins until it ends; then the other, if
+it has not ended, applies again. Lifting at the master ends a PIN unlock set
+before it. The moments compared come from two clocks, the master's and the
+device's, both meant to be right.
+
+**Time used during an unlock still counts.** An unlock only keeps the device
+open. Use is recorded and counted as always: from the lease, the time added on
+the device and the away allowance, in that order, and when all of that is
+spent, beyond it. So the day's budget can run out and stay out: when the
+unlock ends, the device locks for lack of time, and the master has counted
+everything, so the other devices get nothing more that day. During an unlock
+the device still asks the master for leases, every minute while it holds
+nothing, so that time the master can give is spent before the device goes
+beyond what it holds.
+
+**What a family will notice.**
+
+- A code works on the phone it was made for, on the day it was made for, once.
+  Read the code for the right device.
+- A request answered while the phone is out of reach puts the time into the
+  day's pool; the phone gets it when it is back in reach. To give a phone
+  away from home time at once, read it a code.
+- Time added on the phone stays with the phone. If the child moves to the PC,
+  that time does not follow.
+- A changed PIN reaches a phone away from home only when it comes back; until
+  then the old PIN works there.
+- After a film night unlocked from the master, the day's budget is likely used
+  up; the rest of the day is locked unless a guardian gives more.
+- A lock until lifted on a phone that then leaves home stays on it until the
+  phone is back in reach. A guardian with the PIN can still unlock it there.
+
+## Security of codes and the PIN
+
+**Codes.** The selector is not secret; the six secret digits make a guess right
+once in a million. The wait after wrong guesses allows at most 33 tries in the
+first 24 hours of guessing (5 at once, 6 more as the wait grows to 32 minutes,
+then one an hour) and 24 a day after that. So the chance of guessing a working
+code is about 1 in 30,000 in the first day, and about 1 in 115 over a year of
+guessing every hour, day and night. A guessed code adds at most an hour, once.
+Without the code secret no one can make codes; the secret is kept by the
+master, the device and the guardian phones only, and never appears in `Debug`
+output, error messages or logs.
+
+**The PIN.** It is kept only as PBKDF2-HMAC-SHA256 with 200,000 rounds, a salt
+of 16 bytes or more and a 32 byte hash, compared in constant time.
+
+- Why PBKDF2 and not Argon2id: it is built from the same two pieces as the
+  codes (HMAC and SHA-256), so it adds one small crate instead of four; and
+  for a PIN of at most eight digits the choice of hash changes little, as
+  below.
+- Why 200,000 rounds: the check must stay well under a second on a 2020
+  phone. Measured on this project's PC (an AMD Ryzen 9 7950X3D, which has
+  SHA instructions), one check takes about 16 ms in a release build. The same
+  check with the hashing done in software only takes about 54 ms there, so a
+  2020 phone with the ARMv8 SHA instructions (nearly all 64-bit ones), which
+  sha2 finds and uses at run time, should take about 0.03 to 0.1 s, and the
+  slowest, a 32-bit or older phone hashing in software, about 0.3 to 0.6 s.
+  These phone figures are estimates, not measurements: run
+  `cargo test --release --test ways_out -- --ignored --nocapture` on a phone
+  to measure. Each record carries its rounds, so a later version can change
+  the cost without breaking records already made.
+- **A short PIN is protected mainly by the devices keeping the record
+  private, not by the hash.** Anyone who copies the record from a device (a
+  rooted phone, a backup) can try every PIN: a 4 digit PIN in seconds, a 6
+  digit one in minutes, an 8 digit one in about a day on one desktop and in
+  hours on a graphics card. On the device itself, guessing is slowed by the
+  wait: 24 tries a day, so a 4 digit PIN is found within a year of patient
+  guessing about 9 times in 10, a 6 digit one about once in 115, an 8 digit
+  one about once in 11,000. **Use 6 digits or more.**
+
+**What is protected, and what is not.**
+
+- Protected: a code works only on its device and day, once; codes cannot be
+  made without the secret; guessing is slowed and seen by the guardian; time a
+  device adds is counted once at the master; the PIN is never kept or sent,
+  only its salted hash; no secret or PIN appears in `Debug` output, error
+  messages or logs; secrets and PINs are compared in constant time.
+- Not protected by this library: the state files and the messages themselves.
+  The services must keep the device's state, which holds the code secret and
+  the PIN record, out of the child's reach (Android's private app storage and
+  keystore, Windows' protected service data), and must encrypt messages
+  between devices. A device that has been taken apart can make codes and find
+  a short PIN; the master believes the time a device says it added ("honest
+  devices", below). A clock set forward shortens a wait, as it starts a new
+  day early; the platforms lock the clock down.
+
 ## What it guarantees
 
 **As long as a day's budget is not cut while some device still holds the
 higher figure, the time that counts on all of a child's devices together
-never passes that day's budget plus extra time. Not by one lease, not by one
-second.** The design needs no slack at all. This holds through any mix of use
-on several devices at once, going out of reach and coming back, lost,
-repeated and late messages, day changes, and every other kind of rule change
-(a higher budget, blocked hours, apps, the away share, the lease length).
+never passes that day's budget plus all of its extra time, whether given at
+the master (directly or by answering a request) or added on a device by a code
+or the PIN, each piece counted once. Not by one lease, not by one second.**
+The one exception is chosen by a guardian: while an unlock keeps a device
+open with nothing left in hand, its use goes on counting beyond (see
+[The ways out](#the-ways-out)); everything else stays within the bound. The
+design needs no slack at all. This holds through any mix of use on several
+devices at once, going out of reach and coming back, lost, repeated and late
+messages, day changes, every other kind of rule change (a higher budget,
+blocked hours, apps, the away share, the lease length), extra time given at
+the master and added on devices in and out of reach, guardian locks and
+unlocks, and restarts.
 
-Why, in five steps:
+Why, in six steps:
 
-1. A device spends only what it holds: lease left plus away allowance left.
-   The decision gives the exact moment that runs out, and the device locks
-   then.
+1. A device spends only what it holds: lease left, plus time added on it
+   left, plus away allowance left. The decision gives the exact moment that
+   runs out, and the device locks then, unless a guardian's unlock keeps it
+   open.
 2. Whatever a device can hold, the master has reserved. It works this out
    from the device's newest report and every grant sent since, any of which
    may have arrived. Grants are numbered levels, and a device takes only a
@@ -279,15 +524,24 @@ Why, in five steps:
    never sent a share larger than that day can still cover.
 5. Every slice counts once, and a report's figures count only if they are
    the newest.
+6. Time added on a device is extra beyond the budget. Until the master hears
+   of it, it is in no reservation and in no pool: only that device can spend
+   it. When the master hears of it, from any report (each piece travels with
+   every report until confirmed, and counts once by its id), the day's extra
+   grows by the piece and the device's reservation by the part not yet used,
+   so what the master can hand out does not change. Every report that carries
+   use of a piece carries the piece too.
 
 Taking time back from a phone at home changes none of this. A lower away
 allowance only lowers what the phone may hold. The master goes on reserving the
 old figure until the phone acknowledges the lower one, and a phone that never
 hears never acknowledges.
 
-So what is counted plus what is reserved never passes the budget plus extra
-time, and everything really used is always inside what is counted plus what is
-reserved. The simulation checks both of these at every step of hundreds of
+So what is counted plus what is reserved never passes the budget plus the
+extra time the master knows of, and everything really used is always inside
+what is counted plus what is reserved plus the time added on devices that the
+master has not yet heard of (plus use beyond what a device held, under an
+unlock). The simulation checks all of these at every step of hundreds of
 generated days (see [Tests](#tests)).
 
 ## Where the guarantee stops
@@ -331,14 +585,21 @@ These are the only cases that need slack, and how much:
    side must save its state before acting on a change: the master before it
    sends a grant, a device after it takes one.
 7. **Clocks.** A clock set forward starts a new day early, with a fresh away
-   allowance. Both platforms lock the clock down (see `docs/PLAN.md`), and
-   reporting clock jumps is a later piece.
-8. **Honest devices.** The master believes what a device reports. LiMo's
-   enforcement runs on the devices anyway. Absurd figures from a faulty
-   device (a used time of billions of seconds, a slice from the year 1 to the
-   year 9999) can neither crash the master nor widen the pool: all the
-   arithmetic saturates, and such figures only make the master hold back
-   more.
+   allowance, and shortens a wait after wrong guesses. Both platforms lock the
+   clock down (see `docs/PLAN.md`), and reporting clock jumps is a later
+   piece. A clock set back only makes a wait longer.
+8. **Honest devices.** The master believes what a device reports, including
+   the time it says a code or the PIN added. LiMo's enforcement runs on the
+   devices anyway. Absurd figures from a faulty device (a used time of
+   billions of seconds, a slice from the year 1 to the year 9999, a piece of
+   added time of more than a day) can neither crash the master nor widen the
+   pool: all the arithmetic saturates, such pieces are not taken as extra
+   time, and such figures only make the master hold back more.
+9. **An unlock.** A guardian's unlock keeps a device open when it holds
+   nothing more; that use counts on top of the bound, by exactly as much as
+   was used beyond what the device held. The master counts all of it, so the
+   pool shows it as over (`PoolView::over_secs`), and no other device is
+   given time from that day.
 
 ## Things a family will notice
 
@@ -391,8 +652,27 @@ book.set_rules(new_rules)?;    // they reach each device with its next grant;
 
 // For the guardian's screens:
 book.pool(day);                // used, held back, free
-book.device_view("phone-1", day);   // used, held back, waiting for, giving back
+book.device_view("phone-1", day);   // used, held back, waiting for, giving back,
+                                    // added on it, wrong guesses, a PIN unlock
 book.usage(day);               // every slice, in time order
+book.extra_time(day);          // where the day's extra came from
+
+// At pairing, with 32 random bytes made by the service for this device:
+book.set_code_secret("phone-1", secret.clone())?;   // the device takes it too
+// Once, and whenever the guardian changes it (salt: 16 random bytes or more):
+book.set_pin(&pin, salt)?;     // slow on purpose; reaches devices with grants
+
+// The guardian at the master. Each reaches the devices with their next
+// grant; then prod the devices in `wanted_reports`, as above.
+book.give_extra("tap-7f3a", 30, now)?;        // the same id twice counts once
+book.lock_now(Some(until), now)?;             // or None: until lifted
+book.unlock_until(until, now)?;               // at most a day ahead
+book.lift(now);
+for request in book.waiting_requests(now) {   // shown to the guardian
+    book.answer_request(&request.request.id, RequestReply::Grant { minutes: 20 }, now)?;
+}
+// A guardian phone at home takes `book.code_secret("phone-1")?` and later,
+// away, makes codes with `next_code(secret, "phone-1", day, 30, counters_made)`.
 ```
 
 **A device** (the Windows agent for each child, the Android service), one
@@ -418,11 +698,22 @@ loop {
             Err(_) => state.lost_contact(),
         }
     }
-    act_on(&d);              // lock or unlock, show the warning, show the time left
+    act_on(&d);              // lock or unlock, show the warning, show the time left;
+                             // offer "ask", the PIN and "type a code" as `d` says
     save(&state);
     sleep_until(if in_use { d.next_check_at } else { d.next_check_if_idle_at },
                 or the app in front changing, or input after idleness);
 }
+
+// At pairing, the code secret the master also keeps:
+state.set_code_secret(secret)?;
+// On the lock screen. Each changes the state: save it, then decide again.
+state.ask_for_time(30, "For the school project", now)?;  // goes with the next report
+state.try_code("1342 0715", now);                        // TryOutcome: Added, Wrong, MustWait, ...
+state.try_pin(&pin, PinAction::AddMinutes { minutes: 20 }, now)?;
+state.try_pin(&pin, PinAction::UnlockUntil { until }, now)?;
+state.try_pin(&pin, PinAction::ConfirmRelease, now)?;    // the service then releases
+state.requests_today(now);                               // what was asked, and the answers
 ```
 
 Rules for callers:
@@ -445,17 +736,25 @@ Rules for callers:
 - **Call `lost_contact()` when the master cannot be reached.** The device then
   stops trusting what the master last said is left, and its warnings follow
   the time in hand.
-- **Decide again when the app in front changes.**
+- **Decide again when the app in front changes**, and after a code, the PIN or
+  a request.
+- **Save the device's state after every code or PIN try**, right or wrong:
+  the wrong guesses and the codes used must survive a restart.
+- **Keep secrets secret.** The code secret, the PIN record and the typed PIN
+  must stay out of logs, crash reports and screens. The library's `Debug`
+  output already hides them; the state files hold them, so they belong in
+  private storage.
 
 ## Tests
 
-`cargo test` runs four groups, all deterministic:
+`cargo test` runs five groups, all deterministic:
 
 | File | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | Unit tests: day and weekday from unix seconds and offset, negative offsets, a day start not at midnight, far past and far future dates, splitting at day boundaries, validation, blocked windows, the master's books, absurd figures and far times | 31 |
-| `tests/cases.toml` with `tests/cases.rs` | The file of cases a product owner can read and extend (55 cases, 4 rules checks), a check that a wrong expectation fails with the case's name, and the file's reader | 3 tests |
+| `src/*.rs` | Unit tests: day and weekday from unix seconds and offset, negative offsets, a day start not at midnight, far past and far future dates, splitting at day boundaries, validation, blocked windows, the master's books, absurd figures and far times; known answers for codes and PIN hashes (worked out separately in Python), codes bound to their device and day, PIN shapes, the waits after wrong guesses, which lock or unlock is in force, spending order, and secrets kept out of `Debug` | 47 |
+| `tests/cases.toml` with `tests/cases.rs` | The file of cases a product owner can read and extend (89 cases, 34 of them for the ways out, and 4 rules checks), a check that a wrong expectation fails with the case's name, and the file's reader | 3 tests |
 | `tests/accounting.rs` | The shared budget as short stories: the worked day above, a phone at home giving its share to the PC, a phone that then leaves, a phone away that gives nothing, a lowering grant that is lost, two phones at home, a lowered phone that left, a need that lapses, a larger share that must not reach a phone late into a spent day, new rules that start a day, and JSON round trips of every message and state (including state saved before the latest fields) | 24 |
+| `tests/ways_out.rs` | The ways out as stories: extra time given twice with one id; a request made at school, answered at home, and seen on every device; a request too late or answered twice; a code used at school and counted once at home; the same code on the PC; a code from yesterday; all ten codes of a day; the PIN adding time with no network; wrong guesses and the growing wait across a restart and a clock set back; a changed and a removed PIN; a lock from the master and lifting it; an unlock from the master that keeps counting; a PIN unlock over a lock from the master; state saved by the first piece still loading; secrets kept out of `Debug` and errors; JSON round trips of the new fields. One more, not run by default, measures the PIN hash on the machine it runs on | 16, and 1 |
 | `tests/simulation.rs` | The simulation below | 1 |
 
 **The simulation** plays the master, the PC and one or two phones through 300
@@ -466,15 +765,28 @@ them), messages repeated and arriving late, rule changes (budgets, blocked
 hours, away share, lease length, and in some scenarios the home zone and the
 day start), extra time and day changes. In three scenarios in four, a hub
 asks the devices the master wants to hear from to report, at the end of every
-step; in the rest, time moves only at the devices' own reports. At every step
-it checks:
+step; in the rest, time moves only at the devices' own reports. In two
+scenarios in three a guardian also takes the ways out: gives extra time at the
+master by id (sometimes the same id twice), makes one time codes that are
+typed on the devices in and out of reach (some hours later, some on the wrong
+device, some again), adds time and unlocks with the PIN on the devices,
+changes the PIN, locks and unlocks from the master and lifts, and answers the
+children's requests; children guess codes, alone or several in a row, and
+devices restart from their saved state. The simulation keeps its own ledger of
+every piece of extra time and of every second used beyond what a device held.
+At every step it checks:
 
-1. for every day, the time that counts on all devices together is at most
-   that day's budget plus extra time, where the budget is the highest for
-   that day among the rule versions in play. With unchanged rules that is
-   just the budget: zero slack;
+1. for every day, the time that counts on all devices together, less the time
+   used beyond what a device held while an unlock kept it open, is at most
+   that day's budget plus all of its extra time (given at the master, granted
+   on request, added by codes and the PIN), where the budget is the highest
+   for that day among the rule versions in play. With unchanged rules that is
+   just the budget plus the extra: zero slack. And the master never counts
+   more extra time than was given: each piece once;
 2. for every device and day, what the master counts plus what it holds back
-   covers everything the device really used;
+   covers everything the device really used, apart from time added on it that
+   the master has not heard of yet and use beyond what it held under an
+   unlock;
 3. right after an exchange that went through both ways, a device locked for
    lack of time means the master had nothing free for it (free time may be
    waiting for a device that asked first, and only for it); after two such
@@ -486,16 +798,33 @@ it checks:
    use that is still locked for lack of time means that no other phone in
    reach holds away time it could give back (unless that phone is waiting
    itself). So a phone at home never keeps its share from a device that
-   needs it.
+   needs it;
+6. use beyond what a device held happens only while an unlock keeps it open;
+   a device under a guardian's lock (as its own standing says, not as the
+   decision being checked says) records no counted use; and for every device
+   and day, what the master counts plus the slices still on the way is all
+   the device used, so an unlock never makes the master count less.
 
-A typical run covers about 400,000 steps, 1.85 million exchanges, 210,000
-lost messages, 30,000 late grants taken, 1,400 rule changes and about 6,000
-times a phone at home gave time back (430 hours in all), with about three days
-in four ending at their limit. Check 5 applied about 140,000 times. The run
-fails if the scenarios stop reaching the limits, losing messages, giving time
-back or reaching check 5, so that it can never pass without testing anything.
+A typical run covers about 410,000 steps, 1.5 million exchanges, 180,000
+lost messages, 28,000 late grants taken, 1,400 rule changes and about 8,000
+times a phone at home gave time back (530 hours in all), with about half the
+days ending at their limit (the extra time raises many limits). Check 5
+applied about 100,000 times and check 6 about 2 million times. On the ways
+out it gives extra time about 730 times (95 of them again by the same id),
+uses about 1,600 codes (430 out of reach, 330 typed again, 40 on a later day,
+170 on the wrong device), adds time with the PIN about 1,000 times (270 out
+of reach), unlocks with the PIN 690 times, changes the PIN 255 times, hits
+the wait after wrong guesses 2,000 times, locks from the master 320 times and
+unlocks 340, makes 5,600 requests (3,600 granted, 1,900 refused), uses 220
+hours beyond what devices held under unlocks, and restarts devices 3,100
+times. A run of 5,000 scenarios (6.7 million steps, 24 million exchanges)
+passes in about six minutes. The run fails if the scenarios stop reaching
+the limits, losing messages, giving time back, reaching check 5, or taking
+any one of the ways out, so that it can never pass without testing them.
 With the giving back switched off in the library, check 5 fails on the first
-scenario.
+scenario. So does check 2 with the master not holding back time added on a
+device, check 6 with the decision ignoring a guardian's lock, and check 1 with
+spending that never draws on time added on the device.
 
 To run more scenarios, one scenario, or see every event of one:
 
@@ -536,6 +865,14 @@ Times are home time ("Wed 2026-11-18 20:55"), or the clock of a travelling
 phone with its own zone (`device_time = "2026-11-18 10:25 -05:00"`).
 Durations are written `4m`, `90s`, `1h 30m` or `4m 30s`.
 
+The ways out have fields of their own: `added_left` (time added on the device
+by a code or the PIN), `guardian_lock` (a home time, or "until lifted"),
+`guardian_unlock`, `guardian_lifted`, `pin_unlock` (each with an optional
+`guardian_set` or `pin_set`, the moment it was set), `wrong_guesses`,
+`wait_until`, `request_waiting`, `has_pin` and `has_codes`; and expectations
+`unlocked_until`, `can_ask`, `can_use_pin`, `can_use_code`, `try_wait_until`
+and `idle_check`. The first lines of the file explain each one.
+
 ## Layout
 
 ```
@@ -548,12 +885,19 @@ core/
     blocked.rs    blocked hours in real time: are we in them, when do they end, when next
     decide.rs     Holding (what a device holds), decide, Decision, locks and warnings
     messages.rs   Slice, Report, Grant
-    device.rs     DeviceState: the device side
-    master.rs     MasterBook: the pool, reservations, grants, the usage record
+    device.rs     DeviceState: the device side, with codes, the PIN and requests
+    master.rs     MasterBook: the pool, reservations, grants, the usage record,
+                  extra time, requests, the PIN and the guardian's lock or unlock
+    extra.rs      extra time with ids, time added on a device, requests and answers
+    codes.rs      one time codes: making them, checking them, the code secret
+    pin.rs        the PIN record, its slow hash, what a right PIN may do
+    guardian.rs   lock and unlock, which one is in force, the wait after wrong guesses
   tests/
     cases.toml    the file of cases
     cases.rs      reads and checks it
     accounting.rs the shared budget as stories
+    ways_out.rs   the ways out as stories, and state saved by the first piece
+    fixtures/     state and messages saved by the first piece, before the ways out
     simulation.rs the generated days
 ```
 
@@ -566,11 +910,24 @@ that take and return them.
 
 ## Dependencies and licences
 
-The library itself depends on `serde` only.
+The library depends on `serde`, and, for the codes and the PIN, on four crates
+of the RustCrypto project with their default features off: `hmac`, `sha2`,
+`pbkdf2` and `ctutils`. No crypto is written here by hand. The newer
+RustCrypto releases are used because `sha2` 0.11 uses the ARMv8 SHA-256
+instructions on phones that have them, found at run time, with no assembler;
+they need Rust 1.88, so `rust-version` is 1.88.
 
 | Crate | Version | Licence | Used for |
 | --- | --- | --- | --- |
 | serde | 1.0.229 | MIT or Apache-2.0 | the library: `Serialize` and `Deserialize` on every public type |
+| hmac | 0.13.0 | MIT or Apache-2.0 | the library: HMAC-SHA256 for one time codes, and inside PBKDF2 |
+| sha2 | 0.11.1 | MIT or Apache-2.0 | the library: SHA-256 |
+| pbkdf2 | 0.13.0 | MIT or Apache-2.0 | the library: the PIN's slow hash |
+| ctutils | 0.4.8 | Apache-2.0 or MIT | the library: comparing code digits and PIN hashes in constant time |
+| digest, crypto-common, block-buffer, hybrid-array, cmov, cpufeatures | 0.11.3, 0.2.2, 0.12.1, 0.4.15, 0.5.4, 0.3.1 | MIT or Apache-2.0 | parts of the RustCrypto crates above |
+| typenum | 1.20.1 | MIT or Apache-2.0 | used by hybrid-array |
+| cfg-if | 1.0.5 | MIT or Apache-2.0 | used by sha2 |
+| libc | 0.2.191 | MIT or Apache-2.0 | used by cpufeatures on Android and Linux only, to ask which instructions the processor has |
 | serde_core, serde_derive | 1.0.229 | MIT or Apache-2.0 | parts of serde |
 | proc-macro2, quote, syn | 1.0.107, 1.0.47, 3.0.10 | MIT or Apache-2.0 | used by serde_derive when building; nothing of them is in the library |
 | unicode-ident | 1.0.27 | (MIT or Apache-2.0) and Unicode-3.0 | used by proc-macro2 when building |
@@ -584,23 +941,23 @@ The library itself depends on `serde` only.
 Apache-2.0), optional parts of toml that are not built. Nothing is GPL or
 AGPL. The code here was written for LiMo; nothing was copied. The date
 arithmetic in `time.rs` follows the well known method of counting in 400 year
-cycles from 1 March.
+cycles from 1 March. The one time code follows the shape of the HOTP and TOTP
+codes of RFC 4226 and RFC 6238 (an HMAC over a counter, cut to decimal digits),
+but is its own construction, written out under
+[The ways out](#the-ways-out).
 
 The crate is under the Apache License 2.0, as is all of LiMo.
 
 ## Not in this piece
 
-The ways out (extra time on request, one time codes, the guardian PIN) are the
-next piece. What it can use:
+These belong to the services, or to later pieces:
 
-- `MasterBook::add_extra_secs(day, secs)` adds to a day's pool; leases then
-  hand it out like any other time. A request answered at home needs nothing
-  more.
-- A one time code or a PIN typed on a device away from home adds time the
-  master does not know of yet. The natural place is a third figure in
-  `Holding` beside the lease and the away allowance (time added on the device,
-  reported with the next report), and the same figure added to the pool's
-  extra time when the master hears of it.
-- A zero day with time in hand is already allowed, so extra time on a day
-  with no screen time works without change.
-- Guardian release and tamper reports belong to the services, not here.
+- Making the random bytes (code secrets, salts), keeping state files and the
+  secrets in them private, and encrypting messages between devices.
+- Sharing which code counters each guardian phone has used, and handing the
+  code secret to guardian phones at home.
+- Releasing a device once the PIN confirmed it, and tamper reports.
+- Telling the guardian when a request arrives (the hub can watch
+  `MasterBook::waiting_requests`).
+- Reporting clock jumps.
+- The UniFFI bindings for Android.

@@ -12,6 +12,11 @@
 //!    [`device::DeviceState`] (each device's side), and the messages between
 //!    them in [`messages`].
 //!
+//! It also holds the ways out, so that a child is never stuck and a
+//! guardian can act with no server: extra time and requests for it
+//! ([`extra`]), one time codes ([`codes`]), the guardian PIN ([`pin`]), and a
+//! guardian's lock or unlock ([`guardian`]).
+//!
 //! The library is pure: no clock, no files, no network, no threads, no
 //! randomness and nothing global. Every function that needs the time is
 //! given it, in unix seconds. Days and weekdays are always those of the home
@@ -24,21 +29,34 @@
 #![warn(missing_docs)]
 
 mod blocked;
+pub mod codes;
 pub mod decide;
 pub mod device;
+pub mod extra;
+pub mod guardian;
 pub mod master;
 pub mod messages;
+pub mod pin;
 pub mod rules;
 pub mod time;
 
 pub use blocked::{BlockedHours, LOOK_AHEAD_SECS};
+pub use codes::{CodeError, OneTimeCode, code_digits, make_code, next_code};
 pub use decide::{
     Decision, Holding, Lock, LockReason, MasterWord, RETRY_SECS, Warned, Warning, WarningCause,
     decide,
 };
-pub use device::{DeviceState, GrantOutcome};
+pub use device::{DeviceError, DeviceState, GrantOutcome, TryOutcome};
+pub use extra::{
+    AddedBy, AddedTime, ExtraSource, ExtraTime, RequestAnswer, RequestReply, RequestView, TimeRequest,
+};
+pub use guardian::{
+    GuardianMode, GuardianSetting, OverrideBy, OverrideInForce, OverrideKind, PinUnlock, Standing,
+    TryCounter,
+};
 pub use master::{DeviceKind, DeviceView, MasterBook, MasterError, NEED_KEPT_SECS, PoolView};
 pub use messages::{Grant, Report, Slice};
+pub use pin::{PinAction, PinError, PinRecord, PinUpdate, pin_is_well_formed};
 pub use rules::{BlockedWindow, DailyBudget, RuleProblem, RuleSet, WeekBudgets};
 pub use time::{CivilDate, DaySpan, HomeCalendar, LocalTime, SECONDS_PER_DAY, Weekday};
 

@@ -19,7 +19,9 @@
 //!    the slack is zero.
 //! 2. **The master never knows less than is true.** For every device and
 //!    day, what the master has counted plus what it holds back for that
-//!    device covers everything the device really used.
+//!    device covers everything the device really used (beyond time added on
+//!    the device that the master has not heard of yet, and use under an
+//!    unlock beyond what the device held).
 //! 3. **A device in reach is never locked while the master has time for
 //!    it.** Right after an exchange that went through both ways, a device
 //!    locked for lack of time means the master had nothing left to hand out.
@@ -33,15 +35,32 @@
 //!    for lack of time means that no other phone in reach still holds away
 //!    time it could give back (unless that phone is waiting itself).
 //!
-//! The run fails if the scenarios never take time back from a phone, or never
-//! reach the moment where check 5 applies, so that it cannot pass without
-//! testing the path.
+//! 6. **The ways out.** In two scenarios in three a guardian also gives
+//!    extra time at the master (some of it twice, by the same id), makes one
+//!    time codes that are typed on the devices in and out of reach (some late,
+//!    some on the wrong device, some again), adds time and unlocks with the
+//!    PIN on the devices, changes the PIN, locks and unlocks from the master,
+//!    and answers the children's requests; wrong guesses set waits, and
+//!    devices restart from their saved state. Check 1 then reads: the time
+//!    that counts on all devices, less what was used beyond what a device
+//!    held while an unlock kept it open, is at most the day's highest budget
+//!    plus all extra time, given at the master or added on a device, each
+//!    piece once. The master never counts more extra time than was given.
+//!    Use beyond what a device held happens only under an unlock; a device
+//!    under a guardian's lock records no counted use; and the master never
+//!    counts less use than a device has handed over.
+//!
+//! The run fails if the scenarios never take time back from a phone, never
+//! reach the moment where check 5 applies, or never take one of the ways out
+//! (each path counted separately), so that it cannot pass without testing
+//! the path.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use limo_core::{
     BlockedWindow, DailyBudget, Decision, DeviceKind, DeviceState, Grant, GrantOutcome, LockReason,
-    MasterBook, Report, RuleSet, Weekday,
+    MasterBook, OneTimeCode, PinAction, PinRecord, Report, RequestAnswer, RequestReply, RuleSet,
+    TryOutcome, Weekday, next_code,
 };
 
 /// A small seeded generator (splitmix64). Enough for picking scenarios.
@@ -89,6 +108,9 @@ struct Setup {
     /// Whether a hub asks the devices the master wants to hear from to
     /// report. Without it, time moves only at their own reports.
     hub: bool,
+    /// Whether the guardian uses the ways out: extra time with ids, codes,
+    /// the PIN, locks and unlocks, and answers to requests.
+    ways: bool,
 }
 
 #[derive(Debug, Default)]
@@ -111,6 +133,32 @@ struct Stats {
     reclaims: u64,
     reclaimed_secs: u64,
     reclaim_checks: u64,
+    extra_given: u64,
+    extra_repeats: u64,
+    codes_made: u64,
+    codes_exhausted: u64,
+    codes_used_in_reach: u64,
+    codes_used_away: u64,
+    codes_reused: u64,
+    codes_old: u64,
+    codes_on_wrong_device: u64,
+    random_codes: u64,
+    pin_adds_in_reach: u64,
+    pin_adds_away: u64,
+    pin_unlocks: u64,
+    pin_wrong: u64,
+    pin_changes: u64,
+    waits_hit: u64,
+    guardian_locks: u64,
+    guardian_unlocks: u64,
+    lifts: u64,
+    requests_made: u64,
+    requests_granted: u64,
+    requests_refused: u64,
+    over_secs_under_unlock: u64,
+    lock_checks: u64,
+    restarts: u64,
+    count_checks: u64,
 }
 
 struct Device {
@@ -161,6 +209,25 @@ struct World {
     late_grants: Vec<(usize, Grant)>,
     stats: Stats,
     trace: bool,
+    /// Each device's code secret.
+    secrets: Vec<Vec<u8>>,
+    /// The counters of the codes made, by device and day.
+    counters: BTreeMap<(usize, i64), Vec<u8>>,
+    /// Codes read out to a device, and when the child types them.
+    inbox: Vec<(usize, OneTimeCode, i64)>,
+    /// Codes that worked, to be typed again now and then.
+    used_codes: Vec<(usize, String)>,
+    /// The guardian's PIN as last set at the master.
+    pin: String,
+    /// Extra time given at the master, by day: by `give_extra` once per id,
+    /// by `add_extra_secs`, and by granted requests.
+    extra_given: BTreeMap<i64, u64>,
+    /// Every piece of time added on a device, by id: its day and seconds.
+    added: BTreeMap<String, (i64, u64)>,
+    /// Counted use beyond what a device held, by device and day.
+    over: BTreeMap<(usize, i64), u64>,
+    /// Ids given with `give_extra`, to give again.
+    given_ids: Vec<String>,
 }
 
 const APPS: [&str; 6] = ["game", "video", "game", "chat", "clock", "casino"];
@@ -212,6 +279,7 @@ impl World {
             reach_change: rng.pick(&[5, 20, 60]),
             days: rng.range(2, 3),
             hub: rng.below(4) != 0,
+            ways: rng.below(3) != 0,
         };
         let offset = rng.pick(&OFFSETS);
         let day_start = rng.pick(&[0, 0, 240, 1_380]);
@@ -240,6 +308,18 @@ impl World {
         }
         let mut history = BTreeMap::new();
         history.insert(1, rules);
+        let mut secrets = Vec::new();
+        let mut pin = String::new();
+        if setup.ways {
+            for device in &mut devices {
+                let secret: Vec<u8> = (0..32).map(|_| rng.next() as u8).collect();
+                master.set_code_secret(&device.id, secret.clone()).unwrap();
+                device.state.set_code_secret(secret.clone()).unwrap();
+                secrets.push(secret);
+            }
+            pin = random_pin(&mut rng);
+            master.set_pin_record(quick_pin(&pin)).unwrap();
+        }
         let mut world = World {
             rng,
             seed,
@@ -254,6 +334,15 @@ impl World {
             late_grants: Vec::new(),
             stats: Stats::default(),
             trace: std::env::var("LIMO_SIM_TRACE").is_ok(),
+            secrets,
+            counters: BTreeMap::new(),
+            inbox: Vec::new(),
+            used_codes: Vec::new(),
+            pin,
+            extra_given: BTreeMap::new(),
+            added: BTreeMap::new(),
+            over: BTreeMap::new(),
+            given_ids: Vec::new(),
         };
         let day = world.master.today(start);
         world.in_play.entry(day).or_default().insert(1);
@@ -428,6 +517,7 @@ impl World {
             if d.ask_master && self.devices[i].in_reach && asked_at != Some(t) {
                 asked_at = Some(t);
                 // A device in use asks for more; an idle one only reports.
+                // (A device under a guardian's lock never says ask_master.)
                 let want_more = self.devices[i].in_use;
                 if let Exchange::Through { grant_day, away_cap, rules_changed, .. } = self.exchange(i, t, want_more) {
                     self.devices[i].count_clean(grant_day, away_cap, rules_changed);
@@ -447,10 +537,43 @@ impl World {
                 let made = self.devices[i].state.record_use(app, t, until);
                 self.log(|| format!("{t} {} used {app} until {until}: {:?}", self.devices[i].id,
                     made.iter().map(|s| (s.day, s.secs(), s.counts)).collect::<Vec<_>>()));
-                for slice in made {
+                // Whether a lock is in force is asked of the device's standing,
+                // not of the decision being checked.
+                if self.guardian_locked(i, t) {
+                    // Under a guardian's lock only always allowed apps run,
+                    // and they never count.
+                    self.stats.lock_checks += 1;
+                    assert!(
+                        made.iter().all(|s| !s.counts),
+                        "seed {}: {} recorded counted use under a guardian's lock: {:?}, standing {:?}, decided again {:?}",
+                        self.seed,
+                        self.devices[i].id,
+                        trace.last(),
+                        self.devices[i].state.standing_at(t),
+                        self.devices[i].state.clone().decide(t, Some(app)).device_lock
+                    );
+                }
+                for slice in &made {
                     if slice.counts {
                         *self.devices[i].used.entry(slice.day).or_default() += slice.secs();
                     }
+                }
+                // Use beyond everything the device held: only while an unlock
+                // keeps it open. The decision's next check never lies beyond
+                // the device's own day, so all of it is on one day.
+                let held_now = self.devices[i].state.holding_at(t);
+                assert_eq!(held_now.day, held_before.day, "seed {}: use crossed the device's day", self.seed);
+                let spent = held_now.used_secs() - held_before.used_secs();
+                let beyond = spent.saturating_sub(held_before.in_hand_secs());
+                if beyond > 0 && d.seconds_in_hand.is_some() {
+                    assert!(
+                        d.unlocked_until.is_some(),
+                        "seed {}: {} used {beyond} s beyond what it held, with no unlock: {d:?}",
+                        self.seed,
+                        self.devices[i].id
+                    );
+                    *self.over.entry((i, held_now.day)).or_default() += beyond;
+                    self.stats.over_secs_under_unlock += beyond;
                 }
                 let held_after = self.devices[i].state.holding_at(until);
                 if held_after.day == held_before.day {
@@ -588,7 +711,7 @@ impl World {
                 if !self.devices[i].in_reach {
                     continue;
                 }
-                let want_more = self.devices[i].in_use;
+                let want_more = self.devices[i].in_use && !self.guardian_locked(i, now);
                 if matches!(self.exchange(i, now, want_more), Exchange::Lost) {
                     clean = false;
                 }
@@ -667,13 +790,20 @@ impl World {
                     None => no_limit = true,
                 }
             }
+            let extra = self.all_extra(*day);
+            let counted_extra = self.master.pool(*day).extra_secs;
+            assert!(
+                counted_extra <= extra,
+                "seed {}: day {day}: the master counts {counted_extra} s of extra time, but only {extra} s were given",
+                self.seed
+            );
             if no_limit {
                 continue;
             }
-            let extra = self.master.pool(*day).extra_secs;
+            let over: u64 = self.over.iter().filter(|((_, d), _)| d == day).map(|(_, s)| *s).sum();
             assert!(
-                *used <= highest + extra,
-                "seed {}: day {day}: {used} s counted, but the budget is {highest} s and extra {extra} s (rules in play {versions:?}, setup {:?})",
+                used - over <= highest + extra,
+                "seed {}: day {day}: {used} s counted ({over} s of it beyond what devices held, under unlocks), but the budget is {highest} s and extra {extra} s (rules in play {versions:?}, setup {:?})",
                 self.seed,
                 self.setup
             );
@@ -681,19 +811,282 @@ impl World {
                 assert_eq!(versions.len(), 1);
             }
         }
-        for device in &self.devices {
+        for (i, device) in self.devices.iter().enumerate() {
             for (day, secs) in &device.used {
                 let view = self.master.device_view(&device.id, *day).unwrap();
+                let over = self.over.get(&(i, *day)).copied().unwrap_or(0);
+                // Time added on the device that the master has not heard of
+                // yet is extra it cannot hold back.
+                let known: BTreeSet<String> = self.master.extra_time(*day).into_iter().map(|e| e.id).collect();
+                let prefix = format!("{}/", device.id);
+                let unknown: u64 = self
+                    .added
+                    .iter()
+                    .filter(|(id, (d, _))| d == day && id.starts_with(&prefix) && !known.contains(*id))
+                    .map(|(_, (_, s))| *s)
+                    .sum();
                 if let Some(reserved) = view.reserved_secs {
                     assert!(
-                        view.used_secs + reserved >= *secs,
-                        "seed {}: {} used {secs} s on day {day}, but the master counts {} s and holds back {reserved} s",
+                        view.used_secs + reserved + over + unknown >= *secs,
+                        "seed {}: {} used {secs} s on day {day}, but the master counts {} s and holds back {reserved} s (and {over} s were used beyond what it held, {unknown} s added on it unheard of)",
                         self.seed,
                         device.id,
                         view.used_secs
                     );
                 }
+                // The master never counts less than the device handed over,
+                // unlock or not: what it counts plus what is still on the way
+                // is all of it.
+                let on_the_way: u64 = device
+                    .state
+                    .unconfirmed_slices()
+                    .iter()
+                    .filter(|s| s.day == *day && s.counts)
+                    .map(|s| s.secs())
+                    .sum();
+                assert!(
+                    view.used_secs + on_the_way >= *secs,
+                    "seed {}: {} used {secs} s on day {day}, the master counts {} s and {on_the_way} s are on the way",
+                    self.seed,
+                    device.id,
+                    view.used_secs
+                );
+                self.stats.count_checks += 1;
             }
+        }
+    }
+
+    /// All extra time for a day: given at the master, and added on devices.
+    fn all_extra(&self, day: i64) -> u64 {
+        let given = self.extra_given.get(&day).copied().unwrap_or(0);
+        let added: u64 = self.added.values().filter(|(d, _)| *d == day).map(|(_, s)| *s).sum();
+        given + added
+    }
+
+    fn guardian_locked(&self, i: usize, now: i64) -> bool {
+        self.devices[i]
+            .state
+            .standing_at(now)
+            .override_at(now)
+            .is_some_and(|o| o.kind == limo_core::OverrideKind::Lock)
+    }
+
+    /// What the guardian does at the master in one step.
+    fn guardian_step(&mut self, now: i64) {
+        let today = self.master.today(now);
+        // Extra time with an id, sometimes sent twice.
+        if self.rng.per_mille(3) {
+            let minutes = self.rng.pick(&[5, 15, 30]);
+            let id = if !self.given_ids.is_empty() && self.rng.below(3) == 0 {
+                self.given_ids[self.rng.below(self.given_ids.len() as u64) as usize].clone()
+            } else {
+                format!("given-{}", self.given_ids.len())
+            };
+            if self.master.give_extra(&id, minutes, now).unwrap() {
+                *self.extra_given.entry(today).or_default() += minutes as u64 * 60;
+                self.stats.extra_given += 1;
+                self.given_ids.push(id);
+            } else {
+                self.stats.extra_repeats += 1;
+            }
+        }
+        // A code read out over a call, typed now or a few hours later.
+        if self.rng.per_mille(6) {
+            let i = self.rng.below(self.devices.len() as u64) as usize;
+            let minutes = self.rng.pick(&[15, 30, 60]);
+            let made = self.counters.entry((i, today)).or_default().clone();
+            match next_code(self.secrets[i].clone(), &self.devices[i].id, today, minutes, made) {
+                Ok(code) => {
+                    self.counters.entry((i, today)).or_default().push(code.counter);
+                    let typed_at = now + if self.rng.below(5) == 0 { self.rng.range(0, 6 * 3_600) } else { 0 };
+                    self.inbox.push((i, code, typed_at));
+                    self.stats.codes_made += 1;
+                }
+                Err(_) => self.stats.codes_exhausted += 1,
+            }
+        }
+        // The PIN changes now and then.
+        if self.rng.per_mille(1) {
+            self.pin = random_pin(&mut self.rng);
+            self.master.set_pin_record(quick_pin(&self.pin)).unwrap();
+            self.stats.pin_changes += 1;
+        }
+        // A lock or an unlock from the master, or lifting it.
+        let lock_until_lifted = matches!(
+            self.master.guardian_setting().mode,
+            limo_core::GuardianMode::Lock { until: None }
+        );
+        if self.rng.per_mille(3) || (lock_until_lifted && self.rng.per_mille(30)) {
+            match self.rng.below(20) {
+                _ if lock_until_lifted => {
+                    self.master.lift(now);
+                    self.stats.lifts += 1;
+                }
+                0..=6 => {
+                    self.master.lock_now(Some(now + self.rng.range(600, 5_400)), now).unwrap();
+                    self.stats.guardian_locks += 1;
+                }
+                7 => {
+                    self.master.lock_now(None, now).unwrap();
+                    self.stats.guardian_locks += 1;
+                }
+                8..=15 => {
+                    self.master.unlock_until(now + self.rng.range(600, 7_200), now).unwrap();
+                    self.stats.guardian_unlocks += 1;
+                }
+                _ => {
+                    self.master.lift(now);
+                    self.stats.lifts += 1;
+                }
+            }
+            self.log(|| format!("{now} guardian setting {:?}", self.master.guardian_setting()));
+        }
+        // Answers to the requests waiting today.
+        for view in self.master.waiting_requests(now) {
+            if !self.rng.per_mille(250) {
+                continue;
+            }
+            if self.rng.below(3) == 0 {
+                self.master.answer_request(&view.request.id, RequestReply::Refuse, now).unwrap();
+                self.stats.requests_refused += 1;
+            } else {
+                let minutes = self.rng.pick(&[5, 10, 20, 30]);
+                let answered =
+                    self.master.answer_request(&view.request.id, RequestReply::Grant { minutes }, now).unwrap();
+                assert_eq!(answered.answer, RequestAnswer::Granted { minutes });
+                *self.extra_given.entry(view.request.day).or_default() += minutes as u64 * 60;
+                self.stats.requests_granted += 1;
+            }
+        }
+    }
+
+    /// Notes what a code or the PIN did on device `i`.
+    fn note_try(&mut self, i: usize, outcome: &TryOutcome) {
+        self.log(|| format!("{} tried a code or the PIN: {outcome:?}", self.devices[i].id));
+        match outcome {
+            TryOutcome::Added { added } => {
+                let fresh = self.added.insert(added.id.clone(), (added.day, added.secs)).is_none();
+                assert!(fresh, "seed {}: the id {} was added twice", self.seed, added.id);
+                let away = !self.devices[i].in_reach;
+                match (added.id.contains("/code/"), away) {
+                    (true, false) => self.stats.codes_used_in_reach += 1,
+                    (true, true) => self.stats.codes_used_away += 1,
+                    (false, false) => self.stats.pin_adds_in_reach += 1,
+                    (false, true) => self.stats.pin_adds_away += 1,
+                }
+            }
+            TryOutcome::MustWait { .. } => self.stats.waits_hit += 1,
+            TryOutcome::AlreadyUsed => self.stats.codes_reused += 1,
+            _ => {}
+        }
+    }
+
+    /// The ways out on device `i` at `now`: codes typed, the PIN typed, a
+    /// restart.
+    fn device_ways(&mut self, i: usize, now: i64) {
+        // Codes read out to this device whose moment has come.
+        let mut due = Vec::new();
+        self.inbox.retain(|(device, code, typed_at)| {
+            if *device == i && *typed_at <= now {
+                due.push(code.clone());
+                false
+            } else {
+                true
+            }
+        });
+        for code in due {
+            // Now and then the child types it on another device first.
+            if self.devices.len() > 1 && self.rng.below(10) == 0 {
+                let other = (i + 1) % self.devices.len();
+                let outcome = self.devices[other].state.try_code(&code.shown, now);
+                assert!(
+                    matches!(outcome, TryOutcome::Wrong { .. } | TryOutcome::MustWait { .. }),
+                    "seed {}: a code for {} worked on {}: {outcome:?}",
+                    self.seed,
+                    self.devices[i].id,
+                    self.devices[other].id
+                );
+                self.note_try(other, &outcome);
+                self.stats.codes_on_wrong_device += 1;
+            }
+            let device_day = self.devices[i].state.holding_at(now).day;
+            let outcome = self.devices[i].state.try_code(&code.shown, now);
+            if device_day != code.day {
+                // A code for another day is simply wrong.
+                assert!(
+                    matches!(outcome, TryOutcome::Wrong { .. } | TryOutcome::MustWait { .. }),
+                    "seed {}: a code for day {} worked on day {device_day}: {outcome:?}",
+                    self.seed,
+                    code.day
+                );
+                self.stats.codes_old += 1;
+            }
+            self.note_try(i, &outcome);
+            if matches!(outcome, TryOutcome::Added { .. }) {
+                self.used_codes.push((i, code.digits.clone()));
+            }
+        }
+        // A code that worked, typed again.
+        if !self.used_codes.is_empty() && self.rng.per_mille(3) {
+            let (device, digits) = self.used_codes[self.rng.below(self.used_codes.len() as u64) as usize].clone();
+            if device == i {
+                let outcome = self.devices[i].state.try_code(&digits, now);
+                assert!(
+                    !matches!(outcome, TryOutcome::Added { .. }),
+                    "seed {}: a used code added time again",
+                    self.seed
+                );
+                self.note_try(i, &outcome);
+            }
+        }
+        // A child guesses a code, now and then several in a row.
+        if self.rng.per_mille(4) {
+            let tries = if self.rng.below(4) == 0 { 7 } else { 1 };
+            for _ in 0..tries {
+                let guess = format!("{:08}", self.rng.below(100_000_000));
+                let outcome = self.devices[i].state.try_code(&guess, now);
+                self.note_try(i, &outcome);
+                self.stats.random_codes += 1;
+            }
+        }
+        // A guardian with the PIN at the device: more time, or an unlock;
+        // now and then a slip of the finger.
+        if self.rng.per_mille(3) {
+            let pin = if self.rng.below(8) == 0 { "0000".to_string() } else { self.pin.clone() };
+            let action = if self.rng.below(5) < 3 {
+                PinAction::AddMinutes { minutes: self.rng.pick(&[5, 15, 30, 45]) }
+            } else {
+                PinAction::UnlockUntil { until: now + self.rng.range(600, 5_400) }
+            };
+            let outcome = self.devices[i].state.try_pin(&pin, action, now).unwrap();
+            match &outcome {
+                TryOutcome::Unlocked { .. } => self.stats.pin_unlocks += 1,
+                TryOutcome::Wrong { .. } => self.stats.pin_wrong += 1,
+                _ => {}
+            }
+            self.note_try(i, &outcome);
+        }
+        // The device restarts from its saved state.
+        if self.rng.per_mille(5) {
+            let saved = serde_json::to_string(&self.devices[i].state).unwrap();
+            let loaded: DeviceState = serde_json::from_str(&saved).unwrap();
+            assert_eq!(loaded, self.devices[i].state, "seed {}: state changed when saved and loaded", self.seed);
+            self.devices[i].state = loaded;
+            self.stats.restarts += 1;
+        }
+    }
+
+    /// A child at a device locked for lack of time asks for more, now and
+    /// then.
+    fn maybe_ask(&mut self, i: usize, now: i64) {
+        if !self.devices[i].in_use {
+            return;
+        }
+        let d = self.devices[i].state.decide(now, None);
+        if short_of_time(&d) && d.can_ask_for_time && self.rng.per_mille(150) {
+            let minutes = self.rng.pick(&[10, 15, 30, 60]);
+            self.devices[i].state.ask_for_time(minutes, "", now).unwrap();
+            self.stats.requests_made += 1;
         }
     }
 
@@ -709,7 +1102,12 @@ impl World {
             }
             if self.rng.per_mille(self.setup.extra) {
                 let day = self.master.today(now);
-                self.master.add_extra_secs(day, self.rng.pick(&[300, 900, 1_800]));
+                let secs = self.rng.pick(&[300, 900, 1_800]);
+                self.master.add_extra_secs(day, secs);
+                *self.extra_given.entry(day).or_default() += secs;
+            }
+            if self.setup.ways {
+                self.guardian_step(now);
             }
             if self.rng.per_mille(self.setup.repeat) {
                 self.repeat_something(now);
@@ -730,9 +1128,12 @@ impl World {
                 if device.portable && !device.in_reach {
                     self.stats.phone_minutes_away += step as u64 / 60;
                 }
+                if self.setup.ways {
+                    self.device_ways(i, now);
+                }
                 // Now and then a device in reach reports without being asked.
                 if self.devices[i].in_reach && self.rng.per_mille(100) {
-                    let want_more = self.devices[i].in_use;
+                    let want_more = self.devices[i].in_use && !self.guardian_locked(i, now);
                     if let Exchange::Through { grant_day, away_cap, rules_changed, .. } =
                         self.exchange(i, now, want_more)
                     {
@@ -740,6 +1141,9 @@ impl World {
                     }
                 }
                 self.device_step(i, now, now + step);
+                if self.setup.ways {
+                    self.maybe_ask(i, now + step);
+                }
             }
             if self.setup.hub {
                 self.hub_round(now + step, rules_changed);
@@ -757,14 +1161,26 @@ impl World {
         }
         for (day, used) in total {
             self.stats.days_checked += 1;
-            if let Some(budget) = self.master.rules().budget_secs_on(day) {
-                if budget > 0 && used + 60 >= budget + self.master.pool(day).extra_secs {
-                    self.stats.days_at_the_limit += 1;
-                }
+            if let Some(budget) = self.master.rules().budget_secs_on(day)
+                && budget > 0
+                && used + 60 >= budget + self.all_extra(day)
+            {
+                self.stats.days_at_the_limit += 1;
             }
         }
         self.stats.scenarios = 1;
     }
+}
+
+/// A PIN of 4 to 8 digits.
+fn random_pin(rng: &mut Rng) -> String {
+    let digits = rng.range(4, 8) as usize;
+    (0..digits).map(|_| char::from(b'0' + rng.below(10) as u8)).collect()
+}
+
+/// A PIN record that is quick to check: the simulation tries thousands.
+fn quick_pin(pin: &str) -> PinRecord {
+    PinRecord::with_iterations(pin, (0u8..16).collect(), 1).unwrap()
 }
 
 /// Locked for lack of time, not for blocked hours or a blocked app.
@@ -818,6 +1234,32 @@ fn many_generated_days_never_go_over_the_limit() {
         all.reclaims += s.reclaims;
         all.reclaimed_secs += s.reclaimed_secs;
         all.reclaim_checks += s.reclaim_checks;
+        all.extra_given += s.extra_given;
+        all.extra_repeats += s.extra_repeats;
+        all.codes_made += s.codes_made;
+        all.codes_exhausted += s.codes_exhausted;
+        all.codes_used_in_reach += s.codes_used_in_reach;
+        all.codes_used_away += s.codes_used_away;
+        all.codes_reused += s.codes_reused;
+        all.codes_old += s.codes_old;
+        all.codes_on_wrong_device += s.codes_on_wrong_device;
+        all.random_codes += s.random_codes;
+        all.pin_adds_in_reach += s.pin_adds_in_reach;
+        all.pin_adds_away += s.pin_adds_away;
+        all.pin_unlocks += s.pin_unlocks;
+        all.pin_wrong += s.pin_wrong;
+        all.pin_changes += s.pin_changes;
+        all.waits_hit += s.waits_hit;
+        all.guardian_locks += s.guardian_locks;
+        all.guardian_unlocks += s.guardian_unlocks;
+        all.lifts += s.lifts;
+        all.requests_made += s.requests_made;
+        all.requests_granted += s.requests_granted;
+        all.requests_refused += s.requests_refused;
+        all.over_secs_under_unlock += s.over_secs_under_unlock;
+        all.lock_checks += s.lock_checks;
+        all.restarts += s.restarts;
+        all.count_checks += s.count_checks;
     }
     println!("{all:#?}");
     if single {
@@ -829,4 +1271,32 @@ fn many_generated_days_never_go_over_the_limit() {
     assert!(all.lost > 0 && all.repeats > 0 && all.late_grants_taken > 0 && all.rule_changes > 0, "{all:#?}");
     assert!(all.locked_for_time_in_reach > 0 && all.strict_checks > 0 && all.away_use_secs > 0, "{all:#?}");
     assert!(all.reclaims > 0 && all.reclaimed_secs > 0 && all.reclaim_checks > 0, "{all:#?}");
+    // Every way out must be taken, or the run proves nothing about it.
+    let paths = [
+        ("extra time given at the master", all.extra_given),
+        ("the same extra time given twice", all.extra_repeats),
+        ("a code used in reach", all.codes_used_in_reach),
+        ("a code used out of reach", all.codes_used_away),
+        ("a used code typed again", all.codes_reused),
+        ("a code typed on a later day", all.codes_old),
+        ("a code typed on the wrong device", all.codes_on_wrong_device),
+        ("time added with the PIN in reach", all.pin_adds_in_reach),
+        ("time added with the PIN out of reach", all.pin_adds_away),
+        ("an unlock with the PIN", all.pin_unlocks),
+        ("a wrong PIN", all.pin_wrong),
+        ("a changed PIN", all.pin_changes),
+        ("a wait after wrong guesses", all.waits_hit),
+        ("a lock from the master", all.guardian_locks),
+        ("an unlock from the master", all.guardian_unlocks),
+        ("a lift at the master", all.lifts),
+        ("a request made", all.requests_made),
+        ("a request granted", all.requests_granted),
+        ("a request refused", all.requests_refused),
+        ("use beyond what a device held, under an unlock", all.over_secs_under_unlock),
+        ("a device in use under a guardian's lock", all.lock_checks),
+        ("a restart from saved state", all.restarts),
+    ];
+    for (path, count) in paths {
+        assert!(count > 0, "the scenarios never took this path: {path}\n{all:#?}");
+    }
 }

@@ -1,0 +1,75 @@
+{
+  "child_id": "asha",
+  "device_id": "phone",
+  "number": 11,
+  "answers_message": 2,
+  "day": 20775,
+  "lease_total_secs": 300,
+  "away_cap_secs": 3600,
+  "away_percent": 50,
+  "left_for_you_secs": 4100,
+  "held_elsewhere_secs": 0,
+  "used_secs_reported": 400,
+  "acknowledge_now": false,
+  "rules": {
+    "version": 2,
+    "utc_offset_secs": 19800,
+    "day_start_minute": 0,
+    "budgets": {
+      "monday": {
+        "minutes": 120
+      },
+      "tuesday": {
+        "minutes": 120
+      },
+      "wednesday": {
+        "minutes": 120
+      },
+      "thursday": {
+        "minutes": 120
+      },
+      "friday": {
+        "minutes": 120
+      },
+      "saturday": {
+        "minutes": 120
+      },
+      "sunday": {
+        "minutes": 180
+      }
+    },
+    "blocked_hours": [
+      {
+        "days": [
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+          "sunday"
+        ],
+        "start_minute": 1260,
+        "end_minute": 420
+      }
+    ],
+    "always_allowed_apps": [
+      "clock"
+    ],
+    "blocked_apps": [
+      "casino"
+    ],
+    "away_share_percent": 50,
+    "lease_minutes": 5,
+    "warning_minutes": [
+      15,
+      5,
+      1
+    ]
+  },
+  "confirmed_slices": [
+    "phone/1",
+    "phone/2",
+    "phone/3"
+  ]
+}

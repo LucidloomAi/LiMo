@@ -1,0 +1,110 @@
+{
+  "child_id": "asha",
+  "device_id": "phone",
+  "rules": {
+    "version": 1,
+    "utc_offset_secs": 19800,
+    "day_start_minute": 0,
+    "budgets": {
+      "monday": {
+        "minutes": 120
+      },
+      "tuesday": {
+        "minutes": 120
+      },
+      "wednesday": {
+        "minutes": 120
+      },
+      "thursday": {
+        "minutes": 120
+      },
+      "friday": {
+        "minutes": 120
+      },
+      "saturday": {
+        "minutes": 120
+      },
+      "sunday": {
+        "minutes": 180
+      }
+    },
+    "blocked_hours": [
+      {
+        "days": [
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+          "sunday"
+        ],
+        "start_minute": 1260,
+        "end_minute": 420
+      }
+    ],
+    "always_allowed_apps": [
+      "clock"
+    ],
+    "blocked_apps": [
+      "casino"
+    ],
+    "away_share_percent": 50,
+    "lease_minutes": 10,
+    "warning_minutes": [
+      15,
+      5,
+      1
+    ]
+  },
+  "holding": {
+    "day": 20775,
+    "lease_total_secs": 0,
+    "lease_used_secs": 0,
+    "away_cap_secs": 3600,
+    "away_used_secs": 400,
+    "away_percent": 50,
+    "master_word": null,
+    "warned": {
+      "time_day": 20775,
+      "time_points": [],
+      "blocked_start": null,
+      "blocked_points": []
+    }
+  },
+  "grant_taken": 2,
+  "last_message": 2,
+  "last_slice": 3,
+  "unconfirmed": [
+    {
+      "id": "phone/1",
+      "child_id": "asha",
+      "device_id": "phone",
+      "app_id": "game",
+      "day": 20775,
+      "start": 1794976200,
+      "end": 1794976500,
+      "counts": true
+    },
+    {
+      "id": "phone/2",
+      "child_id": "asha",
+      "device_id": "phone",
+      "app_id": "clock",
+      "day": 20775,
+      "start": 1794976500,
+      "end": 1794976600,
+      "counts": false
+    },
+    {
+      "id": "phone/3",
+      "child_id": "asha",
+      "device_id": "phone",
+      "app_id": "game",
+      "day": 20775,
+      "start": 1794976600,
+      "end": 1794976700,
+      "counts": true
+    }
+  ]
+}

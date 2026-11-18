@@ -14,9 +14,19 @@
 //! carries a number that only grows. So a message that is lost, repeated or
 //! late can never make anything count twice or go missing. How the messages
 //! travel, and their encryption, are not this library's concern.
+//!
+//! The ways out ride on the same two messages. A report also carries the
+//! time added on the device by codes and the PIN, and the child's requests
+//! for more time, each with an id and repeated until confirmed, like slices.
+//! A grant also carries the guardian's lock or unlock, the PIN record while
+//! the device may not have its newest version, and the day's requests with
+//! their answers.
 
 use serde::{Deserialize, Serialize};
 
+use crate::extra::{AddedTime, RequestView, TimeRequest};
+use crate::guardian::{GuardianSetting, PinUnlock};
+use crate::pin::PinUpdate;
 use crate::rules::RuleSet;
 
 /// A stretch of use of one app on one device, inside one home day.
@@ -85,6 +95,35 @@ pub struct Report {
     pub want_more: bool,
     /// Every slice the master has not yet confirmed.
     pub slices: Vec<Slice>,
+    /// Time added on this device that day by codes and the PIN, in all.
+    #[serde(default)]
+    pub added_secs: u64,
+    /// The part of it used.
+    #[serde(default)]
+    pub added_used_secs: u64,
+    /// Every piece of time added on the device that the master has not yet
+    /// confirmed.
+    #[serde(default)]
+    pub added: Vec<AddedTime>,
+    /// Every request for more time made on the device that the master has
+    /// not yet confirmed.
+    #[serde(default)]
+    pub requests: Vec<TimeRequest>,
+    /// Wrong guesses of codes and PIN on this device since the last right
+    /// PIN, for the guardian to see.
+    #[serde(default)]
+    pub wrong_guesses: u32,
+    /// The version of the PIN record the device holds, 0 for none.
+    /// Acknowledges it.
+    #[serde(default)]
+    pub pin_version: u32,
+    /// The guardian news number of the newest grant the device has taken.
+    /// Acknowledges the lock or unlock, the PIN and the answers it carried.
+    #[serde(default)]
+    pub news_seen: u64,
+    /// An unlock set with the PIN on this device, while it is in force.
+    #[serde(default)]
+    pub pin_unlock: Option<PinUnlock>,
 }
 
 /// From the master to a device: what it may hold, the rules, and which
@@ -130,4 +169,25 @@ pub struct Grant {
     pub rules: RuleSet,
     /// Ids of slices the master now has. The device can forget them.
     pub confirmed_slices: Vec<String>,
+    /// Ids of time added on the device that the master now has.
+    #[serde(default)]
+    pub confirmed_added: Vec<String>,
+    /// Ids of requests the master now has.
+    #[serde(default)]
+    pub confirmed_requests: Vec<String>,
+    /// The guardian's lock or unlock for all of the child's devices.
+    #[serde(default)]
+    pub guardian: GuardianSetting,
+    /// The PIN record, while the device may not hold its newest version.
+    /// None means no change, not no PIN.
+    #[serde(default)]
+    pub pin: Option<PinUpdate>,
+    /// Every request for more time made for the grant's day, from any of the
+    /// child's devices, with its answer so far.
+    #[serde(default)]
+    pub requests: Vec<RequestView>,
+    /// Grows whenever the guardian's lock or unlock, the PIN or an answer to
+    /// a request changes. A device reports the newest it has taken.
+    #[serde(default)]
+    pub news: u64,
 }
