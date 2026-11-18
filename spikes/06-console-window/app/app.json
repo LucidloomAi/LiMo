@@ -1,0 +1,14 @@
+﻿{
+  "expo": {
+    "name": "LiMo console proof",
+    "slug": "limo-console-proof",
+    "version": "0.1.0",
+    "scheme": "limoconsoleproof",
+    "orientation": "portrait",
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": ["expo-router"]
+  }
+}

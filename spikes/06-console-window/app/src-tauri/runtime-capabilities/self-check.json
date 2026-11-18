@@ -1,0 +1,6 @@
+{
+  "identifier": "self-check",
+  "description": "Added at run time, only when the program was started with --self-check.",
+  "windows": ["main"],
+  "permissions": ["allow-self-check-state", "allow-self-check-report"]
+}

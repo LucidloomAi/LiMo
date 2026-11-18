@@ -1,0 +1,34 @@
+{
+  "name": "limo-console-proof",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "web": "expo start --web",
+    "export:web": "expo export --platform web --output-dir dist --clear",
+    "build:console": "npm run export:web && tauri build --no-bundle",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~55.0.12",
+    "@tauri-apps/api": "^2",
+    "expo": "~55.0.32",
+    "expo-constants": "~55.0.17",
+    "expo-linking": "~55.0.17",
+    "expo-router": "~55.0.18",
+    "expo-status-bar": "~55.0.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-native": "0.83.10",
+    "react-native-safe-area-context": "~5.6.2",
+    "react-native-screens": "~4.23.0",
+    "react-native-web": "~0.21.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "~19.2.2",
+    "typescript": "~5.9.2"
+  }
+}

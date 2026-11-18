@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "The console window may call the app's three console commands and nothing else: no core plugins, no events, no window APIs.",
+  "windows": ["main"],
+  "permissions": ["allow-family-view", "allow-give-minutes", "allow-lock-child"]
+}

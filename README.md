@@ -31,9 +31,10 @@ the Apache 2.0 licence.
 ## Where it stands
 
 **LiMo is not ready to install yet.** Before building the product we wrote
-five small proofs and ran each one on real hardware, to find out what Windows
-and Android really allow. All five ran on 17 Nov 2026. This repository holds
-those proofs, with what each one showed. The product itself comes next.
+small proofs and ran each one on real hardware, to find out what Windows and
+Android really allow. Five ran on 17 Nov 2026 and a sixth on 18 Nov 2026.
+This repository holds those proofs, with what each one showed, and the first
+parts of the product.
 
 ## How it will work
 
@@ -115,6 +116,7 @@ These are the plain test screens the proofs use, not the finished product.
 | [3. One Rust core](spikes/03-expo-rust-core/) | Can the phone app call the same Rust rules code that Windows uses? | Yes. The Rust part adds about 3 percent to the app, and a call takes less than a thousandth of a second. |
 | [4. Finding the PC](spikes/04-lan-discovery/) | Can a phone find the master PC on home Wi-Fi by itself? | Yes, in about a quarter of a second, once the Windows Firewall allows the program. The installer will add its own narrow firewall rule, so a family never has to answer a prompt. |
 | [5. Strict mode](spikes/05-strict-mode/) | Can the PC make LiMo the owner of the phone over USB, and can it always be released? | Setup worked every time on a phone with no accounts. Three ways out were built and tested first: a release with the guardian's PIN, a timer that releases the phone by itself, and a forced release from the PC. With strict mode on, uninstalling, factory reset from Settings and changing the clock were refused, it all survived a restart, and a release put everything back. |
+| [6. The console window](spikes/06-console-window/) | Can the guardian's window on the PC show the phone app's own screens, so they are built once? | Yes. The same screens run in a small window, get their figures from Rust, and are on screen about a third of a second after the program starts. The program is under 5 MB. The window is drawn by Microsoft's WebView2, which is part of Windows 11 and is not open source. The page fetched nothing, but WebView2 opened one connection to a Microsoft address by itself. What it sends is not yet known, and it has to be settled before this is used. |
 
 Each folder has a `README.md` that says what was built and what was found,
 and a `TESTING.md` with the exact steps that were run.
@@ -131,13 +133,14 @@ spikes/
   03-expo-rust-core/         Rust and Expo: one rules crate called from a phone app
   04-lan-discovery/          Rust and Kotlin: a phone finds the PC on home Wi-Fi
   05-strict-mode/            Kotlin and Rust: Device Owner set up over USB, and released
+  06-console-window/         Expo and Rust: the phone app's screens in a window on the PC
 docs/images/                 the pictures on this page
 LICENSE                      Apache 2.0
 ```
 
 The proofs are small on purpose and are not the product. Each one can be
 built by following its own README. They need Rust, the Android SDK and JDK 17;
-the third also needs Node.
+the third and the sixth also need Node.
 
 The product has begun with [`core/`](core/): one Rust library that holds the
 time rules and keeps one daily budget honest across a PC and a phone with no
