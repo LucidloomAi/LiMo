@@ -13,10 +13,11 @@ use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 
 use crate::DEFAULT_DETAIL_DAYS;
 use crate::error::HubError;
+use crate::store;
 
 /// The version of the file this code writes. A file of a later version is
 /// refused, unchanged.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// "LiMo" in ASCII: marks the file as a LiMo family file.
 pub(crate) const APPLICATION_ID: i32 = 0x4C69_4D6F;
@@ -127,10 +128,61 @@ CREATE INDEX event_by_child ON event(child_id);
 CREATE INDEX event_by_time ON event(at);
 ";
 
+/// Version 2: the rules core answers what the hub kept of each device's
+/// newest report (its message number, the rules version it holds, its wrong
+/// guesses, how far off its clock is), so those columns go. The books are
+/// converted too, by [`convert_books`].
+const V2: &str = "
+ALTER TABLE device DROP COLUMN last_message;
+ALTER TABLE device DROP COLUMN rules_version_seen;
+ALTER TABLE device DROP COLUMN wrong_guesses;
+ALTER TABLE device DROP COLUMN clock_off_by;
+";
+
+/// Work on the books that a step's SQL cannot do.
+type BookWork = fn(&Connection) -> Result<(), HubError>;
+
+/// One step from a version to the next: SQL, and work on the books that SQL
+/// cannot do.
+#[derive(Clone, Copy)]
+pub(crate) struct Step {
+    sql: &'static str,
+    books: Option<BookWork>,
+}
+
 /// Every step from one version to the next: entry `i` moves a file from
 /// version `i` to version `i + 1`. Never change an entry once released; add
 /// a new one.
-const MIGRATIONS: &[&str] = &[V1];
+const MIGRATIONS: &[Step] = &[Step { sql: V1, books: None }, Step { sql: V2, books: Some(convert_books) }];
+
+/// Version 2's work on the books: every child's book is loaded (a book saved
+/// with whole slices is folded into marks as it loads) and saved in the
+/// core's present shape. A device the first version removed was kept in the
+/// book as a retired record; it is now removed by the core itself, at the
+/// moment the hub removed it. Its counted use stays with the days the book
+/// keeps. The retired record no longer says how much of the time added on
+/// it by a code or the PIN it used, so none of that is dropped: on those days
+/// (today and yesterday at most) it stays in the day's extra time.
+///
+/// It reads the tables through the hub's own functions, so a later version
+/// that changes the `child`, `device` or `book` tables must keep this step
+/// working on a version 2 file, before its own step runs.
+fn convert_books(conn: &Connection) -> Result<(), HubError> {
+    for child in store::children(conn)? {
+        let mut book = store::load_book(conn, &child.child_id)?;
+        let live: Vec<String> = book.device_ids();
+        for row in store::devices_of(conn, &child.child_id, true)? {
+            if let Some(removed_at) = row.removed_at
+                && live.contains(&row.id)
+            {
+                book.remove_device(&row.id, removed_at).map_err(HubError::from_master)?;
+            }
+        }
+        let saved_at: i64 = conn.query_row("SELECT saved_at FROM book WHERE child_id = ?1", [&child.child_id], |r| r.get(0))?;
+        store::save_book(conn, &child.child_id, &book, saved_at)?;
+    }
+    Ok(())
+}
 
 /// Opens the file, creating it when it does not exist, brings it up to date,
 /// and keeps it locked for this connection alone until the connection
@@ -162,7 +214,7 @@ pub(crate) fn open(path: &Path) -> Result<Connection, HubError> {
 
 /// Checks the file and runs the migrations it needs, in one exclusive
 /// transaction. The transaction also takes the lock this connection keeps.
-pub(crate) fn bring_up_to_date(conn: &mut Connection, migrations: &[&str]) -> Result<(), HubError> {
+pub(crate) fn bring_up_to_date(conn: &mut Connection, migrations: &[Step]) -> Result<(), HubError> {
     let known = u32::try_from(migrations.len()).unwrap_or(u32::MAX);
     let tx = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
     let application_id: i32 = tx.pragma_query_value(None, "application_id", |row| row.get(0))?;
@@ -178,7 +230,10 @@ pub(crate) fn bring_up_to_date(conn: &mut Connection, migrations: &[&str]) -> Re
         return Err(HubError::FileTooNew { file_version: version, known_version: known });
     }
     for step in migrations.iter().skip(version as usize) {
-        tx.execute_batch(step)?;
+        tx.execute_batch(step.sql)?;
+        if let Some(books) = step.books {
+            books(&tx)?;
+        }
     }
     if fresh {
         tx.pragma_update(None, "application_id", APPLICATION_ID)?;
@@ -195,34 +250,54 @@ pub(crate) fn bring_up_to_date(conn: &mut Connection, migrations: &[&str]) -> Re
 mod tests {
     use super::*;
 
-    /// A second version that only adds a column, to show that a version 1
-    /// file is carried forward by the migration path.
-    const TEST_V2: &str = "ALTER TABLE settings ADD COLUMN probe INTEGER NOT NULL DEFAULT 7;";
+    /// A third version that only adds a column, to show that a file is
+    /// carried forward by the migration path.
+    const TEST_V3: &str = "ALTER TABLE settings ADD COLUMN probe INTEGER NOT NULL DEFAULT 7;";
 
     fn version(conn: &Connection) -> i64 {
         conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap()
     }
 
+    fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
+        conn.query_row(
+            "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
+            [table, column],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+            == 1
+    }
+
     #[test]
-    fn a_version_one_file_is_carried_to_version_two() {
+    fn a_version_one_file_is_carried_forward_step_by_step() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("family.limo");
-        drop(open(&path).unwrap());
-
+        // A version 1 file, as the first version of the hub made it.
         let mut conn = Connection::open(&path).unwrap();
+        bring_up_to_date(&mut conn, &MIGRATIONS[..1]).unwrap();
         assert_eq!(version(&conn), 1);
-        bring_up_to_date(&mut conn, &[V1, TEST_V2]).unwrap();
+        assert!(has_column(&conn, "device", "rules_version_seen"));
+
+        bring_up_to_date(&mut conn, MIGRATIONS).unwrap();
         assert_eq!(version(&conn), 2);
+        for column in ["last_message", "rules_version_seen", "wrong_guesses", "clock_off_by"] {
+            assert!(!has_column(&conn, "device", column), "{column}");
+        }
+        assert!(has_column(&conn, "device", "in_use_at_report"));
+
+        let three = [MIGRATIONS[0], MIGRATIONS[1], Step { sql: TEST_V3, books: None }];
+        bring_up_to_date(&mut conn, &three).unwrap();
+        assert_eq!(version(&conn), 3);
         let probe: i64 = conn.query_row("SELECT probe FROM settings", [], |row| row.get(0)).unwrap();
         let days: i64 = conn.query_row("SELECT detail_days FROM settings", [], |row| row.get(0)).unwrap();
         assert_eq!((probe, days), (7, DEFAULT_DETAIL_DAYS as i64));
         // Opening it again changes nothing.
-        bring_up_to_date(&mut conn, &[V1, TEST_V2]).unwrap();
-        assert_eq!(version(&conn), 2);
+        bring_up_to_date(&mut conn, &three).unwrap();
+        assert_eq!(version(&conn), 3);
         drop(conn);
 
-        // This code knows only version 1, so the file is now too new for it.
-        assert_eq!(open(&path).unwrap_err(), HubError::FileTooNew { file_version: 2, known_version: 1 });
+        // This code knows up to version 2, so the file is now too new for it.
+        assert_eq!(open(&path).unwrap_err(), HubError::FileTooNew { file_version: 3, known_version: 2 });
     }
 
     #[test]

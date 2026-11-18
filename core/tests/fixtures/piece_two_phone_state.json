@@ -1,0 +1,223 @@
+{
+  "child_id": "asha",
+  "device_id": "phone",
+  "rules": {
+    "version": 2,
+    "utc_offset_secs": 19800,
+    "day_start_minute": 0,
+    "budgets": {
+      "monday": {
+        "minutes": 120
+      },
+      "tuesday": {
+        "minutes": 120
+      },
+      "wednesday": {
+        "minutes": 120
+      },
+      "thursday": {
+        "minutes": 120
+      },
+      "friday": {
+        "minutes": 120
+      },
+      "saturday": {
+        "minutes": 120
+      },
+      "sunday": {
+        "minutes": 120
+      }
+    },
+    "blocked_hours": [],
+    "always_allowed_apps": [
+      "clock"
+    ],
+    "blocked_apps": [],
+    "away_share_percent": 50,
+    "lease_minutes": 5,
+    "warning_minutes": [
+      15,
+      5,
+      1
+    ]
+  },
+  "holding": {
+    "day": 20775,
+    "lease_total_secs": 300,
+    "lease_used_secs": 300,
+    "away_cap_secs": 3300,
+    "away_used_secs": 900,
+    "away_percent": 50,
+    "master_word": {
+      "left_secs": 2400,
+      "used_then_secs": 1800,
+      "held_elsewhere_secs": 3600
+    },
+    "warned": {
+      "time_day": null,
+      "time_points": [],
+      "blocked_start": null,
+      "blocked_points": [],
+      "unlock_end": null,
+      "unlock_points": []
+    },
+    "added_secs": 1800,
+    "added_used_secs": 780,
+    "codes_used": [
+      10
+    ]
+  },
+  "grant_taken": 33,
+  "last_message": 17,
+  "last_slice": 11,
+  "unconfirmed": [
+    {
+      "id": "phone/11",
+      "child_id": "asha",
+      "device_id": "phone",
+      "app_id": "chat",
+      "day": 20775,
+      "start": 1794983400,
+      "end": 1794983580,
+      "counts": true
+    }
+  ],
+  "code_secret": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32
+  ],
+  "pin": {
+    "salt": [
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55
+    ],
+    "iterations": 1000,
+    "hash": [
+      98,
+      217,
+      212,
+      218,
+      37,
+      130,
+      201,
+      155,
+      167,
+      177,
+      49,
+      8,
+      13,
+      130,
+      120,
+      228,
+      57,
+      91,
+      57,
+      254,
+      78,
+      193,
+      243,
+      154,
+      31,
+      49,
+      205,
+      95,
+      233,
+      16,
+      85,
+      154
+    ]
+  },
+  "pin_version": 1,
+  "guardian": {
+    "version": 0,
+    "mode": "nothing",
+    "set_at": -9223372036854775808
+  },
+  "pin_unlock": null,
+  "tries": {
+    "wrong": 0,
+    "wait_until": null
+  },
+  "last_pin_add": 0,
+  "unsent_added": [],
+  "last_request": 1,
+  "own_requests": [
+    {
+      "request": {
+        "id": "phone/ask/1",
+        "child_id": "asha",
+        "device_id": "phone",
+        "day": 20775,
+        "minutes": 20,
+        "reason": "Project",
+        "asked_at": 1794972900
+      },
+      "confirmed": true
+    }
+  ],
+  "requests_seen": [
+    {
+      "request": {
+        "id": "phone/ask/1",
+        "child_id": "asha",
+        "device_id": "phone",
+        "day": 20775,
+        "minutes": 20,
+        "reason": "Project",
+        "asked_at": 1794972900
+      },
+      "answer": {
+        "granted": {
+          "minutes": 10
+        }
+      },
+      "answered_at": 1794973200,
+      "reached_master": true
+    }
+  ],
+  "news_taken": 2
+}

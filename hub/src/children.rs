@@ -1,6 +1,6 @@
 //! Children, and their rules.
 
-use limo_core::{MasterBook, MasterError, RuleSet};
+use limo_core::{MasterBook, RuleSet};
 use rusqlite::{Connection, params};
 
 use crate::error::HubError;
@@ -100,25 +100,20 @@ impl Hub {
         Ok(store::load_book(&self.conn, child_id)?.rules())
     }
 
-    /// Replaces a child's rules and returns them as taken. The hub sets the
+    /// Replaces a child's rules and returns them as taken. The core sets the
     /// version, one more than the current one, whatever `rules.version`
-    /// says. The core checks the rules; when it refuses them,
+    /// says, and checks the rules; when it refuses them,
     /// [`HubError::InvalidRules`] carries its problems unchanged, each with
     /// the field it is about and a sentence for the guardian.
     ///
     /// The new rules reach each device with its next grant; ask the devices
     /// in [`Hub::wanted_reports`] to report, which names every device that
-    /// has not yet taken them.
+    /// has not yet reported holding them.
     pub fn replace_rules(&mut self, child_id: &str, rules: RuleSet, now: i64) -> Result<RuleSet, HubError> {
         let tx = self.change()?;
         store::child(&tx, child_id)?;
         let mut book = store::load_book(&tx, child_id)?;
-        let current = book.rules().version;
-        let mut rules = rules;
-        rules.version = current
-            .checked_add(1)
-            .ok_or(HubError::Refused { problem: MasterError::RulesNotNewer { current, given: current } })?;
-        book.set_rules(rules.clone()).map_err(HubError::from_master)?;
+        let rules = book.change_rules(rules).map_err(HubError::from_master)?;
         store::save_book(&tx, child_id, &book, now)?;
         add_event(&tx, now, Some(child_id), &EventKind::RulesChanged { version: rules.version })?;
         tx.commit()?;

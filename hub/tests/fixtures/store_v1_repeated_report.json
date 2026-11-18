@@ -1,0 +1,35 @@
+{
+  "child_id": "child-5fde1a22576dc999",
+  "device_id": "device-4d7e7baea5914503",
+  "message_number": 17,
+  "sent_at": 1794980040,
+  "rules_version": 2,
+  "grant_number": 37,
+  "away_percent": 50,
+  "day": 20775,
+  "used_secs": 1440,
+  "lease_total_secs": 600,
+  "away_cap_secs": 3000,
+  "away_used_secs": 840,
+  "want_more": false,
+  "slices": [
+    {
+      "id": "device-4d7e7baea5914503/10",
+      "child_id": "child-5fde1a22576dc999",
+      "device_id": "device-4d7e7baea5914503",
+      "app_id": "video",
+      "day": 20775,
+      "start": 1794979800,
+      "end": 1794980040,
+      "counts": true
+    }
+  ],
+  "added_secs": 0,
+  "added_used_secs": 0,
+  "added": [],
+  "requests": [],
+  "wrong_guesses": 0,
+  "pin_version": 1,
+  "news_seen": 2,
+  "pin_unlock": null
+}

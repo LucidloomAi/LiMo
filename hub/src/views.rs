@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use limo_core::{GuardianMode, GuardianSetting};
 use rusqlite::{Connection, params};
 
+use crate::devices::far_off;
 use crate::error::HubError;
 use crate::hub::Hub;
 use crate::store::{self, to_u64};
@@ -29,14 +30,14 @@ fn child_today(conn: &Connection, child: Child, now: i64) -> Result<ChildToday, 
     for row in store::devices_of(conn, &child.child_id, false)? {
         let view = book
             .device_view(&row.id, day)
-            .ok_or_else(|| HubError::damaged("a paired device is missing from its child's book"))?;
-        let heard_lately = row.last_heard_at.is_some_and(|h| now.saturating_sub(h) <= IN_USE_HEARD_SECS);
+            .map_err(|_| HubError::damaged("a paired device is missing from its child's book"))?;
+        let heard_lately = view.last_seen.is_some_and(|h| now.saturating_sub(h) <= IN_USE_HEARD_SECS);
         devices.push(DeviceToday {
             device_id: row.id,
             name: row.name,
             kind: row.kind,
             platform: row.platform,
-            last_heard_at: row.last_heard_at,
+            last_heard_at: view.last_seen,
             in_use: row.in_use_at_report && heard_lately,
             used_secs: view.used_secs,
             holds_secs: view.reserved_secs,
@@ -45,7 +46,7 @@ fn child_today(conn: &Connection, child: Child, now: i64) -> Result<ChildToday, 
             added_secs: view.added_secs,
             wrong_guesses: view.wrong_guesses,
             pin_unlocked_until: view.pin_unlocked_until.filter(|u| *u > now),
-            clock_off_by_secs: row.clock_off_by,
+            clock_off_by_secs: far_off(view.clock_off_by_secs),
         });
     }
     Ok(ChildToday {

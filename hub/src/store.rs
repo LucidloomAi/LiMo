@@ -138,21 +138,9 @@ pub(crate) fn load_book(conn: &Connection, child_id: &str) -> Result<MasterBook,
     Ok(book)
 }
 
-/// The saved JSON of a child's book, unparsed.
-pub(crate) fn book_json(conn: &Connection, child_id: &str) -> Result<String, HubError> {
-    conn.query_row("SELECT json FROM book WHERE child_id = ?1", [child_id], |row| row.get(0))
-        .optional()?
-        .ok_or_else(|| HubError::UnknownChild { child_id: child_id.to_string() })
-}
-
 /// Writes a child's book.
 pub(crate) fn save_book(conn: &Connection, child_id: &str, book: &MasterBook, now: i64) -> Result<(), HubError> {
     let json = serde_json::to_string(book).map_err(|_| HubError::internal("a book could not be written as JSON"))?;
-    save_book_json(conn, child_id, &json, now)
-}
-
-/// Writes a child's book from its JSON.
-pub(crate) fn save_book_json(conn: &Connection, child_id: &str, json: &str, now: i64) -> Result<(), HubError> {
     conn.execute(
         "INSERT INTO book (child_id, json, saved_at) VALUES (?1, ?2, ?3)
          ON CONFLICT (child_id) DO UPDATE SET json = excluded.json, saved_at = excluded.saved_at",
@@ -161,7 +149,11 @@ pub(crate) fn save_book_json(conn: &Connection, child_id: &str, json: &str, now:
     Ok(())
 }
 
-/// A device row.
+/// A device row: what the hub keeps of a device beside the child's book.
+/// The rest (its rules version, news taken, wrong guesses, clock) the book
+/// answers ([`limo_core::MasterBook::device_view`]); `last_heard_at` is a
+/// copy of the book's figure, kept so that devices can be listed without
+/// reading the book.
 #[derive(Debug, Clone)]
 pub(crate) struct DeviceRow {
     pub(crate) id: String,
@@ -172,31 +164,22 @@ pub(crate) struct DeviceRow {
     pub(crate) paired_at: i64,
     pub(crate) removed_at: Option<i64>,
     pub(crate) last_heard_at: Option<i64>,
-    pub(crate) last_message: u64,
-    pub(crate) rules_version_seen: u32,
     pub(crate) in_use_at_report: bool,
-    pub(crate) wrong_guesses: u32,
-    pub(crate) clock_off_by: Option<i64>,
 }
 
-const DEVICE_COLUMNS: &str = "id, child_id, name, kind, platform, paired_at, removed_at, last_heard_at,
-    last_message, rules_version_seen, in_use_at_report, wrong_guesses, clock_off_by";
+const DEVICE_COLUMNS: &str = "id, child_id, name, kind, platform, paired_at, removed_at, last_heard_at, in_use_at_report";
 
-type RawDevice = (
-    (String, String, String, String, String, i64),
-    (Option<i64>, Option<i64>, i64, i64, bool, i64, Option<i64>),
-);
+type RawDevice = ((String, String, String, String, String), (i64, Option<i64>, Option<i64>, bool));
 
 fn raw_device(row: &Row<'_>) -> rusqlite::Result<RawDevice> {
     Ok((
-        (row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?),
-        (row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?),
+        (row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?),
+        (row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?),
     ))
 }
 
 fn make_device(raw: RawDevice) -> Result<DeviceRow, HubError> {
-    let ((id, child_id, name, kind, platform, paired_at), rest) = raw;
-    let (removed_at, last_heard_at, last_message, rules_seen, in_use, wrong, clock_off_by) = rest;
+    let ((id, child_id, name, kind, platform), (paired_at, removed_at, last_heard_at, in_use_at_report)) = raw;
     Ok(DeviceRow {
         id,
         child_id,
@@ -206,11 +189,7 @@ fn make_device(raw: RawDevice) -> Result<DeviceRow, HubError> {
         paired_at,
         removed_at,
         last_heard_at,
-        last_message: to_u64(last_message),
-        rules_version_seen: to_u32(rules_seen),
-        in_use_at_report: in_use,
-        wrong_guesses: to_u32(wrong),
-        clock_off_by,
+        in_use_at_report,
     })
 }
 

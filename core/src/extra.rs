@@ -13,7 +13,8 @@
 //! Time given at the master goes into the day's pool, and leases hand it out
 //! like any other time. Time added on a device is that device's to spend at
 //! once, even with no network; the device reports it, and the master adds it
-//! to that day's extra, once, by its id.
+//! to that day's extra, once, by its id. When that device is removed, the
+//! part it had not used is dropped ([`ExtraTime::dropped_secs`]).
 
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +66,12 @@ pub struct ExtraTime {
     pub source: ExtraSource,
     /// When it was given, or added on the device, unix seconds.
     pub at: i64,
+    /// Of time added on a device, the part the device had not used when it
+    /// was removed: dropped from the day's extra time, since no other device
+    /// may spend it. 0 otherwise. The day's extra time counts `secs` less
+    /// this.
+    #[serde(default)]
+    pub dropped_secs: u64,
 }
 
 /// How time was added on a device.

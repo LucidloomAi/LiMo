@@ -78,6 +78,40 @@ fn folding_keeps_daily_totals_equal_to_what_the_slices_summed_to() {
 }
 
 #[test]
+fn a_late_slice_for_a_folded_day_is_neither_counted_nor_kept() {
+    let place = place();
+    let mut hub = new_family(&place.path);
+    let asha = child(&mut hub, "Asha").child_id;
+    let mut phone = pair(&mut hub, &asha, "Phone", DeviceKind::Portable, at(7, 0));
+    use_app(&mut hub, &mut phone, "video", at(8, 0), at(8, 10));
+    let day0 = day_of(at(8, 0));
+    // Ten days on, with a week in detail, the first day is folded and the
+    // book has forgotten it.
+    hub.set_detail_days(7).unwrap();
+    let now = at(9, 0) + 10 * DAY;
+    hub.tidy(now).unwrap();
+    let before = hub.usage(&asha, day0, day0).unwrap();
+    // A slice the phone never sent turns up for that day, numbered as a
+    // device numbers them, above everything taken that day.
+    let mut report = phone.state.report(now, false);
+    report.slices.push(Slice {
+        id: format!("{}/999", phone.id),
+        child_id: asha.clone(),
+        device_id: phone.id.clone(),
+        app_id: "video".into(),
+        day: day0,
+        start: at(8, 30),
+        end: at(8, 40),
+        counts: true,
+    });
+    let grant = hub.handle_report(&report, now).unwrap();
+    assert!(grant.confirmed_slices.contains(&format!("{}/999", phone.id)), "confirmed, so the phone forgets it");
+    assert_eq!(hub.usage(&asha, day0, day0).unwrap(), before);
+    hub.close().unwrap();
+    assert_eq!(count(&raw(&place.path), "slice", &format!("day = {day0}")), 0);
+}
+
+#[test]
 fn tidy_trims_the_books_codes_and_events() {
     let place = place();
     let mut hub = new_family(&place.path);
@@ -127,21 +161,35 @@ fn tidy_trims_the_books_codes_and_events() {
 }
 
 #[test]
-fn a_removed_device_leaves_the_book_once_its_days_are_forgotten() {
+fn a_removed_device_leaves_the_book_at_once_and_its_use_with_its_days() {
     let place = place();
     let mut hub = new_family(&place.path);
     let asha = child(&mut hub, "Asha").child_id;
     let mut phone = pair(&mut hub, &asha, "Phone", DeviceKind::Portable, at(7, 0));
     use_app(&mut hub, &mut phone, "video", at(8, 0), at(8, 30));
     hub.remove_device(&phone.id, at(9, 0)).unwrap();
-    assert_eq!(hub.tidy(at(10, 0)).unwrap().retired_devices_dropped, 0, "today's pool still counts its use");
-    assert_eq!(hub.child_today(&asha, at(10, 0)).unwrap().used_secs, 30 * MIN as u64);
-    assert_eq!(hub.tidy(at(10, 0) + 2 * DAY).unwrap().retired_devices_dropped, 1);
-    // The child's history still shows it.
+    hub.tidy(at(10, 0)).unwrap();
+    assert_eq!(hub.child_today(&asha, at(10, 0)).unwrap().used_secs, 30 * MIN as u64, "today's pool still counts its use");
+    let book = |hub: Hub| -> serde_json::Value {
+        hub.close().unwrap();
+        let json: String = raw(&place.path).query_row("SELECT json FROM book", [], |r| r.get(0)).unwrap();
+        serde_json::from_str(&json).unwrap()
+    };
+    // The book holds no record of it any more, only its id among the
+    // removed, and its use on the day.
+    let kept = book(hub);
+    assert!(kept["devices"].as_array().unwrap().is_empty());
+    assert!(kept["removed"].as_object().unwrap().contains_key(&phone.id));
+    assert_eq!(kept["days"][0]["removed"][&phone.id], 30 * 60);
+    // Two days on, the day is forgotten by the book; the child's history
+    // still shows it.
+    let mut hub = Hub::open(&place.path).unwrap();
+    hub.tidy(at(10, 0) + 2 * DAY).unwrap();
     let day0 = day_of(at(8, 0));
     let usage = hub.usage(&asha, day0, day0).unwrap();
     assert_eq!((usage.secs, usage.devices[0].removed), (30 * MIN as u64, true));
     assert!(hub.child_today(&asha, at(10, 0) + 2 * DAY).unwrap().devices.is_empty());
+    assert!(book(hub)["days"].as_array().unwrap().iter().all(|d| d["removed"].as_object().unwrap().is_empty()));
 }
 
 #[test]

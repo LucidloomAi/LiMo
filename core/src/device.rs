@@ -23,7 +23,7 @@ use crate::extra::{
 };
 use crate::guardian::{GuardianSetting, MAX_UNLOCK_SECS, PinUnlock, Standing, TryCounter};
 use crate::messages::{Grant, Report, Slice};
-use crate::pin::{PinAction, PinRecord, pin_is_well_formed};
+use crate::pin::{PinAction, PinRecord, typed_pin_is_well_formed};
 use crate::rules::RuleSet;
 
 /// What became of a grant handed to [`DeviceState::take_grant`].
@@ -68,8 +68,9 @@ pub enum TryOutcome {
         /// When the next try may be made.
         until: i64,
     },
-    /// Not the right shape (8 digits for a code, 4 to 8 for a PIN). Not
-    /// counted.
+    /// Not the right shape (8 digits for a code; 4 to 8 for a PIN typed,
+    /// since a record made before PINs had to be 6 digits may be of a
+    /// shorter one). Not counted.
     Malformed,
     /// A right code that was already used on this device today. Not
     /// counted.
@@ -419,7 +420,9 @@ impl DeviceState {
 
     /// A guardian types the PIN on the device to do `action`. A right PIN
     /// clears the wrong guesses. A well formed wrong PIN counts as a wrong
-    /// guess; one that is not 4 to 8 digits does not. No try is made while a
+    /// guess; one that is not 4 to 8 digits does not (a new PIN is 6 to 8
+    /// digits, but a record made earlier may be of a 4 or 5 digit PIN, and a
+    /// record does not say how long its PIN is). No try is made while a
     /// wait is in force, and none on a device without a PIN record. An action
     /// that could not be done (minutes out of range, an unlock in the past or
     /// more than a day ahead) is refused before the PIN is looked at.
@@ -437,7 +440,7 @@ impl DeviceState {
         let Some(record) = &self.pin else {
             return Ok(TryOutcome::NotSet);
         };
-        if !pin_is_well_formed(pin) {
+        if !typed_pin_is_well_formed(pin) {
             return Ok(TryOutcome::Malformed);
         }
         if let Some(until) = self.tries.wait_at(now) {

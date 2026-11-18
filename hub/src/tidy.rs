@@ -2,13 +2,10 @@
 //! books, the record of codes and the events, and the setting that says how
 //! many days stay in detail.
 
-use std::collections::BTreeSet;
-
 use rusqlite::params;
 
 use crate::error::HubError;
 use crate::hub::Hub;
-use crate::retire;
 use crate::store;
 use crate::types::TidyReport;
 use crate::{BOOK_DAYS, EVENT_KEEP_DAYS, MAX_DETAIL_DAYS, MAX_EVENTS, MIN_DETAIL_DAYS};
@@ -40,8 +37,7 @@ impl Hub {
     ///   daily totals per day, device and app (so the usage views do not
     ///   change), and the slices are removed;
     /// - each child's book in the core forgets the days before yesterday
-    ///   (`forget_days_before`), and drops the records of removed devices
-    ///   that no kept day mentions;
+    ///   (`forget_days_before`), and is written only when that changed it;
     /// - the record of one time codes made before yesterday is dropped;
     /// - events older than [`crate::EVENT_KEEP_DAYS`] days, and all but the
     ///   newest [`crate::MAX_EVENTS`], are dropped.
@@ -62,18 +58,9 @@ impl Hub {
             let mut book = store::load_book(&tx, id)?;
             let today = book.today(now);
 
-            // The book: today and yesterday, and no retired device that no
-            // kept day mentions.
-            let saved = store::book_json(&tx, id)?;
-            book.forget_days_before(today.saturating_sub(BOOK_DAYS - 1));
-            let active: BTreeSet<String> = store::devices_of(&tx, id, false)?.into_iter().map(|d| d.id).collect();
-            if let Some((tidied, dropped)) = retire::drop_forgotten(&book, &active)? {
-                book = tidied;
-                report.retired_devices_dropped = report.retired_devices_dropped.saturating_add(dropped);
-            }
-            let json = serde_json::to_string(&book).map_err(|_| HubError::internal("a book could not be written as JSON"))?;
-            if json != saved {
-                store::save_book_json(&tx, id, &json, now)?;
+            // The book: today and yesterday.
+            if book.forget_days_before(today.saturating_sub(BOOK_DAYS - 1)) {
+                store::save_book(&tx, id, &book, now)?;
             }
 
             // Usage: fold the days before the detail window.

@@ -32,6 +32,8 @@ used by it.
 - [The decision on a device](#the-decision-on-a-device)
 - [One budget across devices](#one-budget-across-devices)
 - [A worked day](#a-worked-day)
+- [What a book holds](#what-a-book-holds)
+- [Removing a device](#removing-a-device)
 - [The ways out](#the-ways-out)
 - [Security of codes and the PIN](#security-of-codes-and-the-pin)
 - [What it guarantees](#what-it-guarantees)
@@ -176,10 +178,12 @@ never confirmed stays reserved, because the device may have received and
 spent it.
 
 **Slices.** Use is reported as **slices**: child, device, app, day, start,
-end, whether it counts, and an id unique for the child. A slice handed over
-twice is counted once. Use across a day boundary is cut into one slice per
-day. A device hands over every slice the master has not confirmed with every
-report, so a lost report loses nothing.
+end, whether it counts, and an id: the device id, a slash and a number that
+grows by one with every slice the device makes. A slice handed over twice is
+counted once. Use across a day boundary is cut into one slice per day. A
+device hands over every slice the master has not confirmed with every
+report, so a lost report loses nothing. How the master counts each slice
+once without keeping it is under [What a book holds](#what-a-book-holds).
 
 **Messages.** There are two, both plain data:
 
@@ -263,8 +267,10 @@ device gets it at its next ask.
 - `MasterBook::wanted_reports(now)` names the devices worth asking to report
   right away: phones that could give time back, phones that must acknowledge a
   lowered allowance, waiting devices once time is free for them, and devices
-  that have not yet taken the guardian's newest lock or unlock, PIN, or answer
-  to a request.
+  that have not yet reported holding the current rules, or the guardian's
+  newest lock or unlock, PIN, or answer to a request. New rules are news like
+  the others. The book cannot know which devices are in reach, so it names
+  them all; asking one that cannot be reached costs nothing.
 
 ## A worked day
 
@@ -287,6 +293,96 @@ of Wednesday's pool. This day is a test (`the_worked_day_in_the_readme` in
 Total: 120 minutes, exactly the budget, though the phone was out of reach
 half the day and the master never knew where it was. The PC got 75 minutes,
 the phone 45.
+
+## What a book holds
+
+A `MasterBook` is saved after every exchange, so it is kept small. It holds
+the child's rules (the current version and any older one a device may still
+hold), each paired device's newest report figures and the grants it has not
+acknowledged, the ids of removed devices, the PIN record, the guardian's lock
+or unlock, and for each day it keeps: the counted seconds of each device (and
+of devices since removed), each piece of extra time, each request with its
+answer, and each device's **mark**.
+
+**It does not keep the slices.** For each device and day it keeps the highest
+slice number it has taken, its mark, and takes a slice of that day only when
+its number is above the mark. That counts every slice exactly once, through
+lost, repeated and late reports, because:
+
+1. a device numbers its slices 1, 2, 3 and on, and its day never moves back,
+   so the slices of one day carry numbers in one unbroken run;
+2. every report carries every slice the master has not confirmed;
+3. a device drops a slice only once a grant has confirmed it, that is after
+   the master took it.
+
+So when the mark is at n, the report that brought slice n also carried every
+slice of the day numbered below n that was not yet confirmed, and the
+confirmed ones had been taken before: every number up to n has been taken.
+The slices of one report are taken together, so their order in it does not
+matter, and a slice listed twice counts once. A slice whose id is not the
+device id, a slash and a number is confirmed and not counted, as a slice that
+names another device is: no device makes one. The simulation checks all of
+this against a ledger of its own at every report (see [Tests](#tests)).
+
+**What a report brought.** `MasterBook::handle_report` returns a
+`ReportOutcome`: the grant, and the slices, pieces of time added on the device
+and requests it took for the first time, with whether the report was the
+newest from its device. A caller that keeps its own record (the hub keeps
+usage for the guardian's screens) stores exactly those, and so stores each
+once, however often a device sends it. `MasterBook::counted_use(day)` gives
+each device's counted seconds for a day as the book has them.
+
+**How big.** Two devices, a slice every 108 seconds each and a report every
+two minutes, over two days (3,200 slices): a book that kept every slice was
+744,818 bytes of JSON; it is now about 2,200 bytes (test
+`a_busy_book_stays_small`). The hub has the book forget the days before
+yesterday (`forget_days_before`, which says whether anything changed), so it
+stays that size.
+
+**Books saved by earlier versions** still load and count the same. A book
+saved when books kept every slice has them folded into marks as it loads (the
+counted seconds were kept beside the slices and are taken as they are), and is
+saved in the new shape. Every field added since the first piece is filled in
+when missing. The tests load books, device states and messages saved by the
+first piece and by the code before marks, and a book saved by this one.
+
+**A device that loses its saved state** and numbers its slices from 1 again
+is not covered (it was not before either; see
+[Where the guarantee stops](#where-the-guarantee-stops)): on a day the book
+already has a mark for it, its new slices are taken as counted already until
+their numbers pass the mark; on a later day they count. Its message numbers
+start again too, so the master ignores its figures meanwhile. The way out is
+to remove it and pair it again, under a new id.
+
+## Removing a device
+
+`MasterBook::remove_device(id, now)` removes a device from the child, for
+good:
+
+- **Its use stays counted.** Its counted seconds stay with every day the book
+  keeps, apart from the live devices (`counted_use` shows them as removed), so
+  removing a device never gives its used time back to the child.
+- **It holds nothing any more.** No lease, no away allowance, no away share.
+  What the master held back for it is free for the other devices at once,
+  and the other phones can be given its away share at their next report.
+- **Time added on it and not used is dropped.** Time a code or the PIN added
+  on that device belonged to it: no other device may spend it. The part its
+  newest report said it used stays counted, as extra time given and used; the
+  rest is dropped from the day's extra time (`ExtraTime::dropped_secs`, the
+  pieces it added last first), so it is neither held back nor handed to
+  another device.
+- **Its record goes**: the grants it has not acknowledged, an unmet need, its
+  code secret. Anything that arrives from it later (a late report) is refused
+  with `MasterError::DeviceRemoved` and changes nothing. Removing an unknown
+  device, or one twice, is an error, and a removed id is never paired again: a
+  device paired anew gets a new id, so a late report from the old one can
+  never be taken for the new one's.
+
+Use the device made and never reported is not counted: the master trusted the
+device to report it, and no longer holds anything back for it. So a device is
+best removed after its last report, when it can still make one, or when it is
+gone for good (lost, broken, reset). See
+[Where the guarantee stops](#where-the-guarantee-stops).
 
 ## The ways out
 
@@ -325,7 +421,8 @@ the day and the code's selector; or the device, `pin` and a number), travels
 with every report until the master confirms it, and joins that day's extra
 time at the master once. From then on the master holds back, for that device,
 the part not yet used, as it does its lease and its away allowance. It is not
-given back to other devices.
+given back to other devices; if the device is removed, the part it did not
+use is dropped (see [Removing a device](#removing-a-device)).
 
 **One time codes.** A guardian who is not at home reads a short code over a
 phone call; the child types it on the lock screen.
@@ -358,11 +455,17 @@ phone call; the child types it on the lock screen.
   second is then refused as used). Phones that cannot share can split the
   counters between them.
 
-**The guardian PIN.** 4 to 8 digits, typed by a guardian on the child's
-device, with no network.
+**The guardian PIN.** 6 to 8 digits (the owner's decision), typed by a
+guardian on the child's device, with no network.
 
 - It is set at the master (`MasterBook::set_pin(pin, salt)`, with a salt of 16
-  bytes or more made by the caller) and kept only as a salted slow hash. The
+  bytes or more made by the caller) and kept only as a salted slow hash. A PIN
+  of fewer than 6 digits is refused (`PinError::NotSixToEightDigits`, "A PIN
+  is 6 to 8 digits, with nothing else in it."). Earlier versions took 4 or 5
+  digits, and a record made then goes on working: **a record does not know
+  how long its PIN is**, so a device checks any typed PIN of 4 to 8 digits
+  against it (`MIN_TYPED_PIN_DIGITS`). No new record can be made from fewer
+  than 6, and setting a new PIN replaces the old one everywhere. The
   record reaches every device with grants, with a version, so a changed PIN
   replaces the old one wherever a grant arrives; `MasterBook::clear_pin`
   removes it. A device that has not heard of a change keeps the old PIN. A
@@ -423,7 +526,10 @@ beyond what it holds.
   day's pool; the phone gets it when it is back in reach. To give a phone
   away from home time at once, read it a code.
 - Time added on the phone stays with the phone. If the child moves to the PC,
-  that time does not follow.
+  that time does not follow, and if the phone is removed, what it did not use
+  is gone.
+- A removed phone's used time still counts for the day; the time it held is
+  free for the other devices at once.
 - A changed PIN reaches a phone away from home only when it comes back; until
   then the old PIN works there.
 - After a film night unlocked from the master, the day's budget is likely used
@@ -448,7 +554,7 @@ of 16 bytes or more and a 32 byte hash, compared in constant time.
 
 - Why PBKDF2 and not Argon2id: it is built from the same two pieces as the
   codes (HMAC and SHA-256), so it adds one small crate instead of four; and
-  for a PIN of at most eight digits the choice of hash changes little, as
+  for a PIN of six to eight digits the choice of hash changes little, as
   below.
 - Why 200,000 rounds: the check must stay well under a second on a 2020
   phone. Measured on this project's PC (an AMD Ryzen 9 7950X3D, which has
@@ -461,14 +567,16 @@ of 16 bytes or more and a 32 byte hash, compared in constant time.
   `cargo test --release --test ways_out -- --ignored --nocapture` on a phone
   to measure. Each record carries its rounds, so a later version can change
   the cost without breaking records already made.
-- **A short PIN is protected mainly by the devices keeping the record
-  private, not by the hash.** Anyone who copies the record from a device (a
-  rooted phone, a backup) can try every PIN: a 4 digit PIN in seconds, a 6
-  digit one in minutes, an 8 digit one in about a day on one desktop and in
-  hours on a graphics card. On the device itself, guessing is slowed by the
-  wait: 24 tries a day, so a 4 digit PIN is found within a year of patient
-  guessing about 9 times in 10, a 6 digit one about once in 115, an 8 digit
-  one about once in 11,000. **Use 6 digits or more.**
+- **A PIN is protected mainly by the devices keeping the record private, not
+  by the hash.** Anyone who copies the record from a device (a rooted phone,
+  a backup) can try every PIN: a 6 digit PIN in minutes, an 8 digit one in
+  about a day on one desktop and in hours on a graphics card. On the device
+  itself, guessing is slowed by the wait: 24 tries a day, so within a year of
+  patient guessing a 6 digit PIN is found about once in 115, a 7 digit one
+  about once in 1,140, an 8 digit one about once in 11,400. That is why a
+  PIN is now 6 digits or more. (A 4 digit PIN set by an earlier version, still
+  in use until the guardian sets a new one, is found within a year about 9
+  times in 10.)
 
 **What is protected, and what is not.**
 
@@ -501,7 +609,8 @@ devices at once, going out of reach and coming back, lost, repeated and late
 messages, day changes, every other kind of rule change (a higher budget,
 blocked hours, apps, the away share, the lease length), extra time given at
 the master and added on devices in and out of reach, guardian locks and
-unlocks, and restarts.
+unlocks, restarts, and devices removed after their last report and new ones
+paired in their place.
 
 Why, in six steps:
 
@@ -583,7 +692,11 @@ These are the only cases that need slack, and how much:
 6. **Lost state.** A device that loses its saved state (reinstalled, restored
    from an old backup) is not covered, nor a master that loses its book. Each
    side must save its state before acting on a change: the master before it
-   sends a grant, a device after it takes one.
+   sends a grant, a device after it takes one. A device restored from a
+   backup numbers its slices again from where the backup left off, and on a
+   day the master already took higher numbers from it, its new use there is
+   not counted (see [What a book holds](#what-a-book-holds)). Remove such a
+   device and pair it again.
 7. **Clocks.** A clock set forward starts a new day early, with a fresh away
    allowance, and shortens a wait after wrong guesses. Both platforms lock the
    clock down (see `docs/PLAN.md`), and reporting clock jumps is a later
@@ -600,6 +713,17 @@ These are the only cases that need slack, and how much:
    was used beyond what the device held. The master counts all of it, so the
    pool shows it as over (`PoolView::over_secs`), and no other device is
    given time from that day.
+10. **A removed device.** Removing a device frees at once everything the
+    master held back for it. Use it had made and not yet reported was inside
+    that, so the day can pass its limit by that use: at most what was held
+    back for it (its lease, its away allowance, the time added on it), and
+    only what it had really used and not reported. Removed after its last
+    report, it costs nothing. A removed device that goes on being used beside
+    the others, still holding its old state and away share, is not covered:
+    the service on it must be released (the PIN confirms "release this
+    device") or the device be gone. The simulation removes devices both ways,
+    and allows check 1 only the use a removed device had not reported, within
+    what was held back for it (see [Tests](#tests)).
 
 ## Things a family will notice
 
@@ -626,7 +750,10 @@ These are the only cases that need slack, and how much:
 ## How the two sides call it
 
 Both sides keep their state in plain data that derives `Serialize` and
-`Deserialize`, and save it after every change.
+`Deserialize`, and save it after every change. State saved by an earlier
+version loads: every field added since is filled in when missing, and a book
+that kept whole slices has them folded into marks (see
+[What a book holds](#what-a-book-holds)).
 
 **The master** (the hub, on the master PC), one `MasterBook` per child:
 
@@ -636,31 +763,46 @@ let welcome = book.add_device("phone-1", DeviceKind::Portable, now)?;
 // ...send `welcome` to the phone with its pairing; it makes its state from it.
 
 // For every report that arrives:
-let grant = book.handle_report(&report, now)?;
-save(&book);                                              // before sending
-send(grant);
+let outcome = book.handle_report(&report, now)?;
+keep(&outcome.new_slices);     // what the book took for the first time, once:
+                               // also outcome.new_added and outcome.new_requests
+save(&book);                   // with what was kept, before sending
+send(outcome.grant);
 // Then ask the devices the master wants to hear from to report at once:
 // phones that can give time back to a waiting device, phones that must
-// acknowledge a lower allowance, and waiting devices once time is free.
+// acknowledge a lower allowance, waiting devices once time is free, and
+// devices that have not yet taken the newest rules or guardian news.
 for id in book.wanted_reports(now) {
     prod(id);                  // if it can be reached; the PC's agent is local
 }
 
 // When the guardian changes the rules:
-book.set_rules(new_rules)?;    // they reach each device with its next grant;
-                               // push a grant to devices in reach at once
+let taken = book.change_rules(new_rules)?;   // the book sets the next version;
+                                             // they reach each device with its
+                                             // next grant, and the devices are
+                                             // in wanted_reports until they have
 
 // For the guardian's screens:
 book.pool(day);                // used, held back, free
-book.device_view("phone-1", day);   // used, held back, waiting for, giving back,
-                                    // added on it, wrong guesses, a PIN unlock
-book.usage(day);               // every slice, in time order
+book.device_view("phone-1", day)?;  // used, held back, waiting for, giving back,
+                                    // added on it, wrong guesses, a PIN unlock,
+                                    // the rules version it holds, whether it has
+                                    // the latest news, how far off its clock is
+book.counted_use(day);         // each device's counted seconds, removed ones too
 book.extra_time(day);          // where the day's extra came from
+
+// When the guardian removes a device (after its last report if it can make one):
+book.remove_device("phone-1", now)?;   // its use stays counted; what it held is
+                                       // free at once; later reports are refused
+
+// Once an hour or so, keep the book small:
+if book.forget_days_before(today - 1) { save(&book); }
 
 // At pairing, with 32 random bytes made by the service for this device:
 book.set_code_secret("phone-1", secret.clone())?;   // the device takes it too
 // Once, and whenever the guardian changes it (salt: 16 random bytes or more):
-book.set_pin(&pin, salt)?;     // slow on purpose; reaches devices with grants
+book.set_pin(&pin, salt)?;     // 6 to 8 digits; slow on purpose; reaches
+                               // devices with grants
 
 // The guardian at the master. Each reaches the devices with their next
 // grant; then prod the devices in `wanted_reports`, as above.
@@ -720,8 +862,11 @@ Rules for callers:
 
 - **Report regularly while in reach**, not only when `ask_master` is set:
   usage then reaches the master, and on a day with no limit a device has no
-  reason to ask for time, so it would never hear of new rules. The hub should
-  also push a grant to every device in reach when the rules change.
+  reason to ask for time, so it would never hear of new rules. After the rules
+  change, every device is in `wanted_reports` until it reports holding them.
+- **Keep what the outcome names, not what the report carries.** A report
+  carries every slice not yet confirmed, so the same slice comes many times;
+  `ReportOutcome` names each once.
 - **Ask for more (`want_more`) only while in use.** An idle device reports
   without asking, so that it neither takes a lease it will not use nor keeps a
   need open. A device waiting at the lock screen keeps asking every minute, as
@@ -747,14 +892,15 @@ Rules for callers:
 
 ## Tests
 
-`cargo test` runs five groups, all deterministic:
+`cargo test` runs six groups, all deterministic:
 
 | File | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | Unit tests: day and weekday from unix seconds and offset, negative offsets, a day start not at midnight, far past and far future dates, splitting at day boundaries, validation, blocked windows, the master's books, absurd figures and far times; known answers for codes and PIN hashes (worked out separately in Python), codes bound to their device and day, PIN shapes, the waits after wrong guesses, which lock or unlock is in force, spending order, and secrets kept out of `Debug` | 47 |
+| `src/*.rs` | Unit tests: day and weekday from unix seconds and offset, negative offsets, a day start not at midnight, far past and far future dates, splitting at day boundaries, validation, blocked windows, the master's books, slice numbers read from ids, absurd figures and far times; known answers for codes and PIN hashes (worked out separately in Python), codes bound to their device and day, PIN shapes (6 to 8 digits new, a 4 digit record made earlier still verifying), the waits after wrong guesses, which lock or unlock is in force, spending order, and secrets kept out of `Debug` | 49 |
 | `tests/cases.toml` with `tests/cases.rs` | The file of cases a product owner can read and extend (89 cases, 34 of them for the ways out, and 4 rules checks), a check that a wrong expectation fails with the case's name, and the file's reader | 3 tests |
 | `tests/accounting.rs` | The shared budget as short stories: the worked day above, a phone at home giving its share to the PC, a phone that then leaves, a phone away that gives nothing, a lowering grant that is lost, two phones at home, a lowered phone that left, a need that lapses, a larger share that must not reach a phone late into a spent day, new rules that start a day, and JSON round trips of every message and state (including state saved before the latest fields) | 24 |
 | `tests/ways_out.rs` | The ways out as stories: extra time given twice with one id; a request made at school, answered at home, and seen on every device; a request too late or answered twice; a code used at school and counted once at home; the same code on the PC; a code from yesterday; all ten codes of a day; the PIN adding time with no network; wrong guesses and the growing wait across a restart and a clock set back; a changed and a removed PIN; a lock from the master and lifting it; an unlock from the master that keeps counting; a PIN unlock over a lock from the master; state saved by the first piece still loading; secrets kept out of `Debug` and errors; JSON round trips of the new fields. One more, not run by default, measures the PIN hash on the machine it runs on | 16, and 1 |
+| `tests/callers.rs` | What the hub, the master's first real caller, needs, as stories: a removed phone keeping its use and freeing what it held and its away share at once; anything from a removed device refused without a change; time added on a removed device and not used, dropped; use a removed phone never reported, not counted; the report outcome naming each new slice, piece and request once; slices lost, repeated, late, out of order, twice in one report and with ids no device makes; a device restored from a backup; a busy book's size; new rules as news; the book setting the next rules version; how far each device's clock is; forgetting days; a book saved with whole slices (by the code before marks, with a four digit PIN) loading and counting the same; a book saved with marks | 14 |
 | `tests/simulation.rs` | The simulation below | 1 |
 
 **The simulation** plays the master, the PC and one or two phones through 300
@@ -772,17 +918,24 @@ typed on the devices in and out of reach (some hours later, some on the wrong
 device, some again), adds time and unlocks with the PIN on the devices,
 changes the PIN, locks and unlocks from the master and lifts, and answers the
 children's requests; children guess codes, alone or several in a row, and
-devices restart from their saved state. The simulation keeps its own ledger of
-every piece of extra time and of every second used beyond what a device held.
-At every step it checks:
+devices restart from their saved state. In half the scenarios the guardian
+also removes a device now and then, right after its report or without one (a
+phone lost with use it never reported), and most often pairs a new one in its
+place under a new id; reports the removed device sent before turn up late.
+The simulation keeps its own ledger of every slice made, of every piece of
+extra time, of every second used beyond what a device held, and of the use a
+removed device had not reported, within what the master held back for it. At
+every step it checks:
 
 1. for every day, the time that counts on all devices together, less the time
-   used beyond what a device held while an unlock kept it open, is at most
-   that day's budget plus all of its extra time (given at the master, granted
-   on request, added by codes and the PIN), where the budget is the highest
-   for that day among the rule versions in play. With unchanged rules that is
-   just the budget plus the extra: zero slack. And the master never counts
-   more extra time than was given: each piece once;
+   used beyond what a device held while an unlock kept it open, and less the
+   use removed devices had not reported (within what was held back for them),
+   is at most that day's budget plus all of its extra time (given at the
+   master, granted on request, added by codes and the PIN), where the budget
+   is the highest for that day among the rule versions in play. With
+   unchanged rules and no device removed unreported, that is just the budget
+   plus the extra: zero slack. And the master never counts more extra time
+   than was given: each piece once;
 2. for every device and day, what the master counts plus what it holds back
    covers everything the device really used, apart from time added on it that
    the master has not heard of yet and use beyond what it held under an
@@ -803,28 +956,45 @@ At every step it checks:
    a device under a guardian's lock (as its own standing says, not as the
    decision being checked says) records no counted use; and for every device
    and day, what the master counts plus the slices still on the way is all
-   the device used, so an unlock never makes the master count less.
+   the device used, so an unlock never makes the master count less;
+7. a removed device's counted use stays in the master's days exactly as the
+   master had taken it; every report from it that turns up later is refused
+   and leaves the book unchanged, byte for byte; removing it twice and pairing
+   its id again are refused;
+8. at every report the master handles, every new slice, piece of added time
+   and request in its outcome is one a device made, taken once, and
+   everything the report carried has been taken by then; and for every device
+   and day the master's count is exactly the sum of the slices it returned.
 
-A typical run covers about 410,000 steps, 1.5 million exchanges, 180,000
-lost messages, 28,000 late grants taken, 1,400 rule changes and about 8,000
-times a phone at home gave time back (530 hours in all), with about half the
+A typical run covers about 410,000 steps, 1.4 million exchanges, 165,000
+lost messages, 25,000 late grants taken, 1,400 rule changes and about 7,400
+times a phone at home gave time back (500 hours in all), with about half the
 days ending at their limit (the extra time raises many limits). Check 5
-applied about 100,000 times and check 6 about 2 million times. On the ways
-out it gives extra time about 730 times (95 of them again by the same id),
-uses about 1,600 codes (430 out of reach, 330 typed again, 40 on a later day,
-170 on the wrong device), adds time with the PIN about 1,000 times (270 out
-of reach), unlocks with the PIN 690 times, changes the PIN 255 times, hits
-the wait after wrong guesses 2,000 times, locks from the master 320 times and
-unlocks 340, makes 5,600 requests (3,600 granted, 1,900 refused), uses 220
-hours beyond what devices held under unlocks, and restarts devices 3,100
-times. A run of 5,000 scenarios (6.7 million steps, 24 million exchanges)
-passes in about six minutes. The run fails if the scenarios stop reaching
-the limits, losing messages, giving time back, reaching check 5, or taking
-any one of the ways out, so that it can never pass without testing them.
-With the giving back switched off in the library, check 5 fails on the first
-scenario. So does check 2 with the master not holding back time added on a
-device, check 6 with the decision ignoring a guardian's lock, and check 1 with
-spending that never draws on time added on the device.
+applied about 100,000 times and checks 6 and 8 about 1.7 million times each.
+On the ways out it gives extra time about 740 times (110 of them again by the
+same id), uses about 1,250 codes (340 out of reach, 280 typed again, 40 on a
+later day, 125 on the wrong device), adds time with the PIN about 900 times
+(250 out of reach), unlocks with the PIN 600 times, changes the PIN 290
+times, hits the wait after wrong guesses 2,000 times, locks from the master
+290 times and unlocks 330, makes 5,300 requests (3,500 granted, 1,700
+refused), uses 200 hours beyond what devices held under unlocks, and restarts
+devices 2,850 times. It removes about 410 devices (330 right after a report,
+80 with use they never reported, 38 hours of it in all), pairs 320 new ones in
+their place, refuses 330 late reports from removed devices, and checks
+310,000 new slices, 2,100 pieces of added time and 5,250 requests in report
+outcomes. A run of 8,000 scenarios (10.8 million steps, 36 million
+exchanges, 9,900 devices removed, 12,600 late reports from them refused)
+passes in about nine minutes. The run fails if the scenarios stop reaching
+the limits, losing messages, giving time back, reaching check 5, taking any
+one of the ways out, removing and pairing devices both ways, refusing a late
+report from a removed device, or finding new slices, added time and requests
+in outcomes, so that it can never pass without testing them. With the giving
+back switched off in the library, check 5 fails on the first scenario. So
+does check 2 with the master not holding back time added on a device, check 6
+with the decision ignoring a guardian's lock, check 1 with spending that
+never draws on time added on the device, check 1 again with the pool leaving
+out a removed device's use, check 7 with a removed device's use dropped, and
+check 8 with a slice at its mark taken again.
 
 To run more scenarios, one scenario, or see every event of one:
 
@@ -886,8 +1056,9 @@ core/
     decide.rs     Holding (what a device holds), decide, Decision, locks and warnings
     messages.rs   Slice, Report, Grant
     device.rs     DeviceState: the device side, with codes, the PIN and requests
-    master.rs     MasterBook: the pool, reservations, grants, the usage record,
-                  extra time, requests, the PIN and the guardian's lock or unlock
+    master.rs     MasterBook: the pool, reservations, grants, marks and counted
+                  use, removing devices, extra time, requests, the PIN and the
+                  guardian's lock or unlock
     extra.rs      extra time with ids, time added on a device, requests and answers
     codes.rs      one time codes: making them, checking them, the code secret
     pin.rs        the PIN record, its slow hash, what a right PIN may do
@@ -897,7 +1068,11 @@ core/
     cases.rs      reads and checks it
     accounting.rs the shared budget as stories
     ways_out.rs   the ways out as stories, and state saved by the first piece
-    fixtures/     state and messages saved by the first piece, before the ways out
+    callers.rs    what the hub needs as stories, and books saved before and
+                  after marks
+    fixtures/     state and messages saved by the first piece (piece_one), by
+                  the code before marks (piece_two) and by this one
+                  (piece_three)
     simulation.rs the generated days
 ```
 
@@ -957,7 +1132,7 @@ These belong to the services, or to later pieces:
 - Sharing which code counters each guardian phone has used, and handing the
   code secret to guardian phones at home.
 - Releasing a device once the PIN confirmed it, and tamper reports.
-- Telling the guardian when a request arrives (the hub can watch
-  `MasterBook::waiting_requests`).
+- Telling the guardian when a request arrives (the hub records an event from
+  each report's `ReportOutcome::new_requests`; showing it is the service's).
 - Reporting clock jumps.
 - The UniFFI bindings for Android.

@@ -41,7 +41,6 @@ mod guardian;
 mod hub;
 mod password;
 mod random;
-mod retire;
 mod schema;
 mod store;
 mod text;
@@ -68,8 +67,10 @@ pub const MIN_DETAIL_DAYS: u32 = 7;
 pub const MAX_DETAIL_DAYS: u32 = 400;
 
 /// How many home days each child's book in the core keeps: today and
-/// yesterday. The book is written on every exchange, so it is kept small; the
-/// usage the hub shows lives in its own tables. See the README.
+/// yesterday. The core needs no more (a grant is only made for a device
+/// whose day is within one of the master's, and a request can only be
+/// answered while its day lasts), and the usage the hub shows lives in its
+/// own tables. See the README.
 pub const BOOK_DAYS: i64 = 2;
 
 /// A device counts as in use when the master heard from it within this many
@@ -83,11 +84,6 @@ pub const IN_USE_FRESH_SECS: i64 = 120;
 /// master's clock by more than this many seconds: 5 minutes.
 pub const CLOCK_FAR_OFF_SECS: i64 = 300;
 
-/// Slices for a home day more than this many days from the master's today are
-/// counted by the core but not kept in the hub's usage record: such a day
-/// comes only from a clock that is badly wrong.
-pub const FAR_DAY_DAYS: i64 = 8;
-
 /// Events older than this many days are dropped by [`Hub::tidy`]: 90.
 pub const EVENT_KEEP_DAYS: i64 = 90;
 /// At most this many events are kept, the newest: 2,000.
@@ -99,11 +95,12 @@ pub const MAX_USAGE_DAYS: u32 = 400;
 /// The most events [`Hub::events`] returns at once: 500.
 pub const MAX_EVENTS_PER_CALL: u32 = 500;
 
-/// The shortest guardian PIN, in digits: 6, by the owner's decision. The
-/// hub refuses a shorter PIN itself, before the core sees it.
-pub const MIN_PIN_DIGITS: u32 = 6;
+/// The shortest guardian PIN, in digits: 6, by the owner's decision, as the
+/// core has it. The hub refuses a shorter PIN itself, before the core sees
+/// it.
+pub const MIN_PIN_DIGITS: u32 = limo_core::MIN_PIN_DIGITS;
 /// The longest guardian PIN, in digits: the core's limit, 8.
-pub const MAX_PIN_DIGITS: u32 = limo_core::pin::MAX_PIN_DIGITS;
+pub const MAX_PIN_DIGITS: u32 = limo_core::MAX_PIN_DIGITS;
 
 /// The version of this crate, for example "0.1.0".
 pub fn hub_version() -> String {

@@ -41,22 +41,31 @@ pub mod rules;
 pub mod time;
 
 pub use blocked::{BlockedHours, LOOK_AHEAD_SECS};
-pub use codes::{CodeError, OneTimeCode, code_digits, make_code, next_code};
+pub use codes::{
+    CODE_MINUTES, CODE_SECRET_BYTES, CODES_PER_DAY, CodeError, OneTimeCode, code_digits, make_code,
+    next_code,
+};
 pub use decide::{
     Decision, Holding, Lock, LockReason, MasterWord, RETRY_SECS, Warned, Warning, WarningCause,
     decide,
 };
 pub use device::{DeviceError, DeviceState, GrantOutcome, TryOutcome};
 pub use extra::{
-    AddedBy, AddedTime, ExtraSource, ExtraTime, RequestAnswer, RequestReply, RequestView, TimeRequest,
+    AddedBy, AddedTime, ExtraSource, ExtraTime, MAX_ASK_MINUTES, MAX_EXTRA_MINUTES, MAX_REASON_CHARS,
+    MAX_REQUESTS_PER_DAY, RequestAnswer, RequestReply, RequestView, TimeRequest,
 };
 pub use guardian::{
-    GuardianMode, GuardianSetting, OverrideBy, OverrideInForce, OverrideKind, PinUnlock, Standing,
-    TryCounter,
+    FREE_WRONG_GUESSES, GuardianMode, GuardianSetting, MAX_UNLOCK_SECS, OverrideBy, OverrideInForce,
+    OverrideKind, PinUnlock, Standing, TryCounter, wait_after_wrong_guesses,
 };
-pub use master::{DeviceKind, DeviceView, MasterBook, MasterError, NEED_KEPT_SECS, PoolView};
+pub use master::{
+    CountedUse, DeviceKind, DeviceView, MasterBook, MasterError, NEED_KEPT_SECS, PoolView, ReportOutcome,
+};
 pub use messages::{Grant, Report, Slice};
-pub use pin::{PinAction, PinError, PinRecord, PinUpdate, pin_is_well_formed};
+pub use pin::{
+    MAX_PIN_DIGITS, MIN_PIN_DIGITS, MIN_TYPED_PIN_DIGITS, PIN_ITERATIONS, PinAction, PinError, PinRecord,
+    PinUpdate, pin_is_well_formed, typed_pin_is_well_formed,
+};
 pub use rules::{BlockedWindow, DailyBudget, RuleProblem, RuleSet, WeekBudgets};
 pub use time::{CivilDate, DaySpan, HomeCalendar, LocalTime, SECONDS_PER_DAY, Weekday};
 

@@ -209,6 +209,7 @@ fn a_whole_day_in_the_life_of_a_family() {
         EventKind::RulesChanged { version: 2 },
         EventKind::DevicePaired { device_id: pc.id.clone(), name: "Family PC".into() },
         EventKind::DevicePaired { device_id: phone.id.clone(), name: "Asha's phone".into() },
+        EventKind::RequestArrived { device_id: phone.id.clone(), request_id: request_id.clone(), minutes: 20 },
         EventKind::PinSet,
         EventKind::WrongGuesses { device_id: phone.id.clone(), count: 2 },
         EventKind::Locked { until: None },

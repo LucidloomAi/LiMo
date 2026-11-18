@@ -1,0 +1,78 @@
+[
+  {
+    "id": 8,
+    "at": 1794981600,
+    "child_id": "child-d4bbec4c6d188ddd",
+    "what": {
+      "kind": "locked",
+      "until": 1795012200
+    }
+  },
+  {
+    "id": 7,
+    "at": 1794978000,
+    "child_id": "child-5fde1a22576dc999",
+    "what": {
+      "kind": "device_removed",
+      "device_id": "device-c95f1fcbae54e755",
+      "name": "Old tablet"
+    }
+  },
+  {
+    "id": 6,
+    "at": 1794188160,
+    "child_id": "child-d4bbec4c6d188ddd",
+    "what": {
+      "kind": "device_paired",
+      "device_id": "device-cca5d4b68a21d054",
+      "name": "Ravi's tablet"
+    }
+  },
+  {
+    "id": 5,
+    "at": 1794188100,
+    "child_id": "child-5fde1a22576dc999",
+    "what": {
+      "kind": "device_paired",
+      "device_id": "device-c95f1fcbae54e755",
+      "name": "Old tablet"
+    }
+  },
+  {
+    "id": 4,
+    "at": 1794188100,
+    "child_id": "child-5fde1a22576dc999",
+    "what": {
+      "kind": "device_paired",
+      "device_id": "device-4d7e7baea5914503",
+      "name": "Asha's phone"
+    }
+  },
+  {
+    "id": 3,
+    "at": 1794188100,
+    "child_id": "child-5fde1a22576dc999",
+    "what": {
+      "kind": "device_paired",
+      "device_id": "device-4c4e093994105adc",
+      "name": "Family PC"
+    }
+  },
+  {
+    "id": 2,
+    "at": 1794187920,
+    "child_id": null,
+    "what": {
+      "kind": "pin_set"
+    }
+  },
+  {
+    "id": 1,
+    "at": 1794187860,
+    "child_id": "child-5fde1a22576dc999",
+    "what": {
+      "kind": "rules_changed",
+      "version": 2
+    }
+  }
+]

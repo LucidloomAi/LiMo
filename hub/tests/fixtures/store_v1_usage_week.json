@@ -1,0 +1,75 @@
+{
+  "child_id": "child-5fde1a22576dc999",
+  "from_day": 20766,
+  "to_day": 20775,
+  "secs": 8040,
+  "counted_secs": 7440,
+  "apps": [
+    {
+      "app_id": "game",
+      "secs": 3600,
+      "counted_secs": 3600
+    },
+    {
+      "app_id": "video",
+      "secs": 2640,
+      "counted_secs": 2640
+    },
+    {
+      "app_id": "draw",
+      "secs": 1200,
+      "counted_secs": 1200
+    },
+    {
+      "app_id": "clock",
+      "secs": 600,
+      "counted_secs": 0
+    }
+  ],
+  "devices": [
+    {
+      "device_id": "device-4c4e093994105adc",
+      "name": "Family PC",
+      "removed": false,
+      "secs": 3600,
+      "apps": [
+        {
+          "app_id": "game",
+          "secs": 3600,
+          "counted_secs": 3600
+        }
+      ]
+    },
+    {
+      "device_id": "device-4d7e7baea5914503",
+      "name": "Asha's phone",
+      "removed": false,
+      "secs": 3240,
+      "apps": [
+        {
+          "app_id": "video",
+          "secs": 2640,
+          "counted_secs": 2640
+        },
+        {
+          "app_id": "clock",
+          "secs": 600,
+          "counted_secs": 0
+        }
+      ]
+    },
+    {
+      "device_id": "device-c95f1fcbae54e755",
+      "name": "Old tablet",
+      "removed": true,
+      "secs": 1200,
+      "apps": [
+        {
+          "app_id": "draw",
+          "secs": 1200,
+          "counted_secs": 1200
+        }
+      ]
+    }
+  ]
+}

@@ -132,7 +132,7 @@ fn numbers_out_of_range_are_refused_in_the_cores_words() {
         errors.push(err);
     }
     // A PIN is 6 to 8 digits. Four and five digits are refused by the hub
-    // itself, though the core of today would take them.
+    // itself, in its own words, before the core (which refuses them too).
     for pin in ["1234", "12345", "12a456", "123456789", " 123456", ""] {
         let err = hub.set_pin(pin, t).unwrap_err();
         assert_eq!(err, HubError::PinWrongShape { min_digits: 6, max_digits: 8 }, "{pin:?}");

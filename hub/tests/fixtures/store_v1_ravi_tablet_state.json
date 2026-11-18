@@ -1,0 +1,180 @@
+{
+  "child_id": "child-d4bbec4c6d188ddd",
+  "device_id": "device-cca5d4b68a21d054",
+  "rules": {
+    "version": 1,
+    "utc_offset_secs": 19800,
+    "day_start_minute": 0,
+    "budgets": {
+      "monday": {
+        "minutes": 120
+      },
+      "tuesday": {
+        "minutes": 120
+      },
+      "wednesday": {
+        "minutes": 120
+      },
+      "thursday": {
+        "minutes": 120
+      },
+      "friday": {
+        "minutes": 120
+      },
+      "saturday": {
+        "minutes": 120
+      },
+      "sunday": {
+        "minutes": 120
+      }
+    },
+    "blocked_hours": [],
+    "always_allowed_apps": [],
+    "blocked_apps": [],
+    "away_share_percent": 50,
+    "lease_minutes": 10,
+    "warning_minutes": [
+      15,
+      5,
+      1
+    ]
+  },
+  "holding": {
+    "day": 20775,
+    "lease_total_secs": 0,
+    "lease_used_secs": 0,
+    "away_cap_secs": 3600,
+    "away_used_secs": 0,
+    "away_percent": 50,
+    "master_word": {
+      "left_secs": 7200,
+      "used_then_secs": 0,
+      "held_elsewhere_secs": 0
+    },
+    "warned": {
+      "time_day": null,
+      "time_points": [],
+      "blocked_start": null,
+      "blocked_points": [],
+      "unlock_end": null,
+      "unlock_points": []
+    },
+    "added_secs": 0,
+    "added_used_secs": 0,
+    "codes_used": []
+  },
+  "grant_taken": 7,
+  "last_message": 6,
+  "last_slice": 3,
+  "unconfirmed": [],
+  "code_secret": [
+    60,
+    153,
+    212,
+    99,
+    160,
+    8,
+    253,
+    142,
+    235,
+    14,
+    80,
+    37,
+    93,
+    35,
+    225,
+    164,
+    126,
+    229,
+    161,
+    156,
+    170,
+    4,
+    170,
+    19,
+    25,
+    91,
+    80,
+    189,
+    75,
+    29,
+    230,
+    153
+  ],
+  "pin": {
+    "salt": [
+      43,
+      39,
+      91,
+      168,
+      165,
+      98,
+      148,
+      1,
+      59,
+      137,
+      115,
+      69,
+      100,
+      19,
+      183,
+      18
+    ],
+    "iterations": 200000,
+    "hash": [
+      70,
+      18,
+      129,
+      26,
+      173,
+      203,
+      5,
+      230,
+      27,
+      211,
+      71,
+      65,
+      14,
+      250,
+      223,
+      31,
+      33,
+      202,
+      142,
+      76,
+      2,
+      43,
+      87,
+      30,
+      232,
+      209,
+      106,
+      163,
+      43,
+      170,
+      93,
+      20
+    ]
+  },
+  "pin_version": 1,
+  "guardian": {
+    "version": 1,
+    "mode": {
+      "lock": {
+        "until": 1795012200
+      }
+    },
+    "set_at": 1794981600
+  },
+  "pin_unlock": null,
+  "tries": {
+    "wrong": 0,
+    "wait_until": null
+  },
+  "last_pin_add": 0,
+  "unsent_added": [],
+  "last_request": 0,
+  "own_requests": [],
+  "requests_seen": [],
+  "news_taken": 2
+}

@@ -1,0 +1,208 @@
+{
+  "child_id": "child-5fde1a22576dc999",
+  "device_id": "device-4c4e093994105adc",
+  "rules": {
+    "version": 2,
+    "utc_offset_secs": 19800,
+    "day_start_minute": 0,
+    "budgets": {
+      "monday": {
+        "minutes": 120
+      },
+      "tuesday": {
+        "minutes": 120
+      },
+      "wednesday": {
+        "minutes": 120
+      },
+      "thursday": {
+        "minutes": 120
+      },
+      "friday": {
+        "minutes": 120
+      },
+      "saturday": {
+        "minutes": 120
+      },
+      "sunday": {
+        "minutes": 120
+      }
+    },
+    "blocked_hours": [],
+    "always_allowed_apps": [
+      "clock"
+    ],
+    "blocked_apps": [],
+    "away_share_percent": 50,
+    "lease_minutes": 10,
+    "warning_minutes": [
+      15,
+      5,
+      1
+    ]
+  },
+  "holding": {
+    "day": 20775,
+    "lease_total_secs": 0,
+    "lease_used_secs": 0,
+    "away_cap_secs": 0,
+    "away_used_secs": 1620,
+    "away_percent": 0,
+    "master_word": {
+      "left_secs": 2400,
+      "used_then_secs": 1500,
+      "held_elsewhere_secs": 2760
+    },
+    "warned": {
+      "time_day": null,
+      "time_points": [],
+      "blocked_start": null,
+      "blocked_points": [],
+      "unlock_end": null,
+      "unlock_points": []
+    },
+    "added_secs": 0,
+    "added_used_secs": 0,
+    "codes_used": []
+  },
+  "grant_taken": 43,
+  "last_message": 17,
+  "last_slice": 13,
+  "unconfirmed": [
+    {
+      "id": "device-4c4e093994105adc/13",
+      "child_id": "child-5fde1a22576dc999",
+      "device_id": "device-4c4e093994105adc",
+      "app_id": "game",
+      "day": 20775,
+      "start": 1794982260,
+      "end": 1794982380,
+      "counts": true
+    }
+  ],
+  "code_secret": [
+    104,
+    33,
+    36,
+    227,
+    16,
+    178,
+    207,
+    164,
+    138,
+    36,
+    187,
+    253,
+    207,
+    45,
+    112,
+    93,
+    225,
+    228,
+    48,
+    84,
+    104,
+    72,
+    56,
+    211,
+    214,
+    82,
+    183,
+    37,
+    148,
+    212,
+    113,
+    129
+  ],
+  "pin": {
+    "salt": [
+      43,
+      39,
+      91,
+      168,
+      165,
+      98,
+      148,
+      1,
+      59,
+      137,
+      115,
+      69,
+      100,
+      19,
+      183,
+      18
+    ],
+    "iterations": 200000,
+    "hash": [
+      70,
+      18,
+      129,
+      26,
+      173,
+      203,
+      5,
+      230,
+      27,
+      211,
+      71,
+      65,
+      14,
+      250,
+      223,
+      31,
+      33,
+      202,
+      142,
+      76,
+      2,
+      43,
+      87,
+      30,
+      232,
+      209,
+      106,
+      163,
+      43,
+      170,
+      93,
+      20
+    ]
+  },
+  "pin_version": 1,
+  "guardian": {
+    "version": 0,
+    "mode": "nothing",
+    "set_at": -9223372036854775808
+  },
+  "pin_unlock": null,
+  "tries": {
+    "wrong": 0,
+    "wait_until": null
+  },
+  "last_pin_add": 0,
+  "unsent_added": [],
+  "last_request": 0,
+  "own_requests": [],
+  "requests_seen": [
+    {
+      "request": {
+        "id": "device-4d7e7baea5914503/ask/1",
+        "child_id": "child-5fde1a22576dc999",
+        "device_id": "device-4d7e7baea5914503",
+        "day": 20775,
+        "minutes": 20,
+        "reason": "Project",
+        "asked_at": 1794972900
+      },
+      "answer": {
+        "granted": {
+          "minutes": 10
+        }
+      },
+      "answered_at": 1794973200,
+      "reached_master": true
+    }
+  ],
+  "news_taken": 2
+}

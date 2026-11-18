@@ -373,6 +373,16 @@ pub enum EventKind {
         /// By how many seconds it is off; ahead is positive.
         off_by_secs: i64,
     },
+    /// A child's request for more time reached the master. It waits for an
+    /// answer ([`crate::Hub::waiting_requests`]).
+    RequestArrived {
+        /// The device it was made on.
+        device_id: String,
+        /// The request.
+        request_id: String,
+        /// The minutes asked for.
+        minutes: u32,
+    },
 }
 
 impl EventKind {
@@ -390,6 +400,7 @@ impl EventKind {
             EventKind::Lifted => "lifted",
             EventKind::WrongGuesses { .. } => "wrong_guesses",
             EventKind::ClockFarOff { .. } => "clock_far_off",
+            EventKind::RequestArrived { .. } => "request_arrived",
         }
     }
 }
@@ -412,9 +423,6 @@ pub struct Event {
 pub struct TidyReport {
     /// Slices folded into daily totals and removed.
     pub slices_folded: u64,
-    /// Records of removed devices dropped from the books once nothing in
-    /// them mentioned the device any more.
-    pub retired_devices_dropped: u32,
     /// Records of one time codes made on earlier days, dropped.
     pub codes_dropped: u64,
     /// Old events dropped.

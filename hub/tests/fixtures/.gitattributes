@@ -1,0 +1,2 @@
+# The saved store used by the upgrade test is a database file, never text.
+*.limo binary

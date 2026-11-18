@@ -1,0 +1,65 @@
+{
+  "child_id": "child-5fde1a22576dc999",
+  "from_day": 20775,
+  "to_day": 20775,
+  "secs": 3540,
+  "counted_secs": 3540,
+  "apps": [
+    {
+      "app_id": "game",
+      "secs": 1500,
+      "counted_secs": 1500
+    },
+    {
+      "app_id": "video",
+      "secs": 1440,
+      "counted_secs": 1440
+    },
+    {
+      "app_id": "draw",
+      "secs": 600,
+      "counted_secs": 600
+    }
+  ],
+  "devices": [
+    {
+      "device_id": "device-4c4e093994105adc",
+      "name": "Family PC",
+      "removed": false,
+      "secs": 1500,
+      "apps": [
+        {
+          "app_id": "game",
+          "secs": 1500,
+          "counted_secs": 1500
+        }
+      ]
+    },
+    {
+      "device_id": "device-4d7e7baea5914503",
+      "name": "Asha's phone",
+      "removed": false,
+      "secs": 1440,
+      "apps": [
+        {
+          "app_id": "video",
+          "secs": 1440,
+          "counted_secs": 1440
+        }
+      ]
+    },
+    {
+      "device_id": "device-c95f1fcbae54e755",
+      "name": "Old tablet",
+      "removed": true,
+      "secs": 600,
+      "apps": [
+        {
+          "app_id": "draw",
+          "secs": 600,
+          "counted_secs": 600
+        }
+      ]
+    }
+  ]
+}

@@ -268,6 +268,7 @@ impl HubError {
         match problem {
             MasterError::InvalidRules { problems } => HubError::InvalidRules { problems },
             MasterError::BadPin { problem } => HubError::Pin { problem },
+            MasterError::DeviceRemoved { device_id } => HubError::DeviceRemoved { device_id },
             problem => HubError::Refused { problem },
         }
     }

@@ -35,12 +35,28 @@ unsafe code.
 
 ## The file and its tables
 
-One SQLite file. Its version is SQLite's `user_version` (now 1), and its
+One SQLite file. Its version is SQLite's `user_version` (now 2), and its
 `application_id` marks it as LiMo's ("LiMo" in ASCII). When a file is
 opened, every step it needs to reach this code's version runs in one
 transaction; a file from a newer version of LiMo is refused, unchanged, with
 a plain message. Each step is kept in `src/schema.rs` and never changed once
-released; a new version adds a step.
+released; a new version adds a step. A step is SQL, and may also have work on
+the books that SQL cannot do.
+
+- **Version 1**: the first tables.
+- **Version 2**: the rules core now answers what the hub kept of each
+  device's newest report (its message number, the rules version it holds,
+  its wrong guesses, how far off its clock is), so those four columns of
+  `device` go. Every child's book is loaded and saved in the core's present
+  shape: a book that kept whole slices keeps marks instead, and a device the
+  first version removed (kept in the book as a retired record, see
+  [Devices](#devices)) is removed by the core itself. The test
+  `a_file_made_by_the_first_hub_opens_converts_and_goes_on` opens a file made
+  by the first version (`tests/fixtures/store_v1.limo`) and checks that every
+  view shows what the first version showed, and that exchanges, pairing,
+  removing and tidying go on.
+
+The tables, at version 2:
 
 - `settings`: how many days of usage are kept in detail (35 unless changed).
 - `family`: one row. The password's salt, rounds and hash; the wrong guesses
@@ -48,12 +64,16 @@ released; a new version adds a step.
   later get it.
 - `child`: id, its place in the order children were added, name, age band,
   when added, and the day before which usage was folded into totals.
-- `book`: each child's `MasterBook`, as the core's own JSON.
+- `book`: each child's `MasterBook`, as the core's own JSON: a few kilobytes
+  (see [Usage](#usage-in-detail-then-in-daily-totals)).
 - `device`: id, its place in the order devices were paired, child, name,
-  kind, platform label, when paired and removed, and what the newest report
-  said (when heard from, its message number, the
-  rules version it holds, whether it was in use, its wrong guesses, how far
-  off its clock was).
+  kind, platform label, when paired and removed, when last heard from, and
+  whether its newest report showed it in use. The rest of what the master
+  knows of a device (the rules version it holds, whether it has the latest
+  news, its wrong guesses, how far off its clock is) the child's book
+  answers (`MasterBook::device_view`). When it was last heard from is a copy
+  of the book's figure, written with every exchange, so that devices can be
+  listed without reading the books; whether it is in use is the hub's own.
 - `slice`: usage in detail: child, device, app, home day, start, end, seconds
   and whether it counted.
 - `day_total`: usage folded by day, device and app: seconds, and seconds that
@@ -92,7 +112,7 @@ for device_id in hub.wanted_reports(now)? {      // then prod who should report 
 }
 
 // The guardian, after signing in with hub.check_password(...):
-hub.replace_rules(&child_id, rules, now)?;       // the hub sets the version
+hub.replace_rules(&child_id, rules, now)?;       // the core sets the version
 hub.give_extra(&child_id, 30, &tap_id, now)?;    // the same tap id gives once
 hub.answer_request(&child_id, &request_id, RequestReply::Grant { minutes: 20 }, now)?;
 hub.lock_now(&child_id, None, now)?;             // or unlock_until, or lift
@@ -116,11 +136,12 @@ Rules for callers:
 - **One hub per file, one thread at a time.** `Hub` can be moved between
   threads but not shared; keep it in one thread, or behind a mutex.
 - **Prod the devices in `wanted_reports` after every exchange and every
-  guardian action.** It names the devices the core wants to hear from (time
-  to give back or take, the guardian's news) and every device that has not
-  yet reported holding its child's current rules, so a rule change reaches
-  devices in reach at once. The master learns that a device took news from
-  the device's next report, so a device is named until it has reported twice.
+  guardian action.** It names the devices each child's book wants to hear
+  from: time to give back or take, and every device that has not yet
+  reported holding its child's current rules or the guardian's newest news,
+  so a rule change reaches devices in reach at once. The master learns that a
+  device took news from the device's next report, so a device is named until
+  it has reported twice.
 - **The hub keeps no sessions.** The guardian's screen checks the password
   when the guardian signs in, and must ask for it again before
   `delete_family` and `remove_child`.
@@ -200,14 +221,18 @@ account cannot read it, not from this crate.** It is not encrypted.
 
 ## Usage: in detail, then in daily totals
 
-A report hands over slices of use. The hub keeps those that belong to the
-report's own child and device, end after they start, are for a day not yet
-folded, and are for a day within 8 days of the master's today
-(`FAR_DAY_DAYS`; such days come only from a clock that is badly wrong). A
-slice handed over twice is kept once. Each slice is kept at most a day long:
-a slice never spans more than its day, and a faulty one must not swamp the
-totals. The core counts slices by its own rules; the hub's record is for
-showing.
+A report hands over slices of use, every one the master has not confirmed,
+so the same slice comes many times. The hub keeps exactly the slices the core
+took for the first time (`ReportOutcome::new_slices`): the core counts each
+slice once, and says which ones it took, so the hub keeps each once, in the
+same transaction, and what the hub shows for a day is what the core counted.
+The hub has no rule of its own for which slices to keep. Each slice is
+stored at most a day long: a slice never spans more than its day, and a
+faulty one must not swamp the totals (the core's own count saturates). A
+slice the core takes is never for a day already folded into daily totals:
+`tidy` folds days before the detail window (7 days or more) and, in the same
+transaction, has the core forget the days before yesterday, whose slices the
+core then no longer takes.
 
 `tidy` folds the days before the detail window (35 days unless changed,
 7 to 400) into daily totals per day, device and app, and removes those
@@ -218,12 +243,15 @@ day of forty. A slice that arrives later for a folded day is not kept: it
 may be one already folded.
 
 **The core's books keep only today and yesterday** (`BOOK_DAYS`). A book is
-written on every exchange, and it holds every slice of the days it keeps, so
-`tidy` calls `forget_days_before` to keep it small. The hub's own tables hold
-the usage that is shown. Nothing the core needs is lost: a grant is only made
-for a device whose day is within one of the master's, a request can only be
-answered while its day lasts, and slices for a forgotten day are still kept
-by the hub.
+written on every exchange. It does not hold the slices: for each device and
+day it holds the highest slice number taken and the counted seconds (see the
+core's README, "What a book holds"). So a book is small: for two devices, 800
+slices a day each and two days, about 2.2 KB of JSON, where it was 745 KB
+when books held every slice. `tidy` calls `forget_days_before`, and writes
+the book only when that says it changed. Nothing the core needs is lost: a
+grant is only made for a device whose day is within one of the master's, and
+a request can only be answered while its day lasts. The hub's own tables
+hold the usage that is shown.
 
 LiMo records which app was used and for how long, and nothing else.
 
@@ -242,23 +270,36 @@ keeps a device with a wrong clock right. A device in use reports every few
 minutes, so it stays in use; an idle report, or ten minutes of silence, ends
 it.
 
-**Clocks far off.** When a report's sending time is more than 5 minutes from
-the master's clock (`CLOCK_FAR_OFF_SECS`), the device view shows by how much,
-and an event is recorded once, until a report finds the clock right again.
+**Clocks far off.** The core keeps, from each device's newest report, how far
+its sending time was from the master's clock. When that is more than 5
+minutes (`CLOCK_FAR_OFF_SECS`), the device view shows by how much, and an
+event is recorded once, until a report finds the clock right again. (For a
+file carried from version 1, a clock already far off is noted once more at
+its first report after the upgrade.)
 
-**Removed devices.** The core has no call to remove a device from a book yet.
-So the hub retires the device's
-record in the book through the book's saved form: it becomes a device of the
-master's kind with no report, no grant waiting for an answer, no need and no
-code secret. The core then works out that its counted use stays in the pool,
-that it holds back no lease and no away allowance, today or later, and that
-it has no away share. One effect errs on the strict side: time added on it by
-a code or the PIN on the days the book keeps (at most today and yesterday)
-stays held back in full, even the part it used, so on those days the child's
-other devices may have up to that much less. `tidy` drops the retired record
-once no day the book keeps mentions the device. `src/retire.rs` holds this,
-with a test that pins every effect; a `MasterBook::remove_device` in the core
-would replace it.
+**Removed devices.** `remove_device` calls the core's
+`MasterBook::remove_device`, in the same transaction as the hub's own rows:
+
+- its counted use stays in the child's day, and in the history under its
+  name, marked as removed;
+- the master holds nothing back for it any more, so the child's other
+  devices get that time, and the other phones its away share, at once;
+- time added on it by a code or the PIN that it had not used, as its newest
+  report said, is dropped from the day's extra time (the part it used stays
+  counted); `extra_time_today` shows it as `dropped_secs`;
+- its record leaves the book at once, its code secret with it; its reports
+  are refused, first by the hub (`HubError::DeviceRemoved`) and then by the
+  core.
+
+Use it made and never reported is not counted. So the service should, when
+it can, have the device report once more before removing it (its "release"
+step). The first version of the hub, when the core had no such call, kept a
+removed device in the book as a retired record and held back all the time
+added on it, even the part it used; files from that version are converted
+when opened (see [The file and its tables](#the-file-and-its-tables)). On the
+days such a book still keeps (today and yesterday at most) the time added on
+the retired device stays in the day's extra, since the retired record no
+longer says how much of it was used.
 
 ## The guardian password
 
@@ -283,19 +324,24 @@ shorter. A right password clears the count.
 6 to 8 digits (`MIN_PIN_DIGITS`, `MAX_PIN_DIGITS`), by the owner's decision.
 The hub refuses a PIN of fewer than 6 digits, or with anything but digits in
 it, itself, with `HubError::PinWrongShape` ("A PIN is 6 to 8 digits, with
-nothing else in it."), before the core sees it; the core of today would still
-take 4 and 5. Anything the core refuses comes back as `HubError::Pin`, with
-the core's reason as it is. The PIN is hashed once by the core
-(`PinRecord::new`) and the same record is given to every child's book in one
-transaction, and kept for children added later.
+nothing else in it."), before the core sees it; the core refuses them too
+(`PinError::NotSixToEightDigits`), and anything else the core refuses comes
+back as `HubError::Pin`, with the core's reason as it is. The PIN is hashed
+once by the core (`PinRecord::new`) and the same record is given to every
+child's book in one transaction, and kept for children added later. A PIN of
+4 or 5 digits set before (the core once took them) goes on working on the
+devices until the guardian sets a new one: a record does not say how long its
+PIN is.
 
 ## Events
 
 Typed, small and kept for 90 days, at most 2,000 (`EVENT_KEEP_DAYS`,
 `MAX_EVENTS`): a device paired or removed, rules changed, the PIN set or
 removed, the password changed, a lock, an unlock or a lift from the master,
-more wrong guesses reported by a device than before, and a device's clock
-found far off. Each has the time by the master's clock and the child it is
+more wrong guesses reported by a device than before, a device's clock found
+far off, and a child's request for more time reaching the master (from the
+requests the core took for the first time, so each request is noted once).
+Each has the time by the master's clock and the child it is
 about (none for the PIN and the password). `events(limit, before_id)` lists
 the newest first, a page at a time.
 
@@ -303,20 +349,22 @@ the newest first, a page at a time.
 
 Measured on the development PC (AMD Ryzen 9 7950X3D, NVMe disk), release
 build, with a heavy day: two devices, 800 slices a day each, a report every
-two minutes, and two days in the book (730 KB of JSON):
+two minutes, and two days in the book (2.6 KB of JSON; 730 KB when books
+kept every slice, when `handle_report` took about 10 ms, `family_today` 3 ms
+and `wanted_reports` 2.5 ms):
 
 | Call | Time |
 | --- | --- |
-| `handle_report`, written to the disk | about 10 ms |
-| `family_today` | about 3 ms |
-| `wanted_reports` | about 2.5 ms |
-| `tidy`, folding 3,200 slices | about 30 ms |
+| `handle_report`, written to the disk | about 6 ms |
+| `family_today` | under 0.1 ms |
+| `wanted_reports` | under 0.1 ms |
+| `tidy`, folding 3,200 slices | about 20 ms |
 | `check_password` | about 50 ms |
 
-Most of an exchange is reading and writing the child's book and waiting for
-the disk. **Call `tidy` once an hour.** It does nothing that is not due, so
-calling it more often is harmless; calling it less often only lets the books
-and the detail grow a little meanwhile.
+Most of an exchange is now waiting for the disk to confirm the write. **Call
+`tidy` once an hour.** It does nothing that is not due, so calling it more
+often is harmless; calling it less often only lets the detail grow a little
+meanwhile.
 
 ## Tests
 
@@ -324,8 +372,8 @@ and the detail grow a little meanwhile.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | Unit tests: a version 1 file carried to a test version 2 through the migration path (and then refused by version 1 code); a fresh file's tables and settings; password known answers (worked out separately with Python's `hashlib`); names of any script, and hidden characters refused; ids and seeded randomness; a retired device's every effect in the core | 11 |
-| `tests/hub/` | The stories: a whole day of a family with the views checked at every stage; files made, reopened, copied, refused when newer or foreign, damaged in a row or in the middle, and two hubs on one file; every grant on the disk before it is returned; an exchange and a change that fail part way leaving nothing; reports that do not fit and hostile reports; wanted reports after new rules; in use; clocks far off; removing a child and deleting the family, down to the file's bytes; removed devices; wrong passwords and the wait across a restart; secrets out of `Debug`, errors and the file; folding forty days; trimming books, codes and events; hostile names, unknown ids and numbers out of range | 30 |
+| `src/*.rs` | Unit tests: a version 1 file carried to version 2 and on to a test version 3 through the migration path (and then refused by version 2 code); a fresh file's tables and settings; password known answers (worked out separately with Python's `hashlib`); names of any script, and hidden characters refused; ids and seeded randomness | 9 |
+| `tests/hub/` | The stories: a whole day of a family with the views checked at every stage; a file made by the first version of the hub opened, converted and going on, with every view as that version showed it; files made, reopened, copied, refused when newer or foreign, damaged in a row or in the middle, and two hubs on one file; every grant on the disk before it is returned; an exchange and a change that fail part way leaving nothing; reports that do not fit and hostile reports; wanted reports after new rules; in use; clocks far off; removing a child and deleting the family, down to the file's bytes; removed devices, their time freed and the code time they did not use dropped; a removed device leaving the book at once and its use with its days; wrong passwords and the wait across a restart; secrets out of `Debug`, errors and the file; folding forty days, and a late slice for a folded day neither counted nor kept; trimming books, codes and events; hostile names, unknown ids and numbers out of range | 34 |
 
 `cargo build`, `cargo test`, `cargo doc --no-deps` and
 `cargo clippy --all-targets -- -D warnings` pass with no warnings and no

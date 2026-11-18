@@ -12,3 +12,4 @@ mod hostile;
 mod life;
 mod password;
 mod tidy;
+mod upgrade;

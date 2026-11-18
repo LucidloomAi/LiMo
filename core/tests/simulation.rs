@@ -50,17 +50,32 @@
 //!    under a guardian's lock records no counted use; and the master never
 //!    counts less use than a device has handed over.
 //!
+//! 7. **Devices removed and paired anew.** In some scenarios the guardian
+//!    removes a device now and then, after its last report or without one
+//!    (a lost phone), and pairs a new one in its place. Check 1 then allows
+//!    for the use the removed device had not reported, at most what the
+//!    master held back for it: nothing else. The removed device's counted
+//!    use stays in the master's days, unchanged; a report from it that turns
+//!    up later is refused and changes nothing; its id cannot be paired
+//!    again.
+//! 8. **What the master took, once.** Every report's outcome is checked
+//!    against the simulation's own ledger: each new slice, piece of added
+//!    time and request is one a device made, taken once; everything sound in
+//!    a delivered report has been taken; and for every device and day, the
+//!    master's count is exactly the sum of the slices it returned.
+//!
 //! The run fails if the scenarios never take time back from a phone, never
-//! reach the moment where check 5 applies, or never take one of the ways out
-//! (each path counted separately), so that it cannot pass without testing
-//! the path.
+//! reach the moment where check 5 applies, never take one of the ways out,
+//! never remove or pair a device, or never return new slices, added time and
+//! requests (each path counted separately), so that it cannot pass without
+//! testing the path.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use limo_core::{
     BlockedWindow, DailyBudget, Decision, DeviceKind, DeviceState, Grant, GrantOutcome, LockReason,
-    MasterBook, OneTimeCode, PinAction, PinRecord, Report, RequestAnswer, RequestReply, RuleSet,
-    TryOutcome, Weekday, next_code,
+    MasterBook, MasterError, OneTimeCode, PinAction, PinRecord, Report, ReportOutcome, RequestAnswer,
+    RequestReply, RuleSet, Slice, TryOutcome, Weekday, next_code,
 };
 
 /// A small seeded generator (splitmix64). Enough for picking scenarios.
@@ -111,6 +126,9 @@ struct Setup {
     /// Whether the guardian uses the ways out: extra time with ids, codes,
     /// the PIN, locks and unlocks, and answers to requests.
     ways: bool,
+    /// Chance in a thousand per step that a device is removed (and most often
+    /// a new one paired in its place).
+    removal: u64,
 }
 
 #[derive(Debug, Default)]
@@ -159,12 +177,24 @@ struct Stats {
     lock_checks: u64,
     restarts: u64,
     count_checks: u64,
+    removals_after_report: u64,
+    removals_with_unreported_use: u64,
+    unreported_secs_lost: u64,
+    pairings: u64,
+    removed_reports_refused: u64,
+    removed_count_checks: u64,
+    outcome_slices: u64,
+    outcome_added: u64,
+    outcome_requests: u64,
+    ledger_checks: u64,
 }
 
 struct Device {
     id: String,
     state: DeviceState,
     portable: bool,
+    /// Removed from the master: it is gone, and never acts again.
+    removed: bool,
     in_reach: bool,
     in_use: bool,
     app: &'static str,
@@ -228,6 +258,23 @@ struct World {
     over: BTreeMap<(usize, i64), u64>,
     /// Ids given with `give_extra`, to give again.
     given_ids: Vec<String>,
+    /// The generator for removing and pairing devices.
+    removal_rng: Rng,
+    /// Every slice a device made, by id.
+    made: BTreeMap<String, Slice>,
+    /// The ids of the slices, pieces of added time and requests the master
+    /// returned as new, each once.
+    taken_slices: BTreeSet<String>,
+    taken_added: BTreeSet<String>,
+    taken_requests: BTreeSet<String>,
+    /// Counted seconds of the slices the master returned, by device and day.
+    ledger: BTreeMap<(String, i64), u64>,
+    /// Use a removed device had not reported, within what the master held
+    /// back for it, by day: the most that removing it can let a day pass
+    /// its limit by.
+    lost: BTreeMap<i64, u64>,
+    /// Devices paired so far, to make new ids.
+    paired: u64,
 }
 
 const APPS: [&str; 6] = ["game", "video", "game", "chat", "clock", "casino"];
@@ -280,7 +327,12 @@ impl World {
             days: rng.range(2, 3),
             hub: rng.below(4) != 0,
             ways: rng.below(3) != 0,
+            removal: 0,
         };
+        // Removals draw on a generator of their own, so that they do not
+        // change the rest of a scenario's draws until the first removal.
+        let mut removal_rng = Rng(seed ^ 0x000D_E71C_E50F_F5E7);
+        let setup = Setup { removal: removal_rng.pick(&[0, 0, 1, 3]), ..setup };
         let offset = rng.pick(&OFFSETS);
         let day_start = rng.pick(&[0, 0, 240, 1_380]);
         let rules = random_rules(&mut rng, 1, offset, day_start);
@@ -297,6 +349,7 @@ impl World {
                 id,
                 state: DeviceState::from_pairing(&welcome, start),
                 portable: kind == DeviceKind::Portable,
+                removed: false,
                 in_reach: true,
                 in_use: false,
                 app: "game",
@@ -343,6 +396,14 @@ impl World {
             added: BTreeMap::new(),
             over: BTreeMap::new(),
             given_ids: Vec::new(),
+            removal_rng,
+            made: BTreeMap::new(),
+            taken_slices: BTreeSet::new(),
+            taken_added: BTreeSet::new(),
+            taken_requests: BTreeSet::new(),
+            ledger: BTreeMap::new(),
+            lost: BTreeMap::new(),
+            paired: 0,
         };
         let day = world.master.today(start);
         world.in_play.entry(day).or_default().insert(1);
@@ -409,7 +470,9 @@ impl World {
             return Exchange::Lost;
         }
         let waiting_before = self.master.unmet_need_secs(report.day);
-        let grant = self.master.handle_report(&report, now).unwrap();
+        let outcome = self.master.handle_report(&report, now).unwrap();
+        self.check_outcome(&report, &outcome);
+        let grant = outcome.grant;
         self.log(|| format!("{now} grant #{} for {} day {} lease {} cap {} percent {} rules {} left {:?} ack {} waiting {}",
             grant.number, grant.device_id, grant.day, grant.lease_total_secs, grant.away_cap_secs,
             grant.away_percent, grant.rules.version, grant.left_for_you_secs, grant.acknowledge_now, waiting_before));
@@ -447,6 +510,136 @@ impl World {
             rules_changed,
             acknowledge_now: grant.acknowledge_now,
         }
+    }
+
+    /// Check 8: what the master took from a report it handled, against the
+    /// simulation's ledger. Each new slice, piece of added time and request
+    /// is one a device made, taken once; and everything sound that the
+    /// report carried has been taken by now, in this report or before.
+    fn check_outcome(&mut self, report: &Report, outcome: &ReportOutcome) {
+        let seed = self.seed;
+        for slice in &outcome.new_slices {
+            assert_eq!(self.made.get(&slice.id), Some(slice), "seed {seed}: the master took a slice no device made");
+            assert!(self.taken_slices.insert(slice.id.clone()), "seed {seed}: slice {} was taken twice", slice.id);
+            if slice.counts {
+                *self.ledger.entry((slice.device_id.clone(), slice.day)).or_default() += slice.secs();
+            }
+            self.stats.outcome_slices += 1;
+        }
+        for slice in &report.slices {
+            assert!(self.taken_slices.contains(&slice.id), "seed {seed}: slice {} was handed over and not taken", slice.id);
+        }
+        for piece in &outcome.new_added {
+            assert!(self.added.contains_key(&piece.id), "seed {seed}: the master took added time no device added");
+            assert!(self.taken_added.insert(piece.id.clone()), "seed {seed}: {} was taken twice", piece.id);
+            self.stats.outcome_added += 1;
+        }
+        for piece in &report.added {
+            assert!(self.taken_added.contains(&piece.id), "seed {seed}: {} was handed over and not taken", piece.id);
+        }
+        for request in &outcome.new_requests {
+            assert!(self.taken_requests.insert(request.id.clone()), "seed {seed}: {} was taken twice", request.id);
+            self.stats.outcome_requests += 1;
+        }
+        for request in &report.requests {
+            assert!(self.taken_requests.contains(&request.id), "seed {seed}: {} was handed over and not taken", request.id);
+        }
+    }
+
+    /// An old report from a device: handled, and checked, or refused when
+    /// the device has been removed, without changing the book.
+    fn handle_old_report(&mut self, report: &Report, now: i64) -> Option<(usize, Grant)> {
+        let i = self.devices.iter().position(|d| d.id == report.device_id).unwrap();
+        if self.devices[i].removed {
+            let before = serde_json::to_string(&self.master).unwrap();
+            let err = self.master.handle_report(report, now).unwrap_err();
+            assert_eq!(err, MasterError::DeviceRemoved { device_id: report.device_id.clone() }, "seed {}", self.seed);
+            assert_eq!(serde_json::to_string(&self.master).unwrap(), before, "seed {}: a refused report changed the book", self.seed);
+            self.stats.removed_reports_refused += 1;
+            return None;
+        }
+        let outcome = self.master.handle_report(report, now).unwrap();
+        self.check_outcome(report, &outcome);
+        Some((i, outcome.grant))
+    }
+
+    /// The guardian removes a device: now and then right after it reported,
+    /// otherwise as it is (a phone lost with use it never reported). Most
+    /// often a new device of the same kind is paired in its place.
+    fn remove_and_pair(&mut self, now: i64) {
+        let live: Vec<usize> = (0..self.devices.len()).filter(|i| !self.devices[*i].removed).collect();
+        if live.is_empty() {
+            return;
+        }
+        let i = live[self.removal_rng.below(live.len() as u64) as usize];
+        if self.devices[i].in_reach && self.removal_rng.below(2) == 0 {
+            self.exchange(i, now, false);
+        }
+        let id = self.devices[i].id.clone();
+        // What it used that the master has not counted, within what the
+        // master held back for it, is the most removing it can let a day go
+        // over by.
+        let mut unreported = 0;
+        let days: Vec<(i64, u64)> = self.devices[i].used.iter().map(|(d, s)| (*d, *s)).collect();
+        for (day, used) in days {
+            let view = self.master.device_view(&id, day).unwrap();
+            let missing = used.saturating_sub(view.used_secs);
+            let lost = view.reserved_secs.map_or(missing, |held| missing.min(held));
+            *self.lost.entry(day).or_default() += lost;
+            unreported += lost;
+        }
+        self.master.remove_device(&id, now).unwrap();
+        self.log(|| format!("{now} removed {id}, {unreported} s unreported"));
+        assert_eq!(self.master.remove_device(&id, now), Err(MasterError::DeviceRemoved { device_id: id.clone() }));
+        if unreported > 0 {
+            self.stats.removals_with_unreported_use += 1;
+            self.stats.unreported_secs_lost += unreported;
+        } else {
+            self.stats.removals_after_report += 1;
+        }
+        let device = &mut self.devices[i];
+        device.removed = true;
+        device.in_reach = false;
+        device.in_use = false;
+        self.inbox.retain(|(d, _, _)| *d != i);
+        self.used_codes.retain(|(d, _)| *d != i);
+        self.late_grants.retain(|(d, _)| *d != i);
+        if self.removal_rng.below(4) == 0 {
+            return;
+        }
+        // A new device in its place, under a new id: the removed id is never
+        // paired again.
+        let kind = if self.devices[i].portable { DeviceKind::Portable } else { DeviceKind::OnMaster };
+        assert_eq!(
+            self.master.add_device(&id, kind, now).unwrap_err(),
+            MasterError::DeviceRemoved { device_id: id.clone() }
+        );
+        self.paired += 1;
+        let new_id = format!("{}-{}", id.split('-').next().unwrap(), self.paired);
+        let welcome = self.master.add_device(&new_id, kind, now).unwrap();
+        let mut state = DeviceState::from_pairing(&welcome, now);
+        if self.setup.ways {
+            let secret: Vec<u8> = (0..32).map(|_| self.removal_rng.next() as u8).collect();
+            self.master.set_code_secret(&new_id, secret.clone()).unwrap();
+            state.set_code_secret(secret.clone()).unwrap();
+            self.secrets.push(secret);
+        }
+        self.log(|| format!("{now} paired {new_id}: share {} cap {}", welcome.away_percent, welcome.away_cap_secs));
+        self.devices.push(Device {
+            id: new_id,
+            state,
+            portable: kind == DeviceKind::Portable,
+            removed: false,
+            in_reach: true,
+            in_use: false,
+            app: "game",
+            used: BTreeMap::new(),
+            clean: 0,
+            last_cap: None,
+            same_cap: false,
+        });
+        self.note_held(self.devices.len() - 1, now);
+        self.stats.pairings += 1;
     }
 
     /// A device must never hold more than one lease of unspent lease.
@@ -537,6 +730,9 @@ impl World {
                 let made = self.devices[i].state.record_use(app, t, until);
                 self.log(|| format!("{t} {} used {app} until {until}: {:?}", self.devices[i].id,
                     made.iter().map(|s| (s.day, s.secs(), s.counts)).collect::<Vec<_>>()));
+                for slice in &made {
+                    assert!(self.made.insert(slice.id.clone(), slice.clone()).is_none(), "seed {}: slice id reused", self.seed);
+                }
                 // Whether a lock is in force is asked of the device's standing,
                 // not of the decision being checked.
                 if self.guardian_locked(i, t) {
@@ -627,11 +823,10 @@ impl World {
         self.stats.repeats += 1;
         if self.rng.below(2) == 0 && !self.old_reports.is_empty() {
             let report = self.old_reports[self.rng.below(self.old_reports.len() as u64) as usize].clone();
-            let grant = self.master.handle_report(&report, now).unwrap();
+            let Some((i, grant)) = self.handle_old_report(&report, now) else { return };
             self.log(|| format!("{now} repeated report #{} of {}: grant #{} day {} lease {} cap {}",
                 report.message_number, report.device_id, grant.number, grant.day, grant.lease_total_secs, grant.away_cap_secs));
             self.in_play.entry(grant.day).or_default().insert(grant.rules.version);
-            let i = self.devices.iter().position(|d| d.id == report.device_id).unwrap();
             self.devices[i].clean = 0;
             if self.devices[i].in_reach && self.rng.below(2) == 0 {
                 self.devices[i].state.take_grant(&grant, now);
@@ -663,11 +858,10 @@ impl World {
                 self.late_reports.push(report);
                 continue;
             }
-            let grant = self.master.handle_report(&report, now).unwrap();
+            let Some((i, grant)) = self.handle_old_report(&report, now) else { continue };
             self.log(|| format!("{now} late report #{} of {}: grant #{} lease {} cap {}",
                 report.message_number, report.device_id, grant.number, grant.lease_total_secs, grant.away_cap_secs));
             self.in_play.entry(grant.day).or_default().insert(grant.rules.version);
-            let i = self.devices.iter().position(|d| d.id == report.device_id).unwrap();
             self.devices[i].clean = 0;
             self.late_grants.push((i, grant));
         }
@@ -735,7 +929,7 @@ impl World {
         // A device out of reach that waits may hold free time for itself, and
         // the master counts for a few minutes on a phone it has just lowered,
         // which may have left meanwhile.
-        let absent_counted_on = self.devices.iter().any(|d| {
+        let absent_counted_on = self.devices.iter().filter(|d| !d.removed).any(|d| {
             let view = self.master.device_view(&d.id, day).unwrap();
             !d.in_reach && (view.waiting_secs > 0 || view.giving_back_secs > 0)
         });
@@ -801,9 +995,10 @@ impl World {
                 continue;
             }
             let over: u64 = self.over.iter().filter(|((_, d), _)| d == day).map(|(_, s)| *s).sum();
+            let lost = self.lost.get(day).copied().unwrap_or(0);
             assert!(
-                used - over <= highest + extra,
-                "seed {}: day {day}: {used} s counted ({over} s of it beyond what devices held, under unlocks), but the budget is {highest} s and extra {extra} s (rules in play {versions:?}, setup {:?})",
+                used - over - lost <= highest + extra,
+                "seed {}: day {day}: {used} s counted ({over} s of it beyond what devices held, under unlocks, and {lost} s unreported by removed devices), but the budget is {highest} s and extra {extra} s (rules in play {versions:?}, setup {:?})",
                 self.seed,
                 self.setup
             );
@@ -812,8 +1007,30 @@ impl World {
             }
         }
         for (i, device) in self.devices.iter().enumerate() {
+            if device.removed {
+                // Its counted use stays with the master's days, as the
+                // master took it: the sum of the slices it returned.
+                for day in device.used.keys() {
+                    let counted = self.ledger.get(&(device.id.clone(), *day)).copied().unwrap_or(0);
+                    let kept = self.master.counted_use(*day).into_iter().find(|c| c.device_id == device.id);
+                    match kept {
+                        Some(c) => assert!(c.removed && c.counted_secs == counted, "seed {}: {c:?}, ledger {counted}", self.seed),
+                        None => assert_eq!(counted, 0, "seed {}: {}'s use on day {day} was dropped", self.seed, device.id),
+                    }
+                    self.stats.removed_count_checks += 1;
+                }
+                continue;
+            }
             for (day, secs) in &device.used {
                 let view = self.master.device_view(&device.id, *day).unwrap();
+                // Check 8: the master counts exactly the slices it returned.
+                let counted = self.ledger.get(&(device.id.clone(), *day)).copied().unwrap_or(0);
+                assert_eq!(
+                    view.used_secs, counted,
+                    "seed {}: {} on day {day}: the master counts {} s, the slices it returned {counted} s",
+                    self.seed, device.id, view.used_secs
+                );
+                self.stats.ledger_checks += 1;
                 let over = self.over.get(&(i, *day)).copied().unwrap_or(0);
                 // Time added on the device that the master has not heard of
                 // yet is extra it cannot hold back.
@@ -895,14 +1112,21 @@ impl World {
             let i = self.rng.below(self.devices.len() as u64) as usize;
             let minutes = self.rng.pick(&[15, 30, 60]);
             let made = self.counters.entry((i, today)).or_default().clone();
-            match next_code(self.secrets[i].clone(), &self.devices[i].id, today, minutes, made) {
-                Ok(code) => {
+            // No code is made for a removed device: its secret is gone.
+            let code = if self.devices[i].removed {
+                None
+            } else {
+                Some(next_code(self.secrets[i].clone(), &self.devices[i].id, today, minutes, made))
+            };
+            match code {
+                Some(Ok(code)) => {
                     self.counters.entry((i, today)).or_default().push(code.counter);
                     let typed_at = now + if self.rng.below(5) == 0 { self.rng.range(0, 6 * 3_600) } else { 0 };
                     self.inbox.push((i, code, typed_at));
                     self.stats.codes_made += 1;
                 }
-                Err(_) => self.stats.codes_exhausted += 1,
+                Some(Err(_)) => self.stats.codes_exhausted += 1,
+                None => {}
             }
         }
         // The PIN changes now and then.
@@ -996,8 +1220,8 @@ impl World {
         });
         for code in due {
             // Now and then the child types it on another device first.
-            if self.devices.len() > 1 && self.rng.below(10) == 0 {
-                let other = (i + 1) % self.devices.len();
+            let other = (i + 1) % self.devices.len();
+            if self.devices.len() > 1 && self.rng.below(10) == 0 && !self.devices[other].removed {
                 let outcome = self.devices[other].state.try_code(&code.shown, now);
                 assert!(
                     matches!(outcome, TryOutcome::Wrong { .. } | TryOutcome::MustWait { .. }),
@@ -1112,8 +1336,14 @@ impl World {
             if self.rng.per_mille(self.setup.repeat) {
                 self.repeat_something(now);
             }
+            if self.setup.removal > 0 && self.removal_rng.per_mille(self.setup.removal) {
+                self.remove_and_pair(now);
+            }
             self.deliver_late(now);
             for i in 0..self.devices.len() {
+                if self.devices[i].removed {
+                    continue;
+                }
                 let rng = &mut self.rng;
                 let device = &mut self.devices[i];
                 if device.portable && rng.per_mille(self.setup.reach_change) {
@@ -1172,9 +1402,9 @@ impl World {
     }
 }
 
-/// A PIN of 4 to 8 digits.
+/// A PIN of 6 to 8 digits.
 fn random_pin(rng: &mut Rng) -> String {
-    let digits = rng.range(4, 8) as usize;
+    let digits = rng.range(6, 8) as usize;
     (0..digits).map(|_| char::from(b'0' + rng.below(10) as u8)).collect()
 }
 
@@ -1260,6 +1490,16 @@ fn many_generated_days_never_go_over_the_limit() {
         all.lock_checks += s.lock_checks;
         all.restarts += s.restarts;
         all.count_checks += s.count_checks;
+        all.removals_after_report += s.removals_after_report;
+        all.removals_with_unreported_use += s.removals_with_unreported_use;
+        all.unreported_secs_lost += s.unreported_secs_lost;
+        all.pairings += s.pairings;
+        all.removed_reports_refused += s.removed_reports_refused;
+        all.removed_count_checks += s.removed_count_checks;
+        all.outcome_slices += s.outcome_slices;
+        all.outcome_added += s.outcome_added;
+        all.outcome_requests += s.outcome_requests;
+        all.ledger_checks += s.ledger_checks;
     }
     println!("{all:#?}");
     if single {
@@ -1295,6 +1535,15 @@ fn many_generated_days_never_go_over_the_limit() {
         ("use beyond what a device held, under an unlock", all.over_secs_under_unlock),
         ("a device in use under a guardian's lock", all.lock_checks),
         ("a restart from saved state", all.restarts),
+        ("a device removed right after its report", all.removals_after_report),
+        ("a device removed with use it had not reported", all.removals_with_unreported_use),
+        ("a new device paired in a removed one's place", all.pairings),
+        ("a late report from a removed device, refused", all.removed_reports_refused),
+        ("a removed device's use checked on its days", all.removed_count_checks),
+        ("new slices in a report's outcome", all.outcome_slices),
+        ("new added time in a report's outcome", all.outcome_added),
+        ("new requests in a report's outcome", all.outcome_requests),
+        ("the master's count against the slices it returned", all.ledger_checks),
     ];
     for (path, count) in paths {
         assert!(count > 0, "the scenarios never took this path: {path}\n{all:#?}");

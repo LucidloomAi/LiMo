@@ -1,7 +1,6 @@
 //! The family: its guardian password, its PIN, and deleting it.
 
-use limo_core::guardian::wait_after_wrong_guesses;
-use limo_core::PinRecord;
+use limo_core::{PinRecord, wait_after_wrong_guesses};
 use rusqlite::{Connection, params};
 
 use crate::{DEFAULT_DETAIL_DAYS, MAX_PIN_DIGITS, MIN_PIN_DIGITS};

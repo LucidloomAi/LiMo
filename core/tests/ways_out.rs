@@ -85,7 +85,7 @@ impl Home {
     /// once when the grant asks for it.
     fn exchange(&mut self, who: Who, now: i64, want_more: bool) -> Grant {
         let report = self.device(who).report(now, want_more);
-        let first = self.master.handle_report(&report, now).unwrap();
+        let first = self.master.handle_report(&report, now).unwrap().grant;
         assert_eq!(self.device(who).take_grant(&first, now), GrantOutcome::Taken);
         let mut grant = first.clone();
         for _ in 0..3 {
@@ -93,7 +93,7 @@ impl Home {
                 break;
             }
             let report = self.device(who).report(now, want_more);
-            grant = self.master.handle_report(&report, now).unwrap();
+            grant = self.master.handle_report(&report, now).unwrap().grant;
             assert_eq!(self.device(who).take_grant(&grant, now), GrantOutcome::Taken);
         }
         first
@@ -386,7 +386,7 @@ fn the_pin_adds_time_on_a_phone_with_no_network() {
     // The full cost of the PIN hash, as in the product.
     let mut h = home(rules(60), at(17, 20, 0));
     let wed = h.master.today(at(18, 12, 0));
-    assert_eq!(h.master.set_pin("8642", salt()), Ok(1));
+    assert_eq!(h.master.set_pin("864213", salt()), Ok(1));
     // The phone gets the record with its next grant.
     assert!(!h.phone.has_pin());
     let grant = h.exchange(Who::Phone, at(17, 21, 0), false);
@@ -401,7 +401,7 @@ fn the_pin_adds_time_on_a_phone_with_no_network() {
     let (away, d) = h.play(Who::Phone, at(18, 15, 0), at(18, 16, 0));
     assert_eq!(away, 30 * MIN);
     assert!(d.can_use_pin && !d.allowed);
-    let outcome = h.phone.try_pin("8642", PinAction::AddMinutes { minutes: 20 }, at(18, 16, 0)).unwrap();
+    let outcome = h.phone.try_pin("864213", PinAction::AddMinutes { minutes: 20 }, at(18, 16, 0)).unwrap();
     assert_eq!(added_secs(&outcome), 20 * MIN);
     if let TryOutcome::Added { added } = &outcome {
         assert_eq!(added.id, "phone/pin/1");
@@ -417,7 +417,7 @@ fn the_pin_adds_time_on_a_phone_with_no_network() {
     assert_eq!(pieces[0].source, ExtraSource::Pin { device_id: "phone".into() });
     assert_eq!(h.master.pool(wed).extra_secs, 20 * MIN);
     // Release is confirmed, and nothing else changes.
-    let release = h.phone.try_pin("8642", PinAction::ConfirmRelease, at(18, 18, 2)).unwrap();
+    let release = h.phone.try_pin("864213", PinAction::ConfirmRelease, at(18, 18, 2)).unwrap();
     assert_eq!(release, TryOutcome::ReleaseConfirmed);
     // Actions that could not be done are refused before the PIN is looked
     // at, and do not count.
@@ -436,7 +436,7 @@ fn the_pin_adds_time_on_a_phone_with_no_network() {
 fn wrong_guesses_set_a_growing_wait_that_survives_a_restart_and_a_clock_set_back() {
     let mut h = home(rules(60), at(17, 20, 0));
     let wed = h.master.today(at(18, 12, 0));
-    h.master.set_pin_record(quick_pin("2468")).unwrap();
+    h.master.set_pin_record(quick_pin("246813")).unwrap();
     h.exchange(Who::Phone, at(18, 11, 0), false);
     let wrong = wrong_code(&h, wed);
     let t0 = at(18, 12, 0);
@@ -449,7 +449,7 @@ fn wrong_guesses_set_a_growing_wait_that_survives_a_restart_and_a_clock_set_back
     // During the wait nothing is tried, so nothing is counted; a code that
     // is not 8 digits is refused without counting as well.
     assert_eq!(h.phone.try_code(&wrong, t0 + 10), TryOutcome::MustWait { until: t0 + 60 });
-    assert_eq!(h.phone.try_pin("2468", PinAction::ConfirmRelease, t0 + 10), Ok(TryOutcome::MustWait { until: t0 + 60 }));
+    assert_eq!(h.phone.try_pin("246813", PinAction::ConfirmRelease, t0 + 10), Ok(TryOutcome::MustWait { until: t0 + 60 }));
     assert_eq!(h.phone.try_code("1234", t0 + 10), TryOutcome::Malformed);
     assert_eq!(h.phone.try_pin("12", PinAction::ConfirmRelease, t0 + 10), Ok(TryOutcome::Malformed));
     assert_eq!(h.phone.wrong_guesses(), 5);
@@ -479,7 +479,7 @@ fn wrong_guesses_set_a_growing_wait_that_survives_a_restart_and_a_clock_set_back
     assert_eq!(h.phone.try_code(&wrong, t), TryOutcome::Wrong { wrong_guesses: 13, wait_until: Some(t + 3_600) });
     // A right PIN, after the wait, clears the count and the wait.
     t += 3_600;
-    assert_eq!(h.phone.try_pin("2468", PinAction::ConfirmRelease, t), Ok(TryOutcome::ReleaseConfirmed));
+    assert_eq!(h.phone.try_pin("246813", PinAction::ConfirmRelease, t), Ok(TryOutcome::ReleaseConfirmed));
     assert_eq!(h.phone.wrong_guesses(), 0);
     assert_eq!(h.phone.decide(t, None).try_wait_until, None);
     h.exchange(Who::Phone, t, false);
@@ -489,32 +489,32 @@ fn wrong_guesses_set_a_growing_wait_that_survives_a_restart_and_a_clock_set_back
 #[test]
 fn a_changed_pin_replaces_the_old_one_on_every_device_that_hears_of_it() {
     let mut h = home(rules(60), at(17, 20, 0));
-    assert_eq!(h.master.set_pin_record(quick_pin("2468")), Ok(1));
+    assert_eq!(h.master.set_pin_record(quick_pin("246813")), Ok(1));
     h.exchange(Who::Phone, at(18, 9, 0), false);
     h.exchange(Who::Pc, at(18, 9, 0), false);
     h.phone_home = false;
     // The guardian changes the PIN while the phone is at school.
-    assert_eq!(h.master.set_pin_record(quick_pin("97531")), Ok(2));
+    assert_eq!(h.master.set_pin_record(quick_pin("975312")), Ok(2));
     assert!(h.master.wanted_reports(at(18, 10, 0)).contains(&"pc".to_string()));
     h.hub(at(18, 10, 0));
     assert_eq!(h.pc.pin_version(), 2);
     let unlock = PinAction::UnlockUntil { until: at(18, 11, 0) };
     // On the PC the old PIN is now wrong and the new one right.
-    assert_eq!(h.pc.try_pin("2468", unlock, at(18, 10, 1)), Ok(TryOutcome::Wrong { wrong_guesses: 1, wait_until: None }));
-    assert_eq!(h.pc.try_pin("97531", unlock, at(18, 10, 2)), Ok(TryOutcome::Unlocked { until: at(18, 11, 0) }));
+    assert_eq!(h.pc.try_pin("246813", unlock, at(18, 10, 1)), Ok(TryOutcome::Wrong { wrong_guesses: 1, wait_until: None }));
+    assert_eq!(h.pc.try_pin("975312", unlock, at(18, 10, 2)), Ok(TryOutcome::Unlocked { until: at(18, 11, 0) }));
     // The phone away still holds the old record until it hears.
     assert_eq!(h.phone.pin_version(), 1);
-    assert_eq!(h.phone.try_pin("97531", unlock, at(18, 10, 3)), Ok(TryOutcome::Wrong { wrong_guesses: 1, wait_until: None }));
+    assert_eq!(h.phone.try_pin("975312", unlock, at(18, 10, 3)), Ok(TryOutcome::Wrong { wrong_guesses: 1, wait_until: None }));
     h.phone_home = true;
     h.exchange(Who::Phone, at(18, 10, 4), false);
     assert_eq!(h.phone.pin_version(), 2);
-    assert_eq!(h.phone.try_pin("2468", unlock, at(18, 10, 5)), Ok(TryOutcome::Wrong { wrong_guesses: 2, wait_until: None }));
-    assert_eq!(h.phone.try_pin("97531", unlock, at(18, 10, 6)), Ok(TryOutcome::Unlocked { until: at(18, 11, 0) }));
+    assert_eq!(h.phone.try_pin("246813", unlock, at(18, 10, 5)), Ok(TryOutcome::Wrong { wrong_guesses: 2, wait_until: None }));
+    assert_eq!(h.phone.try_pin("975312", unlock, at(18, 10, 6)), Ok(TryOutcome::Unlocked { until: at(18, 11, 0) }));
     // Removing the PIN reaches the devices too: they refuse PIN actions.
     assert_eq!(h.master.clear_pin(), 3);
     h.hub(at(18, 10, 7));
     assert!(!h.phone.has_pin());
-    assert_eq!(h.phone.try_pin("97531", unlock, at(18, 10, 8)), Ok(TryOutcome::NotSet));
+    assert_eq!(h.phone.try_pin("975312", unlock, at(18, 10, 8)), Ok(TryOutcome::NotSet));
     // A PIN of the wrong shape is refused by the master too.
     assert!(matches!(h.master.set_pin("12a4", salt()), Err(MasterError::BadPin { .. })));
 }
@@ -590,13 +590,13 @@ fn an_unlock_from_the_master_keeps_counting_and_the_master_counts_it_all() {
 #[test]
 fn a_pin_unlock_on_the_phone_beats_an_older_lock_from_the_master_until_it_ends() {
     let mut h = home(rules(120), at(17, 20, 0));
-    h.master.set_pin_record(quick_pin("2468")).unwrap();
+    h.master.set_pin_record(quick_pin("246813")).unwrap();
     h.master.lock_now(None, at(18, 9, 0)).unwrap();
     h.hub(at(18, 9, 0));
     h.phone_home = false;
     assert_eq!(reason(&h.phone.decide(at(18, 10, 0), Some("game"))), Some(LockReason::GuardianLock));
     // Away from home, a guardian with the PIN opens the phone for an hour.
-    let unlocked = h.phone.try_pin("2468", PinAction::UnlockUntil { until: at(18, 11, 0) }, at(18, 10, 0)).unwrap();
+    let unlocked = h.phone.try_pin("246813", PinAction::UnlockUntil { until: at(18, 11, 0) }, at(18, 10, 0)).unwrap();
     assert_eq!(unlocked, TryOutcome::Unlocked { until: at(18, 11, 0) });
     let d = h.phone.decide(at(18, 10, 1), Some("game"));
     assert!(d.allowed);
@@ -606,7 +606,7 @@ fn a_pin_unlock_on_the_phone_beats_an_older_lock_from_the_master_until_it_ends()
     // When it ends, the lock from the master applies again.
     assert_eq!(reason(&h.phone.decide(at(18, 11, 0), Some("game"))), Some(LockReason::GuardianLock));
     // At home the master sees the unlock while it lasts; lifting ends both.
-    h.phone.try_pin("2468", PinAction::UnlockUntil { until: at(18, 13, 0) }, at(18, 12, 0)).unwrap();
+    h.phone.try_pin("246813", PinAction::UnlockUntil { until: at(18, 13, 0) }, at(18, 12, 0)).unwrap();
     h.phone_home = true;
     h.exchange(Who::Phone, at(18, 12, 1), false);
     let wed = h.master.today(at(18, 12, 1));
@@ -645,7 +645,7 @@ fn state_saved_by_piece_one_still_loads_and_goes_on_working() {
     let now = 1_794_976_800 + 60;
     book.handle_report(&report, now).unwrap();
     for device in [&mut phone, &mut pc] {
-        let g = book.handle_report(&device.report(now, true), now).unwrap();
+        let g = book.handle_report(&device.report(now, true), now).unwrap().grant;
         assert_eq!(device.take_grant(&g, now), GrantOutcome::Taken);
         let d = device.decide(now, Some("game"));
         assert!(d.next_check_at > now);
@@ -662,9 +662,9 @@ fn state_saved_by_piece_one_still_loads_and_goes_on_working() {
 #[test]
 fn secrets_and_pins_never_show_in_debug_output_or_errors() {
     let mut h = home(rules(60), at(17, 20, 0));
-    h.master.set_pin_record(quick_pin("86420")).unwrap();
+    h.master.set_pin_record(quick_pin("864209")).unwrap();
     let grant = h.exchange(Who::Phone, at(18, 9, 0), false);
-    let record = quick_pin("86420");
+    let record = quick_pin("864209");
     let hash_hex: String = record.hash.iter().map(|b| format!("{b:02x}")).collect();
     let texts = [
         format!("{:?}", h.master),
@@ -676,14 +676,14 @@ fn secrets_and_pins_never_show_in_debug_output_or_errors() {
     // them would show as "1, 2, 3" or "101, 102".
     for text in &texts {
         assert!(!text.contains("1, 2, 3") && !text.contains("101, 102"), "{text}");
-        assert!(!text.contains("86420"), "{text}");
+        assert!(!text.contains("864209"), "{text}");
         assert!(!text.contains(&hash_hex[..8]), "{text}");
         assert!(!text.contains("40, 41, 42"), "{text}");
     }
     assert!(texts[3].contains("hidden"));
     // Errors say what is wrong, never what was typed.
-    let err = h.master.set_pin("86x20", salt()).unwrap_err().to_string();
-    assert!(!err.contains("86x20") && err.ends_with('.'), "{err}");
+    let err = h.master.set_pin("86x209", salt()).unwrap_err().to_string();
+    assert!(!err.contains("86x209") && err.ends_with('.'), "{err}");
     for err in [
         DeviceError::SecretWrongLength { given: 3 }.to_string(),
         DeviceError::RequestWaiting.to_string(),
@@ -697,7 +697,7 @@ fn secrets_and_pins_never_show_in_debug_output_or_errors() {
 #[test]
 fn every_new_message_field_survives_a_round_trip_as_json() {
     let mut h = home(rules(60), at(17, 20, 0));
-    h.master.set_pin_record(quick_pin("2468")).unwrap();
+    h.master.set_pin_record(quick_pin("246813")).unwrap();
     h.master.unlock_until(at(18, 12, 0), at(18, 11, 0)).unwrap();
     let wed = h.master.today(at(18, 11, 0));
     h.phone.ask_for_time(20, "Homework", at(18, 11, 0)).unwrap();
@@ -706,7 +706,7 @@ fn every_new_message_field_survives_a_round_trip_as_json() {
     h.phone.try_code("0000 0000", at(18, 11, 0));
     let report = h.phone.report(at(18, 11, 1), true);
     assert!(!report.added.is_empty() && !report.requests.is_empty() && report.wrong_guesses == 1);
-    let grant = h.master.handle_report(&report, at(18, 11, 1)).unwrap();
+    let grant = h.master.handle_report(&report, at(18, 11, 1)).unwrap().grant;
     assert!(grant.pin.is_some() && !grant.requests.is_empty() && grant.news > 0);
     h.phone.take_grant(&grant, at(18, 11, 1));
     macro_rules! round_trip {

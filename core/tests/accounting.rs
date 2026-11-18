@@ -65,7 +65,7 @@ impl Home {
     /// one did. Returns the first grant.
     fn exchange(&mut self, who: Who, now: i64, want_more: bool) -> Grant {
         let report = self.device(who).report(now, want_more);
-        let first = self.master.handle_report(&report, now).unwrap();
+        let first = self.master.handle_report(&report, now).unwrap().grant;
         assert_eq!(self.device(who).take_grant(&first, now), GrantOutcome::Taken);
         let mut grant = first.clone();
         for _ in 0..3 {
@@ -73,7 +73,7 @@ impl Home {
                 break;
             }
             let report = self.device(who).report(now, want_more);
-            grant = self.master.handle_report(&report, now).unwrap();
+            grant = self.master.handle_report(&report, now).unwrap().grant;
             assert_eq!(self.device(who).take_grant(&grant, now), GrantOutcome::Taken);
         }
         first
@@ -283,7 +283,7 @@ fn a_lowered_grant_that_is_lost_takes_nothing_twice_and_leaks_nothing() {
     assert_eq!(h.master.device_view("pc", today).unwrap().waiting_secs, 10 * MIN);
     // The phone reports. Its grant lowers its away allowance by the 10
     // minutes the PC waits for, and is lost on the way.
-    let lost = h.master.handle_report(&h.phone.report(at(18, 12, 0), false), at(18, 12, 0)).unwrap();
+    let lost = h.master.handle_report(&h.phone.report(at(18, 12, 0), false), at(18, 12, 0)).unwrap().grant;
     assert!(lost.acknowledge_now);
     assert_eq!(lost.away_cap_secs, 50 * MIN);
     // The master still holds back the old 60 minutes: the phone may never
@@ -317,7 +317,7 @@ fn a_lowered_grant_lost_just_before_the_phone_leaves_leaks_nothing() {
     assert_eq!(pc, 60 * MIN);
     // The lowering grant is lost, and the phone leaves at once: it still
     // holds its whole share, and the master never gave any of it away.
-    let _lost = h.master.handle_report(&h.phone.report(at(18, 12, 0), false), at(18, 12, 0)).unwrap();
+    let _lost = h.master.handle_report(&h.phone.report(at(18, 12, 0), false), at(18, 12, 0)).unwrap().grant;
     h.phone_home = false;
     let (away, _) = h.play(Who::Phone, at(18, 13, 0), at(18, 23, 0));
     assert_eq!(away, 60 * MIN);
@@ -528,7 +528,7 @@ fn with_two_phones_at_home_the_first_to_report_gives_back_and_only_once() {
     // Each phone holds 30 minutes; the PC uses the free 60 and then waits.
     let mut t = at(18, 9, 0);
     loop {
-        let grant = master.handle_report(&pc.report(t, true), t).unwrap();
+        let grant = master.handle_report(&pc.report(t, true), t).unwrap().grant;
         pc.take_grant(&grant, t);
         let held = pc.holding_at(t).in_hand_secs();
         if held == 0 {
@@ -541,8 +541,8 @@ fn with_two_phones_at_home_the_first_to_report_gives_back_and_only_once() {
     assert_eq!(master.device_view("pc", day).unwrap().waiting_secs, 10 * MIN);
     // Both phones report before either acknowledges. Only the first is
     // lowered: the second sees that the first will give back enough.
-    let g1 = master.handle_report(&one.report(t, false), t).unwrap();
-    let g2 = master.handle_report(&two.report(t, false), t).unwrap();
+    let g1 = master.handle_report(&one.report(t, false), t).unwrap().grant;
+    let g2 = master.handle_report(&two.report(t, false), t).unwrap().grant;
     assert_eq!((g1.away_cap_secs, g1.acknowledge_now), (20 * MIN, true));
     assert_eq!((g2.away_cap_secs, g2.acknowledge_now), (30 * MIN, false));
     assert_eq!(master.wanted_reports(t), vec!["phone1".to_string()]);
@@ -564,7 +564,7 @@ fn if_the_phone_lowered_first_has_left_the_phone_at_home_gives_back_three_minute
     let mut one = DeviceState::from_pairing(&master.add_device("phone1", DeviceKind::Portable, now).unwrap(), now);
     let mut two = DeviceState::from_pairing(&master.add_device("phone2", DeviceKind::Portable, now).unwrap(), now);
     let mut ask = |master: &mut MasterBook, t: i64| {
-        let grant = master.handle_report(&pc.report(t, true), t).unwrap();
+        let grant = master.handle_report(&pc.report(t, true), t).unwrap().grant;
         pc.take_grant(&grant, t);
         let held = pc.holding_at(t).in_hand_secs();
         pc.record_use("game", t, t + held as i64);
@@ -581,13 +581,13 @@ fn if_the_phone_lowered_first_has_left_the_phone_at_home_gives_back_three_minute
     }
     assert_eq!(master.device_view("pc", day).unwrap().waiting_secs, 10 * MIN);
     // Phone 1 reports and is lowered, then leaves before its grant arrives.
-    let lost = master.handle_report(&one.report(t, false), t).unwrap();
+    let lost = master.handle_report(&one.report(t, false), t).unwrap().grant;
     assert!(lost.acknowledge_now);
     assert_eq!(master.device_view("phone1", day).unwrap().giving_back_secs, 10 * MIN);
     // A minute later phone 2, at home, reports: the master still counts on
     // phone 1, so phone 2 keeps its share.
     ask(&mut master, t + 60);
-    let g = master.handle_report(&two.report(t + 60, false), t + 60).unwrap();
+    let g = master.handle_report(&two.report(t + 60, false), t + 60).unwrap().grant;
     two.take_grant(&g, t + 60);
     assert_eq!(g.away_cap_secs, 30 * MIN);
     // Three minutes pass without word from phone 1, the PC asking every
@@ -597,7 +597,7 @@ fn if_the_phone_lowered_first_has_left_the_phone_at_home_gives_back_three_minute
     }
     assert_eq!(master.device_view("phone1", day).unwrap().giving_back_secs, 0);
     assert_eq!(master.wanted_reports(t + 240), vec!["phone1".to_string(), "phone2".to_string()]);
-    let g = master.handle_report(&two.report(t + 240, false), t + 240).unwrap();
+    let g = master.handle_report(&two.report(t + 240, false), t + 240).unwrap().grant;
     assert_eq!((g.away_cap_secs, g.acknowledge_now), (20 * MIN, true));
     two.take_grant(&g, t + 240);
     master.handle_report(&two.report(t + 240, false), t + 240).unwrap();
@@ -635,7 +635,7 @@ fn a_larger_away_share_never_reaches_a_phone_that_is_late_into_a_day_already_spe
     let mut t = at(18, 0, 0);
     let mut pc_used = 0;
     loop {
-        let grant = master.handle_report(&pc.report(t, true), t).unwrap();
+        let grant = master.handle_report(&pc.report(t, true), t).unwrap().grant;
         pc.take_grant(&grant, t);
         let held = pc.holding_at(t).in_hand_secs();
         if held == 0 {
@@ -648,7 +648,7 @@ fn a_larger_away_share_never_reaches_a_phone_that_is_late_into_a_day_already_spe
     assert_eq!(pc_used, 120 * MIN);
     // 02:00 for the master, 23:00 on Tuesday for the phone.
     let now = at(18, 2, 0);
-    let grant = master.handle_report(&phone.report(now - behind, false), now).unwrap();
+    let grant = master.handle_report(&phone.report(now - behind, false), now).unwrap().grant;
     assert_eq!(grant.away_percent, 0, "the larger share would not fit Wednesday");
     phone.take_grant(&grant, now - behind);
     // At its own midnight the phone starts Wednesday with nothing away.
@@ -684,7 +684,7 @@ fn new_rules_that_start_a_new_day_start_it_with_the_new_share() {
     // The phone still counts Wednesday by the rules it holds.
     let report = h.phone.report(now, false);
     assert_eq!(report.day, thursday - 1);
-    let grant = h.master.handle_report(&report, now).unwrap();
+    let grant = h.master.handle_report(&report, now).unwrap().grant;
     h.phone.take_grant(&grant, now);
     // Right away, before any further report, its Thursday holds nothing away,
     // and what it holds is inside what the master holds back for it.
@@ -750,13 +750,16 @@ fn use_across_midnight_is_cut_in_two_and_counted_once() {
     assert_eq!((slices[0].secs(), slices[1].secs()), (10 * MIN, 20 * MIN));
     assert_eq!(slices[1].day, slices[0].day + 1);
     let report = h.phone.report(at(19, 0, 20), false);
+    let mut taken = Vec::new();
     for _ in 0..3 {
-        h.master.handle_report(&report, at(19, 0, 21)).unwrap();
+        taken.extend(h.master.handle_report(&report, at(19, 0, 21)).unwrap().new_slices);
     }
+    assert_eq!(taken, slices, "each half is taken once");
     let wednesday = h.master.today(at(18, 12, 0));
     assert_eq!(h.master.device_view("phone", wednesday).unwrap().used_secs, 10 * MIN);
     assert_eq!(h.master.device_view("phone", wednesday + 1).unwrap().used_secs, 20 * MIN);
-    assert_eq!(h.master.usage(wednesday + 1).len(), 1);
+    let thursday: Vec<u64> = h.master.counted_use(wednesday + 1).iter().map(|c| c.counted_secs).collect();
+    assert_eq!(thursday, vec![0, 20 * MIN]);
 }
 
 #[test]
@@ -769,7 +772,7 @@ fn an_old_report_arriving_late_changes_nothing() {
     h.phone.record_use("game", at(18, 9, 5), at(18, 9, 9));
     h.exchange(Who::Phone, at(18, 9, 9), true);
     let before = h.master.pool(today);
-    let grant = h.master.handle_report(&old, at(18, 9, 10)).unwrap();
+    let grant = h.master.handle_report(&old, at(18, 9, 10)).unwrap().grant;
     assert_eq!(h.master.pool(today), before);
     // Its grant gives nothing new (the lease stays topped up to 9 minutes
     // used plus one lease), and the phone takes it harmlessly.
@@ -785,7 +788,7 @@ fn every_public_message_survives_a_round_trip_as_json() {
     assert_eq!(pc, 120 * MIN, "the phone at home gave its share to the PC");
     h.phone.record_use("game", at(18, 12, 0), at(18, 12, 5));
     let report = h.phone.report(at(18, 12, 5), true);
-    let grant = h.master.handle_report(&report, at(18, 12, 5)).unwrap();
+    let grant = h.master.handle_report(&report, at(18, 12, 5)).unwrap().grant;
     let decision = h.phone.decide(at(18, 12, 6), Some("game"));
     let pool = h.master.pool(h.master.today(at(18, 12, 6)));
     macro_rules! round_trip {

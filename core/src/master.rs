@@ -34,8 +34,16 @@
 //! devices ([`MasterBook::lock_now`], [`MasterBook::unlock_until`]). Time a
 //! device added on its own, with a code or the PIN, reaches the master with
 //! the device's reports and joins the day's extra time once, by its id.
+//!
+//! The book is small. It does not keep the slices of use themselves: for
+//! each device and day it keeps the highest slice number it has taken and
+//! the counted seconds. [`MasterBook::handle_report`] returns the slices,
+//! pieces of added time and requests it took for the first time
+//! ([`ReportOutcome`]), so that the caller can keep them, once. A device is
+//! removed with [`MasterBook::remove_device`]: its counted use stays with the
+//! days, and what was held back for it is free at once.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -129,6 +137,12 @@ pub enum MasterError {
         /// The id given.
         request_id: String,
     },
+    /// The device was removed from this child. Its reports are refused, and
+    /// its id is never paired again: a device paired anew gets a new id.
+    DeviceRemoved {
+        /// The id given.
+        device_id: String,
+    },
 }
 
 impl fmt::Display for MasterError {
@@ -176,6 +190,10 @@ impl fmt::Display for MasterError {
             MasterError::RequestTooLate { request_id } => write!(
                 f,
                 "The request {request_id} was for a day that is over. Give extra time for today instead."
+            ),
+            MasterError::DeviceRemoved { device_id } => write!(
+                f,
+                "The device called {device_id} was removed from this child, so nothing from it is taken. Pair it again under a new id to use it."
             ),
         }
     }
@@ -236,6 +254,57 @@ pub struct DeviceView {
     /// When an unlock set with the PIN on it ends, as its newest report said.
     #[serde(default)]
     pub pin_unlocked_until: Option<i64>,
+    /// The rules version it holds as far as the master knows: what its
+    /// newest report said, or, before it has reported, the version it was
+    /// paired with.
+    #[serde(default)]
+    pub rules_version: u32,
+    /// True when it has taken the latest news: the current rules, and the
+    /// guardian's newest lock or unlock, PIN and answers to requests. When
+    /// false, it is in [`MasterBook::wanted_reports`].
+    #[serde(default)]
+    pub has_latest_news: bool,
+    /// How far its clock was from the master's at its newest report, in
+    /// seconds: the report's sending time less the time the master was given
+    /// with it. Ahead is positive. None before its first report (or for a
+    /// report taken by a book saved before this was kept).
+    #[serde(default)]
+    pub clock_off_by_secs: Option<i64>,
+}
+
+/// What [`MasterBook::handle_report`] did with a report: the grant to send
+/// back, and what the book took from the report for the first time. A caller
+/// that keeps a record of its own (usage, requests) stores exactly these,
+/// and so stores each piece once, however often the device sends it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportOutcome {
+    /// The grant to send back. Save the book before sending it.
+    pub grant: Grant,
+    /// The slices taken for the first time, counted or not (a slice of an
+    /// always allowed app is taken but does not count), in the report's
+    /// order.
+    pub new_slices: Vec<Slice>,
+    /// The pieces of time added on the device by a code or the PIN that
+    /// joined the day's extra time with this report.
+    pub new_added: Vec<AddedTime>,
+    /// The requests for more time that reached the book with this report.
+    pub new_requests: Vec<TimeRequest>,
+    /// True when the report was the newest from its device, so that its
+    /// figures (what it holds, its wrong guesses, its clock) were taken.
+    /// False for a report that came late or again.
+    pub newest: bool,
+}
+
+/// A device's counted use on one day, as the book keeps it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CountedUse {
+    /// The device.
+    pub device_id: String,
+    /// Its counted use that day, in seconds.
+    pub counted_secs: u64,
+    /// True when the device has since been removed. Its use stays counted
+    /// for the days the book keeps.
+    pub removed: bool,
 }
 
 /// The figures of the newest report from a device.
@@ -262,10 +331,13 @@ struct LastReport {
     news_seen: u64,
     #[serde(default)]
     pin_unlock: Option<PinUnlock>,
+    /// The report's sending time less the master's time when it arrived.
+    #[serde(default)]
+    clock_off_by: Option<i64>,
 }
 
 impl LastReport {
-    fn from_report(r: &Report) -> LastReport {
+    fn from_report(r: &Report, now: i64) -> LastReport {
         LastReport {
             message_number: r.message_number,
             day: r.day,
@@ -282,6 +354,7 @@ impl LastReport {
             pin_version: r.pin_version,
             news_seen: r.news_seen,
             pin_unlock: r.pin_unlock,
+            clock_off_by: Some(r.sent_at.saturating_sub(now)),
         }
     }
 
@@ -352,9 +425,26 @@ struct DeviceRecord {
     /// Its code secret, or empty.
     #[serde(default)]
     code_secret: Secret,
+    /// The rules version of the grant it was paired with: it made its state
+    /// from that grant, so it holds those rules before it ever reports.
+    #[serde(default)]
+    paired_rules: u32,
+    /// The guardian news number of that grant.
+    #[serde(default)]
+    paired_news: u64,
 }
 
 impl DeviceRecord {
+    /// The rules version it holds as far as the master knows.
+    fn rules_held(&self) -> u32 {
+        self.last_report.as_ref().map_or(self.paired_rules, |r| r.rules_version.max(self.paired_rules))
+    }
+
+    /// The newest guardian news it has taken as far as the master knows.
+    fn news_held(&self) -> u64 {
+        self.last_report.as_ref().map_or(self.paired_news, |r| r.news_seen.max(self.paired_news))
+    }
+
     /// Every (away percent, rules version) pair the device may hold: the one
     /// it last reported and those of the grants it has not acknowledged.
     fn possible_terms(&self) -> Vec<(u8, u32)> {
@@ -377,23 +467,96 @@ impl DeviceRecord {
     }
 }
 
+/// One day of the book. It does not keep the slices themselves: for each
+/// device it keeps the highest slice number taken for the day (its mark)
+/// and the counted seconds. Why a mark is enough to count every slice once
+/// is set out at [`MasterBook::handle_report`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "SavedDay")]
 struct DayRecord {
     day: i64,
     /// Extra time given without an id, by a book saved before extra time
     /// had ids.
     extra_secs: u64,
-    /// Every slice handed over for this day, by id.
-    slices: BTreeMap<String, Slice>,
-    /// Counted seconds per device.
+    /// The highest slice number taken from each live device for this day.
+    marks: BTreeMap<String, u64>,
+    /// Counted seconds per live device.
     counted: BTreeMap<String, u64>,
+    /// Counted seconds of devices since removed, by id. They stay counted
+    /// against the day's pool.
+    removed: BTreeMap<String, u64>,
     /// Every piece of extra time for this day, by a key made of where it
     /// came from and its id, so that ids from different sources never meet.
-    #[serde(default)]
     extras: BTreeMap<String, ExtraTime>,
     /// Every request for more time for this day, by id.
+    requests: BTreeMap<String, RequestRecord>,
+}
+
+impl DayRecord {
+    fn new(day: i64) -> DayRecord {
+        DayRecord {
+            day,
+            extra_secs: 0,
+            marks: BTreeMap::new(),
+            counted: BTreeMap::new(),
+            removed: BTreeMap::new(),
+            extras: BTreeMap::new(),
+            requests: BTreeMap::new(),
+        }
+    }
+}
+
+/// A day as saved, in the shape of this version or of an earlier one. Books
+/// saved before marks kept every slice; on loading, those slices are folded
+/// into marks and dropped. Their counted seconds were kept beside them and
+/// are taken as they are, so the book counts the same.
+#[derive(Deserialize)]
+struct SavedDay {
+    day: i64,
+    extra_secs: u64,
+    #[serde(default)]
+    slices: BTreeMap<String, Slice>,
+    #[serde(default)]
+    marks: BTreeMap<String, u64>,
+    counted: BTreeMap<String, u64>,
+    #[serde(default)]
+    removed: BTreeMap<String, u64>,
+    #[serde(default)]
+    extras: BTreeMap<String, ExtraTime>,
     #[serde(default)]
     requests: BTreeMap<String, RequestRecord>,
+}
+
+impl From<SavedDay> for DayRecord {
+    fn from(saved: SavedDay) -> DayRecord {
+        let mut marks = saved.marks;
+        for slice in saved.slices.values() {
+            if let Some(number) = slice_number(&slice.device_id, &slice.id) {
+                let mark = marks.entry(slice.device_id.clone()).or_insert(0);
+                *mark = (*mark).max(number);
+            }
+        }
+        DayRecord {
+            day: saved.day,
+            extra_secs: saved.extra_secs,
+            marks,
+            counted: saved.counted,
+            removed: saved.removed,
+            extras: saved.extras,
+            requests: saved.requests,
+        }
+    }
+}
+
+/// The number in a slice id made by `device_id`: the id is the device id, a
+/// slash and the number. None for an id of any other shape, which no device
+/// makes.
+fn slice_number(device_id: &str, slice_id: &str) -> Option<u64> {
+    let digits = slice_id.strip_prefix(device_id)?.strip_prefix('/')?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 /// A request and its answer, as the master keeps them.
@@ -535,6 +698,11 @@ pub struct MasterBook {
     /// Numbers the extra time given without an id.
     #[serde(default)]
     last_unnamed_extra: u64,
+    /// Devices removed from this child, by id, with when they were removed.
+    /// Kept for good: anything that arrives later from one of them is
+    /// refused, and its id is never paired again.
+    #[serde(default)]
+    removed: BTreeMap<String, i64>,
 }
 
 /// What a report hands over that the master now has.
@@ -565,6 +733,7 @@ impl MasterBook {
             pin: None,
             news: 0,
             last_unnamed_extra: 0,
+            removed: BTreeMap::new(),
         })
     }
 
@@ -597,7 +766,10 @@ impl MasterBook {
         self.current_rules().calendar().day_of(now)
     }
 
-    /// Takes new rules. They reach each device with its next grant.
+    /// Takes new rules, with a version above the current one. They reach
+    /// each device with its next grant, and until a device reports holding
+    /// them it is in [`MasterBook::wanted_reports`]. Prefer
+    /// [`MasterBook::change_rules`], which sets the version itself.
     pub fn set_rules(&mut self, rules: RuleSet) -> Result<(), MasterError> {
         let problems = rules.validate();
         if !problems.is_empty() {
@@ -608,13 +780,33 @@ impl MasterBook {
             return Err(MasterError::RulesNotNewer { current, given: rules.version });
         }
         self.rules.push(rules);
+        // New rules are news: every device is asked to report until it has
+        // taken them.
+        self.news += 1;
         self.forget_unused_rules();
         Ok(())
     }
 
+    /// Takes new rules as the next version: one above the current one,
+    /// whatever `rules.version` says. Returns the rules as taken. They reach
+    /// each device with its next grant, and until a device reports holding
+    /// them it is in [`MasterBook::wanted_reports`].
+    pub fn change_rules(&mut self, rules: RuleSet) -> Result<RuleSet, MasterError> {
+        let current = self.current_rules().version;
+        let version = current.checked_add(1).ok_or(MasterError::RulesNotNewer { current, given: current })?;
+        let mut rules = rules;
+        rules.version = version;
+        self.set_rules(rules.clone())?;
+        Ok(rules)
+    }
+
     /// Pairs a device and returns its first grant, from which the device
-    /// makes its state ([`crate::device::DeviceState::from_pairing`]).
+    /// makes its state ([`crate::device::DeviceState::from_pairing`]). An id
+    /// that was removed is never paired again.
     pub fn add_device(&mut self, device_id: &str, kind: DeviceKind, now: i64) -> Result<Grant, MasterError> {
+        if self.removed.contains_key(device_id) {
+            return Err(MasterError::DeviceRemoved { device_id: device_id.to_string() });
+        }
         if self.devices.iter().any(|d| d.device_id == device_id) {
             return Err(MasterError::DeviceAlreadyPaired { device_id: device_id.to_string() });
         }
@@ -627,49 +819,169 @@ impl MasterBook {
             last_seen: Some(now),
             need: None,
             code_secret: Secret::default(),
+            paired_rules: self.current_rules().version,
+            paired_news: self.news,
         });
         let index = self.devices.len() - 1;
         let day = self.today(now);
         Ok(self.make_grant(index, day, Ask::default(), now, Confirmed::default()))
     }
 
-    /// The ids of the paired devices.
+    /// The ids of the paired devices, in the order they were paired. Removed
+    /// devices are not among them.
     pub fn device_ids(&self) -> Vec<String> {
         self.devices.iter().map(|d| d.device_id.clone()).collect()
     }
 
-    /// Handles a report from a device and returns the grant to send back.
+    /// The ids of the devices removed from this child.
+    pub fn removed_device_ids(&self) -> Vec<String> {
+        self.removed.keys().cloned().collect()
+    }
+
+    /// Removes a device from this child.
+    ///
+    /// - Its counted use stays counted, day by day, on every day the book
+    ///   keeps, so removing a device never gives its used time back to the
+    ///   child ([`MasterBook::counted_use`] shows it as removed).
+    /// - It holds nothing from now on: no lease, no away allowance and no
+    ///   away share. What was held back for it is free for the other devices
+    ///   at once, and the other phones can be given its away share.
+    /// - Time added on it by a code or the PIN that it had not used, as far
+    ///   as its newest report said, is dropped from its day's extra time
+    ///   ([`ExtraTime::dropped_secs`]): it belonged to that device, and no
+    ///   other device may spend it. The part it used stays counted.
+    /// - Its record goes: grants it has not acknowledged, an unmet need, and
+    ///   its code secret. Anything that arrives from it later is refused with
+    ///   [`MasterError::DeviceRemoved`], and its id is never paired again.
+    ///
+    /// Use it had not yet reported is not counted, and the master no longer
+    /// holds anything back for it. So remove a device after its last report
+    /// when it can still make one, or when it is gone for good (lost, broken,
+    /// reset); a removed device that is still used beside the others can pass
+    /// the day's budget by what it holds. See the crate's README.
+    ///
+    /// Removing a device that is not paired is an error, and so is removing
+    /// one twice.
+    pub fn remove_device(&mut self, device_id: &str, now: i64) -> Result<(), MasterError> {
+        let index = self.device_index(device_id)?;
+        self.clock = self.clock.max(now);
+        let device = self.devices.remove(index);
+        let forgotten = |day: i64| self.forgotten_before.is_some_and(|f| day < f);
+        let mut days: Vec<i64> = self.days.iter().map(|d| d.day).collect();
+        if let Some(report) = &device.last_report
+            && !forgotten(report.day)
+            && !days.contains(&report.day)
+        {
+            days.push(report.day);
+        }
+        for day in days {
+            let counted = self.counted_secs(&device, day);
+            if counted == 0 && self.day_record(day).is_none() {
+                continue;
+            }
+            let record = self.day_record_mut(day);
+            record.counted.remove(device_id);
+            record.marks.remove(device_id);
+            if counted > 0 {
+                record.removed.insert(device_id.to_string(), counted);
+            }
+        }
+        if let Some(report) = &device.last_report {
+            self.drop_unused_added(device_id, report.day, report.added_used_secs);
+        }
+        self.removed.insert(device_id.to_string(), now);
+        self.forget_unused_rules();
+        Ok(())
+    }
+
+    /// Drops from `day`'s extra time what a removed device added on itself
+    /// and did not use: the pieces it added last are dropped first, as the
+    /// first ones were spent first.
+    fn drop_unused_added(&mut self, device_id: &str, day: i64, used: u64) {
+        let Some(record) = self.days.iter_mut().find(|d| d.day == day) else { return };
+        let mut pieces: Vec<&mut ExtraTime> = record
+            .extras
+            .values_mut()
+            .filter(|e| matches!(&e.source, ExtraSource::Code { device_id: d, .. } | ExtraSource::Pin { device_id: d } if d == device_id))
+            .collect();
+        let added = total(pieces.iter().map(|e| e.secs.saturating_sub(e.dropped_secs)));
+        let mut unused = added.saturating_sub(used);
+        pieces.sort_by(|a, b| (b.at, &b.id).cmp(&(a.at, &a.id)));
+        for piece in pieces {
+            if unused == 0 {
+                break;
+            }
+            let drop = unused.min(piece.secs.saturating_sub(piece.dropped_secs));
+            piece.dropped_secs = piece.dropped_secs.saturating_add(drop);
+            unused -= drop;
+        }
+    }
+
+    /// Where a live device is in the list, or why it is not there.
+    fn device_index(&self, device_id: &str) -> Result<usize, MasterError> {
+        if let Some(index) = self.devices.iter().position(|d| d.device_id == device_id) {
+            return Ok(index);
+        }
+        if self.removed.contains_key(device_id) {
+            return Err(MasterError::DeviceRemoved { device_id: device_id.to_string() });
+        }
+        Err(MasterError::UnknownDevice { device_id: device_id.to_string() })
+    }
+
+    /// Handles a report from a device: returns the grant to send back, with
+    /// what the book took from the report for the first time
+    /// ([`ReportOutcome`]).
     ///
     /// Slices are counted once each, whatever the number of times they come;
     /// so are pieces of time added on the device (they join that day's extra
     /// time) and requests for more time. The figures of the report are kept
-    /// if it is the newest from that device. The grant tops the lease up to one lease length when the
-    /// device asked and the pool allows, and carries the device's away
-    /// allowance and the current rules. What the pool cannot give is kept as
-    /// the device's unmet need, and the away allowances of phones that report
-    /// are lowered to meet it (see [`MasterBook::wanted_reports`]).
+    /// if it is the newest from that device. The grant tops the lease up to
+    /// one lease length when the device asked and the pool allows, and
+    /// carries the device's away allowance and the current rules. What the
+    /// pool cannot give is kept as the device's unmet need, and the away
+    /// allowances of phones that report are lowered to meet it (see
+    /// [`MasterBook::wanted_reports`]).
+    ///
+    /// **How a slice counts once.** A device numbers its slices 1, 2, 3 and
+    /// on, never reusing a number, so that the slices of one home day carry
+    /// numbers in one unbroken run; every report carries every slice the
+    /// master has not confirmed; and a device drops a slice only once a
+    /// grant confirmed it, that is after the master took it. The book keeps,
+    /// for each device and day, the highest number it has taken (its mark),
+    /// and takes a slice of that day when its number is above the mark. That
+    /// counts every slice exactly once, through lost, repeated and late
+    /// reports: when the mark is at n, the report that brought slice n
+    /// carried every slice of the day before n that was not yet confirmed,
+    /// and the confirmed ones had been taken already, so every number up to
+    /// n has been taken. The slices of one report are taken together, so
+    /// their order in it does not matter. A slice whose id is not the device
+    /// id, a slash and a number is confirmed and not counted, like a slice
+    /// that names another device: no device makes one.
+    ///
+    /// A device that loses its saved state and starts numbering at 1 again
+    /// is not covered: on a day the book has a mark for it, its new slices
+    /// are taken as already counted until its numbers pass the mark. Remove
+    /// it and pair it again, under a new id (see the crate's README).
+    ///
+    /// A report from a removed device is refused with
+    /// [`MasterError::DeviceRemoved`] and changes nothing.
     ///
     /// Save the book before sending the grant: the grant must be on record
     /// before the device can spend it.
-    pub fn handle_report(&mut self, report: &Report, now: i64) -> Result<Grant, MasterError> {
+    pub fn handle_report(&mut self, report: &Report, now: i64) -> Result<ReportOutcome, MasterError> {
         if report.child_id != self.child_id {
             return Err(MasterError::WrongChild {
                 expected: self.child_id.clone(),
                 given: report.child_id.clone(),
             });
         }
-        let index = self
-            .devices
-            .iter()
-            .position(|d| d.device_id == report.device_id)
-            .ok_or_else(|| MasterError::UnknownDevice { device_id: report.device_id.clone() })?;
+        let index = self.device_index(&report.device_id)?;
 
         self.clock = self.clock.max(now);
-        let confirmed = Confirmed {
-            slices: self.take_slices(&report.device_id, &report.slices),
-            added: self.take_added(&report.device_id, &report.added),
-            requests: self.take_requests(&report.device_id, &report.requests),
-        };
+        let (slices, new_slices) = self.take_slices(&report.device_id, &report.slices);
+        let (added, new_added) = self.take_added(&report.device_id, &report.added);
+        let (requests, new_requests) = self.take_requests(&report.device_id, &report.requests);
+        let confirmed = Confirmed { slices, added, requests };
 
         let device = &mut self.devices[index];
         device.last_seen = Some(device.last_seen.map_or(now, |seen| seen.max(now)));
@@ -681,7 +993,7 @@ impl MasterBook {
             ),
         };
         if newest {
-            device.last_report = Some(LastReport::from_report(report));
+            device.last_report = Some(LastReport::from_report(report, now));
             device.unacknowledged.retain(|g| g.number > report.grant_number);
         }
         let day = device.last_report.as_ref().map_or(report.day, |r| r.day);
@@ -692,7 +1004,8 @@ impl MasterBook {
         let current = newest || same;
         let want_more = report.want_more && current;
         let ask = Ask { want_more, current, answers_message: report.message_number };
-        Ok(self.make_grant(index, day, ask, now, confirmed))
+        let grant = self.make_grant(index, day, ask, now, confirmed);
+        Ok(ReportOutcome { grant, new_slices, new_added, new_requests, newest })
     }
 
     /// The devices the master would like to hear from now, so that time can
@@ -705,8 +1018,12 @@ impl MasterBook {
     /// - phones that must acknowledge a lowered away allowance before the
     ///   time is free;
     /// - devices that are waiting, once time is free for them;
-    /// - devices that may not have the guardian's newest lock or unlock, PIN
-    ///   or answer to a request. Their next grant brings it.
+    /// - devices that have not reported holding the current rules, or the
+    ///   guardian's newest lock or unlock, PIN or answer to a request. Their
+    ///   next grant brings it, and the report after it says so.
+    ///
+    /// The book cannot know which devices are in reach, so it names them all;
+    /// asking one that cannot be reached costs nothing.
     pub fn wanted_reports(&self, now: i64) -> Vec<String> {
         let day = self.today(now);
         let clock = self.clock.max(now);
@@ -738,11 +1055,17 @@ impl MasterBook {
                     wanted.insert(device.device_id.clone());
                 }
             }
-            if device.last_report.as_ref().map_or(0, |r| r.news_seen) < self.news {
+            if !self.has_latest_news(device) {
                 wanted.insert(device.device_id.clone());
             }
         }
         wanted.into_iter().collect()
+    }
+
+    /// True when a device has reported holding the current rules and the
+    /// newest guardian news.
+    fn has_latest_news(&self, device: &DeviceRecord) -> bool {
+        device.news_held() >= self.news && device.rules_held() >= self.current_rules().version
     }
 
     /// Time devices asked for on `day` and could not be given yet (needs
@@ -761,7 +1084,7 @@ impl MasterBook {
         self.last_unnamed_extra += 1;
         let id = format!("unnamed/{}", self.last_unnamed_extra);
         let at = self.clock;
-        self.record_extra(ExtraTime { id, day, secs, source: ExtraSource::Guardian, at });
+        self.record_extra(ExtraTime { id, day, secs, source: ExtraSource::Guardian, at, dropped_secs: 0 });
     }
 
     /// A guardian gives `minutes` of extra time for today, 1 to 1440. The
@@ -774,8 +1097,14 @@ impl MasterBook {
         }
         self.clock = self.clock.max(now);
         let day = self.today(now);
-        let extra =
-            ExtraTime { id: id.to_string(), day, secs: minutes as u64 * 60, source: ExtraSource::Guardian, at: now };
+        let extra = ExtraTime {
+            id: id.to_string(),
+            day,
+            secs: minutes as u64 * 60,
+            source: ExtraSource::Guardian,
+            at: now,
+            dropped_secs: 0,
+        };
         Ok(self.record_extra(extra))
     }
 
@@ -807,6 +1136,7 @@ impl MasterBook {
                     secs: record.extra_secs,
                     source: ExtraSource::Guardian,
                     at: i64::MIN,
+                    dropped_secs: 0,
                 },
             );
         }
@@ -874,6 +1204,7 @@ impl MasterBook {
                 secs: minutes as u64 * 60,
                 source: ExtraSource::Request { request_id: request_id.to_string() },
                 at: now,
+                dropped_secs: 0,
             });
         }
         self.news += 1;
@@ -887,28 +1218,21 @@ impl MasterBook {
         check_secret(&secret).map_err(|_| MasterError::SecretWrongLength {
             given: u32::try_from(secret.len()).unwrap_or(u32::MAX),
         })?;
-        let device = self
-            .devices
-            .iter_mut()
-            .find(|d| d.device_id == device_id)
-            .ok_or_else(|| MasterError::UnknownDevice { device_id: device_id.to_string() })?;
-        device.code_secret = Secret::new(secret);
+        let index = self.device_index(device_id)?;
+        self.devices[index].code_secret = Secret::new(secret);
         Ok(())
     }
 
     /// A device's code secret, to hand to a guardian phone at home so that
     /// it can make one time codes ([`crate::codes::next_code`]); None when
-    /// none was set. Never show it or log it.
+    /// none was set. Never show it or log it. A removed device's secret is
+    /// gone with it.
     pub fn code_secret(&self, device_id: &str) -> Result<Option<Vec<u8>>, MasterError> {
-        let device = self
-            .devices
-            .iter()
-            .find(|d| d.device_id == device_id)
-            .ok_or_else(|| MasterError::UnknownDevice { device_id: device_id.to_string() })?;
+        let device = &self.devices[self.device_index(device_id)?];
         Ok(device.code_secret.is_set().then(|| device.code_secret.bytes().to_vec()))
     }
 
-    /// Sets the guardian PIN, 4 to 8 digits, with a salt of 16 bytes or more
+    /// Sets the guardian PIN, 6 to 8 digits, with a salt of 16 bytes or more
     /// made by the caller. Hashing it is slow on purpose. It reaches every
     /// device with its next grant, and replaces the old PIN there. Returns
     /// the new version.
@@ -919,7 +1243,9 @@ impl MasterBook {
 
     /// Sets a PIN record made elsewhere, such as on a guardian phone, or
     /// with fewer rounds in tests. It must be sound
-    /// ([`PinRecord::is_sound`]). Returns the new version.
+    /// ([`PinRecord::is_sound`]). A record does not say how long its PIN is,
+    /// so the maker must make it from 6 to 8 digits, as [`PinRecord::new`]
+    /// does. Returns the new version.
     pub fn set_pin_record(&mut self, record: PinRecord) -> Result<u32, MasterError> {
         if !record.is_sound() {
             return Err(MasterError::BadPin { problem: PinError::NotSound });
@@ -993,7 +1319,7 @@ impl MasterBook {
     pub fn pool(&self, day: i64) -> PoolView {
         let budget = self.current_rules().budget_secs_on(day);
         let extra = self.extra_secs(day);
-        let used = total(self.devices.iter().map(|d| self.counted_secs(d, day)));
+        let used = self.used_secs(day);
         let reserved = self.reserved_secs(day);
         let room = self.room(day);
         let over = match (budget, reserved) {
@@ -1011,18 +1337,20 @@ impl MasterBook {
         }
     }
 
-    /// One device's part of a day as it stands.
-    pub fn device_view(&self, device_id: &str, day: i64) -> Option<DeviceView> {
-        let device = self.devices.iter().find(|d| d.device_id == device_id)?;
-        Some(DeviceView {
+    /// One paired device's part of a day as it stands, and what the master
+    /// knows of it.
+    pub fn device_view(&self, device_id: &str, day: i64) -> Result<DeviceView, MasterError> {
+        let device = &self.devices[self.device_index(device_id)?];
+        let exposure = self.exposure(device, day);
+        Ok(DeviceView {
             device_id: device.device_id.clone(),
             kind: device.kind,
             used_secs: self.counted_secs(device, day),
-            reserved_secs: self.exposure(device, day).remaining(),
+            reserved_secs: exposure.remaining(),
             giving_back_secs: self.pending_release(device, day, Some(self.clock)),
             last_seen: device.last_seen,
             waiting_secs: device.need_on(day, self.clock).map_or(0, |n| n.secs),
-            added_secs: self.exposure(device, day).added_secs.max(self.added_on_device(&device.device_id, day)),
+            added_secs: exposure.added_secs.max(self.added_on_device(&device.device_id, day)),
             wrong_guesses: device.last_report.as_ref().map_or(0, |r| r.wrong_guesses),
             pin_unlocked_until: device
                 .last_report
@@ -1030,6 +1358,9 @@ impl MasterBook {
                 .and_then(|r| r.pin_unlock)
                 .map(|p| p.until)
                 .filter(|until| *until > self.clock),
+            rules_version: device.rules_held(),
+            has_latest_news: self.has_latest_news(device),
+            clock_off_by_secs: device.last_report.as_ref().and_then(|r| r.clock_off_by),
         })
     }
 
@@ -1038,11 +1369,7 @@ impl MasterBook {
     /// it (free time that is not waiting for an older need of another
     /// device). None when there is no limit.
     pub fn time_left_for(&self, device_id: &str, day: i64) -> Result<Option<u64>, MasterError> {
-        let index = self
-            .devices
-            .iter()
-            .position(|d| d.device_id == device_id)
-            .ok_or_else(|| MasterError::UnknownDevice { device_id: device_id.to_string() })?;
+        let index = self.device_index(device_id)?;
         let device = &self.devices[index];
         let reserved = self.exposure(device, day).remaining();
         let mut free = self.room(day);
@@ -1054,23 +1381,37 @@ impl MasterBook {
         })
     }
 
-    /// Every slice handed over for a day, in time order.
-    pub fn usage(&self, day: i64) -> Vec<Slice> {
-        let mut slices: Vec<Slice> = self
-            .days
+    /// Each device's counted use on `day` as the book keeps it: the paired
+    /// devices in the order they were paired, then the removed ones that
+    /// used time that day. The slices themselves are not kept by the book;
+    /// a caller that shows them keeps the new slices of every
+    /// [`ReportOutcome`].
+    pub fn counted_use(&self, day: i64) -> Vec<CountedUse> {
+        let mut uses: Vec<CountedUse> = self
+            .devices
             .iter()
-            .filter(|d| d.day == day)
-            .flat_map(|d| d.slices.values().cloned())
+            .map(|d| CountedUse { device_id: d.device_id.clone(), counted_secs: self.counted_secs(d, day), removed: false })
             .collect();
-        slices.sort_by(|a, b| (a.start, &a.id).cmp(&(b.start, &b.id)));
-        slices
+        if let Some(record) = self.day_record(day) {
+            uses.extend(record.removed.iter().map(|(id, secs)| CountedUse {
+                device_id: id.clone(),
+                counted_secs: *secs,
+                removed: true,
+            }));
+        }
+        uses
     }
 
-    /// Drops the record of every day before `day`. Slices for those days that
-    /// arrive later are confirmed but no longer counted.
-    pub fn forget_days_before(&mut self, day: i64) {
+    /// Drops the record of every day before `day`. Slices, added time and
+    /// requests for those days that arrive later are confirmed but no longer
+    /// taken. True when the book changed, so that it needs saving.
+    pub fn forget_days_before(&mut self, day: i64) -> bool {
+        let before = self.days.len();
         self.days.retain(|d| d.day >= day);
-        self.forgotten_before = Some(self.forgotten_before.map_or(day, |f| f.max(day)));
+        let forgotten_before = Some(self.forgotten_before.map_or(day, |f| f.max(day)));
+        let changed = self.days.len() != before || forgotten_before != self.forgotten_before;
+        self.forgotten_before = forgotten_before;
+        changed
     }
 
     // Inner workings.
@@ -1079,17 +1420,7 @@ impl MasterBook {
         let at = match self.days.binary_search_by_key(&day, |d| d.day) {
             Ok(at) => at,
             Err(at) => {
-                self.days.insert(
-                    at,
-                    DayRecord {
-                        day,
-                        extra_secs: 0,
-                        slices: BTreeMap::new(),
-                        counted: BTreeMap::new(),
-                        extras: BTreeMap::new(),
-                        requests: BTreeMap::new(),
-                    },
-                );
+                self.days.insert(at, DayRecord::new(day));
                 at
             }
         };
@@ -1101,17 +1432,33 @@ impl MasterBook {
     }
 
     fn extra_secs(&self, day: i64) -> u64 {
-        self.day_record(day)
-            .map_or(0, |d| d.extra_secs.saturating_add(total(d.extras.values().map(|e| e.secs))))
+        self.day_record(day).map_or(0, |d| {
+            d.extra_secs.saturating_add(total(d.extras.values().map(|e| e.secs.saturating_sub(e.dropped_secs))))
+        })
     }
 
-    /// Counts new slices and returns the ids of all those handed over, which
-    /// the device may then forget.
-    fn take_slices(&mut self, device_id: &str, slices: &[Slice]) -> Vec<String> {
+    /// Counted use on a day: every paired device's, and that of devices
+    /// since removed.
+    fn used_secs(&self, day: i64) -> u64 {
+        let removed = self.day_record(day).map_or(0, |d| total(d.removed.values().copied()));
+        total(self.devices.iter().map(|d| self.counted_secs(d, day))).saturating_add(removed)
+    }
+
+    /// Takes the slices of a report: counts the new ones once each (see
+    /// [`MasterBook::handle_report`]). Returns the ids of all those handed
+    /// over, which the device may then forget, and the slices taken now.
+    fn take_slices(&mut self, device_id: &str, slices: &[Slice]) -> (Vec<String>, Vec<Slice>) {
         let mut confirmed = Vec::with_capacity(slices.len());
+        let mut new = Vec::new();
+        // The numbers taken in this report, by day, and the highest of them:
+        // the marks move only once the whole report is taken, so the order of
+        // its slices does not matter.
+        let mut taken: BTreeSet<(i64, u64)> = BTreeSet::new();
+        let mut highest: BTreeMap<i64, u64> = BTreeMap::new();
         for slice in slices {
             confirmed.push(slice.id.clone());
             let forgotten = self.forgotten_before.is_some_and(|f| slice.day < f);
+            let Some(number) = slice_number(device_id, &slice.id) else { continue };
             if slice.child_id != self.child_id
                 || slice.device_id != device_id
                 || slice.end <= slice.start
@@ -1119,26 +1466,35 @@ impl MasterBook {
             {
                 continue;
             }
-            let record = self.day_record_mut(slice.day);
-            if record.slices.contains_key(&slice.id) {
+            let mark = self.day_record(slice.day).and_then(|d| d.marks.get(device_id).copied()).unwrap_or(0);
+            if number <= mark || !taken.insert((slice.day, number)) {
                 continue;
             }
             if slice.counts {
+                let record = self.day_record_mut(slice.day);
                 let counted = record.counted.entry(device_id.to_string()).or_insert(0);
                 *counted = counted.saturating_add(slice.secs());
             }
-            record.slices.insert(slice.id.clone(), slice.clone());
+            let high = highest.entry(slice.day).or_insert(0);
+            *high = (*high).max(number);
+            new.push(slice.clone());
         }
-        confirmed
+        for (day, high) in highest {
+            let mark = self.day_record_mut(day).marks.entry(device_id.to_string()).or_insert(0);
+            *mark = (*mark).max(high);
+        }
+        (confirmed, new)
     }
 
     /// Records new pieces of time added on a device as that day's extra time,
-    /// once each, and returns the ids of all those handed over. A piece that
-    /// cannot be right (for another child or device, nothing, or more than a
-    /// day) is confirmed but not counted as extra; the device's own figures
-    /// still make the master hold it back, so nothing can widen the pool.
-    fn take_added(&mut self, device_id: &str, added: &[AddedTime]) -> Vec<String> {
+    /// once each. Returns the ids of all those handed over, and the pieces
+    /// taken now. A piece that cannot be right (for another child or device,
+    /// nothing, or more than a day) is confirmed but not counted as extra;
+    /// the device's own figures still make the master hold it back, so
+    /// nothing can widen the pool.
+    fn take_added(&mut self, device_id: &str, added: &[AddedTime]) -> (Vec<String>, Vec<AddedTime>) {
         let mut confirmed = Vec::with_capacity(added.len());
+        let mut new = Vec::new();
         for piece in added {
             confirmed.push(piece.id.clone());
             let forgotten = self.forgotten_before.is_some_and(|f| piece.day < f);
@@ -1154,22 +1510,28 @@ impl MasterBook {
                 AddedBy::Code { selector } => ExtraSource::Code { device_id: device_id.to_string(), selector },
                 AddedBy::Pin => ExtraSource::Pin { device_id: device_id.to_string() },
             };
-            self.record_extra(ExtraTime {
+            let fresh = self.record_extra(ExtraTime {
                 id: piece.id.clone(),
                 day: piece.day,
                 secs: piece.secs,
                 source,
                 at: piece.at,
+                dropped_secs: 0,
             });
+            if fresh {
+                new.push(piece.clone());
+            }
         }
-        confirmed
+        (confirmed, new)
     }
 
-    /// Records new requests for more time, once each, and returns the ids of
-    /// all those handed over. A device may have a few requests a day on
-    /// record; more from a faulty device are confirmed and dropped.
-    fn take_requests(&mut self, device_id: &str, requests: &[TimeRequest]) -> Vec<String> {
+    /// Records new requests for more time, once each. Returns the ids of all
+    /// those handed over, and the requests taken now. A device may have a few
+    /// requests a day on record; more from a faulty device are confirmed and
+    /// dropped.
+    fn take_requests(&mut self, device_id: &str, requests: &[TimeRequest]) -> (Vec<String>, Vec<TimeRequest>) {
         let mut confirmed = Vec::with_capacity(requests.len());
+        let mut new = Vec::new();
         for request in requests {
             confirmed.push(request.id.clone());
             let forgotten = self.forgotten_before.is_some_and(|f| request.day < f);
@@ -1188,8 +1550,9 @@ impl MasterBook {
                 request.id.clone(),
                 RequestRecord { request: request.clone(), answer: RequestAnswer::Waiting, answered_at: None },
             );
+            new.push(request.clone());
         }
-        confirmed
+        (confirmed, new)
     }
 
     /// Counted use of a device on a day: from its slices, or from its newest
@@ -1274,7 +1637,9 @@ impl MasterBook {
     fn added_on_device(&self, device_id: &str, day: i64) -> u64 {
         let Some(record) = self.day_record(day) else { return 0 };
         total(record.extras.values().filter_map(|e| match &e.source {
-            ExtraSource::Code { device_id: d, .. } | ExtraSource::Pin { device_id: d } if d == device_id => Some(e.secs),
+            ExtraSource::Code { device_id: d, .. } | ExtraSource::Pin { device_id: d } if d == device_id => {
+                Some(e.secs.saturating_sub(e.dropped_secs))
+            }
             _ => None,
         }))
     }
@@ -1294,7 +1659,7 @@ impl MasterBook {
         let Some(reserved) = self.reserved_secs(day) else {
             return Room::Nothing;
         };
-        let used = total(self.devices.iter().map(|d| self.counted_secs(d, day)));
+        let used = self.used_secs(day);
         Room::Secs(
             secs_i64(budget)
                 .saturating_add(secs_i64(self.extra_secs(day)))
@@ -1585,17 +1950,29 @@ mod tests {
         let mut b = book();
         let now = start();
         let mut pc = DeviceState::from_pairing(&b.add_device("pc", DeviceKind::OnMaster, now).unwrap(), now);
-        let grant = b.handle_report(&pc.report(now, true), now).unwrap();
+        let grant = b.handle_report(&pc.report(now, true), now).unwrap().grant;
         pc.take_grant(&grant, now);
         pc.record_use("game", now, now + 300);
         let report = pc.report(now + 300, false);
-        b.handle_report(&report, now + 300).unwrap();
-        b.handle_report(&report, now + 301).unwrap();
+        assert_eq!(b.handle_report(&report, now + 300).unwrap().new_slices, report.slices);
+        assert!(b.handle_report(&report, now + 301).unwrap().new_slices.is_empty());
         let mut again = report.clone();
         again.message_number += 7;
-        b.handle_report(&again, now + 302).unwrap();
+        let outcome = b.handle_report(&again, now + 302).unwrap();
+        assert!(outcome.new_slices.is_empty() && outcome.newest);
         assert_eq!(b.pool(b.today(now)).used_secs, 300);
-        assert_eq!(b.usage(b.today(now)).len(), 1);
+        let counted = b.counted_use(b.today(now));
+        assert_eq!(counted, vec![CountedUse { device_id: "pc".into(), counted_secs: 300, removed: false }]);
+    }
+
+    #[test]
+    fn slice_numbers_are_read_only_from_ids_a_device_makes() {
+        assert_eq!(slice_number("phone", "phone/17"), Some(17));
+        assert_eq!(slice_number("device-ab/c", "device-ab/c/3"), Some(3));
+        for odd in ["phone", "phone/", "phone/x", "phone/+3", "phone/ 3", "phone/3/4", "pc/3", "phone2/3", "/3"] {
+            assert_eq!(slice_number("phone", odd), None, "{odd}");
+        }
+        assert_eq!(slice_number("phone", "phone/99999999999999999999999"), None);
     }
 
     #[test]
@@ -1603,12 +1980,12 @@ mod tests {
         let mut b = book();
         let now = start();
         let mut pc = DeviceState::from_pairing(&b.add_device("pc", DeviceKind::OnMaster, now).unwrap(), now);
-        let lost = b.handle_report(&pc.report(now, true), now).unwrap();
+        let lost = b.handle_report(&pc.report(now, true), now).unwrap().grant;
         assert_eq!(lost.lease_total_secs, 10 * MIN);
         // The master keeps the lost lease reserved...
         assert_eq!(b.pool(b.today(now)).reserved_secs, Some(10 * MIN));
         // ...and the next grant is a level, not a second lease on top.
-        let next = b.handle_report(&pc.report(now + 5, true), now + 5).unwrap();
+        let next = b.handle_report(&pc.report(now + 5, true), now + 5).unwrap().grant;
         assert_eq!(next.lease_total_secs, 10 * MIN);
         pc.take_grant(&next, now + 5);
         assert_eq!(pc.take_grant(&lost, now + 6), crate::device::GrantOutcome::Stale);
@@ -1675,6 +2052,7 @@ mod tests {
         b.add_extra_secs(today, u64::MAX);
         let _ = b.pool(today);
         assert!(matches!(b.time_left_for("nobody", today), Err(MasterError::UnknownDevice { .. })));
+        assert!(matches!(b.device_view("nobody", today), Err(MasterError::UnknownDevice { .. })));
     }
 
     #[test]

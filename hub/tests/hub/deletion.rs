@@ -170,6 +170,37 @@ fn a_removed_device_keeps_its_use_and_holds_back_nothing() {
 }
 
 #[test]
+fn a_removed_phone_frees_its_time_and_drops_the_code_time_it_did_not_use() {
+    let place = place();
+    let mut hub = new_family(&place.path);
+    let asha = child(&mut hub, "Asha").child_id;
+    let mut pc = pair(&mut hub, &asha, "PC", DeviceKind::OnMaster, at(7, 0));
+    let mut phone = pair(&mut hub, &asha, "Phone", DeviceKind::Portable, at(7, 0));
+    // A 30 minute code on the phone, which holds no lease: it spends 10
+    // minutes of the code's time and reports.
+    let code = hub.make_code(&phone.id, 30, at(9, 0)).unwrap();
+    assert!(matches!(phone.state.try_code(&code.shown, at(9, 0)), limo_core::TryOutcome::Added { .. }));
+    phone.state.record_use("game", at(9, 0), at(9, 10));
+    exchange(&mut hub, &mut phone, at(9, 10), false);
+    let v = hub.child_today(&asha, at(9, 10)).unwrap();
+    assert_eq!((v.extra_secs, v.used_secs), (30 * M, 10 * M));
+    // Held back for the phone: its 60 minutes away, and the 20 code minutes
+    // left. The PC can have the other 60.
+    assert_eq!(v.devices[1].holds_secs, Some(80 * M));
+    assert_eq!(exchange(&mut hub, &mut pc, at(9, 11), false).left_for_you_secs, Some(60 * M));
+
+    hub.remove_device(&phone.id, at(9, 30)).unwrap();
+    let v = hub.child_today(&asha, at(9, 30)).unwrap();
+    // The 10 code minutes it used stay counted and given; the 20 it did not
+    // use are dropped, not passed to the PC; its away time is free. Nothing
+    // is held back for it any more, the used part included.
+    assert_eq!((v.extra_secs, v.used_secs, v.left_secs), (10 * M, 10 * M, Some(120 * M)));
+    assert_eq!(exchange(&mut hub, &mut pc, at(9, 31), false).left_for_you_secs, Some(120 * M));
+    let pieces = hub.extra_time_today(&asha, at(9, 31)).unwrap();
+    assert_eq!((pieces[0].secs, pieces[0].dropped_secs), (30 * M, 20 * M));
+}
+
+#[test]
 fn a_change_that_fails_part_way_leaves_nothing_behind() {
     let place = place();
     let mut hub = new_family(&place.path);
