@@ -64,6 +64,28 @@ is 4 across and 4 down with no blur. Spacing steps by 4.
    beside text, such as arrows and ticks, are plain ink strokes.
 6. **Every screen is checked at phone size and at desktop size,** for
    height as well as width, before it is called done.
+7. **Tabs float, in glass.** A tab bar is never fixed to the edge of the
+   screen. See below.
+
+## The tab bar
+
+Where a screen has tabs, the bar floats above the page as a strip of
+glass, and the page shows through it, softened. The review sheet shows one
+on a sample phone screen.
+
+- **It floats.** Set in from the sides and the bottom by 14, with corners
+  of 24. The page scrolls under it.
+- **It is glass.** The card colour at a little under half strength, with
+  what is behind it blurred by 9. A pale rim, then a hairline of ink, so
+  it reads as glass on any page.
+- **Its shadow is soft and wide.** This is the one soft shadow in the
+  theme, because the bar hangs above the page instead of lying on it.
+- **The picked tab** has a faint ink pill behind it and its label in full
+  ink. Every tab keeps the same size, picked or not.
+- **The page keeps room at its end,** as tall as the bar, so the last row
+  can be scrolled clear of it.
+- **Where a phone cannot blur** what is behind, the bar is the card colour
+  at nearly full strength instead.
 
 ## The icons
 

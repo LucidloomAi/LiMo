@@ -67,9 +67,35 @@
   .btns { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
   .btn { display: inline-flex; align-items: center; gap: 8px; font: 600 14px var(--body); color: var(--ink); background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; padding: 8px 12px; box-shadow: 3px 3px 0 rgba(27,38,56,.85); }
   .btn.go { background: var(--marigold); }
-  .tabs { display: flex; justify-content: space-around; border-top: 1.5px solid var(--ink); margin: 16px -16px -16px; padding: 9px 6px 8px; background: var(--paper2); border-radius: 0 0 12px 12px; }
-  .tab { display: flex; flex-direction: column; align-items: center; gap: 3px; font-family: var(--mono); font-size: 10px; letter-spacing: .06em; color: var(--ink-soft); }
-  .tab.on { color: var(--ink); font-weight: 600; }
+  /* Tabs float above the page, in glass. */
+  .tabdemo { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 22px; align-items: start; }
+  .phone {
+    position: relative; height: 556px; border: 1.5px solid var(--ink); border-radius: 30px; overflow: hidden;
+    box-shadow: 4px 4px 0 rgba(27,38,56,.85); background-color: var(--paper);
+    background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px); background-size: 18px 18px;
+  }
+  .phone-page { position: absolute; inset: 0; padding: 18px 14px 0; }
+  .phone-page .ph-title { font-family: var(--display); font-size: 24px; font-weight: 600; margin: 2px 0 12px; }
+  .mini { background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 3px 3px 0 rgba(27,38,56,.85); padding: 11px 12px; margin-bottom: 12px; }
+  .mini .tile-head b { font-size: 17px; }
+  .mini .big { margin: 8px 0 0; }
+  .mini .big .num { font-size: 24px; }
+  .mini .bar { margin: 8px 0 2px; }
+  .mini .line { padding: 7px 0; font-size: 13.5px; }
+  .mini .line:first-child { border-top: 0; padding-top: 0; }
+  .tabbar {
+    position: absolute; left: 14px; right: 14px; bottom: 14px; display: flex; gap: 4px; padding: 6px; border-radius: 24px;
+    background: rgba(255,253,246,.44);
+    -webkit-backdrop-filter: blur(9px) saturate(1.7); backdrop-filter: blur(9px) saturate(1.7);
+    border: 1.5px solid rgba(255,255,255,.72);
+    box-shadow: 0 0 0 1px rgba(27,38,56,.16), 0 12px 28px rgba(27,38,56,.22);
+  }
+  .tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0 6px; border-radius: 18px; font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .06em; color: var(--ink-soft); }
+  .tab.on { color: var(--ink); background: rgba(27,38,56,.09); }
+  .notes .line:first-child { border-top: 0; padding-top: 0; }
+  .notes .line { align-items: flex-start; line-height: 1.45; }
+  .notes .k { flex: none; width: 96px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); padding-top: 2px; }
+  @media (max-width: 700px) { .tabdemo { grid-template-columns: 1fr; } .phone { max-width: 340px; width: 100%; margin: 0 auto; } }
   @media (max-width: 560px) { .looks { grid-template-columns: 1fr; } h1 { font-size: 28px; } }
 </style>
 </head>
@@ -86,6 +112,13 @@
   <h2>At work</h2>
   <p>How the icons sit on a Paper and Ink screen, at the sizes a screen uses. The screens here are a sketch, not the product.</p>
   <div class="sample" id="sample"></div>
+
+  <h2>Tabs float, in glass</h2>
+  <p>A tab bar is never fixed to the edge of the screen. It floats above the page as a strip of glass, and the page shows through it, softened.</p>
+  <div class="tabdemo">
+    <div class="phone" id="phone"></div>
+    <div class="card notes" id="tabnotes"></div>
+  </div>
 
   <h2>Real sizes</h2>
   <p>Every icon at 24, the size of a row or a tab, then at 32, the size of a tile.</p>
@@ -160,12 +193,6 @@
         '<div class="line">' + icon('star', 24) + 'Always allowed<span class="meta">3 APPS</span></div>' +
         '<div class="line">' + icon('block', 24) + 'Blocked<span class="meta">2 APPS</span></div>' +
         '<div class="line">' + icon('shield', 24) + 'Strict mode on the phone<span class="meta">ON</span></div>' +
-        '<div class="tabs">' +
-          '<span class="tab on">' + icon('sun', 24) + 'TODAY</span>' +
-          '<span class="tab">' + icon('family', 24) + 'FAMILY</span>' +
-          '<span class="tab">' + icon('devices', 24) + 'DEVICES</span>' +
-          '<span class="tab">' + icon('gear', 24) + 'SETTINGS</span>' +
-        '</div>' +
       '</div>' +
       '<div class="tile">' +
         '<div class="tile-head">' + icon('phone', 32) + '<b>Mira’s phone</b><span class="stamp coral">Away</span></div>' +
@@ -175,6 +202,42 @@
         '<div class="line">' + icon('alert', 24) + 'Three wrong PIN tries<span class="meta">16:42</span></div>' +
         '<div class="btns"><span class="btn">' + icon('usb', 24) + 'Set up again</span><span class="btn">' + icon('trash', 24) + 'Remove</span></div>' +
       '</div>';
+
+    byId('phone').innerHTML =
+      '<div class="phone-page">' +
+        '<div class="eyebrow">Wed 18 Nov</div><div class="ph-title">Today</div>' +
+        '<div class="mini">' +
+          '<div class="tile-head">' + icon('child', 32) + '<b>Mira</b><span class="stamp teal">At home</span></div>' +
+          '<div class="big">' + icon('hourglass', 24) + '<span class="num">42 min</span><span class="of">LEFT OF 2 H</span></div>' +
+          '<div class="bar"><i style="width:65%"></i></div>' +
+        '</div>' +
+        '<div class="mini">' +
+          '<div class="line">' + icon('hand', 24) + 'Kabir asks for 15 minutes<span class="meta">NOW</span></div>' +
+          '<div class="line">' + icon('moon', 24) + 'Off limits from 21:00<span class="meta">TO 07:00</span></div>' +
+          '<div class="line">' + icon('away', 24) + 'Mira’s phone left home<span class="meta">15:10</span></div>' +
+          '<div class="line">' + icon('shield', 24) + 'Strict mode is on<span class="meta">PHONE</span></div>' +
+          '<div class="line">' + icon('alert', 24) + 'Three wrong PIN tries<span class="meta">16:42</span></div>' +
+        '</div>' +
+        '<div class="mini">' +
+          '<div class="tile-head">' + icon('child', 32) + '<b>Kabir</b><span class="stamp coral">Locked</span></div>' +
+          '<div class="big">' + icon('lock', 24) + '<span class="num">0 min</span><span class="of">LEFT OF 1 H 30</span></div>' +
+          '<div class="bar"><i style="width:100%"></i></div>' +
+        '</div>' +
+      '</div>' +
+      '<nav class="tabbar">' +
+        '<span class="tab on">' + icon('sun', 24) + 'TODAY</span>' +
+        '<span class="tab">' + icon('family', 24) + 'FAMILY</span>' +
+        '<span class="tab">' + icon('devices', 24) + 'DEVICES</span>' +
+        '<span class="tab">' + icon('gear', 24) + 'SETTINGS</span>' +
+      '</nav>';
+    byId('tabnotes').innerHTML = [
+      ['Floats', 'Set in from the sides and the bottom by 14. Corners of 24. The page scrolls under it.'],
+      ['Glass', 'The card colour at a little under half strength, with the page behind it blurred. A pale rim, then a hairline of ink, so it reads as glass on any page.'],
+      ['Shadow', 'Soft and wide. It is the one soft shadow in the theme, because the bar hangs above the page instead of lying on it.'],
+      ['Picked tab', 'A faint ink pill behind it, and its label in full ink. Every tab keeps the same size, picked or not.'],
+      ['Room', 'The page keeps empty room at its end, as tall as the bar, so the last row can be scrolled clear of it.'],
+      ['No blur', 'Where a phone cannot blur what is behind, the bar is the card colour at nearly full strength.'],
+    ].map(function (r) { return '<div class="line"><span class="k">' + r[0].toUpperCase() + '</span><span>' + r[1] + '</span></div>'; }).join('');
 
     byId('s24').innerHTML = names.map(function (n) { return icon(n, 24); }).join('');
     byId('s32').innerHTML = names.map(function (n) { return icon(n, 32); }).join('');
