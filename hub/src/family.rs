@@ -3,7 +3,7 @@
 use limo_core::{PinRecord, wait_after_wrong_guesses};
 use rusqlite::{Connection, params};
 
-use crate::{DEFAULT_DETAIL_DAYS, MAX_PIN_DIGITS, MIN_PIN_DIGITS};
+use crate::{DEFAULT_DETAIL_DAYS, DEFAULT_IDLE_MINUTES, MAX_PIN_DIGITS, MIN_PIN_DIGITS};
 use crate::error::HubError;
 use crate::hub::Hub;
 use crate::password::{self, PASSWORD_ROUNDS, PasswordRecord};
@@ -195,13 +195,17 @@ impl Hub {
              DELETE FROM code_made;
              DELETE FROM day_total;
              DELETE FROM slice;
+             DELETE FROM master_pc;
              DELETE FROM device;
              DELETE FROM book;
              DELETE FROM child;
              DELETE FROM family;
              DELETE FROM sqlite_sequence;",
         )?;
-        tx.execute("UPDATE settings SET detail_days = ?1 WHERE id = 1", [DEFAULT_DETAIL_DAYS])?;
+        tx.execute(
+            "UPDATE settings SET detail_days = ?1, idle_minutes = ?2, unlinked_accounts = 'free' WHERE id = 1",
+            [DEFAULT_DETAIL_DAYS, DEFAULT_IDLE_MINUTES],
+        )?;
         tx.commit()?;
         self.compact();
         Ok(())

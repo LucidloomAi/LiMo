@@ -8,7 +8,8 @@ and grant.
 **What it is.** The family's guardian password, its children, each child's
 rules and book (the core's `MasterBook`), the paired devices, the usage, the
 guardian PIN, the record of one time codes made, the Windows accounts on the
-master PC, and a short record of events. It answers the devices' reports with
+master PC, the state of each child's device on the master PC, the PC's own
+settings, and a short record of events. It answers the devices' reports with
 grants and gives the guardian's screens what they show.
 
 **What it is not.** It has no network, no Windows code, no user interface, no
@@ -25,6 +26,7 @@ unsafe code.
 - [The promises](#the-promises)
 - [Usage: in detail, then in daily totals](#usage-in-detail-then-in-daily-totals)
 - [Devices](#devices)
+- [The master PC's own devices](#the-master-pcs-own-devices)
 - [The guardian password](#the-guardian-password)
 - [The guardian PIN](#the-guardian-pin)
 - [Events](#events)
@@ -35,7 +37,7 @@ unsafe code.
 
 ## The file and its tables
 
-One SQLite file. Its version is SQLite's `user_version` (now 2), and its
+One SQLite file. Its version is SQLite's `user_version` (now 3), and its
 `application_id` marks it as LiMo's ("LiMo" in ASCII). When a file is
 opened, every step it needs to reach this code's version runs in one
 transaction; a file from a newer version of LiMo is refused, unchanged, with
@@ -55,17 +57,30 @@ the books that SQL cannot do.
   by the first version (`tests/fixtures/store_v1.limo`) and checks that every
   view shows what the first version showed, and that exchanges, pairing,
   removing and tidying go on.
+- **Version 3**: what the agent on the master PC needs (see
+  [The master PC's own devices](#the-master-pcs-own-devices)): a revision on
+  each book, two settings for the PC, and the `master_pc` table. It only adds;
+  nothing a file holds changes. The step to version 2 writes the books in the
+  shape a version 2 file has, so a file from the first version still goes
+  through both steps. The test
+  `a_file_made_by_the_hub_before_the_agent_opens_and_goes_on` opens a file
+  made by the hub before this change (`tests/fixtures/store_v2.limo`), checks
+  that every view shows what that hub showed, and goes on.
 
-The tables, at version 2:
+The tables, at version 3:
 
-- `settings`: how many days of usage are kept in detail (35 unless changed).
+- `settings`: how many days of usage are kept in detail (35 unless changed);
+  after how many idle minutes the count pauses on the master PC (3 unless
+  changed); and what happens in a Windows account that is not linked (free
+  unless changed).
 - `family`: one row. The password's salt, rounds and hash; the wrong guesses
   and the end of the wait they set; the PIN record, so that children added
   later get it.
 - `child`: id, its place in the order children were added, name, age band,
   when added, and the day before which usage was folded into totals.
 - `book`: each child's `MasterBook`, as the core's own JSON: a few kilobytes
-  (see [Usage](#usage-in-detail-then-in-daily-totals)).
+  (see [Usage](#usage-in-detail-then-in-daily-totals)); and its revision,
+  which grows by one every time the book is written.
 - `device`: id, its place in the order devices were paired, child, name,
   kind, platform label, when paired and removed, when last heard from, and
   whether its newest report showed it in use. The rest of what the master
@@ -82,6 +97,9 @@ The tables, at version 2:
   the hub made.
 - `account`: Windows accounts: identifier, display name, and the child, or
   none for "not limited".
+- `master_pc`: for each child's device on the master PC, the device's state
+  (the core's `DeviceState`, as JSON) and the agent's own notes, as the agent
+  hands them in.
 - `event`: what happened, typed (see [Events](#events)).
 
 Every row about a child points at the child's row and goes with it when the
@@ -130,6 +148,13 @@ hub.events(50, None)?;                           // newest first
 hub.tidy(now)?;                                  // once an hour
 hub.close()?;                                    // at stop
 ```
+
+The agent on the master PC (`../agent`) calls `pair_master_pc`, `master_pc`,
+`save_master_pc`, `exchange_on_master_pc`, `book_revision`, `pc_settings`
+and the `note_*` calls itself; see
+[The master PC's own devices](#the-master-pcs-own-devices). The guardian's
+console sets the PC's settings with `set_idle_minutes` and
+`set_unlinked_accounts`.
 
 Rules for callers:
 
@@ -180,10 +205,11 @@ as it was before the call. Setting or removing the PIN changes every child's
 book in one transaction, so no child is left with the old PIN at the master.
 
 **Deleted means deleted.** `remove_child` deletes the child's rules and book,
-devices, usage in detail and in totals, requests, codes made, linked Windows
-accounts and events. `delete_family` deletes all of that for every child,
-the password and the PIN, the accounts and the events, and resets the
-settings, leaving an empty, valid store. The file runs with SQLite's
+devices (with the state of its device on the master PC), usage in detail and
+in totals, requests, codes made, linked Windows accounts and events.
+`delete_family` deletes all of that for every child, the password and the
+PIN, the accounts and the events, and resets the settings, leaving an empty,
+valid store. The file runs with SQLite's
 `secure_delete`, so deleted rows are overwritten with zeros where they lay,
 and after these two calls the file is rebuilt (`VACUUM`) so that no copy of
 a deleted key is left in an index's inner pages. The rebuild is done on a
@@ -215,7 +241,9 @@ the code secrets never appear in `Debug` output or in error messages:
 digits, and error messages from saved data quote no part of it. They are in
 the file, in the forms the core defines: the password as a salted slow hash,
 the PIN as the core's salted slow hash, and each device's 32 byte code
-secret as it is in the core's book. **The file's protection comes from the
+secret as it is in the core's book and, for each child's device on the
+master PC, in that device's state, which also holds the PIN record. **The
+file's protection comes from the
 Windows permissions the installer sets on its folder, so that a child's
 account cannot read it, not from this crate.** It is not encrypted.
 
@@ -289,7 +317,10 @@ its first report after the upgrade.)
   counted); `extra_time_today` shows it as `dropped_secs`;
 - its record leaves the book at once, its code secret with it; its reports
   are refused, first by the hub (`HubError::DeviceRemoved`) and then by the
-  core.
+  core;
+- for a child's device on the master PC, the state kept for it goes too,
+  with the code secret in it; the agent pairs a new one the next time the
+  child is on the PC.
 
 Use it made and never reported is not counted. So the service should, when
 it can, have the device report once more before removing it (its "release"
@@ -300,6 +331,56 @@ when opened (see [The file and its tables](#the-file-and-its-tables)). On the
 days such a book still keeps (today and yesterday at most) the time added on
 the retired device stays in the day's extra, since the retired record no
 longer says how much of it was used.
+
+## The master PC's own devices
+
+On the master PC each child has one device of kind "on the master": the PC
+itself, as that child uses it. The agent on the master PC keeps its state
+(the core's `DeviceState`), and the hub keeps that state in the same file as
+the books, written in the same transactions, so that the book that made a
+grant and the device that took it can never disagree after a power cut.
+
+- **`pair_master_pc(child, name, now)`** returns the child's device on the
+  master PC with its kept state, pairing it first when the child has none:
+  the device is added to the child's book, its state is made from the
+  welcome grant with its code secret, and the state is kept, all in one
+  transaction. Called again, it returns the same device and changes nothing,
+  so the device is paired once and never twice. A device of that kind paired
+  before the hub kept states (with `pair_device`) has no state here; it is
+  removed, its use staying counted, and a new one paired in its place, in the
+  same transaction.
+- **`master_pc(child)`** reads it, and pairs nothing.
+- **`exchange_on_master_pc(state, want_more, notes, now)`**: one exchange
+  between the device and the child's book, in process, with the same report
+  and grant a phone sends. The device writes its report, the book takes it,
+  the device takes the grant, and the book, the slices of use, the device's
+  new state and the agent's notes are written in one transaction, committed
+  to the disk before it returns. The state handed in changes only when all of
+  it was written. A grant that asks to be acknowledged at once is
+  acknowledged in the same transaction (a device on the master PC holds no
+  away allowance, so it is never asked).
+- **`save_master_pc(state, notes, now)`** keeps the state and the notes
+  alone. Both calls refuse a device that is not a child's device on the
+  master PC with a kept state (`HubError::NotMasterPc`), or that was removed
+  (`HubError::DeviceRemoved`); the agent then pairs a new one.
+- **`book_revision(child)`** grows by one every time the child's book is
+  written: by an exchange with any device, a guardian's action, or `tidy`.
+  The agent compares it with the revision its own last exchange left, to see
+  with one small read that a guardian acted or another device reported.
+- **`pc_settings()`**, **`set_idle_minutes(1 to 60)`** and
+  **`set_unlinked_accounts(Free or Locked)`**: after how many minutes with no
+  input the count pauses on the master PC (3 unless changed), and what
+  happens in a Windows account linked to no child and not marked as not
+  limited (free unless changed). Locked can be set only once a family is set
+  up, and `delete_family` sets both back, so a PC being set up is never
+  locked.
+- **`note_unlinked_account_used`**, **`note_blocked_program_closed`**,
+  **`note_clock_jump`** and **`note_time_zone_change`** record the events only
+  the agent can see (see [Events](#events)). The first two record each event
+  once: the same event, to the letter, already on record is not recorded
+  again, so an account is noted once a day and a program once a day.
+
+The agent's notes are kept as given; the hub does not read them.
 
 ## The guardian password
 
@@ -341,6 +422,10 @@ removed, the password changed, a lock, an unlock or a lift from the master,
 more wrong guesses reported by a device than before, a device's clock found
 far off, and a child's request for more time reaching the master (from the
 requests the core took for the first time, so each request is noted once).
+From the agent on the master PC: a Windows account that is not linked used
+on the PC (once for each account and the PC's day), a blocked program closed
+(once for each program and the child's day), the PC's clock moved against
+its steady count, and the PC's time zone changed.
 Each has the time by the master's clock and the child it is
 about (none for the PIN and the password). `events(limit, before_id)` lists
 the newest first, a page at a time.
@@ -372,8 +457,8 @@ meanwhile.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | Unit tests: a version 1 file carried to version 2 and on to a test version 3 through the migration path (and then refused by version 2 code); a fresh file's tables and settings; password known answers (worked out separately with Python's `hashlib`); names of any script, and hidden characters refused; ids and seeded randomness | 9 |
-| `tests/hub/` | The stories: a whole day of a family with the views checked at every stage; a file made by the first version of the hub opened, converted and going on, with every view as that version showed it; files made, reopened, copied, refused when newer or foreign, damaged in a row or in the middle, and two hubs on one file; every grant on the disk before it is returned; an exchange and a change that fail part way leaving nothing; reports that do not fit and hostile reports; wanted reports after new rules; in use; clocks far off; removing a child and deleting the family, down to the file's bytes; removed devices, their time freed and the code time they did not use dropped; a removed device leaving the book at once and its use with its days; wrong passwords and the wait across a restart; secrets out of `Debug`, errors and the file; folding forty days, and a late slice for a folded day neither counted nor kept; trimming books, codes and events; hostile names, unknown ids and numbers out of range | 34 |
+| `src/*.rs` | Unit tests: a version 1 file carried to version 2, to version 3 and on to a test version 4 through the migration path (and then refused by version 3 code); version 3's settings refusing a value they do not know; a fresh file's tables and settings; password known answers (worked out separately with Python's `hashlib`); names of any script, and hidden characters refused; ids and seeded randomness; the same note kept once | 11 |
+| `tests/hub/` | The stories: a whole day of a family with the views checked at every stage; a file made by the first version of the hub opened, converted and going on, with every view as that version showed it; a file made by the hub before the agent (version 2) opened and going on, its PC device paired the old way replaced once; files made, reopened, copied, refused when newer or foreign, damaged in a row or in the middle, and two hubs on one file; every grant on the disk before it is returned; an exchange and a change that fail part way leaving nothing; reports that do not fit and hostile reports; wanted reports after new rules; in use; clocks far off; removing a child and deleting the family, down to the file's bytes; removed devices, their time freed and the code time they did not use dropped; a removed device leaving the book at once and its use with its days; wrong passwords and the wait across a restart; secrets out of `Debug`, errors and the file; folding forty days, and a late slice for a folded day neither counted nor kept; trimming books, codes and events; hostile names, unknown ids and numbers out of range. For the master PC: its device paired once and its state kept; an exchange writing the book and the device state together, and one that fails part way leaving both as they were; the book revision growing with every change to the book; a PC device paired the old way replaced once; only a kept PC device saved, and a removed one taking its state with it; the PC's settings kept, checked and reset with the family; notes kept once where once is asked; the kept state hiding its secrets | 44 |
 
 `cargo build`, `cargo test`, `cargo doc --no-deps` and
 `cargo clippy --all-targets -- -D warnings` pass with no warnings and no

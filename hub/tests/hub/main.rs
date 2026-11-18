@@ -10,6 +10,7 @@ mod exchange;
 mod file;
 mod hostile;
 mod life;
+mod master_pc;
 mod password;
 mod tidy;
 mod upgrade;

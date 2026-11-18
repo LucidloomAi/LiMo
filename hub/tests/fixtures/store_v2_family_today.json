@@ -1,0 +1,84 @@
+[
+  {
+    "child_id": "child-a70d6791daa35b79",
+    "name": "Asha",
+    "age_band": "ten_to_twelve",
+    "day": 20775,
+    "budget_secs": 7200,
+    "extra_secs": 1200,
+    "used_secs": 660,
+    "left_secs": 7740,
+    "over_secs": 0,
+    "guardian": "nothing",
+    "waiting_requests": 0,
+    "devices": [
+      {
+        "device_id": "device-91b38e752d14f10e",
+        "name": "Family PC",
+        "kind": "on_master",
+        "platform": "windows",
+        "last_heard_at": 1794969420,
+        "in_use": false,
+        "used_secs": 420,
+        "holds_secs": 600,
+        "waiting_secs": 0,
+        "giving_back_secs": 0,
+        "added_secs": 0,
+        "wrong_guesses": 0,
+        "pin_unlocked_until": null,
+        "clock_off_by_secs": null
+      },
+      {
+        "device_id": "device-c7d70b453e3d94b9",
+        "name": "Asha's phone",
+        "kind": "portable",
+        "platform": "android",
+        "last_heard_at": 1794969840,
+        "in_use": false,
+        "used_secs": 240,
+        "holds_secs": 4200,
+        "waiting_secs": 0,
+        "giving_back_secs": 0,
+        "added_secs": 0,
+        "wrong_guesses": 0,
+        "pin_unlocked_until": null,
+        "clock_off_by_secs": null
+      }
+    ]
+  },
+  {
+    "child_id": "child-3dd72508a499451b",
+    "name": "Ravi",
+    "age_band": "six_to_nine",
+    "day": 20775,
+    "budget_secs": 3600,
+    "extra_secs": 0,
+    "used_secs": 1200,
+    "left_secs": 2400,
+    "over_secs": 0,
+    "guardian": {
+      "lock": {
+        "until": 1795012200
+      }
+    },
+    "waiting_requests": 0,
+    "devices": [
+      {
+        "device_id": "device-cc9ba3799b2af222",
+        "name": "Ravi's tablet",
+        "kind": "portable",
+        "platform": "android",
+        "last_heard_at": 1794973800,
+        "in_use": false,
+        "used_secs": 1200,
+        "holds_secs": 1800,
+        "waiting_secs": 0,
+        "giving_back_secs": 0,
+        "added_secs": 0,
+        "wrong_guesses": 0,
+        "pin_unlocked_until": null,
+        "clock_off_by_secs": null
+      }
+    ]
+  }
+]

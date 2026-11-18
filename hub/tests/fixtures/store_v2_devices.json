@@ -1,0 +1,33 @@
+[
+  [
+    {
+      "device_id": "device-91b38e752d14f10e",
+      "child_id": "child-a70d6791daa35b79",
+      "name": "Family PC",
+      "kind": "on_master",
+      "platform": "windows",
+      "paired_at": 1794966000,
+      "last_heard_at": 1794969420
+    },
+    {
+      "device_id": "device-c7d70b453e3d94b9",
+      "child_id": "child-a70d6791daa35b79",
+      "name": "Asha's phone",
+      "kind": "portable",
+      "platform": "android",
+      "paired_at": 1794966000,
+      "last_heard_at": 1794969840
+    }
+  ],
+  [
+    {
+      "device_id": "device-cc9ba3799b2af222",
+      "child_id": "child-3dd72508a499451b",
+      "name": "Ravi's tablet",
+      "kind": "portable",
+      "platform": "android",
+      "paired_at": 1794966000,
+      "last_heard_at": 1794973800
+    }
+  ]
+]

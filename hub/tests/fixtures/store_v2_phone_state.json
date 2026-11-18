@@ -1,0 +1,180 @@
+{
+  "child_id": "child-a70d6791daa35b79",
+  "device_id": "device-c7d70b453e3d94b9",
+  "rules": {
+    "version": 2,
+    "utc_offset_secs": 19800,
+    "day_start_minute": 0,
+    "budgets": {
+      "monday": {
+        "minutes": 120
+      },
+      "tuesday": {
+        "minutes": 120
+      },
+      "wednesday": {
+        "minutes": 120
+      },
+      "thursday": {
+        "minutes": 120
+      },
+      "friday": {
+        "minutes": 120
+      },
+      "saturday": {
+        "minutes": 120
+      },
+      "sunday": {
+        "minutes": 120
+      }
+    },
+    "blocked_hours": [],
+    "always_allowed_apps": [
+      "calculator.exe"
+    ],
+    "blocked_apps": [
+      "robloxplayerbeta.exe"
+    ],
+    "away_share_percent": 50,
+    "lease_minutes": 10,
+    "warning_minutes": [
+      15,
+      5,
+      1
+    ]
+  },
+  "holding": {
+    "day": 20775,
+    "lease_total_secs": 840,
+    "lease_used_secs": 240,
+    "away_cap_secs": 3600,
+    "away_used_secs": 0,
+    "away_percent": 50,
+    "master_word": {
+      "left_secs": 5940,
+      "used_then_secs": 240,
+      "held_elsewhere_secs": 0
+    },
+    "warned": {
+      "time_day": null,
+      "time_points": [],
+      "blocked_start": null,
+      "blocked_points": [],
+      "unlock_end": null,
+      "unlock_points": []
+    },
+    "added_secs": 0,
+    "added_used_secs": 0,
+    "codes_used": []
+  },
+  "grant_taken": 6,
+  "last_message": 2,
+  "last_slice": 1,
+  "unconfirmed": [],
+  "code_secret": [
+    157,
+    206,
+    56,
+    103,
+    251,
+    52,
+    87,
+    102,
+    21,
+    140,
+    149,
+    36,
+    141,
+    74,
+    173,
+    216,
+    23,
+    132,
+    81,
+    23,
+    234,
+    150,
+    96,
+    70,
+    193,
+    217,
+    164,
+    162,
+    112,
+    161,
+    216,
+    188
+  ],
+  "pin": {
+    "salt": [
+      95,
+      243,
+      113,
+      74,
+      56,
+      166,
+      40,
+      3,
+      241,
+      48,
+      155,
+      19,
+      102,
+      189,
+      185,
+      31
+    ],
+    "iterations": 200000,
+    "hash": [
+      63,
+      216,
+      23,
+      12,
+      156,
+      71,
+      175,
+      133,
+      120,
+      161,
+      109,
+      238,
+      19,
+      99,
+      66,
+      164,
+      221,
+      175,
+      104,
+      147,
+      250,
+      195,
+      113,
+      14,
+      184,
+      30,
+      18,
+      146,
+      131,
+      211,
+      88,
+      165
+    ]
+  },
+  "pin_version": 1,
+  "guardian": {
+    "version": 0,
+    "mode": "nothing",
+    "set_at": -9223372036854775808
+  },
+  "pin_unlock": null,
+  "tries": {
+    "wrong": 0,
+    "wait_until": null
+  },
+  "last_pin_add": 0,
+  "unsent_added": [],
+  "last_request": 0,
+  "own_requests": [],
+  "requests_seen": [],
+  "news_taken": 2
+}

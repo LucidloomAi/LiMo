@@ -150,3 +150,70 @@ fn a_file_made_by_the_first_hub_opens_converts_and_goes_on() {
     hub.tidy(NOW + 500).unwrap();
     assert_eq!(hub.child_today(&asha, NOW + 500).unwrap().devices.len(), 2);
 }
+
+/// `tests/fixtures/store_v2.limo` was made with the hub as committed at
+/// "Rules core and hub: what the first real caller needed" (schema version
+/// 2), before the agent on the master PC: a family with the password of the
+/// stories and the PIN 482915; Asha with a PC device paired the way that hub
+/// could (no state kept in the file), a phone, use on both, and extra time;
+/// Ravi with a tablet, use, and a lock until 20:00; three Windows accounts.
+/// The `store_v2_*.json` files beside it are the device states of that
+/// moment and what that code's views showed at Wednesday 12:00.
+#[test]
+fn a_file_made_by_the_hub_before_the_agent_opens_and_goes_on() {
+    let place = place();
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/store_v2.limo"), &place.path).unwrap();
+    let devices: (Vec<DeviceInfo>, Vec<DeviceInfo>) = json(include_str!("../fixtures/store_v2_devices.json"));
+    let asha = devices.0[0].child_id.clone();
+    let ravi = devices.1[0].child_id.clone();
+    let old_pc_id = devices.0[0].device_id.clone();
+    let mut phone = Device { id: devices.0[1].device_id.clone(), state: json(include_str!("../fixtures/store_v2_phone_state.json")) };
+    let mut tablet = Device { id: devices.1[0].device_id.clone(), state: json(include_str!("../fixtures/store_v2_tablet_state.json")) };
+    let old_pc: DeviceState = json(include_str!("../fixtures/store_v2_pc_state.json"));
+    assert_eq!(version(&raw(&place.path)), 2);
+
+    let hub = Hub::open(&place.path).unwrap();
+    // What the guardian sees is what the hub before the agent showed.
+    let today: Vec<ChildToday> = json(include_str!("../fixtures/store_v2_family_today.json"));
+    assert_eq!(hub.family_today(NOW).unwrap(), today);
+    let day: UsageView = json(include_str!("../fixtures/store_v2_usage_today.json"));
+    assert_eq!(hub.usage(&asha, TODAY, TODAY).unwrap(), day);
+    let events: Vec<Event> = json(include_str!("../fixtures/store_v2_events.json"));
+    assert_eq!(hub.events(100, None).unwrap(), events);
+    assert_eq!((hub.devices(&asha).unwrap(), hub.devices(&ravi).unwrap()), devices);
+    assert_eq!(hub.pc_settings().unwrap(), limo_hub::PcSettings {
+        idle_minutes: limo_hub::DEFAULT_IDLE_MINUTES,
+        unlinked_accounts: limo_hub::UnlinkedAccounts::Free
+    });
+    assert_eq!(hub.book_revision(&asha).unwrap(), 0);
+    hub.close().unwrap();
+    assert_eq!(version(&raw(&place.path)), SCHEMA_VERSION as i64);
+
+    // The phone and the tablet go on.
+    let mut hub = Hub::open(&place.path).unwrap();
+    let before = hub.child_today(&asha, NOW).unwrap();
+    use_app(&mut hub, &mut phone, "com.google.android.youtube", NOW, NOW + 300);
+    assert_eq!(hub.child_today(&asha, NOW + 300).unwrap().used_secs, before.used_secs + 5 * MIN as u64);
+    assert!(hub.book_revision(&asha).unwrap() > 0);
+    exchange(&mut hub, &mut tablet, NOW + 310, false);
+
+    // The PC device paired before the agent has no state kept, so the agent
+    // has it replaced, once; its use stays counted.
+    assert_eq!(hub.master_pc(&asha).unwrap(), None);
+    let pc = hub.pair_master_pc(&asha, "Family PC", NOW + 320).unwrap();
+    assert_ne!(pc.device_id, old_pc_id);
+    assert_eq!(hub.child_today(&asha, NOW + 320).unwrap().used_secs, before.used_secs + 5 * MIN as u64);
+    let err = hub.handle_report(&old_pc.clone().report(NOW + 321, false), NOW + 321).unwrap_err();
+    assert_eq!(err, HubError::DeviceRemoved { device_id: old_pc_id });
+    assert_eq!(hub.pair_master_pc(&asha, "Family PC", NOW + 322).unwrap(), pc);
+    let mut state = pc.state.clone();
+    state.record_use("minecraft.exe", NOW + 322, NOW + 382);
+    hub.exchange_on_master_pc(&mut state, true, "", NOW + 382).unwrap();
+    assert_eq!(hub.child_today(&asha, NOW + 382).unwrap().used_secs, before.used_secs + 6 * MIN as u64);
+    // Ravi gets one of his own, and his lock reaches it.
+    let mut ravi_pc = hub.pair_master_pc(&ravi, "Family PC", NOW + 400).unwrap().state;
+    hub.exchange_on_master_pc(&mut ravi_pc, true, "", NOW + 401).unwrap();
+    let decision = ravi_pc.decide(NOW + 402, None);
+    assert_eq!(decision.device_lock.map(|l| l.reason), Some(limo_core::LockReason::GuardianLock));
+    hub.tidy(NOW + 500).unwrap();
+}

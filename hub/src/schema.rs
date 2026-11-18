@@ -17,7 +17,7 @@ use crate::store;
 
 /// The version of the file this code writes. A file of a later version is
 /// refused, unchanged.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// "LiMo" in ASCII: marks the file as a LiMo family file.
 pub(crate) const APPLICATION_ID: i32 = 0x4C69_4D6F;
@@ -139,6 +139,35 @@ ALTER TABLE device DROP COLUMN wrong_guesses;
 ALTER TABLE device DROP COLUMN clock_off_by;
 ";
 
+/// Version 3: what the agent on the master PC needs.
+///
+/// - `book.revision` grows by one every time a child's book is written, so
+///   that the agent can tell, with one small read, that a guardian or another
+///   device changed the book since its own last exchange.
+/// - `settings.idle_minutes`: after how many minutes with no keyboard or
+///   mouse input the count pauses on the master PC (3 unless changed).
+/// - `settings.unlinked_accounts`: what happens on the master PC in a Windows
+///   account that is linked to no child and not marked as not limited:
+///   `free` (the default) or `locked`.
+/// - `master_pc`: the device state the agent keeps for each child's device
+///   on the master PC (the core's `DeviceState`, as JSON), with the agent's
+///   own notes, written in the same transactions as the child's book.
+const V3: &str = "
+ALTER TABLE book ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE settings ADD COLUMN idle_minutes INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE settings ADD COLUMN unlinked_accounts TEXT NOT NULL DEFAULT 'free'
+    CHECK (unlinked_accounts IN ('free', 'locked'));
+
+CREATE TABLE master_pc (
+    device_id TEXT PRIMARY KEY REFERENCES device(id) ON DELETE CASCADE,
+    child_id TEXT NOT NULL REFERENCES child(id) ON DELETE CASCADE,
+    state TEXT NOT NULL,
+    notes TEXT NOT NULL,
+    saved_at INTEGER NOT NULL
+);
+CREATE INDEX master_pc_by_child ON master_pc(child_id);
+";
+
 /// Work on the books that a step's SQL cannot do.
 type BookWork = fn(&Connection) -> Result<(), HubError>;
 
@@ -153,7 +182,11 @@ pub(crate) struct Step {
 /// Every step from one version to the next: entry `i` moves a file from
 /// version `i` to version `i + 1`. Never change an entry once released; add
 /// a new one.
-const MIGRATIONS: &[Step] = &[Step { sql: V1, books: None }, Step { sql: V2, books: Some(convert_books) }];
+const MIGRATIONS: &[Step] = &[
+    Step { sql: V1, books: None },
+    Step { sql: V2, books: Some(convert_books) },
+    Step { sql: V3, books: None },
+];
 
 /// Version 2's work on the books: every child's book is loaded (a book saved
 /// with whole slices is folded into marks as it loads) and saved in the
@@ -166,7 +199,10 @@ const MIGRATIONS: &[Step] = &[Step { sql: V1, books: None }, Step { sql: V2, boo
 ///
 /// It reads the tables through the hub's own functions, so a later version
 /// that changes the `child`, `device` or `book` tables must keep this step
-/// working on a version 2 file, before its own step runs.
+/// working on a version 2 file, before its own step runs. Version 3 added
+/// `book.revision`, so this step writes the books with
+/// [`store::save_book_before_revisions`], which writes the columns a version
+/// 2 file has.
 fn convert_books(conn: &Connection) -> Result<(), HubError> {
     for child in store::children(conn)? {
         let mut book = store::load_book(conn, &child.child_id)?;
@@ -179,7 +215,7 @@ fn convert_books(conn: &Connection) -> Result<(), HubError> {
             }
         }
         let saved_at: i64 = conn.query_row("SELECT saved_at FROM book WHERE child_id = ?1", [&child.child_id], |r| r.get(0))?;
-        store::save_book(conn, &child.child_id, &book, saved_at)?;
+        store::save_book_before_revisions(conn, &child.child_id, &book, saved_at)?;
     }
     Ok(())
 }
@@ -250,9 +286,9 @@ pub(crate) fn bring_up_to_date(conn: &mut Connection, migrations: &[Step]) -> Re
 mod tests {
     use super::*;
 
-    /// A third version that only adds a column, to show that a file is
-    /// carried forward by the migration path.
-    const TEST_V3: &str = "ALTER TABLE settings ADD COLUMN probe INTEGER NOT NULL DEFAULT 7;";
+    /// A version after this code's that only adds a column, to show that a
+    /// file is carried forward by the migration path.
+    const TEST_NEXT: &str = "ALTER TABLE settings ADD COLUMN probe INTEGER NOT NULL DEFAULT 7;";
 
     fn version(conn: &Connection) -> i64 {
         conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap()
@@ -278,26 +314,43 @@ mod tests {
         assert_eq!(version(&conn), 1);
         assert!(has_column(&conn, "device", "rules_version_seen"));
 
-        bring_up_to_date(&mut conn, MIGRATIONS).unwrap();
+        bring_up_to_date(&mut conn, &MIGRATIONS[..2]).unwrap();
         assert_eq!(version(&conn), 2);
         for column in ["last_message", "rules_version_seen", "wrong_guesses", "clock_off_by"] {
             assert!(!has_column(&conn, "device", column), "{column}");
         }
         assert!(has_column(&conn, "device", "in_use_at_report"));
+        assert!(!has_column(&conn, "book", "revision"));
 
-        let three = [MIGRATIONS[0], MIGRATIONS[1], Step { sql: TEST_V3, books: None }];
-        bring_up_to_date(&mut conn, &three).unwrap();
+        bring_up_to_date(&mut conn, MIGRATIONS).unwrap();
         assert_eq!(version(&conn), 3);
+        assert!(has_column(&conn, "book", "revision") && has_column(&conn, "master_pc", "notes"));
+        let (idle, unlinked): (i64, String) = conn
+            .query_row("SELECT idle_minutes, unlinked_accounts FROM settings", [], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap();
+        assert_eq!((idle, unlinked.as_str()), (crate::DEFAULT_IDLE_MINUTES as i64, "free"));
+
+        let four = [MIGRATIONS[0], MIGRATIONS[1], MIGRATIONS[2], Step { sql: TEST_NEXT, books: None }];
+        bring_up_to_date(&mut conn, &four).unwrap();
+        assert_eq!(version(&conn), 4);
         let probe: i64 = conn.query_row("SELECT probe FROM settings", [], |row| row.get(0)).unwrap();
         let days: i64 = conn.query_row("SELECT detail_days FROM settings", [], |row| row.get(0)).unwrap();
         assert_eq!((probe, days), (7, DEFAULT_DETAIL_DAYS as i64));
         // Opening it again changes nothing.
-        bring_up_to_date(&mut conn, &three).unwrap();
-        assert_eq!(version(&conn), 3);
+        bring_up_to_date(&mut conn, &four).unwrap();
+        assert_eq!(version(&conn), 4);
         drop(conn);
 
-        // This code knows up to version 2, so the file is now too new for it.
-        assert_eq!(open(&path).unwrap_err(), HubError::FileTooNew { file_version: 3, known_version: 2 });
+        // This code knows up to version 3, so the file is now too new for it.
+        assert_eq!(open(&path).unwrap_err(), HubError::FileTooNew { file_version: 4, known_version: 3 });
+    }
+
+    #[test]
+    fn the_settings_of_version_three_refuse_a_value_they_do_not_know() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(&dir.path().join("family.limo")).unwrap();
+        assert!(conn.execute("UPDATE settings SET unlinked_accounts = 'open'", []).is_err());
+        conn.execute("UPDATE settings SET unlinked_accounts = 'locked'", []).unwrap();
     }
 
     #[test]

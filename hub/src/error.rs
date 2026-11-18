@@ -113,6 +113,12 @@ pub enum HubError {
     },
     /// The child already has the master PC paired; a child has one.
     MasterPcAlreadyPaired,
+    /// The device is not a child's device on the master PC whose state the
+    /// hub keeps ([`crate::Hub::pair_master_pc`]).
+    NotMasterPc {
+        /// The id given.
+        device_id: String,
+    },
     /// The device has no code secret, so no code can be made for it.
     NoCodeSecret {
         /// The id given.
@@ -230,6 +236,9 @@ impl fmt::Display for HubError {
             }
             HubError::MasterPcAlreadyPaired => {
                 write!(f, "This child already has this PC paired. A child has it once.")
+            }
+            HubError::NotMasterPc { .. } => {
+                write!(f, "That device is not a child's device on this PC that LiMo keeps here.")
             }
             HubError::NoCodeSecret { .. } => write!(
                 f,

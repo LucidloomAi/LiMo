@@ -2,7 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use limo_core::{CODE_SECRET_BYTES, DeviceKind, DeviceView, Grant, Report, ReportOutcome, SECONDS_PER_DAY};
+use limo_core::{
+    CODE_SECRET_BYTES, DeviceKind, DeviceView, Grant, MasterBook, Report, ReportOutcome, SECONDS_PER_DAY,
+};
 use rusqlite::{Connection, params};
 
 use crate::error::HubError;
@@ -109,6 +111,74 @@ fn note_report(
     Ok(())
 }
 
+/// Pairs a device inside a change: registers it in the child's book with
+/// its code secret, writes its row and records the event. The name and
+/// platform are already checked, and the child exists.
+pub(crate) fn pair_in(
+    conn: &Connection,
+    child_id: &str,
+    name: String,
+    kind: DeviceKind,
+    platform: &str,
+    secret: &[u8],
+    now: i64,
+) -> Result<Pairing, HubError> {
+    if kind == DeviceKind::OnMaster && store::devices_of(conn, child_id, false)?.iter().any(|d| d.kind == kind) {
+        return Err(HubError::MasterPcAlreadyPaired);
+    }
+    let device_id = store::new_id(conn, "device-", "SELECT 1 FROM device WHERE id = ?1")?;
+    let mut book = store::load_book(conn, child_id)?;
+    let welcome = book.add_device(&device_id, kind, now).map_err(HubError::from_master)?;
+    book.set_code_secret(&device_id, secret.to_vec()).map_err(HubError::from_master)?;
+    store::save_book(conn, child_id, &book, now)?;
+    conn.execute(
+        "INSERT INTO device (id, seq, child_id, name, kind, platform, paired_at, removed_at, last_heard_at,
+             in_use_at_report)
+         VALUES (?1, (SELECT coalesce(max(seq), 0) + 1 FROM device), ?2, ?3, ?4, ?5, ?6, NULL, ?6, 0)",
+        params![device_id, child_id, name, kind_key(kind), platform, now],
+    )?;
+    add_event(conn, now, Some(child_id), &EventKind::DevicePaired { device_id: device_id.clone(), name })?;
+    Ok(Pairing { child_id: child_id.to_string(), device_id, welcome, code_secret: secret.to_vec() })
+}
+
+/// Removes a device inside a change (see [`Hub::remove_device`]). A device
+/// state the agent kept for it on the master PC goes too, with the code
+/// secret in it.
+pub(crate) fn remove_in(conn: &Connection, row: &DeviceRow, now: i64) -> Result<(), HubError> {
+    let mut book = store::load_book(conn, &row.child_id)?;
+    book.remove_device(&row.id, now).map_err(HubError::from_master)?;
+    store::save_book(conn, &row.child_id, &book, now)?;
+    conn.execute("UPDATE device SET removed_at = ?1 WHERE id = ?2", params![now, row.id])?;
+    conn.execute("DELETE FROM code_made WHERE device_id = ?1", [&row.id])?;
+    conn.execute("DELETE FROM master_pc WHERE device_id = ?1", [&row.id])?;
+    let what = EventKind::DeviceRemoved { device_id: row.id.clone(), name: row.name.clone() };
+    add_event(conn, now, Some(&row.child_id), &what)?;
+    Ok(())
+}
+
+/// Lets the child's book take a report from `row`'s device inside a change,
+/// writes the book, keeps the slices it took for the first time, and notes
+/// what the report shows (see [`Hub::handle_report`]).
+pub(crate) fn take_report(
+    conn: &Connection,
+    row: &DeviceRow,
+    book: &mut MasterBook,
+    report: &Report,
+    now: i64,
+) -> Result<Grant, HubError> {
+    if row.child_id != report.child_id {
+        return Err(HubError::DeviceOfAnotherChild { device_id: report.device_id.clone() });
+    }
+    let day = book.today(now);
+    let before = book.device_view(&row.id, day).map_err(HubError::from_master)?;
+    let outcome = book.handle_report(report, now).map_err(HubError::from_master)?;
+    let after = book.device_view(&row.id, day).map_err(HubError::from_master)?;
+    store::save_book(conn, &row.child_id, book, now)?;
+    keep_slices(conn, &row.child_id, &outcome)?;
+    note_report(conn, row, report, &outcome, &before, &after, now)?;
+    Ok(outcome.grant)
+}
+
 impl Hub {
     /// Pairs a device with a child. The hub makes the device's id and its 32
     /// byte code secret, registers it in the child's book, and records its
@@ -119,6 +189,10 @@ impl Hub {
     /// Hand the device the [`Pairing`]: it makes its state from the welcome
     /// grant and takes the code secret. Moving a device to another child is
     /// [`Hub::remove_device`] and then pairing it again.
+    ///
+    /// The agent on the master PC pairs each child's device there with
+    /// [`Hub::pair_master_pc`] instead, which also keeps the device's state
+    /// in the file.
     pub fn pair_device(
         &mut self,
         child_id: &str,
@@ -132,23 +206,9 @@ impl Hub {
         let secret = random::bytes(CODE_SECRET_BYTES as usize)?;
         let tx = self.change()?;
         store::child(&tx, child_id)?;
-        if kind == DeviceKind::OnMaster && store::devices_of(&tx, child_id, false)?.iter().any(|d| d.kind == kind) {
-            return Err(HubError::MasterPcAlreadyPaired);
-        }
-        let device_id = store::new_id(&tx, "device-", "SELECT 1 FROM device WHERE id = ?1")?;
-        let mut book = store::load_book(&tx, child_id)?;
-        let welcome = book.add_device(&device_id, kind, now).map_err(HubError::from_master)?;
-        book.set_code_secret(&device_id, secret.clone()).map_err(HubError::from_master)?;
-        store::save_book(&tx, child_id, &book, now)?;
-        tx.execute(
-            "INSERT INTO device (id, seq, child_id, name, kind, platform, paired_at, removed_at, last_heard_at,
-                 in_use_at_report)
-             VALUES (?1, (SELECT coalesce(max(seq), 0) + 1 FROM device), ?2, ?3, ?4, ?5, ?6, NULL, ?6, 0)",
-            params![device_id, child_id, name, kind_key(kind), platform, now],
-        )?;
-        add_event(&tx, now, Some(child_id), &EventKind::DevicePaired { device_id: device_id.clone(), name })?;
+        let pairing = pair_in(&tx, child_id, name, kind, &platform, &secret, now)?;
         tx.commit()?;
-        Ok(Pairing { child_id: child_id.to_string(), device_id, welcome, code_secret: secret })
+        Ok(pairing)
     }
 
     /// A child's paired devices, in the order they were paired, with when
@@ -183,15 +243,14 @@ impl Hub {
     /// its name, marked as removed. Use it made and never reported is not
     /// counted: remove a device after its last report when it can still make
     /// one.
+    ///
+    /// For a child's device on the master PC, the state the agent kept for
+    /// it is deleted too. The agent pairs a new one the next time the child's
+    /// account is in use.
     pub fn remove_device(&mut self, device_id: &str, now: i64) -> Result<(), HubError> {
         let tx = self.change()?;
         let row = store::active_device(&tx, device_id)?;
-        let mut book = store::load_book(&tx, &row.child_id)?;
-        book.remove_device(device_id, now).map_err(HubError::from_master)?;
-        store::save_book(&tx, &row.child_id, &book, now)?;
-        tx.execute("UPDATE device SET removed_at = ?1 WHERE id = ?2", params![now, device_id])?;
-        tx.execute("DELETE FROM code_made WHERE device_id = ?1", [device_id])?;
-        add_event(&tx, now, Some(&row.child_id), &EventKind::DeviceRemoved { device_id: row.id.clone(), name: row.name })?;
+        remove_in(&tx, &row, now)?;
         tx.commit()?;
         Ok(())
     }
@@ -216,15 +275,9 @@ impl Hub {
             return Err(HubError::DeviceOfAnotherChild { device_id: report.device_id.clone() });
         }
         let mut book = store::load_book(&tx, &row.child_id)?;
-        let day = book.today(now);
-        let before = book.device_view(&row.id, day).map_err(HubError::from_master)?;
-        let outcome = book.handle_report(report, now).map_err(HubError::from_master)?;
-        let after = book.device_view(&row.id, day).map_err(HubError::from_master)?;
-        store::save_book(&tx, &row.child_id, &book, now)?;
-        keep_slices(&tx, &row.child_id, &outcome)?;
-        note_report(&tx, &row, report, &outcome, &before, &after, now)?;
+        let grant = take_report(&tx, &row, &mut book, report, now)?;
         tx.commit()?;
-        Ok(outcome.grant)
+        Ok(grant)
     }
 
     /// The devices worth asking to report at once, across all children, as

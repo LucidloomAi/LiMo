@@ -27,6 +27,10 @@
 //!   secrets never appear in `Debug` output or in error messages. They are in
 //!   the file, in the forms the core defines; the file is protected by the
 //!   Windows permissions the installer sets, not by this crate.
+//! - **The master PC's own devices.** Each child's device on the master PC
+//!   is paired once ([`Hub::pair_master_pc`]), and its state is kept in the
+//!   same file and written in the same transaction as the child's book
+//!   ([`Hub::exchange_on_master_pc`]), for the agent on the master PC.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -39,6 +43,7 @@ mod events;
 mod family;
 mod guardian;
 mod hub;
+mod master_pc;
 mod password;
 mod random;
 mod schema;
@@ -55,8 +60,17 @@ pub use schema::SCHEMA_VERSION;
 pub use text::TextField;
 pub use types::{
     Account, AccountLink, AccountStanding, AgeBand, AppUsage, Child, ChildToday, DeviceInfo, DeviceToday,
-    DeviceUsage, Event, EventKind, ExtraGiven, Pairing, PasswordOutcome, TidyReport, UsageView, WaitingRequest,
+    DeviceUsage, Event, EventKind, ExtraGiven, MasterPcExchange, MasterPcRecord, Pairing, PasswordOutcome,
+    PcSettings, TidyReport, UnlinkedAccounts, UsageView, WaitingRequest,
 };
+
+/// After how many minutes with no keyboard or mouse input the count pauses
+/// on the master PC, when the guardian has not chosen: 3.
+pub const DEFAULT_IDLE_MINUTES: u32 = 3;
+/// The fewest idle minutes that can be set: 1.
+pub const MIN_IDLE_MINUTES: u32 = 1;
+/// The most idle minutes that can be set: 60.
+pub const MAX_IDLE_MINUTES: u32 = 60;
 
 /// How many days of usage are kept slice by slice when the guardian has not
 /// chosen: 35. Older days are folded into daily totals by [`Hub::tidy`].

@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use limo_core::{DeviceKind, GuardianMode, Grant, RequestView};
+use limo_core::{DeviceKind, DeviceState, GuardianMode, Grant, RequestView};
 use serde::{Deserialize, Serialize};
 
 /// A child's age, in four bands. The hub only keeps it; later pieces may use
@@ -383,6 +383,44 @@ pub enum EventKind {
         /// The minutes asked for.
         minutes: u32,
     },
+    /// A Windows account on the master PC that is linked to no child, and
+    /// not marked as not limited, was in use. Noted the first time each day
+    /// ([`crate::Hub::note_unlinked_account_used`]).
+    UnlinkedAccountUsed {
+        /// The account's identifier.
+        account_id: String,
+        /// The account's name as Windows shows it, or empty when it could
+        /// not be taken.
+        account_name: String,
+        /// The day, by the master PC's own calendar, counted from 1 January
+        /// 1970.
+        day: i64,
+    },
+    /// The master PC's clock moved against its steady count between two
+    /// looks: it was set, or corrected. No counted time was gained or lost
+    /// by it.
+    ClockJumped {
+        /// By how many seconds; forward is positive.
+        by_secs: i64,
+    },
+    /// The master PC's time zone changed. Days and blocked hours still
+    /// follow each child's home zone, in the rules.
+    TimeZoneChanged {
+        /// The zone before, as seconds from UTC.
+        from_offset_secs: i32,
+        /// The zone now, as seconds from UTC.
+        to_offset_secs: i32,
+    },
+    /// A blocked program was closed on the master PC. Noted the first time
+    /// each day for each program ([`crate::Hub::note_blocked_program_closed`]).
+    BlockedProgramClosed {
+        /// The child's device on the master PC.
+        device_id: String,
+        /// The program, as LiMo names it.
+        program: String,
+        /// The child's home day.
+        day: i64,
+    },
 }
 
 impl EventKind {
@@ -401,8 +439,79 @@ impl EventKind {
             EventKind::WrongGuesses { .. } => "wrong_guesses",
             EventKind::ClockFarOff { .. } => "clock_far_off",
             EventKind::RequestArrived { .. } => "request_arrived",
+            EventKind::UnlinkedAccountUsed { .. } => "unlinked_account_used",
+            EventKind::ClockJumped { .. } => "clock_jumped",
+            EventKind::TimeZoneChanged { .. } => "time_zone_changed",
+            EventKind::BlockedProgramClosed { .. } => "blocked_program_closed",
         }
     }
+}
+
+/// What happens on the master PC in a Windows account that is linked to no
+/// child and not marked as not limited.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnlinkedAccounts {
+    /// It is used freely, and the guardian is told once a day. The default.
+    #[default]
+    Free,
+    /// It is locked until a guardian links it.
+    Locked,
+}
+
+impl UnlinkedAccounts {
+    /// The name it is stored under.
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            UnlinkedAccounts::Free => "free",
+            UnlinkedAccounts::Locked => "locked",
+        }
+    }
+
+    /// The value stored under `key`, if any.
+    pub(crate) fn from_key(key: &str) -> Option<UnlinkedAccounts> {
+        [UnlinkedAccounts::Free, UnlinkedAccounts::Locked].into_iter().find(|u| u.key() == key)
+    }
+}
+
+/// The settings of LiMo on the master PC that a guardian can change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PcSettings {
+    /// After how many minutes with no keyboard or mouse input the count
+    /// pauses, unless something plays in full screen: 1 to 60, 3 unless
+    /// changed.
+    pub idle_minutes: u32,
+    /// What happens in an account that is not linked.
+    pub unlinked_accounts: UnlinkedAccounts,
+}
+
+/// What the hub keeps for one child's device on the master PC: the device's
+/// state, which the agent on the master PC keeps for it, and the agent's own
+/// notes. Its `Debug` hides the code secret and the PIN record, as the
+/// core's `DeviceState` does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MasterPcRecord {
+    /// The child.
+    pub child_id: String,
+    /// The child's device on the master PC.
+    pub device_id: String,
+    /// The device's state, as the core keeps it.
+    pub state: DeviceState,
+    /// The agent's own notes, kept as given. Empty when the agent has
+    /// written none yet.
+    pub notes: String,
+    /// The child's book revision when this was read: it grows by one every
+    /// time the book is written.
+    pub book_revision: u64,
+}
+
+/// What [`crate::Hub::exchange_on_master_pc`] did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MasterPcExchange {
+    /// The grant the device took.
+    pub grant: Grant,
+    /// The child's book revision after the exchange.
+    pub book_revision: u64,
 }
 
 /// One event.

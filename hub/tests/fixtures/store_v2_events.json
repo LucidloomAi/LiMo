@@ -1,0 +1,67 @@
+[
+  {
+    "id": 7,
+    "at": 1794976200,
+    "child_id": "child-3dd72508a499451b",
+    "what": {
+      "kind": "locked",
+      "until": 1795012200
+    }
+  },
+  {
+    "id": 6,
+    "at": 1794966000,
+    "child_id": "child-3dd72508a499451b",
+    "what": {
+      "kind": "device_paired",
+      "device_id": "device-cc9ba3799b2af222",
+      "name": "Ravi's tablet"
+    }
+  },
+  {
+    "id": 5,
+    "at": 1794966000,
+    "child_id": "child-a70d6791daa35b79",
+    "what": {
+      "kind": "device_paired",
+      "device_id": "device-c7d70b453e3d94b9",
+      "name": "Asha's phone"
+    }
+  },
+  {
+    "id": 4,
+    "at": 1794966000,
+    "child_id": "child-a70d6791daa35b79",
+    "what": {
+      "kind": "device_paired",
+      "device_id": "device-91b38e752d14f10e",
+      "name": "Family PC"
+    }
+  },
+  {
+    "id": 3,
+    "at": 1794965760,
+    "child_id": null,
+    "what": {
+      "kind": "pin_set"
+    }
+  },
+  {
+    "id": 2,
+    "at": 1794965700,
+    "child_id": "child-3dd72508a499451b",
+    "what": {
+      "kind": "rules_changed",
+      "version": 2
+    }
+  },
+  {
+    "id": 1,
+    "at": 1794965700,
+    "child_id": "child-a70d6791daa35b79",
+    "what": {
+      "kind": "rules_changed",
+      "version": 2
+    }
+  }
+]

@@ -21,6 +21,9 @@ pub enum TextField {
     AccountName,
     /// The id a screen made for one tap: 1 to 100 characters.
     TapId,
+    /// A program's name as LiMo records it, such as "minecraft.exe": 1 to
+    /// 260 characters.
+    ProgramName,
 }
 
 impl TextField {
@@ -30,6 +33,7 @@ impl TextField {
             TextField::ChildName | TextField::DeviceName | TextField::Platform => 40,
             TextField::AccountId => 200,
             TextField::AccountName | TextField::TapId => 100,
+            TextField::ProgramName => 260,
         }
     }
 
@@ -42,6 +46,7 @@ impl TextField {
             TextField::AccountId => "A Windows account's identifier",
             TextField::AccountName => "A Windows account's name",
             TextField::TapId => "The id of a tap",
+            TextField::ProgramName => "A program's name",
         }
     }
 }

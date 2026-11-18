@@ -2,7 +2,7 @@
 //! transaction whenever something is written, so a caller composes them into
 //! one all or nothing change.
 
-use limo_core::{DeviceKind, MasterBook, PinRecord};
+use limo_core::{DeviceKind, DeviceState, MasterBook, PinRecord};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::error::HubError;
@@ -138,13 +138,87 @@ pub(crate) fn load_book(conn: &Connection, child_id: &str) -> Result<MasterBook,
     Ok(book)
 }
 
-/// Writes a child's book.
+/// A book as JSON.
+fn book_json(book: &MasterBook) -> Result<String, HubError> {
+    serde_json::to_string(book).map_err(|_| HubError::internal("a book could not be written as JSON"))
+}
+
+/// Writes a child's book, and adds one to its revision.
 pub(crate) fn save_book(conn: &Connection, child_id: &str, book: &MasterBook, now: i64) -> Result<(), HubError> {
-    let json = serde_json::to_string(book).map_err(|_| HubError::internal("a book could not be written as JSON"))?;
+    conn.execute(
+        "INSERT INTO book (child_id, json, saved_at, revision) VALUES (?1, ?2, ?3, 1)
+         ON CONFLICT (child_id) DO UPDATE SET
+             json = excluded.json, saved_at = excluded.saved_at, revision = book.revision + 1",
+        params![child_id, book_json(book)?, now],
+    )?;
+    Ok(())
+}
+
+/// Writes a child's book in a file of version 2, which has no revisions:
+/// for the work of the step to version 2 only, which runs before the step
+/// to version 3 has added the column.
+pub(crate) fn save_book_before_revisions(
+    conn: &Connection,
+    child_id: &str,
+    book: &MasterBook,
+    now: i64,
+) -> Result<(), HubError> {
     conn.execute(
         "INSERT INTO book (child_id, json, saved_at) VALUES (?1, ?2, ?3)
          ON CONFLICT (child_id) DO UPDATE SET json = excluded.json, saved_at = excluded.saved_at",
-        params![child_id, json, now],
+        params![child_id, book_json(book)?, now],
+    )?;
+    Ok(())
+}
+
+/// A child's book revision: it grows by one every time the book is written.
+pub(crate) fn book_revision(conn: &Connection, child_id: &str) -> Result<u64, HubError> {
+    let revision: i64 = conn
+        .query_row("SELECT revision FROM book WHERE child_id = ?1", [child_id], |row| row.get(0))
+        .optional()?
+        .ok_or_else(|| HubError::UnknownChild { child_id: child_id.to_string() })?;
+    Ok(to_u64(revision))
+}
+
+/// What the hub keeps for a child's device on the master PC: the device's
+/// state and the agent's notes, both as JSON.
+pub(crate) struct MasterPcRow {
+    pub(crate) device_id: String,
+    pub(crate) child_id: String,
+    pub(crate) state: DeviceState,
+    pub(crate) notes: String,
+}
+
+/// The saved state of a device on the master PC, if there is one.
+pub(crate) fn master_pc_row(conn: &Connection, device_id: &str) -> Result<Option<MasterPcRow>, HubError> {
+    let raw: Option<(String, String, String)> = conn
+        .query_row("SELECT child_id, state, notes FROM master_pc WHERE device_id = ?1", [device_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .optional()?;
+    let Some((child_id, state, notes)) = raw else { return Ok(None) };
+    let state: DeviceState = serde_json::from_str(&state)?;
+    if state.device_id() != device_id || state.child_id() != child_id {
+        return Err(HubError::damaged("a device state on the master PC belongs to another device"));
+    }
+    Ok(Some(MasterPcRow { device_id: device_id.to_string(), child_id, state, notes }))
+}
+
+/// Writes the saved state of a device on the master PC, creating the row
+/// when there is none.
+pub(crate) fn save_master_pc_row(
+    conn: &Connection,
+    state: &DeviceState,
+    notes: &str,
+    now: i64,
+) -> Result<(), HubError> {
+    let json = serde_json::to_string(state)
+        .map_err(|_| HubError::internal("a device state could not be written as JSON"))?;
+    conn.execute(
+        "INSERT INTO master_pc (device_id, child_id, state, notes, saved_at) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT (device_id) DO UPDATE SET
+             state = excluded.state, notes = excluded.notes, saved_at = excluded.saved_at",
+        params![state.device_id(), state.child_id(), json, notes, now],
     )?;
     Ok(())
 }
