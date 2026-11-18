@@ -172,7 +172,18 @@ missing.
 alone, from the rules and the away share it holds. The master works out the
 same figure for every rule version and away share the phone might hold (the
 ones it last acknowledged, and any sent since) and reserves the largest. The
-two agree without talking.
+two agree without talking. Two details keep it so:
+
+- A phone that has not yet reported from the master's current day can still
+  start that day on its own. That happens when its report came late, its clock
+  is behind, or the home zone moved. So any grant to such a phone gives it an
+  away share no larger than that day can still cover: what is already held
+  back for the phone, plus what is free. A larger share comes with a later
+  grant.
+- When a grant brings new rules that start a new day on the phone, the phone
+  starts it with the share and the rules of that same grant, never with its
+  old share and the new rules. The master reserves only for the pairs it
+  sent.
 
 **Rule changes with the phone away.** The phone keeps its old rules until it
 hears from the master. The master keeps every rule version a device might
@@ -263,7 +274,9 @@ Why, in five steps:
    reserved.
 4. At a new day a phone gives itself its away allowance without asking. The
    master hands out away shares that add up to at most 100 percent, so these
-   allowances together are never more than the budget.
+   allowances together are never more than the budget. For a day the master
+   is already handing out, a phone that may still start it on its own is
+   never sent a share larger than that day can still cover.
 5. Every slice counts once, and a report's figures count only if they are
    the newest.
 
@@ -442,7 +455,7 @@ Rules for callers:
 | --- | --- | --- |
 | `src/*.rs` | Unit tests: day and weekday from unix seconds and offset, negative offsets, a day start not at midnight, far past and far future dates, splitting at day boundaries, validation, blocked windows, the master's books, absurd figures and far times | 31 |
 | `tests/cases.toml` with `tests/cases.rs` | The file of cases a product owner can read and extend (55 cases, 4 rules checks), a check that a wrong expectation fails with the case's name, and the file's reader | 3 tests |
-| `tests/accounting.rs` | The shared budget as short stories: the worked day above, a phone at home giving its share to the PC, a phone that then leaves, a phone away that gives nothing, a lowering grant that is lost, two phones at home, a lowered phone that left, a need that lapses, and JSON round trips of every message and state | 22 |
+| `tests/accounting.rs` | The shared budget as short stories: the worked day above, a phone at home giving its share to the PC, a phone that then leaves, a phone away that gives nothing, a lowering grant that is lost, two phones at home, a lowered phone that left, a need that lapses, a larger share that must not reach a phone late into a spent day, new rules that start a day, and JSON round trips of every message and state (including state saved before the latest fields) | 24 |
 | `tests/simulation.rs` | The simulation below | 1 |
 
 **The simulation** plays the master, the PC and one or two phones through 300

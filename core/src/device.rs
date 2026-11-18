@@ -191,13 +191,17 @@ impl DeviceState {
         if grant.number <= self.grant_taken {
             return GrantOutcome::Stale;
         }
+        // Start any new day with the terms held so far, then take the new away
+        // share and rules together. A day the new rules start is started with
+        // both, never with the old share and the new rules: the master reserves
+        // for the pairs it sent, and only those.
         self.move_to(now);
         self.grant_taken = grant.number;
+        self.holding.away_percent = grant.away_percent;
         if grant.rules.version > self.rules.version {
             self.rules = grant.rules.clone();
-            self.move_to(now);
         }
-        self.holding.away_percent = grant.away_percent;
+        self.move_to(now);
         if grant.day == self.holding.day {
             self.holding.lease_total_secs = self.holding.lease_total_secs.max(grant.lease_total_secs);
             self.holding.away_cap_secs = grant.away_cap_secs;

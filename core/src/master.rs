@@ -807,6 +807,43 @@ impl MasterBook {
         exposure.away_left().saturating_sub(offered_left)
     }
 
+    /// The away share to give a device in a grant for `day`, at most
+    /// `percent`. A device that has not yet reported from a later day up to
+    /// the master's own (its report came late, its clock is behind, or the
+    /// home zone moved) may start that day on its own with the share this
+    /// grant gives it. On each such day, the allowance it would start with
+    /// must fit what is held back for it already plus what is free; the share
+    /// is lowered until it does. Later days are fresh, and the shares of all
+    /// phones add up to at most the whole budget.
+    fn percent_that_fits(&self, index: usize, rules: &RuleSet, percent: u8, day: i64, now: i64) -> u8 {
+        let today = self.today(now);
+        if today <= day {
+            return percent;
+        }
+        if today - day > 8 {
+            // A clock this far off gets no away share until it is put right.
+            return 0;
+        }
+        let device = &self.devices[index];
+        let mut fits = percent;
+        for later in day + 1..=today {
+            let exposure = self.exposure(device, later);
+            if exposure.unbounded {
+                continue;
+            }
+            let held = exposure.away_left();
+            let most = match self.room(later) {
+                Room::NoLimit => continue,
+                Room::Secs(free) => secs_i64(held).saturating_add(free).max(0) as u64,
+                Room::Nothing => held,
+            };
+            while fits > 0 && rules.away_cap_secs(fits, later) > most {
+                fits -= 1;
+            }
+        }
+        fits
+    }
+
     /// The unmet needs of the devices other than `index` on `day`: all of
     /// them, or only those that arose before `since`.
     fn older_needs(&self, index: usize, day: i64, since: Option<u64>, clock: i64) -> u64 {
@@ -870,6 +907,7 @@ impl MasterBook {
                     .map(|(_, d)| d.highest_possible_percent() as u32)
                     .sum();
                 let percent = (rules.away_share_percent as u32).min(100u32.saturating_sub(others)) as u8;
+                let percent = self.percent_that_fits(index, &rules, percent, day, now);
                 let target = rules.away_cap_secs(percent, day);
                 // The allowance is a level that includes away time already
                 // used; what the pool must cover is the part not yet used.

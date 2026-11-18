@@ -611,6 +611,91 @@ fn if_the_phone_lowered_first_has_left_the_phone_at_home_gives_back_three_minute
 }
 
 #[test]
+fn a_larger_away_share_never_reaches_a_phone_that_is_late_into_a_day_already_spent() {
+    // The phone has no away share at first. The guardian raises it to all of
+    // the day. The PC uses all of Wednesday. Then the phone, whose clock is
+    // three hours behind, reports from what is still Tuesday for it. If its
+    // grant gave it the new share, it would start Wednesday with two hours
+    // of its own, on top of the two the PC used. It must not.
+    let mut r = rules(120);
+    r.away_share_percent = 0;
+    let mut master = MasterBook::new("asha", r).unwrap();
+    let paired = at(17, 20, 0);
+    let mut pc = DeviceState::from_pairing(&master.add_device("pc", DeviceKind::OnMaster, paired).unwrap(), paired);
+    let behind = 3 * 3_600;
+    let mut phone = DeviceState::from_pairing(
+        &master.add_device("phone", DeviceKind::Portable, paired).unwrap(),
+        paired - behind,
+    );
+    let mut more = master.rules();
+    more.version = 2;
+    more.away_share_percent = 100;
+    master.set_rules(more).unwrap();
+    let wed = master.today(at(18, 1, 0));
+    let mut t = at(18, 0, 0);
+    let mut pc_used = 0;
+    loop {
+        let grant = master.handle_report(&pc.report(t, true), t).unwrap();
+        pc.take_grant(&grant, t);
+        let held = pc.holding_at(t).in_hand_secs();
+        if held == 0 {
+            break;
+        }
+        pc.record_use("game", t, t + held as i64);
+        pc_used += held;
+        t += held as i64;
+    }
+    assert_eq!(pc_used, 120 * MIN);
+    // 02:00 for the master, 23:00 on Tuesday for the phone.
+    let now = at(18, 2, 0);
+    let grant = master.handle_report(&phone.report(now - behind, false), now).unwrap();
+    assert_eq!(grant.away_percent, 0, "the larger share would not fit Wednesday");
+    phone.take_grant(&grant, now - behind);
+    // At its own midnight the phone starts Wednesday with nothing away.
+    assert_eq!(phone.holding_at(at(18, 0, 30)).away_left_secs(), 0);
+    let start = at(18, 3, 0) - behind;
+    let d = phone.decide(start, Some("game"));
+    assert!(!d.allowed);
+    assert!(master.pool(wed).used_secs + master.pool(wed).reserved_secs.unwrap() <= 120 * MIN);
+}
+
+#[test]
+fn new_rules_that_start_a_new_day_start_it_with_the_new_share() {
+    // Half a day as the away share, and the day starting at 04:00. The
+    // guardian moves the day start to midnight, raises the budget to three
+    // hours and takes the away share away. At 02:00 on Thursday the phone
+    // hears of all of it at once: by the new rules its Thursday has already
+    // begun, and it must begin with the new share (none). Never with the old
+    // share and the new rules, a pairing the master never sent: that would
+    // hold 90 minutes away when the master holds back only 60.
+    let mut r = rules(120);
+    r.away_share_percent = 50;
+    r.day_start_minute = 4 * 60;
+    let mut h = home(r, at(18, 20, 0));
+    let mut changed = h.master.rules();
+    changed.version = 2;
+    changed.day_start_minute = 0;
+    changed.away_share_percent = 0;
+    changed.budgets = WeekBudgets::every_day(DailyBudget::Minutes(180));
+    h.master.set_rules(changed).unwrap();
+    let now = at(19, 2, 0);
+    let thursday = h.master.today(now);
+    assert_eq!(thursday, h.master.today(at(19, 12, 0)));
+    // The phone still counts Wednesday by the rules it holds.
+    let report = h.phone.report(now, false);
+    assert_eq!(report.day, thursday - 1);
+    let grant = h.master.handle_report(&report, now).unwrap();
+    h.phone.take_grant(&grant, now);
+    // Right away, before any further report, its Thursday holds nothing away,
+    // and what it holds is inside what the master holds back for it.
+    let held = h.phone.holding_at(now);
+    assert_eq!(held.day, thursday);
+    assert_eq!(held.away_cap_secs, 0);
+    let reserved = h.master.device_view("phone", thursday).unwrap().reserved_secs.unwrap();
+    assert!(reserved >= held.in_hand_secs());
+}
+
+#[test]
 fn rules_with_no_limit_held_by_a_phone_away_hold_back_the_whole_day() {
     let mut r = rules(120);
     r.budgets.set(Weekday::Wednesday, DailyBudget::NoLimit);
@@ -717,4 +802,23 @@ fn every_public_message_survives_a_round_trip_as_json() {
     round_trip!(h.master.rules(), RuleSet);
     round_trip!(h.master, MasterBook);
     round_trip!(h.phone, DeviceState);
+
+    // State saved before the second round of work, without the fields added
+    // since, still loads.
+    let mut old_book = serde_json::to_value(&h.master).unwrap();
+    old_book.as_object_mut().unwrap().remove("clock");
+    for device in old_book["devices"].as_array_mut().unwrap() {
+        device.as_object_mut().unwrap().remove("need");
+        for sent in device["unacknowledged"].as_array_mut().unwrap() {
+            sent.as_object_mut().unwrap().remove("sent_at");
+        }
+    }
+    let loaded: MasterBook = serde_json::from_value(old_book).unwrap();
+    assert_eq!(loaded.rules(), h.master.rules());
+    let mut old_phone = serde_json::to_value(&h.phone).unwrap();
+    if let Some(word) = old_phone["holding"]["master_word"].as_object_mut() {
+        word.remove("held_elsewhere_secs");
+    }
+    let loaded: DeviceState = serde_json::from_value(old_phone).unwrap();
+    assert_eq!(loaded.rules(), h.phone.rules());
 }
