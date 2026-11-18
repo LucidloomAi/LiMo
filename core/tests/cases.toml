@@ -1,0 +1,630 @@
+# LiMo rules core: the file of cases.
+#
+# Each case says what a device knows at one moment and what LiMo must answer.
+# `cargo test` checks every one. A wrong answer fails with the case's name.
+#
+# How to read a case
+#
+#   name          what the case shows, in a sentence
+#   rules         which rule set below it uses
+#   time          the time on the clock at home: "Wed 2026-11-18 20:55"
+#   device_time   or, instead, the clock of a phone where it is, with its own
+#                 time zone: "2026-11-18 10:25 -05:00" (a phone in New York)
+#   app           the app in front (leave out for the device as a whole)
+#   used          time that counts already used today on this device
+#   lease_left    time the master handed this device and it has not used
+#   away_left     time this device may still use out of reach of the master
+#   master_left   what the master last said is left for this device today
+#   master_held_elsewhere   what the master last said other phones still hold
+#                 as away time (it can come here when they report from home)
+#   holding_day   the day the device's figures are for, when it is not today:
+#                 "Tue 2026-11-17" (the device has not yet noticed a new day)
+#   away_percent  the device's away share for a new day (50 on a phone,
+#                 0 on the PC; 0 when left out)
+#   warned_time, warned_blocked   warnings already given, in minutes
+#
+# What can be expected (leave out what does not matter for the case)
+#
+#   allowed        true or false: may the app in front be used now
+#   reason         why not: "app blocked", "blocked hours", "no time today",
+#                  "time used up", "needs master", "held by another device"
+#                  (a phone still holds the rest as away time), or "none"
+#   device_reason  the reason the device itself is locked, whatever the app
+#   until          when it opens again, home time, or "never"
+#   left           best known time left today ("no limit" on a day with none)
+#   in_hand        time the device may use without asking anyone
+#   warning        "none", "5 minutes before time runs out",
+#                  "15 minutes before blocked hours", and so on
+#   next_check     when the device must look again, home time
+#   counts         true when time with this app counts against the budget
+#   ask_master     true when the device should ask the master for more time
+#   warned_time    the time warnings given after this answer, in minutes
+#
+# Durations are written 4m, 90s, 1h 30m or 4m 30s. A weekday written before a
+# date must match the date, so a slip in either is caught.
+#
+# November 2026: Monday 16, Tuesday 17, Wednesday 18, Thursday 19, Friday 20,
+# Saturday 21, Sunday 22, Monday 23.
+
+# The rule sets.
+
+[rules.school_week]
+# A family in India. 90 minutes on school days, 3 hours at the weekend.
+# Bedtime 21:00 to 07:00 before school days, 22:30 to 08:00 on Friday and
+# Saturday nights. Lease 10 minutes, warnings at 15, 5 and 1 minute.
+home_zone = "+05:30"
+budget = { every_day = 90, sat = 180, sun = 180 }
+blocked = [
+  { days = ["sun", "mon", "tue", "wed", "thu"], from = "21:00", to = "07:00" },
+  { days = ["fri", "sat"], from = "22:30", to = "08:00" },
+]
+always_allowed = ["phone", "messages", "clock", "tutorbee"]
+blocked_apps = ["casino"]
+
+[rules.tuesday_bedtime]
+# Bedtime only on Tuesday night, to see a window across midnight from both sides.
+home_zone = "+05:30"
+budget = { every_day = 120 }
+blocked = [{ days = ["tue"], from = "21:00", to = "07:00" }]
+
+[rules.late_day_start]
+# The day starts at 04:00 instead of midnight. One hour a day, none on Tuesday.
+home_zone = "+05:30"
+day_starts = "04:00"
+budget = { every_day = 60, tue = 0 }
+
+[rules.holiday]
+# Sunday has no limit but a quiet hour from 22:00; Monday has no screen time.
+home_zone = "+05:30"
+budget = { every_day = 120, sun = "no limit", mon = 0 }
+blocked = [{ days = ["sun"], from = "22:00", to = "23:00" }]
+always_allowed = ["clock"]
+
+[rules.new_york_home]
+# A family whose home, and master PC, is in New York. No time on Wednesday.
+home_zone = "-05:00"
+budget = { every_day = 60, wed = 0 }
+
+[rules.plain]
+# Everything as LiMo sets it out of the box: two hours a day, nothing blocked.
+home_zone = "+05:30"
+
+[rules.study_afternoon]
+# Two blocked windows on Wednesday afternoon that touch.
+home_zone = "+05:30"
+blocked = [
+  { days = ["wed"], from = "13:00", to = "14:00" },
+  { days = ["wed"], from = "14:00", to = "15:30" },
+]
+
+[rules.locked_all_week]
+# Blocked at every hour of every day, but the phone app is always allowed.
+home_zone = "+05:30"
+blocked = [{ days = ["every day"], from = "00:00", to = "24:00" }]
+always_allowed = ["phone"]
+
+[rules.no_screen_time]
+# No screen time on any day.
+home_zone = "+05:30"
+budget = { every_day = 0 }
+
+# Rule sets with mistakes, for the rules checks at the end.
+
+[rules.bad_window]
+home_zone = "+05:30"
+blocked = [{ days = ["mon"], from = "21:00", to = "21:00" }]
+
+[rules.both_lists]
+home_zone = "+05:30"
+always_allowed = ["minecraft"]
+blocked_apps = ["minecraft"]
+
+[rules.many_mistakes]
+home_zone = "+05:30"
+budget = { every_day = 120, sat = 1500 }
+blocked = [{ days = [], from = "21:00", to = "07:00" }]
+away_share = 150
+lease_minutes = 0
+
+# The cases.
+
+[[case]]
+name = "Plenty of time on a school afternoon"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "game"
+used = "35m"
+lease_left = "10m"
+away_left = "45m"
+expect = { allowed = true, reason = "none", left = "55m", in_hand = "55m", warning = "none", counts = true, ask_master = false, next_check = "Wed 2026-11-18 16:05" }
+
+[[case]]
+name = "At 20:55 with 4 minutes left and bedtime at 21:00, the lock comes at 20:59"
+rules = "school_week"
+time = "Wed 2026-11-18 20:55"
+app = "game"
+used = "86m"
+lease_left = "4m"
+expect = { allowed = true, left = "4m", in_hand = "4m", warning = "5 minutes before time runs out", next_check = "Wed 2026-11-18 20:58", ask_master = true, warned_time = [15, 5] }
+
+[[case]]
+name = "At 20:58 the 1 minute warning comes"
+rules = "school_week"
+time = "Wed 2026-11-18 20:58"
+app = "game"
+used = "89m"
+lease_left = "1m"
+warned_time = [15, 5]
+expect = { allowed = true, warning = "1 minute before time runs out", next_check = "Wed 2026-11-18 20:59" }
+
+[[case]]
+name = "At 20:59 the time is used up, and it opens again when bedtime ends at 07:00"
+rules = "school_week"
+time = "Wed 2026-11-18 20:59"
+app = "game"
+used = "90m"
+warned_time = [15, 5, 1]
+expect = { allowed = false, reason = "time used up", until = "Thu 2026-11-19 07:00", left = "0m", in_hand = "0m", warning = "none", ask_master = true, next_check = "Wed 2026-11-18 21:00" }
+
+[[case]]
+name = "At bedtime with time still in hand, locked until 07:00"
+rules = "school_week"
+time = "Wed 2026-11-18 21:30"
+app = "game"
+used = "52m"
+lease_left = "8m"
+away_left = "30m"
+expect = { allowed = false, reason = "blocked hours", until = "Thu 2026-11-19 07:00", left = "38m", next_check = "Thu 2026-11-19 00:00" }
+
+[[case]]
+name = "The same bedtime seen from the other side of midnight"
+rules = "school_week"
+time = "Thu 2026-11-19 06:30"
+app = "game"
+away_left = "45m"
+expect = { allowed = false, reason = "blocked hours", until = "Thu 2026-11-19 07:00", next_check = "Thu 2026-11-19 07:00" }
+
+[[case]]
+name = "Saturday 07:30 is still Friday's later bedtime"
+rules = "school_week"
+time = "Sat 2026-11-21 07:30"
+app = "game"
+away_left = "90m"
+expect = { allowed = false, reason = "blocked hours", until = "Sat 2026-11-21 08:00" }
+
+[[case]]
+name = "Friday at 22:00 with half an hour in hand: bedtime at 22:30 comes first"
+rules = "school_week"
+time = "Fri 2026-11-20 22:00"
+app = "game"
+used = "60m"
+lease_left = "10m"
+away_left = "20m"
+expect = { allowed = true, warning = "none", next_check = "Fri 2026-11-20 22:05" }
+
+[[case]]
+name = "Tuesday's bedtime still covers Wednesday at 06:30"
+rules = "tuesday_bedtime"
+time = "Wed 2026-11-18 06:30"
+app = "game"
+lease_left = "10m"
+expect = { allowed = false, reason = "blocked hours", until = "Wed 2026-11-18 07:00" }
+
+[[case]]
+name = "Monday has no bedtime of its own, so Tuesday at 06:30 is open"
+rules = "tuesday_bedtime"
+time = "Tue 2026-11-17 06:30"
+app = "game"
+lease_left = "10m"
+away_left = "50m"
+expect = { allowed = true, next_check = "Tue 2026-11-17 06:35" }
+
+[[case]]
+name = "Tuesday at 22:00 is in Tuesday's bedtime"
+rules = "tuesday_bedtime"
+time = "Tue 2026-11-17 22:00"
+app = "game"
+lease_left = "10m"
+expect = { allowed = false, reason = "blocked hours", until = "Wed 2026-11-18 07:00" }
+
+[[case]]
+name = "With the day starting at 04:00, Wednesday 03:30 still belongs to Tuesday, which has no time"
+rules = "late_day_start"
+time = "Wed 2026-11-18 03:30"
+app = "game"
+expect = { allowed = false, reason = "no time today", until = "Wed 2026-11-18 04:00", ask_master = true, next_check = "Wed 2026-11-18 03:31" }
+
+[[case]]
+name = "At 04:00 a phone that is away starts Wednesday with half of its hour"
+rules = "late_day_start"
+time = "Wed 2026-11-18 04:00"
+holding_day = "Tue 2026-11-17"
+away_percent = 50
+app = "game"
+expect = { allowed = true, in_hand = "30m", left = "30m", ask_master = true, next_check = "Wed 2026-11-18 04:15" }
+
+[[case]]
+name = "At 04:00 the PC has nothing in hand until it asks the master"
+rules = "late_day_start"
+time = "Wed 2026-11-18 04:00"
+holding_day = "Tue 2026-11-17"
+app = "game"
+expect = { allowed = false, reason = "needs master", until = "Thu 2026-11-19 04:00", ask_master = true, next_check = "Wed 2026-11-18 04:01" }
+
+[[case]]
+name = "Tuesday 03:00 is still Monday's day, with Monday's hour"
+rules = "late_day_start"
+time = "Tue 2026-11-17 03:00"
+app = "game"
+used = "40m"
+lease_left = "5m"
+expect = { allowed = true, left = "5m", warning = "5 minutes before time runs out", next_check = "Tue 2026-11-17 03:04" }
+
+[[case]]
+name = "Sunday has no limit"
+rules = "holiday"
+time = "Sun 2026-11-22 15:00"
+app = "game"
+expect = { allowed = true, left = "no limit", in_hand = "no limit", warning = "none", ask_master = false, next_check = "Sun 2026-11-22 21:45" }
+
+[[case]]
+name = "Sunday with no limit still has its blocked hour"
+rules = "holiday"
+time = "Sun 2026-11-22 22:10"
+app = "game"
+expect = { allowed = false, reason = "blocked hours", until = "Sun 2026-11-22 23:00", next_check = "Sun 2026-11-22 23:00" }
+
+[[case]]
+name = "Fifteen minutes before the blocked hour on a day with no limit"
+rules = "holiday"
+time = "Sun 2026-11-22 21:45"
+app = "game"
+expect = { allowed = true, warning = "15 minutes before blocked hours", next_check = "Sun 2026-11-22 21:55" }
+
+[[case]]
+name = "On Sunday at 23:30, after the blocked hour, the next look is at midnight"
+rules = "holiday"
+time = "Sun 2026-11-22 23:30"
+app = "game"
+expect = { allowed = true, warning = "none", next_check = "Mon 2026-11-23 00:00" }
+
+[[case]]
+name = "Monday has no screen time"
+rules = "holiday"
+time = "Mon 2026-11-23 10:00"
+app = "game"
+expect = { allowed = false, reason = "no time today", until = "Tue 2026-11-24 00:00", left = "0m", ask_master = true, next_check = "Mon 2026-11-23 10:01" }
+
+[[case]]
+name = "Monday with extra time in hand is allowed"
+rules = "holiday"
+time = "Mon 2026-11-23 10:00"
+app = "game"
+lease_left = "15m"
+expect = { allowed = true, left = "15m", warning = "15 minutes before time runs out" }
+
+[[case]]
+name = "The clock works on a day with no screen time, and does not count"
+rules = "holiday"
+time = "Mon 2026-11-23 10:00"
+app = "clock"
+expect = { allowed = true, counts = false, device_reason = "no time today" }
+
+[[case]]
+name = "The phone app works at bedtime"
+rules = "school_week"
+time = "Wed 2026-11-18 23:00"
+app = "phone"
+expect = { allowed = true, reason = "none", counts = false, device_reason = "blocked hours" }
+
+[[case]]
+name = "TutorBee works with no time left, and does not count"
+rules = "school_week"
+time = "Wed 2026-11-18 20:00"
+app = "tutorbee"
+used = "90m"
+expect = { allowed = true, counts = false, device_reason = "time used up" }
+
+[[case]]
+name = "A blocked app is refused even with plenty of time"
+rules = "school_week"
+time = "Wed 2026-11-18 16:00"
+app = "casino"
+lease_left = "10m"
+away_left = "45m"
+expect = { allowed = false, reason = "app blocked", until = "never", device_reason = "none" }
+
+[[case]]
+name = "A blocked app at bedtime is refused as a blocked app"
+rules = "school_week"
+time = "Wed 2026-11-18 22:00"
+app = "casino"
+expect = { allowed = false, reason = "app blocked", device_reason = "blocked hours" }
+
+[[case]]
+name = "Fourteen minutes left: the 15 minute warning"
+rules = "school_week"
+time = "Wed 2026-11-18 18:00"
+app = "game"
+used = "76m"
+lease_left = "10m"
+away_left = "4m"
+expect = { allowed = true, left = "14m", warning = "15 minutes before time runs out", next_check = "Wed 2026-11-18 18:05" }
+
+[[case]]
+name = "The 15 minute warning is not given twice"
+rules = "school_week"
+time = "Wed 2026-11-18 18:00"
+app = "game"
+used = "76m"
+lease_left = "10m"
+away_left = "4m"
+warned_time = [15]
+expect = { allowed = true, warning = "none", next_check = "Wed 2026-11-18 18:05" }
+
+[[case]]
+name = "Two warning points passed at once: only the nearer one is given"
+rules = "school_week"
+time = "Wed 2026-11-18 18:00"
+app = "game"
+used = "86m"
+lease_left = "4m"
+expect = { warning = "5 minutes before time runs out", warned_time = [15, 5] }
+
+[[case]]
+name = "Exactly 5 minutes left after the 15 minute warning: the 5 minute warning"
+rules = "school_week"
+time = "Wed 2026-11-18 18:00"
+app = "game"
+used = "85m"
+lease_left = "5m"
+warned_time = [15]
+expect = { warning = "5 minutes before time runs out" }
+
+[[case]]
+name = "The 5 minute warning is not given twice"
+rules = "school_week"
+time = "Wed 2026-11-18 18:00"
+app = "game"
+used = "86m"
+lease_left = "4m"
+warned_time = [15, 5]
+expect = { warning = "none", next_check = "Wed 2026-11-18 18:03" }
+
+[[case]]
+name = "Fifty seconds left: the 1 minute warning"
+rules = "school_week"
+time = "Wed 2026-11-18 18:00"
+app = "game"
+used = "89m 10s"
+lease_left = "50s"
+warned_time = [15, 5]
+expect = { allowed = true, left = "50s", warning = "1 minute before time runs out", next_check = "Wed 2026-11-18 18:00:50" }
+
+[[case]]
+name = "After more time arrives the warnings can come again"
+rules = "school_week"
+time = "Wed 2026-11-18 18:00"
+app = "game"
+used = "50m"
+lease_left = "10m"
+away_left = "20m"
+warned_time = [15, 5]
+expect = { warning = "none", warned_time = [] }
+
+[[case]]
+name = "Bedtime in 15 minutes with plenty of time: the warning is about bedtime"
+rules = "school_week"
+time = "Wed 2026-11-18 20:45"
+app = "game"
+used = "30m"
+lease_left = "10m"
+away_left = "30m"
+expect = { allowed = true, warning = "15 minutes before blocked hours", next_check = "Wed 2026-11-18 20:50" }
+
+[[case]]
+name = "Bedtime in 5 minutes: the 5 minute warning"
+rules = "school_week"
+time = "Wed 2026-11-18 20:55"
+app = "game"
+used = "35m"
+lease_left = "10m"
+away_left = "30m"
+warned_blocked = [15]
+expect = { warning = "5 minutes before blocked hours", next_check = "Wed 2026-11-18 20:59" }
+
+[[case]]
+name = "Bedtime warnings are not given twice"
+rules = "school_week"
+time = "Wed 2026-11-18 20:56"
+app = "game"
+used = "36m"
+lease_left = "9m"
+away_left = "30m"
+warned_blocked = [15, 5]
+expect = { warning = "none", next_check = "Wed 2026-11-18 20:59" }
+
+[[case]]
+name = "A phone in New York at 10:25 its own time is at 20:55 at home in India"
+rules = "school_week"
+device_time = "2026-11-18 10:25 -05:00"
+app = "game"
+used = "86m"
+lease_left = "4m"
+expect = { allowed = true, left = "4m", warning = "5 minutes before time runs out", next_check = "Wed 2026-11-18 20:58" }
+
+[[case]]
+name = "A phone in London just after its own midnight is at 05:30 at home, still bedtime"
+rules = "school_week"
+device_time = "2026-11-19 00:00 +00:00"
+app = "game"
+away_left = "45m"
+expect = { allowed = false, reason = "blocked hours", until = "Thu 2026-11-19 07:00" }
+
+[[case]]
+name = "A family in New York: Tuesday 23:30 at home is already Wednesday in UTC, but still Tuesday"
+rules = "new_york_home"
+time = "Tue 2026-11-17 23:30"
+app = "game"
+lease_left = "10m"
+expect = { allowed = true, left = "10m" }
+
+[[case]]
+name = "Half an hour later it is Wednesday at home, a day with no time"
+rules = "new_york_home"
+time = "Wed 2026-11-18 00:00"
+app = "game"
+expect = { allowed = false, reason = "no time today", until = "Thu 2026-11-19 00:00" }
+
+[[case]]
+name = "The New York family's phone in India: 09:30 there is 23:00 on Tuesday at home"
+rules = "new_york_home"
+device_time = "2026-11-18 09:30 +05:30"
+app = "game"
+lease_left = "10m"
+expect = { allowed = true, next_check = "Tue 2026-11-17 23:05" }
+
+[[case]]
+name = "In reach with 8 minutes of lease, and the master says 50 minutes are left: no warning"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "40m"
+lease_left = "8m"
+master_left = "50m"
+expect = { allowed = true, left = "50m", in_hand = "8m", warning = "none", ask_master = false, next_check = "Wed 2026-11-18 17:03" }
+
+[[case]]
+name = "The lease down to half: time to ask the master"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "40m"
+lease_left = "5m"
+master_left = "50m"
+expect = { allowed = true, left = "50m", in_hand = "5m", ask_master = true }
+
+[[case]]
+name = "Out of reach with nothing in hand and time left at home: the device needs the master"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "40m"
+expect = { allowed = false, reason = "needs master", until = "Thu 2026-11-19 07:00", ask_master = true, next_check = "Wed 2026-11-18 17:01" }
+
+[[case]]
+name = "The master said nothing more was left, because the rest was used on the PC"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "60m"
+master_left = "0m"
+expect = { allowed = false, reason = "time used up" }
+
+[[case]]
+name = "The PC has spent what it holds while the phone still holds away time: it waits for it"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "60m"
+master_left = "0m"
+master_held_elsewhere = "25m"
+expect = { allowed = false, reason = "held by another device", until = "Thu 2026-11-19 07:00", ask_master = true, next_check = "Wed 2026-11-18 17:01" }
+
+[[case]]
+name = "The PC has spent all of today's budget itself: nothing to wait for"
+rules = "school_week"
+time = "Wed 2026-11-18 17:00"
+app = "game"
+used = "90m"
+master_left = "0m"
+master_held_elsewhere = "25m"
+expect = { allowed = false, reason = "time used up" }
+
+[[case]]
+name = "The PC just after midnight, before it has asked the master"
+rules = "plain"
+time = "Thu 2026-11-19 00:00:30"
+holding_day = "Wed 2026-11-18"
+used = "120m"
+app = "game"
+expect = { allowed = false, reason = "needs master", until = "Fri 2026-11-20 00:00", ask_master = true, next_check = "Thu 2026-11-19 00:01:30" }
+
+[[case]]
+name = "A phone just after midnight holds half of the new day"
+rules = "plain"
+time = "Thu 2026-11-19 00:00:30"
+holding_day = "Wed 2026-11-18"
+used = "120m"
+away_percent = 50
+app = "game"
+expect = { allowed = true, in_hand = "60m", ask_master = true }
+
+[[case]]
+name = "No app given: the answer is about the device"
+rules = "plain"
+time = "Wed 2026-11-18 12:00"
+lease_left = "10m"
+expect = { allowed = true, counts = true, in_hand = "10m" }
+
+[[case]]
+name = "A clock set back a day neither locks nor gives a new day: use keeps counting on Thursday"
+rules = "plain"
+time = "Wed 2026-11-18 12:00"
+holding_day = "Thu 2026-11-19"
+lease_left = "10m"
+app = "game"
+expect = { allowed = true, in_hand = "10m", next_check = "Wed 2026-11-18 12:05" }
+
+[[case]]
+name = "Two blocked windows that touch count as one"
+rules = "study_afternoon"
+time = "Wed 2026-11-18 13:30"
+app = "game"
+lease_left = "10m"
+expect = { allowed = false, reason = "blocked hours", until = "Wed 2026-11-18 15:30" }
+
+[[case]]
+name = "Blocked at every hour of every day: no end in sight"
+rules = "locked_all_week"
+time = "Wed 2026-11-18 12:00"
+app = "game"
+lease_left = "10m"
+expect = { allowed = false, reason = "blocked hours", until = "never" }
+
+[[case]]
+name = "Blocked at every hour of every day, but the phone app still works"
+rules = "locked_all_week"
+time = "Wed 2026-11-18 12:00"
+app = "phone"
+expect = { allowed = true, counts = false, device_reason = "blocked hours" }
+
+[[case]]
+name = "No screen time on any day: no end in sight"
+rules = "no_screen_time"
+time = "Wed 2026-11-18 12:00"
+app = "game"
+expect = { allowed = false, reason = "no time today", until = "never" }
+
+# Rules checks: what the guardian's screen must refuse, in the words it uses.
+# `problems` lists words each problem must contain; there must be no others.
+
+[[rules_check]]
+name = "The school week rules are fine"
+rules = "school_week"
+problems = []
+
+[[rules_check]]
+name = "A bedtime that starts and ends at the same minute is refused"
+rules = "bad_window"
+problems = ["starts and ends at 21:00"]
+
+[[rules_check]]
+name = "An app cannot be both always allowed and blocked"
+rules = "both_lists"
+problems = ["both always allowed and blocked"]
+
+[[rules_check]]
+name = "Every problem is reported, not only the first"
+rules = "many_mistakes"
+problems = ["more than a whole day", "has no days", "away share is 150 percent", "lease is 0 minutes"]

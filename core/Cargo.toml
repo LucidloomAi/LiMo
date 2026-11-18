@@ -1,0 +1,26 @@
+[package]
+name = "limo-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+description = "LiMo rules core: screen time rules, and one daily budget shared by a PC and a phone with no server"
+publish = false
+
+[lib]
+name = "limo_core"
+
+[dependencies]
+# Every public data type is stored and sent between devices, so all of them
+# derive Serialize and Deserialize. Nothing else is used by the library.
+serde = { version = "1.0.229", features = ["derive"] }
+
+[profile.test]
+# The simulation plays hundreds of generated days. A little optimisation makes
+# `cargo test` take seconds instead of a minute; overflow checks stay on.
+opt-level = 1
+
+[dev-dependencies]
+# Tests only: JSON round trips of the public types, and the file of cases.
+serde_json = "1.0.154"
+toml = "1.2.1"

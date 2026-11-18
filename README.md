@@ -122,6 +122,7 @@ and a `TESTING.md` with the exact steps that were run.
 ## What is in this repository
 
 ```
+core/                        Rust: the rules core, the first part of the product
 spikes/
   01-windows-service-lock/   Rust: a Windows service and a lock on every monitor
   02-android-base-lock/      Kotlin: an accessibility service that covers a blocked app
@@ -135,6 +136,11 @@ LICENSE                      Apache 2.0
 The proofs are small on purpose and are not the product. Each one can be
 built by following its own README. They need Rust, the Android SDK and JDK 17;
 the third also needs Node.
+
+The product has begun with [`core/`](core/): one Rust library that holds the
+time rules and keeps one daily budget honest across a PC and a phone with no
+server. Windows and Android will both use it. Its README explains the model
+in plain words, and its tests include a file of cases anyone can read.
 
 **A warning about proof five.** It makes a test app the Device Owner of a
 phone. Run it only on a spare phone with no accounts on it, and read its
