@@ -126,6 +126,7 @@ and a `TESTING.md` with the exact steps that were run.
 ```
 core/                        Rust: the rules core, the first part of the product
 hub/                         Rust: the family's database on the master PC
+agent/                       Rust: the engine of the agent on the master PC
 design/                      the Paper and Ink theme and LiMo's icons
 spikes/
   01-windows-service-lock/   Rust: a Windows service and a lock on every monitor
@@ -151,6 +152,13 @@ in plain words, and its tests include a file of cases anyone can read.
 It keeps the children, their rules and devices, and the usage in one file,
 and it is where a guardian's actions are carried out. It has no network and
 no screens yet; those come next.
+
+[`agent/`](agent/) is the third part: the engine of the agent that runs on
+the master PC. About once a second it is told the facts (the clock, who is
+signed in, which program is in front) and answers with orders: show the
+time left, warn, lock, close a blocked program. It has no Windows code in
+it, so every rule is tested without a PC to lock. The service that feeds it
+and the lock screen that carries out its orders come next.
 
 **A warning about proof five.** It makes a test app the Device Owner of a
 phone. Run it only on a spare phone with no accounts on it, and read its
