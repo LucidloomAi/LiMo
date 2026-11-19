@@ -1,0 +1,75 @@
+/* LiMo on the phone: the setup screens, the child's own introduction, How
+   it works, and Today when something is switched off. Builds on phone.css,
+   which draws the phone, the theme and every shared part; only what is new
+   is here. Same sizes: reading text 16, small text 14, mono labels 12 and
+   never smaller, headings 28 in Fraunces, anything to tap at least 48 high. */
+
+/* A counter at the top right: done ones teal, this one marigold, later ones
+   outlined. Every dot keeps its size. */
+.su-count { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; padding-top: 3px; }
+.su-count.three { padding-top: 9px; }
+.su-dots { display: flex; gap: 6px; }
+.su-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--ink-soft); }
+.su-dot.done { background: var(--teal); border-color: var(--teal); }
+.su-dot.at { background: var(--marigold); border-color: var(--marigold-deep); }
+
+.su-card .ph-detail { margin-top: 8px; }
+/* The name of a thing to tap, where it runs inside a sentence. */
+.su-name { font-weight: 600; color: var(--ink); }
+.su-head { margin: 16px 2px 12px; }
+.su-head .ph-h1 { margin-top: 8px; }
+
+/* Plain rows, inside one card, with dashed dividers. */
+.su-list { padding: 2px 14px; }
+.su-li { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-top: 1.5px dashed var(--border); }
+.su-li:first-child { border-top: 0; }
+.su-li b { display: block; font-size: 16px; font-weight: 600; line-height: 1.25; }
+.su-li i { display: block; margin-top: 2px; font-style: normal; font-size: 14px; line-height: 1.35; color: var(--ink-soft); text-wrap: pretty; }
+.su-line { margin: 14px 2px 0; font-size: 16px; line-height: 1.4; text-wrap: pretty; }
+
+/* The tick box row. Taps anywhere on the row. */
+.su-tick {
+  display: flex; align-items: center; gap: 12px; min-height: 56px; margin-top: 14px; padding: 10px 14px 10px 12px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--shadow);
+  font-size: 16px; line-height: 1.35;
+}
+.su-box { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border: 2px solid var(--ink); border-radius: 7px; background: var(--card); }
+.su-box.on { background: var(--ink); color: var(--card); }
+.su-pinned { margin-top: 16px; }
+
+/* A button that cannot be used yet: soft, and no shadow. It stays solid, so
+   the page does not show through it. */
+.ph-btn.go.off { background: #f5d194; border-color: rgba(27,38,56,.4); color: rgba(27,38,56,.5); box-shadow: none; }
+
+/* One permission: why, then what Android will show, then where it stands. */
+.su-gap { margin-top: 14px; }
+.su-what { margin-top: 14px; padding-top: 12px; border-top: 1.5px dashed var(--border); }
+.su-note { margin-top: 12px; padding: 10px 12px 11px; border: 1.5px dashed rgba(27,38,56,.42); border-radius: 10px; }
+.su-note p { margin: 6px 0 0; font-size: 14px; line-height: 1.4; text-wrap: pretty; }
+.su-state { margin-top: 16px; }
+.su-state .ph-st { display: inline-block; }
+/* The line under the stamp has its room kept, so nothing moves when it comes. */
+.su-state p { min-height: 20px; margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--ink-soft); }
+
+/* Done: a teal tick for each step. */
+.su-oks { margin-top: 12px; }
+.su-ok { display: flex; align-items: center; gap: 10px; min-height: 38px; border-top: 1.5px dashed var(--border); font-size: 16px; }
+.su-ok:first-child { border-top: 0; }
+.su-ok .su-tickmark { color: var(--teal); }
+.su-after { padding-top: 4px; }
+
+/* How it works. */
+.su-rules { padding: 2px 14px; }
+.su-rule { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 12px 0; border-top: 1.5px dashed var(--border); }
+.su-rule:first-child { border-top: 0; }
+.su-rule .ph-label { flex: none; }
+.su-rule .v { text-align: right; font-size: 16px; line-height: 1.35; text-wrap: balance; }
+.su-about b { display: block; font-size: 16px; font-weight: 600; line-height: 1.3; }
+.su-about p { margin: 4px 0 0; font-size: 14px; line-height: 1.4; color: var(--ink-soft); }
+/* The address is plain text: nothing on this screen opens a browser. */
+.su-repo { margin-top: 10px; font: 500 14px/1.3 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+
+/* Today, when something is switched off: a banner above the time left. */
+.su-banner .ph-why-top { align-items: center; }
+.su-banner p { margin: 12px 0 0; font-size: 16px; line-height: 1.4; text-wrap: pretty; }
+.su-banner .ph-btn { margin-top: 14px; }

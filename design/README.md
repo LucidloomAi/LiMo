@@ -193,6 +193,25 @@ time, and the screen says so. Its two tabs float in glass.
 **The warning** floats over the child's own app, as on the PC. The time
 left is in Android's own notification, which Android draws.
 
+**Setting up a phone** is drawn in `screens/phone-setup.html`. A guardian
+holds the child's phone, which the family PC has just installed and paired
+over the cable.
+
+- One screen says what LiMo does on the phone, in three plain rows, and
+  asks the guardian to agree. The button to go on stays switched off until
+  the box is ticked.
+- Then one screen for each thing Android has to grant: notifications,
+  usage access, accessibility, battery and protection. Each says why LiMo
+  needs it and what Android will show, and carries a stamp that reads NOT
+  ON YET until Android itself says it is on. Nothing is taken on trust.
+- Then three screens for the child: what LiMo counts, what it never looks
+  at, and how to ask for more time. The same three are in the app's "How
+  it works" tab, with the child's own rules.
+- The words name the child and never say "her" or "him": the app knows a
+  name, not how a child is spoken of.
+- When something is switched off later, Today says so in a banner and
+  sends for a guardian. It does not scold.
+
 **Size.** Everything is laid out for a phone of 390 by 844 and checked on
 one of 360 by 640, where the screen scrolls above the pinned buttons. No
 text is smaller than 12, and nothing to tap is lower than 48.

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiMo phone setup</title>
+<link rel="stylesheet" href="phone.css">
+<link rel="stylesheet" href="phone-setup.css">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 16px 60px; color: var(--ink); font-family: var(--body);
+    background-color: var(--paper);
+    background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px);
+    background-size: 18px 18px;
+  }
+  main { max-width: 1300px; margin: 0 auto; }
+  h1 { font-family: var(--display); font-size: 34px; margin: 0 0 4px; letter-spacing: -.01em; }
+  h2 { font-family: var(--display); font-size: 22px; margin: 44px 0 4px; }
+  .lead { margin: 0 0 18px; max-width: 760px; line-height: 1.5; color: var(--ink-soft); }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--teal); }
+
+  /* The phones, in a wrapping grid, each at its real size. */
+  .shots { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 36px 32px; }
+  .shot { flex: none; width: min-content; }
+  /* Three lines of room, so the phones in a row start level. */
+  .cap { min-height: calc(3 * 1.45em); margin: 0 0 10px; font: 500 12px/1.45 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+  .cap b { display: block; font-weight: 600; color: var(--ink); }
+
+  .order { max-width: 860px; background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 rgba(27,38,56,.85); padding: 16px; }
+  .line { display: flex; gap: 14px; padding: 10px 0; border-top: 1.5px dashed var(--border); font-size: 14.5px; line-height: 1.5; }
+  .line:first-child { border-top: 0; padding-top: 0; }
+  .line:last-child { padding-bottom: 0; }
+  .line .k { flex: none; width: 96px; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); padding-top: 2px; }
+  @media (max-width: 760px) {
+    h1 { font-size: 28px; }
+    .line { flex-direction: column; gap: 2px; }
+    .line .k { width: auto; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">LiMo · design · on the phone · setup</div>
+  <h1>Setting up a child’s phone</h1>
+  <p class="lead">A guardian holds the child’s phone. The family PC has just installed LiMo on it over the USB cable and paired it, so the phone already knows the child’s name. The guardian goes through the setup, then hands the phone to the child for a short introduction. Each phone is drawn at its real size in CSS pixels, with Android’s status bar at the top and its gesture bar at the bottom, and the main button pinned to the bottom as on the ways out.</p>
+  <div class="order" id="order"></div>
+
+  <h2>Before setup</h2>
+  <p class="lead">Only when LiMo is opened on a phone the PC has not paired. Nothing on the phone can set it up alone.</p>
+  <div class="shots" id="s0"></div>
+
+  <h2>Welcome, and what LiMo does</h2>
+  <p class="lead">The guardian learns what LiMo does on this phone, and agrees, before Android is asked for anything. Continue stays switched off until the box is ticked.</p>
+  <div class="shots" id="s1"></div>
+
+  <h2>Five permissions, one at a time</h2>
+  <p class="lead">One layout for all five: why LiMo needs it, what Android will show, and where it stands. Each is drawn not yet on; Usage access is drawn a second time, done.</p>
+  <div class="shots" id="s3"></div>
+
+  <h2>Done</h2>
+  <div class="shots" id="s8"></div>
+
+  <h2>For Mira</h2>
+  <p class="lead">Three short screens for the child, after the guardian hands the phone over.</p>
+  <div class="shots" id="c"></div>
+
+  <h2>In the child’s app</h2>
+  <p class="lead">How it works is the second tab, beside Today. Today shows a banner when something LiMo needs has been switched off.</p>
+  <div class="shots" id="app"></div>
+</main>
+<script src="phone.js"></script>
+<script src="phone-setup.js"></script>
+<script>
+  var S = window.LIMO_SETUP;
+  function byId(id) { return document.getElementById(id); }
+  function shot(name, sub, html) {
+    // A dot between parts stays with the part before it.
+    return '<div class="shot"><div class="cap"><b>' + name + '</b>' + sub.replace(/ · /g, ' · ') + '</div>' + html + '</div>';
+  }
+
+  byId('order').innerHTML = [
+    ['S0', 'Only on a phone the PC has not paired: how to start from the PC.'],
+    ['S1 and S2', 'Welcome, then what LiMo does on this phone, and the guardian agrees.'],
+    ['S3 to S7', 'One permission each: notifications, usage access, accessibility, battery, protection.'],
+    ['S8', 'Done. The guardian hands the phone to the child.'],
+    ['C1 to C3', 'The child’s own introduction, ending on Today.'],
+    ['H and T', 'In the child’s app from then on: How it works, and Today when something is switched off.']
+  ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
+
+  byId('s0').innerHTML =
+    shot('S0 · Not set up', '390 by 844 · no button · fits, no scroll', S.frame(S.notSetUp()));
+
+  byId('s1').innerHTML =
+    shot('S1 · Welcome', '390 by 844 · Start pinned · fits, no scroll', S.frame(S.welcome())) +
+    shot('S2 · What LiMo does here', '390 by 844 · Continue pinned, switched off · fits', S.frame(S.agree())) +
+    shot('S2b · Ticked', 'only the box and the button · Continue switched on', S.crop(S.agreed()));
+
+  var names = ['Notifications', 'Usage access', 'Accessibility', 'Battery', 'Protection'];
+  byId('s3').innerHTML =
+    shot('S3 · ' + names[0], 'step 1 of 5 · not on yet · fits, no scroll', S.frame(S.step(0))) +
+    shot('S4 · ' + names[1], 'step 2 of 5 · not on yet · fits, no scroll', S.frame(S.step(1))) +
+    shot('S4b · ' + names[1] + ', done', 'step 2 of 5 · on · fits, no scroll', S.frame(S.step(1, true))) +
+    shot('S5 · ' + names[2], 'step 3 of 5 · not on yet · fits, no scroll', S.frame(S.step(2))) +
+    shot('S6 · ' + names[3], 'step 4 of 5 · not on yet · fits, no scroll', S.frame(S.step(3))) +
+    shot('S7 · ' + names[4], 'step 5 of 5 · not on yet · fits, no scroll', S.frame(S.step(4)));
+
+  byId('s8').innerHTML =
+    shot('S8 · Done', '390 by 844 · button pinned · fits, no scroll', S.frame(S.done()));
+
+  byId('c').innerHTML =
+    shot('C1 · What LiMo counts', '1 of 3 · fits, no scroll', S.frame(S.intro(0))) +
+    shot('C2 · What LiMo never looks at', '2 of 3 · fits, no scroll', S.frame(S.intro(1))) +
+    shot('C3 · How to ask for more time', '3 of 3 · fits, no scroll', S.frame(S.intro(2)));
+
+  byId('app').innerHTML =
+    shot('H · How it works', '390 by 844 · second tab picked · scrolls under the tab bar', S.frame(S.howItWorks(), { over: S.tabs('how') })) +
+    shot('T · Today, something switched off', '390 by 844 · scrolls under the tab bar', S.frame(S.todayOff(), { over: S.tabs('today') }));
+
+  // On a screen narrower than a phone, the phones are drawn smaller.
+  function fit() {
+    var room = document.querySelector('main').clientWidth;
+    Array.prototype.forEach.call(document.querySelectorAll('.shot'), function (s) {
+      s.style.zoom = '';
+      var w = s.firstChild.nextSibling.offsetWidth;
+      s.style.zoom = w > room ? String(room / w) : '';
+    });
+  }
+  window.addEventListener('resize', fit);
+  fit();
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 Written by `node export.js`. Do not edit by hand: change `shapes.js` and run it again.
 
-44 icons.
+45 icons.
 
 | Name | Icon | Colour | What it is for |
 | --- | --- | --- | --- |
@@ -40,6 +40,7 @@ Written by `node export.js`. Do not edit by hand: change `shapes.js` and run it 
 | `away` | <img src="svg/away.svg" width="32" height="32" alt=""> | ink | A phone that is away from home |
 | `wifi` | <img src="svg/wifi.svg" width="32" height="32" alt=""> | teal | In reach on the home Wi-Fi |
 | `usb` | <img src="svg/usb.svg" width="32" height="32" alt=""> | ink | Set up over a USB cable |
+| `battery` | <img src="svg/battery.svg" width="32" height="32" alt=""> | ink | The battery, and Android putting apps to sleep |
 | `qr` | <img src="svg/qr.svg" width="32" height="32" alt=""> | ink | Pair by scanning a code |
 | `link` | <img src="svg/link.svg" width="32" height="32" alt=""> | teal | A paired device |
 | `install` | <img src="svg/install.svg" width="32" height="32" alt=""> | teal | Install on a phone |

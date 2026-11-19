@@ -415,6 +415,14 @@
         ['body', 'rect', { x: 12, y: 16.5, width: 24, height: 20.5, rx: 5.5 }],
       ],
     },
+    battery: {
+      clay: 'ink', use: 'The battery, and Android putting apps to sleep',
+      shapes: [
+        ['back', 'rect', { x: 19, y: 4.5, width: 10, height: 6.5, rx: 2.4 }],
+        ['body', 'rect', { x: 11.5, y: 8.5, width: 25, height: 35, rx: 6.5 }],
+        ['screen', 'rect', { x: 15.5, y: 25.5, width: 17, height: 13.5, rx: 3 }],
+      ],
+    },
     qr: {
       clay: 'ink', use: 'Pair by scanning a code',
       shapes: [
