@@ -79,6 +79,8 @@ pub enum Show {
 pub struct LockScreen {
     /// Why it is locked.
     pub why: LockWhy,
+    /// Why, in a few words, for the top of the lock screen.
+    pub title: String,
     /// Why, in plain words.
     pub message: String,
     /// When use is possible again if nothing changes, unix seconds, when it
@@ -142,6 +144,21 @@ impl LockWhy {
         }
     }
 
+    /// Why, in a few words, for the top of the lock screen.
+    pub fn title(self) -> &'static str {
+        match self {
+            LockWhy::BlockedHours => "Screen time is off for now.",
+            LockWhy::NoTimeToday => "No screen time today.",
+            LockWhy::TimeUsedUp => "Today's time is used up.",
+            LockWhy::WaitingForTime => "Getting more time.",
+            LockWhy::HeldByAnotherDevice => "The rest is on another device.",
+            LockWhy::GuardianLock => "Locked by a guardian.",
+            LockWhy::AccountNotLinked => "This account is not set up yet.",
+            LockWhy::CannotCheck => "LiMo cannot check the time.",
+            LockWhy::ProgramBlocked => "This program is blocked.",
+        }
+    }
+
     /// Why, in plain words, for the lock screen.
     pub fn message(self) -> &'static str {
         match self {
@@ -201,6 +218,41 @@ impl CloseOrder {
         CloseOrder {
             program: program.clone(),
             reason: format!("{} is blocked by your family's rules, so LiMo closed it.", program.shown_name()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EVERY_WHY: [LockWhy; 9] = [
+        LockWhy::BlockedHours,
+        LockWhy::NoTimeToday,
+        LockWhy::TimeUsedUp,
+        LockWhy::WaitingForTime,
+        LockWhy::HeldByAnotherDevice,
+        LockWhy::GuardianLock,
+        LockWhy::AccountNotLinked,
+        LockWhy::CannotCheck,
+        LockWhy::ProgramBlocked,
+    ];
+
+    #[test]
+    fn every_lock_has_a_short_title_beside_its_message() {
+        assert_eq!(LockWhy::BlockedHours.title(), "Screen time is off for now.");
+        assert_eq!(LockWhy::NoTimeToday.title(), "No screen time today.");
+        assert_eq!(LockWhy::TimeUsedUp.title(), "Today's time is used up.");
+        assert_eq!(LockWhy::WaitingForTime.title(), "Getting more time.");
+        assert_eq!(LockWhy::HeldByAnotherDevice.title(), "The rest is on another device.");
+        assert_eq!(LockWhy::GuardianLock.title(), "Locked by a guardian.");
+        assert_eq!(LockWhy::AccountNotLinked.title(), "This account is not set up yet.");
+        assert_eq!(LockWhy::CannotCheck.title(), "LiMo cannot check the time.");
+        assert_eq!(LockWhy::ProgramBlocked.title(), "This program is blocked.");
+        for why in EVERY_WHY {
+            let title = why.title();
+            assert!(title.ends_with('.') && title.chars().count() <= 32, "{title}");
+            assert_ne!(title, why.message());
         }
     }
 }

@@ -197,7 +197,11 @@ impl Engine {
                     if session.state == SessionState::InUse {
                         self.note_unlinked(hub, session, local_day, at.wall);
                     }
+                    // An administrator's account that is not linked is never
+                    // locked, whatever the setting: locking it could lock
+                    // out the guardian who has to set LiMo up.
                     match settings.unlinked_accounts {
+                        _ if session.is_administrator => nothing(session.session_id),
                         UnlinkedAccounts::Free => nothing(session.session_id),
                         UnlinkedAccounts::Locked => SessionOrder {
                             session_id: session.session_id,
@@ -624,6 +628,7 @@ fn locked(
     Show::Locked {
         screen: LockScreen {
             why,
+            title: why.title().to_string(),
             message: why.message().to_string(),
             until,
             can_ask_for_time: decision.is_some_and(|d| d.can_ask_for_time),

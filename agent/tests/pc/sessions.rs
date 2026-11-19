@@ -1,6 +1,6 @@
 //! Several sessions: two children switching, a guardian beside a child, an
-//! account that is not linked under both settings, and the PC device paired
-//! once for each child.
+//! account that is not linked under both settings, an administrator's
+//! account, and the PC device paired once for each child.
 
 use limo_agent::{LockWhy, SessionState, Show};
 use limo_core::DeviceKind;
@@ -12,6 +12,7 @@ const ASHA: &str = "S-1-5-21-1001";
 const RAVI: &str = "S-1-5-21-1002";
 const MUM: &str = "S-1-5-21-1000";
 const VISITOR: &str = "S-1-5-21-1009";
+const ADMIN: &str = "S-1-5-21-1010";
 
 fn pcs(pc: &mut Pc, child: &str) -> usize {
     pc.hub().devices(child).unwrap().iter().filter(|d| d.kind == DeviceKind::OnMaster).count()
@@ -112,6 +113,7 @@ fn an_account_that_is_not_linked_is_free_or_locked_as_the_guardian_chose() {
     assert!(order.helper_needed && order.close.is_empty());
     let Show::Locked { screen } = order.show else { panic!("not locked") };
     assert_eq!(screen.why, LockWhy::AccountNotLinked);
+    assert_eq!(screen.title, "This account is not set up yet.");
     assert!(!screen.can_ask_for_time && !screen.can_use_code && !screen.can_use_pin);
     assert_eq!(screen.message, "This account is not set up in LiMo yet. A guardian can set it up.");
     pc.run(5 * MIN);
@@ -184,4 +186,69 @@ fn the_pc_device_is_paired_the_first_time_a_child_is_seen_and_never_twice() {
     pc.run(2);
     assert_eq!(pc.order(1).child_id, None);
     assert_eq!(pc.show(1), Show::Nothing);
+}
+
+#[test]
+fn an_administrators_account_that_is_not_linked_is_never_locked() {
+    let mut pc = Pc::new(at(16, 0));
+    pc.add_child("Asha", ASHA);
+    pc.hub().set_unlinked_accounts(UnlinkedAccounts::Locked).unwrap();
+    // An administrator's account and a standard one, neither linked.
+    pc.login_administrator(3, ADMIN, "Admin");
+    pc.front(3, made("mmc.exe", "MMC.EXE", "Microsoft Corporation"));
+    pc.login(5, VISITOR, "Visitor");
+    pc.set_state(5, SessionState::Disconnected);
+    pc.tick();
+    pc.run(MIN);
+
+    // The administrator sees nothing, whatever the setting says; the
+    // standard account beside it is locked.
+    let admin = pc.order(3);
+    assert_eq!((admin.show, admin.helper_needed, admin.child_id, admin.close.len()), (Show::Nothing, false, None, 0));
+    let Show::Locked { screen } = pc.show(5) else { panic!("{:?}", pc.show(5)) };
+    assert_eq!(screen.why, LockWhy::AccountNotLinked);
+    // Nothing is counted for anyone, and the account is still noted once a
+    // day as used while not set up, as any account that is not linked is.
+    assert_eq!(pc.engine().children_on_pc(), Vec::<String>::new());
+    let noted = pc.events().into_iter().filter(|e| matches!(e, EventKind::UnlinkedAccountUsed { .. })).count();
+    assert_eq!(noted, 1);
+
+    // Free or locked, the same.
+    pc.hub().set_unlinked_accounts(UnlinkedAccounts::Free).unwrap();
+    pc.run(5);
+    assert_eq!(pc.show(3), Show::Nothing);
+    pc.hub().set_unlinked_accounts(UnlinkedAccounts::Locked).unwrap();
+    pc.run(5);
+    assert_eq!(pc.show(3), Show::Nothing);
+
+    // Taken out of the Administrators group, it is an account like any
+    // other that is not linked: locked from the next call.
+    pc.session(3).facts.is_administrator = false;
+    pc.run(1);
+    let order = pc.order(3);
+    assert!(order.helper_needed);
+    let Show::Locked { screen } = order.show else { panic!("not locked") };
+    assert_eq!(screen.why, LockWhy::AccountNotLinked);
+}
+
+#[test]
+fn an_administrators_account_linked_to_a_child_is_limited_like_any_childs() {
+    let mut pc = Pc::new(at(16, 0));
+    let asha = pc.add_child("Asha", ASHA);
+    pc.hub().link_account(ADMIN, "Admin", AccountLink::Child { child_id: asha.clone() }).unwrap();
+    pc.change_rules(&asha, |rules| {
+        rules.budgets = limo_core::WeekBudgets::every_day(limo_core::DailyBudget::Minutes(5));
+    });
+    pc.login_administrator(3, ADMIN, "Admin");
+    pc.front(3, made("Minecraft.exe", "Minecraft.exe", "Mojang"));
+    pc.tick();
+    // Linked to a child, the account is the child's: counted and locked as
+    // the child's rules say.
+    assert_eq!(pc.order(3).child_id, Some(asha.clone()));
+    assert!(matches!(pc.show(3), Show::TimeLeft { counting: true, .. }), "{:?}", pc.show(3));
+    pc.run(5 * MIN + 5);
+    let Show::Locked { screen } = pc.show(3) else { panic!("{:?}", pc.show(3)) };
+    assert_eq!(screen.why, LockWhy::TimeUsedUp);
+    assert_eq!(screen.title, "Today's time is used up.");
+    assert_eq!(pc.counted(&asha), 300);
 }

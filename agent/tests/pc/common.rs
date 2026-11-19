@@ -226,6 +226,7 @@ impl Pc {
                 account_id: account.into(),
                 account_name: name.into(),
                 state: SessionState::InUse,
+                is_administrator: false,
                 idle_secs: 0,
                 full_screen: false,
                 in_front: None,
@@ -234,6 +235,13 @@ impl Pc {
             typing: true,
             idle_ms: 0,
         });
+    }
+
+    /// Someone logs in to `account`, an account in the Windows
+    /// Administrators group, and is at the keyboard.
+    pub fn login_administrator(&mut self, session_id: u32, account: &str, name: &str) {
+        self.login(session_id, account, name);
+        self.session(session_id).facts.is_administrator = true;
     }
 
     pub fn logout(&mut self, session_id: u32) {

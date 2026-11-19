@@ -59,6 +59,13 @@ pub struct Session {
     pub account_name: String,
     /// Whether it is the one in use, locked or disconnected.
     pub state: SessionState,
+    /// True when the account is in the Windows Administrators group, even
+    /// when it is not running elevated. An account that is not linked and is
+    /// an administrator is never locked, whatever the setting for accounts
+    /// that are not linked says (the owner's decision of 18 Nov 2026). False
+    /// when not given.
+    #[serde(default)]
+    pub is_administrator: bool,
     /// Seconds since the last keyboard or mouse input in this session.
     pub idle_secs: u32,
     /// True when something plays in full screen in this session: a video or

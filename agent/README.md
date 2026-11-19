@@ -109,8 +109,10 @@ Rules for callers:
 `Session`: its id; the account's identifier (the same opaque string the hub
 links to a child) and the account's name as Windows shows it; whether it is
 the one in use (`InUse`: on the screen and not locked by Windows), `Locked`
-or `Disconnected`; seconds since the last keyboard or mouse input; whether
-something plays in full screen; the program in front; the programs running.
+or `Disconnected`; whether the account is in the Windows Administrators group
+(`is_administrator`, false when not given), even when it is not running
+elevated; seconds since the last keyboard or mouse input; whether something
+plays in full screen; the program in front; the programs running.
 
 `Program`: its file name, the original file name its maker recorded inside
 the file (`OriginalFilename`, when there is one) and its maker
@@ -145,7 +147,9 @@ is dropped. The guardian's lists in the rules should use these names.
 - **`Locked`**: cover the whole screen. The `LockScreen` says why (`LockWhy`:
   blocked hours, no time today, today's time used up, waiting for time,
   the rest of the time on another device, a guardian's lock, an account not
-  linked, LiMo cannot check), in plain words; until when, when known; whether
+  linked, LiMo cannot check), in a short title for the top of the lock screen
+  ("Today's time is used up.", `LockWhy::title`) and in plain words
+  (`LockWhy::message`); until when, when known; whether
   the child may ask for more time, type a one time code, or have a guardian
   type the PIN; until when a wait after wrong guesses lasts; and the child's
   newest request today with its answer.
@@ -173,9 +177,17 @@ time such an account is in use each day (`EventKind::UnlinkedAccountUsed`,
 kept once per account and day). Locked, the session gets a lock screen that
 offers no way out: a guardian links the account from their own. The setting
 can be set to locked only once a family is set up, and deleting the family
-sets it back to free, so a PC being set up is never locked. Tests:
+sets it back to free, so a PC being set up is never locked. **An account that
+is not linked and is in the Windows Administrators group is never locked,
+whatever the setting says: it shows nothing** (the owner's decision of 18 Nov
+2026), so a guardian's own account cannot be locked out of the PC. It is
+still noted as used, as any account that is not linked is. An
+administrator's account linked to a child is the child's, limited like any
+other. Tests:
 `sessions::an_account_that_is_not_linked_is_free_or_locked_as_the_guardian_chose`,
-`sessions::a_guardians_session_beside_a_childs_changes_nothing_for_the_child`.
+`sessions::a_guardians_session_beside_a_childs_changes_nothing_for_the_child`,
+`sessions::an_administrators_account_that_is_not_linked_is_never_locked`,
+`sessions::an_administrators_account_linked_to_a_child_is_limited_like_any_childs`.
 
 **2. Active time only.** Time counts only while the child's session is the
 one in use and not locked by Windows. After the idle minutes with no keyboard
@@ -436,9 +448,10 @@ used, or lower it below.
 | Where | What | Count |
 | --- | --- | --- |
 | `src/facts.rs` | Program names: the original name when there is one, folders dropped, lists matched by either name for blocking | 2 |
+| `src/orders.rs` | Every lock's short title, beside its message | 1 |
 | `tests/pc/day.rs` | A plain day to zero with each warning once; idle pauses and full screen; the always allowed list; midnight in use; a budget cut and raised in the middle of the day | 5 |
 | `tests/pc/programs.rs` | A blocked program renamed, closed again and again, noted once a day, and the hole; one child's list closing nothing in other sessions | 2 |
-| `tests/pc/sessions.rs` | Two children switching; a guardian's session; an account not linked, free and locked; the PC device paired once, through restarts, re-paired after the guardian removes it | 4 |
+| `tests/pc/sessions.rs` | Two children switching; a guardian's session; an account not linked, free and locked; an administrator's account not linked never locked, and one linked to a child limited; the PC device paired once, through restarts, re-paired after the guardian removes it | 6 |
 | `tests/pc/ways_out.rs` | Extra time, lock now and lift; an unlock that counts beyond; a request granted and refused; a code once, wrong codes and their wait across a crash; the PIN adding, unlocking and confirming a release; new rules with their warnings | 6 |
 | `tests/pc/phone.rs` | The core README's worked day with the real engine; the PC and a phone at home used at once | 2 |
 | `tests/pc/clock.rs` | The wall clock set back and forward; forward over midnight; a time zone change; sleep both ways and a service held up | 4 |
