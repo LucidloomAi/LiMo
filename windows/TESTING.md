@@ -161,14 +161,17 @@ Undo: nothing; part F goes on from here.
 In the child's session:
 
 1. Open Notepad. Within about a second it closes, and a notice shows above
-   the time left display: a blocked sign, `Notepad.exe was closed.`, and
-   under it `It is blocked by your family's rules.`, for 10 seconds. Open
-   it again: it closes again.
+   the time left display: a blocked sign, `Notepad was closed.`, and under
+   it `It is blocked by your family's rules.`, for 10 seconds. The name is
+   the description Notepad's own file carries; were there none, the notice
+   would name the file, `Notepad.exe was closed.`. Open it again: it closes
+   again.
 2. The taskbar and the desktop stay: `explorer.exe` is blocked too, but is
    part of Windows, and LiMo never closes it.
 3. Switch back and run `.\limo status` (elevated). Look for one line
-   `Closed Notepad.exe in session N (1 running copy): ...`, however many
-   times it was opened, and one line `The family's rules block explorer.exe
+   `Closed Notepad.exe ("Notepad") in session N (1 running copy): ...`,
+   however many times it was opened, the description in brackets after the
+   file name, and one line `The family's rules block explorer.exe
    in session N, but it is part of Windows and LiMo never closes it: ...`.
 
 Undo: nothing; part G goes on from here.
@@ -320,7 +323,7 @@ In the child's session, while the time added in part J runs.
    and back (step 5 below) keeps it there too.
 3. **The closed notice.** Open Notepad: the notice appears above the
    display, their right edges in line (below it, if you dragged the display
-   to the top of the screen), with `Notepad.exe was closed.` and `It is
+   to the top of the screen), with `Notepad was closed.` and `It is
    blocked by your family's rules.` Click beside OK on the notice: nothing.
    Click OK: it goes. Open Notepad again and leave it: the notice goes by
    itself after 10 seconds.
@@ -421,7 +424,7 @@ then `.\limo uninstall`.
 | E3 full screen video keeps counting | yes | |
 | E4 nothing counted while locked by Windows | yes | |
 | E5 warning at 15 minutes, above the display, gone after 30 s | yes | |
-| F1 Notepad closed each time, "Notepad.exe was closed." | yes | |
+| F1 Notepad closed each time, "Notepad was closed." | yes | |
 | F2 explorer.exe kept | yes | |
 | F3 one close line, one never closes line | yes | |
 | G1 child cannot end the helper | refused | |

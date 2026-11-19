@@ -183,8 +183,10 @@ pub enum ToHelper {
         /// The reason, in plain words, as one sentence.
         text: String,
         /// The program's name, as the child knows it, when the notice is
-        /// about one program: "Game.exe". A drawn notice says "Game.exe was
-        /// closed." with the reason under it.
+        /// about one program: the description its file carries, such as
+        /// "Game Launcher", at most 60 characters, or else its file name,
+        /// "Game.exe". A drawn notice says "Game Launcher was closed." with
+        /// the reason under it.
         program: Option<String>,
     },
     /// The answer to a way out.

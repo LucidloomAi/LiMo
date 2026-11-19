@@ -104,13 +104,14 @@ helper in each session that needs one  (src/win/helper.rs)
 | `steady_ms` | `QueryInterruptTime`, in milliseconds: counted from start up, and it cannot be set. Its own page does not say whether it counts through sleep; the page of its "unbiased" twin says that one "does not include time the system spends in sleep or hibernation", unlike this one, which Windows uses so that timers that would have run out during a sleep run out on waking. Not yet seen through a real sleep; TESTING.md checks it. |
 | `utc_offset_secs` | `GetTimeZoneInformation`: the zone's bias, and the daylight bias when daylight time is in force. |
 | Sessions | `WTSEnumerateSessionsW`: every session but session 0 with a user name. The account's SID and whether it is an administrator come from the session's user token (`WTSQueryUserToken`): the Administrators group among the token's groups, enabled or kept for denying only (a UAC filtered token), or among its linked token's. The state: in use when the session is active and Windows does not say it is locked (`WTSSessionInfoEx`), locked when it does, disconnected otherwise. |
-| Programs running | Read by the service itself, never taken from a helper: `WTSEnumerateProcessesExW` for every process with its session, then for each one its start (`GetProcessTimes`) and its file's path (`QueryFullProcessImageNameW`). A program is the file's name, and the original file name and company name from its version resource. LiMo's own processes are left out. |
+| Programs running | Read by the service itself, never taken from a helper: `WTSEnumerateProcessesExW` for every process with its session, then for each one its start (`GetProcessTimes`) and its file's path (`QueryFullProcessImageNameW`). A program is the file's name, and the original file name and company name from its version resource. The same resource's description (`FileDescription`, such as "Game Launcher") is read beside them and kept in the cache with them, but never handed to the engine: it only names a program in the notice that it was closed, and in the log line for the close. All three are properties of the program's file, written in by its maker and the same for every copy; none is a window title, a document's name or a web address, and LiMo reads none of those. LiMo's own processes are left out. |
 | Idle, front, full screen | From the session's helper, about once a second: milliseconds since the last input (`GetLastInputInfo`), the process id of the window in front, and whether something is in full screen (the window in front covers its monitor and is not the desktop or the taskbar, or Windows says a full screen program or a presentation is running). |
 
 - **Version resources are read once per file.** The cache keeps each
-  file's program by its path and last write time, and each running
-  process's by its id and start. A file is read again only after it is
-  written. Test: `facts::a_files_version_resource_is_read_once_until_the_file_is_written`.
+  file's program, with its description beside it, by its path and last
+  write time, and each running process's by its id and start. A file is
+  read again only after it is written. Tests: `facts::a_files_version_resource_is_read_once_until_the_file_is_written`,
+  `orders::a_closed_program_is_named_by_its_files_description_when_it_has_one`.
 - **The service finds the program in front itself.** The helper sends only a
   process id. The service looks it up in its own list (or alone, if it
   started since), checks it is in that same session, and makes the program
@@ -211,7 +212,7 @@ never talk: the first frame closes the channel.
 | Service to helper | |
 | --- | --- |
 | `show` | What to show, with its number and the child's name. |
-| `notice` | A program was closed: the engine's sentence, and the program's name beside it (its file name as it is now, as the engine's sentence names it), so the drawn notice can say "Game.exe was closed." with the reason under it. |
+| `notice` | A program was closed: the engine's sentence, and the program's name beside it (the description its file carries, such as "Game Launcher", at most 60 characters; or, when it has none, its file name as it is now, as the engine's sentence names it), so the drawn notice can say "Game Launcher was closed." with the reason under it. |
 | `answer` | The answer to a way out: asked, tried (with the outcome), or refused (why). |
 | `quit` | Close everything and end. |
 
@@ -327,12 +328,20 @@ It never ends:
 | consent.exe | It asks for an administrator's permission; closing it would stop a guardian from giving it. |
 
 Each close is logged once for each program and session, and again at most
-every ten minutes with a count. A process Windows refuses to end is logged
-the same way. The notice handed to the helper carries the engine's sentence
-and the program's name: its file name as it is now ("Game.exe"), the name
-the engine's own sentence uses. Tests: `orders::a_blocked_program_is_closed_in_its_own_session_only_every_copy_and_logged_once`,
+every ten minutes with a count; the line names the file, with the
+program's description after it in brackets when its file has one. A
+process Windows refuses to end is logged the same way. The notice handed to
+the helper carries the engine's sentence and the program's name, as a
+child knows it: the description its file carries ("Game Launcher"), with
+whitespace trimmed and each run of it made one space, control characters
+dropped, and cut to 60 characters with an ellipsis; or, when there is none
+(or nothing is left of it), its file name as it is now ("Game.exe"), the
+name the engine's own sentence uses. The engine's sentence, its facts and
+the family's records stay as they were: they never carry the description.
+Tests: `orders::a_blocked_program_is_closed_in_its_own_session_only_every_copy_and_logged_once`,
+`orders::a_closed_program_is_named_by_its_files_description_when_it_has_one`,
 `orders::limos_own_processes_and_the_parts_of_windows_are_never_closed`, and
-the unit tests in `src/close.rs`.
+the unit tests in `src/close.rs` and `src/programs.rs`.
 
 ## The fallback
 
@@ -405,8 +414,10 @@ do exactly this:
 Ways out go to the service only through the `Outbox` the display is made
 with (`ask_for_time`, `try_code`, `try_pin`); a typed PIN or code goes as a
 `Secret` and is not kept. The display never shows or keeps a window title,
-a file name or a web address; the service sends none, and the only program
-name it shows is the one a notice carries, of a program LiMo closed. The
+the name of a document or a web address; the service sends none, and the
+only program name it shows is the one a notice carries, of a program LiMo
+closed: the description in the program's own file, or else that file's
+name. The
 helper reads the class name of the window in front only to tell the desktop
 and the taskbar from a program in full screen, and sends none of it.
 
@@ -517,12 +528,12 @@ run out. The "warning shown" confirmation is sent as before, once the time
 left display is on the screen with the warning in its show. While a lock
 is up, neither is shown; a notice that comes meanwhile waits its time.
 
-**A program closed.** The notice says "Game.exe was closed." with "It is
-blocked by your family's rules." under it, as designed, from the name the
-service sends (`Notice::Blocked` in `limo-screens`). The design's sample
-says "Game Launcher", a program's own description; the service sends the
-file name, as the engine's sentence does. Without a name, the notice says
-"A program was closed." with the service's sentence under it.
+**A program closed.** The notice says "Game Launcher was closed." with "It
+is blocked by your family's rules." under it, as designed, from the name
+the service sends (`Notice::Blocked` in `limo-screens`): the program's own
+description, as in the design's sample, or its file name ("Game.exe was
+closed.") when its file carries none. Without a name, the notice says "A
+program was closed." with the service's sentence under it.
 
 ## The data folder, and what each account can see
 
@@ -553,7 +564,8 @@ stopping; each helper started (with what the launch did, and `gap_ms` when
 it replaced one that died; at most every 10 seconds for one session, with a
 count); what each helper says it got; a helper ended, closed and why, or
 not quitting; each lock confirmed; a launch step that failed; programs
-closed, spared or not closed, by file name only; ways out tried and their
+closed, spared or not closed, by file name (a close with the program's
+description after it, when its file has one); ways out tried and their
 outcome; the fallback disconnecting a session; the test cap; the engine's
 problems; a gap between two looks of more than 5 seconds, or the two clocks
 moving apart (a sleep, or a clock set); the phone notice; a helper that
@@ -573,10 +585,10 @@ object's access list, with the user's security identifier in it.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain` and `dev-code`); the never close list and paths; names from version resources, and the name a notice shows; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup` and `dev-code` on a real file, the code tried on the device it was made for | 31 |
+| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain` and `dev-code`); the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup` and `dev-code` on a real file, the code tried on the device it was made for | 32 |
 | `src/drawn/tests.rs` | The drawn display's decisions, with no window: Windows keys to the lock's keys, with the layout's text handed in; the modifiers and the keyboard state; text and points from Windows; the PC's clock from the time format; where the time left display starts, a drag kept on the screen, where a notice goes; pixels into a bitmap, and only a change saying so; the notices' turns; a way out sent once and only its own answer back to the same lock; an answer for a lock taken down, or one that waited too long, dropped; a PIN moved into its secret with nothing left behind; a reason typed with the layout's text, shortcuts typing nothing; keys reaching nothing but a lock; the same lock again keeping what the child did; the time left display and its notices only while the PC may be used, OK, and the notice by name; the lock drawn on the main monitor and the others; the service's answers as the lock's | 19 |
 | `src/win/*.rs` | Pure functions, and harmless reads of the test's own process only: the time zone offset; the clocks, and this account's own time format; session states and administrators; this process's own account; the order version resources are read in; this process's own entry, file and version resource (none); frames across a pipe inside this process; the three access lists and that they parse for this user; the command line a helper gets, with and without `--plain`; a log line; full screen; a helper run by hand doing nothing; what this process got | 19 |
-| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders and the fallback (below) | 35 |
+| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders and the fallback (below) | 36 |
 | `tests/house_rules.rs` | Unsafe code only in `src/win/`; no allow attributes; no dash punctuation | 3 |
 
 The stories: `facts.rs` (6): no fresh report counts as input just now; a
@@ -593,11 +605,15 @@ closing the channel and restarting the helper, none reaching the engine; a
 helper that stops reading; a way out belongs to its helper's session; a PIN
 or code never logged, kept or shown; one way out a second; a helper that
 shows the plain display, logged in plain words, one line, cut short; a way
-out from a session not a child's refused. `orders.rs` (6): a warning held
-until shown; held until its lock time; a blocked program closed in its own
-session only, every copy, logged once, its notice with the program's name;
-LiMo's own processes and the parts of Windows never
-closed; phones ignored and said once; problems logged once in a while.
+out from a session not a child's refused. `orders.rs` (7): a warning held
+until shown, its words the time actually left; held until its lock time; a
+blocked program closed in its own session only, every copy, logged once,
+its notice with the program's name; a closed program named by its file's
+description, or its file name when it has none, a long one cut and control
+characters dropped, the file still read once, and nothing of it in the
+facts or the family's records; LiMo's own processes and the parts of
+Windows never closed; phones ignored and said once; problems logged once in
+a while.
 `fallback.rs` (6): disconnected after 5 seconds unconfirmed; confirmed in
 time, left alone; a helper that dies must confirm again; only a lock in a
 session on the screen; the test cap; no cap, the lock stays.
@@ -632,10 +648,13 @@ as in the hub and the agent, so the slow password and PIN hashes stay quick.
   first draw at 3840 by 2160 takes longest); and that the pictures go on
   monitors of different scalings in the right places. [TESTING.md](TESTING.md),
   parts I to L, is where.
-- **The program's own description** ("Game Launcher" rather than
-  "Game.exe") would make the closed notice friendlier; the service would
-  read it from the file's version resource with the original name and the
-  maker.
+- **The plain display names no program.** It shows the engine's sentence,
+  which names the file ("gamelauncher.exe is blocked by your family's
+  rules, so LiMo closed it."); only the drawn notice shows the description.
+- **A description is the maker's word.** Whoever builds a program writes
+  its description, so a program can call itself anything there. It only
+  changes the name a notice shows to the child; what is blocked, counted
+  and recorded never comes from it.
 
 ## Dependencies and licences
 

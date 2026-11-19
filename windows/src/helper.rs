@@ -69,9 +69,10 @@ pub struct Shown {
 /// - **[`Display::input`]**, called on the same thread when the display's
 ///   own windows or keyboard hook say the child did something, takes it.
 ///
-/// It never shows or keeps a window title, a file name or a web address:
-/// the service sends none. The only program name it shows is the one a
-/// notice carries, of a program LiMo closed.
+/// It never shows or keeps a window title, the name of a document or a web
+/// address: the service sends none. The only program name it shows is the
+/// one a notice carries, of a program LiMo closed: the description in the
+/// program's own file, or else that file's name.
 pub trait Display {
     /// Puts up what the service orders now, and says what is on the screen.
     fn show(&mut self, now: &ShowNow<'_>) -> Shown;

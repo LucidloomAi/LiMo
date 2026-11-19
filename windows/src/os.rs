@@ -45,12 +45,20 @@ pub struct ProcessSeen {
 }
 
 /// What a program file's version resource says about it.
+///
+/// Each of these is a property of the program's file, written in by its
+/// maker and the same for every copy of the file. None of them is a window
+/// title, a document's name or a web address: LiMo reads none of those.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VersionNames {
     /// The original file name its maker recorded (`OriginalFilename`).
     pub original_name: Option<String>,
     /// Its maker (`CompanyName`).
     pub maker: Option<String>,
+    /// What the program is, in its maker's words (`FileDescription`), such
+    /// as "Game Launcher". Only the notice of a program closed shows it; the
+    /// engine's facts and the family's records never carry it.
+    pub description: Option<String>,
 }
 
 /// A helper the service started, as the service names it.

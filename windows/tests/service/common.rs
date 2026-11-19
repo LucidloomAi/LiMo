@@ -300,11 +300,22 @@ impl Pc {
         self.os().sessions.iter_mut().find(|s| s.session_id == session).unwrap().state = state;
     }
 
-    /// A program file, with what its version resource says.
+    /// A program file, with what its version resource says, and no
+    /// description.
     pub fn file(&mut self, path: &str, original: Option<&str>, maker: Option<&str>) {
         let os = self.os();
-        os.versions.insert(path.into(), VersionNames { original_name: original.map(Into::into), maker: maker.map(Into::into) });
+        let names = VersionNames { original_name: original.map(Into::into), maker: maker.map(Into::into), description: None };
+        os.versions.insert(path.into(), names);
         os.stamps.insert(path.into(), 1);
+    }
+
+    /// A program file, with what its version resource says, its description
+    /// among it.
+    pub fn described_file(&mut self, path: &str, original: Option<&str>, maker: Option<&str>, description: &str) {
+        self.file(path, original, maker);
+        if let Some(names) = self.os().versions.get_mut(path) {
+            names.description = Some(description.into());
+        }
     }
 
     /// Starts a program from `path` in `session`; its process id.

@@ -1,11 +1,11 @@
 //! The orders carried out: a warning held until it is shown, programs
 //! closed in their own session only and never the parts of Windows or
-//! LiMo's own, phones ignored and said once, problems logged once in a
-//! while.
+//! LiMo's own, a closed program named by its description, phones ignored
+//! and said once, problems logged once in a while.
 
-use limo_agent::{SessionState, Show, WarningShown};
+use limo_agent::{Program, SessionState, Show, WarningShown};
 use limo_core::DeviceKind;
-use limo_hub::AccountLink;
+use limo_hub::{AccountLink, EventKind};
 use limo_windows::os::ProcessSeen;
 use limo_windows::protocol::{FromHelper, ToHelper};
 
@@ -49,8 +49,9 @@ fn a_warning_is_held_until_the_helper_says_it_showed_it() {
     pc.step();
     pc.greet(1);
     let (seq, warning) = run_to_warning(&mut pc, 1);
-    // With 6 minutes a day, the first warning point reached is 15 minutes.
-    assert_eq!((warning.minutes, warning.message.as_str()), (15, "15 minutes of screen time left today."));
+    // With 6 minutes a day, the first warning point reached is 15 minutes,
+    // and its words say the 6 minutes there are.
+    assert_eq!((warning.minutes, warning.message.as_str()), (15, "6 minutes of screen time left today."));
     // The engine gave it in one call; every show after it carries it still.
     pc.run(10);
     let after: Vec<_> = warnings_shown(&mut pc, 1).into_iter().filter(|(s, _)| *s > seq).collect();
@@ -131,6 +132,105 @@ fn a_blocked_program_is_closed_in_its_own_session_only_every_copy_and_logged_onc
     }
     assert_eq!(pc.os().ended.len(), 12);
     assert_eq!(pc.logged("Closed blocks.exe in session 1").len(), 1);
+}
+
+/// Every notice the helpers of a session got, in order: the sentence and
+/// the name shown.
+fn notices(pc: &mut Pc, session: u32) -> Vec<(String, Option<String>)> {
+    let mut out = Vec::new();
+    for helper in pc.os().helpers.iter().filter(|h| h.session == session) {
+        for message in &helper.got {
+            if let ToHelper::Notice { text, program } = message {
+                out.push((text.clone(), program.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// Starts the program at `path` in session 1, where it is blocked: the
+/// notice of its close.
+fn closed_as(pc: &mut Pc, path: &str) -> (String, Option<String>) {
+    let before = notices(pc, 1).len();
+    let ended = pc.os().ended.len();
+    pc.start(1, path);
+    pc.run(1);
+    assert_eq!(pc.os().ended.len(), ended + 1, "{path} was not closed");
+    let after = notices(pc, 1);
+    assert_eq!(after.len(), before + 1, "{after:?}");
+    after.last().cloned().unwrap_or_default()
+}
+
+#[test]
+fn a_closed_program_is_named_by_its_files_description_when_it_has_one() {
+    const LAUNCHER: &str = r"C:\Games\Launcher\gamelauncher.exe";
+    const MAZE: &str = r"C:\Games\Maze\maze.exe";
+    const NOISY: &str = r"C:\Games\Noisy\noisy.exe";
+    const BLANK: &str = r"C:\Games\Blank\blank.exe";
+    const PAINT: &str = r"C:\Apps\Paint\paint.exe";
+    let mut pc = Pc::new(at(16, 0));
+    let asha = pc.add_child("Asha", ASHA, 60);
+    pc.change_rules(&asha, |rules| {
+        rules.blocked_apps = ["GameLauncher.exe", "blocks.exe", "maze.exe", "noisy.exe", "blank.exe"].map(String::from).to_vec();
+    });
+    pc.login(1, ASHA, "asha");
+    pc.described_file(LAUNCHER, Some("GameLauncher.exe"), Some("Some Studio"), "Game Launcher");
+    pc.file(GAME, Some("Blocks.exe"), Some("Blocks Ltd"));
+    let long = format!("The Amazing Maze of {}and More", "Endless ".repeat(20));
+    pc.described_file(MAZE, None, None, &long);
+    pc.described_file(NOISY, None, None, "\u{7}Noisy\u{0}\r\n\tGame\u{1b}  Pro ");
+    pc.described_file(BLANK, None, None, " \u{0}\t\u{7} ");
+    // A program that is not blocked, with a description, runs all along.
+    pc.described_file(PAINT, Some("Paint.exe"), Some("Paint Ltd"), "Paint Studio");
+    pc.start(1, PAINT);
+    pc.step();
+    pc.greet(1);
+    pc.run(2);
+
+    // With a description: the notice shows it. The engine's sentence, and
+    // everything else, still name the file.
+    let reason = |file: &str| format!("{file} is blocked by your family's rules, so LiMo closed it.");
+    assert_eq!(closed_as(&mut pc, LAUNCHER), (reason("gamelauncher.exe"), Some("Game Launcher".to_string())));
+    let line = "Closed gamelauncher.exe (\"Game Launcher\") in session 1 (1 running copy): gamelauncher.exe is blocked";
+    assert_eq!(pc.logged(line).len(), 1, "{:?}", pc.os().log);
+    // Without one: the file name, as before, and the log line as before.
+    assert_eq!(closed_as(&mut pc, GAME), (reason("blocks.exe"), Some("blocks.exe".to_string())));
+    assert_eq!(pc.logged("Closed blocks.exe in session 1 (1 running copy): blocks.exe is blocked").len(), 1);
+    // A long one: cut to sixty characters, the last an ellipsis.
+    let (_, shown) = closed_as(&mut pc, MAZE);
+    let shown = shown.unwrap_or_default();
+    assert_eq!(shown, format!("The Amazing Maze of {}\u{2026}", ["Endless"; 5].join(" ")));
+    assert_eq!(shown.chars().count(), 60);
+    // Control characters dropped, whitespace trimmed and made single spaces.
+    assert_eq!(closed_as(&mut pc, NOISY).1.as_deref(), Some("Noisy Game Pro"));
+    // Nothing left of it: the file name.
+    assert_eq!(closed_as(&mut pc, BLANK).1.as_deref(), Some("blank.exe"));
+
+    // The file is read once, however often the program is started and
+    // closed; written again (an update), it is read again, and its new
+    // description shown.
+    for _ in 0..3 {
+        assert_eq!(closed_as(&mut pc, LAUNCHER).1.as_deref(), Some("Game Launcher"));
+    }
+    let reads = |pc: &mut Pc, path: &str| pc.os().version_reads.iter().filter(|p| p.as_str() == path).count();
+    assert_eq!(reads(&mut pc, LAUNCHER), 1);
+    assert_eq!(reads(&mut pc, PAINT), 1);
+    pc.os().stamps.insert(LAUNCHER.into(), 2);
+    pc.os().versions.get_mut(LAUNCHER).unwrap().description = Some("Game Launcher 2".into());
+    assert_eq!(closed_as(&mut pc, LAUNCHER).1.as_deref(), Some("Game Launcher 2"));
+    assert_eq!(reads(&mut pc, LAUNCHER), 2);
+
+    // The engine's facts are the program alone, as before: no description
+    // reaches them, nor the family's records.
+    pc.run(2);
+    let paint = Program { file_name: "paint.exe".into(), original_name: Some("Paint.exe".into()), maker: Some("Paint Ltd".into()) };
+    assert_eq!(pc.facts_of(1).unwrap().running, vec![paint]);
+    let facts = format!("{:?}", pc.service.last_facts());
+    assert!(!facts.contains("Paint Studio") && !facts.contains("Game Launcher"), "{facts}");
+    let events = pc.hub().events(500, None).unwrap();
+    assert!(events.iter().any(|e| matches!(&e.what, EventKind::BlockedProgramClosed { program, .. } if program == "gamelauncher.exe")));
+    let events = format!("{events:?}");
+    assert!(!events.contains("Game Launcher") && !events.contains("Amazing") && !events.contains("Noisy Game"), "{events}");
 }
 
 #[test]

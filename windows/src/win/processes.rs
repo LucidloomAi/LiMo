@@ -178,8 +178,13 @@ fn translations(data: &[u32]) -> Vec<(u16, u16)> {
     }
 }
 
-/// What a program file's version resource says: its original file name and
-/// its maker. Nothing, when it has none.
+/// What a program file's version resource says: its original file name, its
+/// maker and its description. Nothing, when it has none.
+///
+/// These are read from the program's file, as its maker wrote them into it,
+/// and are the same for every copy of the file. Nothing here reads, or could
+/// read, a window's title, a document's name or a web address: the version
+/// resource holds none of them, and nothing else of the file is read.
 pub(crate) fn version_names(path: &str) -> VersionNames {
     let file = wide(path);
     // SAFETY: the size call reads the path; the data call writes at most
@@ -197,8 +202,9 @@ pub(crate) fn version_names(path: &str) -> VersionNames {
         for (language, code_page) in translation_order(&translations(&data)) {
             let original_name = query_string(&data, &string_query(language, code_page, "OriginalFilename"));
             let maker = query_string(&data, &string_query(language, code_page, "CompanyName"));
-            if original_name.is_some() || maker.is_some() {
-                return VersionNames { original_name, maker };
+            let description = query_string(&data, &string_query(language, code_page, "FileDescription"));
+            if original_name.is_some() || maker.is_some() || description.is_some() {
+                return VersionNames { original_name, maker, description };
             }
         }
         VersionNames::default()
@@ -248,6 +254,7 @@ mod tests {
         );
         assert_eq!(translation_order(&[]).len(), 4);
         assert_eq!(string_query(0x0409, 0x04B0, "OriginalFilename"), "\\StringFileInfo\\040904b0\\OriginalFilename");
+        assert_eq!(string_query(0x0809, 0x04E4, "FileDescription"), "\\StringFileInfo\\080904e4\\FileDescription");
     }
 
     /// Reads this test process's own entry: its session, start, path and

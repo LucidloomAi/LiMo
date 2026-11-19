@@ -27,7 +27,9 @@
 //!
 //! What LiMo records stays as the engine allows: which program, and for how
 //! long. Nothing here reads, keeps, sends or logs a window title, a file
-//! being edited or a web address.
+//! being edited or a web address. A program's description, from its own
+//! file's version resource, names it in the notice that it was closed, and
+//! goes nowhere else but the log.
 
 #![warn(missing_docs)]
 

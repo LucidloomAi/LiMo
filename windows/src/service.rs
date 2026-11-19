@@ -863,7 +863,9 @@ impl<O: Os> Service<O> {
     }
 
     /// Closes every running copy of each program in `closes`, in `session`
-    /// only, then tells the session's helper why.
+    /// only, then tells the session's helper why. The notice names the
+    /// program by its description when its file has one ("Game Launcher"),
+    /// by its file name otherwise; the engine's sentence is left as it is.
     fn close(&mut self, session: u32, closes: &[CloseOrder], now: u64) {
         if session == 0 {
             return;
@@ -873,11 +875,14 @@ impl<O: Os> Service<O> {
             let candidates: Vec<ProcessSeen> =
                 self.processes.iter().filter(|p| p.session_id == session && p.session_id != 0).cloned().collect();
             let mut closed = 0;
+            // The description of the first copy closed whose file has one.
+            let mut description: Option<String> = None;
             for process in candidates {
                 if self.is_own(&process) {
                     continue;
                 }
-                if self.programs.program(&mut self.os, &process) != order.program {
+                let known = self.programs.known(&mut self.os, &process);
+                if known.program != order.program {
                     continue;
                 }
                 if process.path.is_empty() {
@@ -897,7 +902,12 @@ impl<O: Os> Service<O> {
                     continue;
                 }
                 match self.os.end_process(&process) {
-                    Ok(()) => closed += 1,
+                    Ok(()) => {
+                        closed += 1;
+                        if description.is_none() {
+                            description = known.description;
+                        }
+                    }
                     Err(problem) => {
                         let text = format!("LiMo could not close {name} (pid {}) in session {session}: {problem}", process.pid);
                         self.log_quiet(&format!("cannot-close/{session}/{name}"), &text, now);
@@ -906,11 +916,13 @@ impl<O: Os> Service<O> {
             }
             if closed > 0 {
                 let copies = if closed == 1 { "1 running copy".to_string() } else { format!("{closed} running copies") };
-                let text = format!("Closed {name} in session {session} ({copies}): {}", order.reason);
+                let described = description.as_deref().map(|d| format!(" (\"{d}\")")).unwrap_or_default();
+                let text = format!("Closed {name}{described} in session {session} ({copies}): {}", order.reason);
                 self.log_quiet(&format!("closed/{session}/{}", order.program.app_id()), &text, now);
                 // Handed to the helper with what to show, or as soon as one
                 // runs, with the program's name beside the sentence.
-                let waiting = Waiting { text: order.reason.clone(), program: shown_name(&order.program) };
+                let waiting =
+                    Waiting { text: order.reason.clone(), program: shown_name(&order.program, description.as_deref()) };
                 if let Some(keep) = self.keeps.get_mut(&session)
                     && !keep.notices.contains(&waiting)
                 {
