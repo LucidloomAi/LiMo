@@ -1,0 +1,40 @@
+[package]
+name = "limo-phone"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+description = "LiMo phone engine: what happens, second by second, on a child's Android phone"
+publish = false
+
+[lib]
+name = "limo_phone"
+
+[dependencies]
+# The rules core: every decision, and the device side of the shared budget.
+limo-core = { path = "../../core" }
+# The facts, the orders and the phone's kept state are plain data. The core
+# already brings serde; the kept state is written as JSON with serde_json, as
+# the hub writes the books.
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[dev-dependencies]
+# The family's file on the master PC: the tests play a fake phone against a
+# real hub.
+limo-hub = { path = "../../hub" }
+# Real files in temporary folders, for the hub.
+tempfile = "3.27.0"
+
+# The guardian PIN is hashed slowly on purpose. Optimised dependencies in
+# debug and test builds (the core, the hub, SQLite and the hashing crates)
+# keep it as fast as it is in the product; this crate gets a little
+# optimisation for the long simulated days. Overflow checks stay on.
+[profile.dev]
+opt-level = 1
+[profile.test]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test.package."*"]
+opt-level = 3
