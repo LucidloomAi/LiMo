@@ -11,6 +11,8 @@
     "build:child": "node scripts/build.mjs child",
     "build:guardian": "node scripts/build.mjs guardian",
     "build:both": "node scripts/build.mjs child guardian",
+    "build:engine": "node scripts/build-engine.mjs android",
+    "test:child": "node scripts/test-child.mjs",
     "inspect": "node scripts/inspect.mjs"
   },
   "dependencies": {

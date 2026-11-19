@@ -1,0 +1,75 @@
+[package]
+name = "limo-phone-ffi"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+description = "LiMo phone bridge: the phone's engine and its side of the link, for Kotlin through UniFFI"
+publish = false
+
+[lib]
+name = "limo_phone_ffi"
+# "cdylib" is the shared library the child form of the app loads on the
+# phone (and the one the JVM tests load on the PC). "lib" is the ordinary
+# Rust library the tests in this crate use.
+crate-type = ["lib", "cdylib"]
+
+# UniFFI's own bindings generator, built only when asked for, so that the
+# Android library build never compiles the generator and its command line
+# parser. The build script in phone/app/scripts runs it.
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+# The bindings generator above.
+bindgen = ["uniffi/cli", "uniffi/cargo-metadata"]
+# A family played over a temporary family file, for tests on the PC only:
+# the Rust tests here and the JVM tests of the app's child module. Never
+# part of the library on a phone; the build script refuses a phone library
+# that holds it, and `npm run inspect` looks for it in both built apps.
+testkit = ["limo-link/dev"]
+
+[dependencies]
+# The phone's engine: every decision, every word, the kept state.
+limo-phone = { path = "../engine" }
+# The phone's side of the link to the master PC.
+limo-link = { path = "../../link" }
+# The report and the grant, which cross as JSON bytes.
+limo-core = { path = "../../core" }
+# Default features off: no cargo_metadata and friends in the phone library.
+uniffi = { version = "0.32.2", default-features = false }
+# The report, the grant, the notes and the view as JSON, as the other crates
+# write them.
+serde = "1.0.229"
+serde_json = "1.0.154"
+# This layer's own copies of a typed PIN or code, the code secret and the
+# kept pairing are wiped when dropped.
+zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+# The tests use the testkit.
+limo-phone-ffi = { path = ".", features = ["testkit"] }
+# Temporary folders for the testkit's family file.
+tempfile = "3.27.0"
+
+# The guardian PIN and the family password are hashed slowly on purpose, and
+# the testkit's family file is SQLite: dependencies are built optimised in
+# debug and test builds, so the tests (and the JVM tests, which load the
+# debug library) take seconds. Overflow checks stay on.
+[profile.dev]
+opt-level = 1
+[profile.test]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test.package."*"]
+opt-level = 3
+
+# The phone library: smaller, and a slower build. Panics unwind, so that a
+# panic in Rust reaches Kotlin as an exception instead of ending the app.
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"

@@ -4,16 +4,37 @@ plugins {
 }
 
 // The child form's own Android code. Only the child form links this module;
-// the guardian form leaves it out (plugins/with-limo-form.js).
+// the guardian form leaves it out (plugins/with-limo-form.js), so nothing
+// below ever runs in its build.
 
 group = 'ai.lucidloom.limo'
 version = '0.1.0'
+
+// The Rust bridge (phone/ffi: the engine and the phone's side of the link)
+// and its UniFFI Kotlin bindings, made by scripts/build-engine.mjs into
+// src/generated (git ignored):
+//   src/generated/kotlin       the bindings, package ai.lucidloom.limo.child.ffi
+//   src/generated/jniLibs      liblimo_phone_ffi.so for each ABI
+//   src/generated/test-kotlin  for the JVM tests only: a second copy of the
+//                              bindings, with the testkit, package ...ffi.testkit
+//   src/generated/test-native  for the JVM tests only: the library for this PC
+def appDir = file('../../..')
+def repoDir = file('../../../../..')
+def ffiDir = new File(repoDir, 'phone/ffi')
+def engineScript = new File(appDir, 'scripts/build-engine.mjs')
+def generatedDir = file('src/generated')
 
 android {
   // The code lives in ai.lucidloom.limo.child.<folder>. The namespace, which
   // only names this module's R class, has to differ from the child app's
   // package (ai.lucidloom.limo.child), or the two R classes would clash.
   namespace 'ai.lucidloom.limo.child.module'
+  // The NDK React Native asks for (the app's own), so that this module's
+  // copy of the Rust library is stripped with it, as the app's is. Without
+  // it the plugin looks for its own default NDK, which is not installed.
+  if (rootProject.ext.has('ndkVersion')) {
+    ndkVersion rootProject.ext.get('ndkVersion')
+  }
   defaultConfig {
     versionCode 1
     versionName '0.1.0'
@@ -27,6 +48,75 @@ android {
       // Written by scripts/make-design.mjs from design/tokens.json, git ignored:
       // the Paper and Ink colours and sizes as Android resources.
       res.srcDirs += 'src/generated/res'
+      // Written by scripts/build-engine.mjs: the bindings and the library.
+      java.srcDirs += 'src/generated/kotlin'
+      jniLibs.srcDirs += 'src/generated/jniLibs'
     }
+    test {
+      java.srcDirs += 'src/generated/test-kotlin'
+    }
+  }
+  testOptions {
+    unitTests.all { test ->
+      // JNA loads the library for this PC from here.
+      test.systemProperty 'jna.library.path', new File(generatedDir, 'test-native').absolutePath
+    }
+  }
+}
+
+dependencies {
+  // The UniFFI Kotlin bindings call Rust through JNA. The aar carries JNA's
+  // own native library, libjnidispatch.so, for each ABI.
+  implementation 'net.java.dev.jna:jna:5.19.1@aar'
+  // The JVM tests: the jar carries JNA's library for this PC.
+  testImplementation 'net.java.dev.jna:jna:5.19.1'
+  testImplementation 'junit:junit:4.13.2'
+}
+
+// Everything the Rust library is made from, so that Gradle skips the build
+// when none of it changed.
+def rustInputs = { task, List<String> crates ->
+  crates.each { rel ->
+    def crate = new File(repoDir, rel)
+    task.inputs.dir(new File(crate, 'src')).withPropertyName("${rel}/src")
+    task.inputs.file(new File(crate, 'Cargo.toml')).withPropertyName("${rel}/Cargo.toml")
+  }
+  task.inputs.files(
+    new File(ffiDir, 'Cargo.lock'),
+    new File(ffiDir, 'uniffi.toml'),
+    new File(ffiDir, 'uniffi-bindgen.rs'),
+    engineScript
+  ).withPropertyName('ffi')
+}
+
+// The library for the phone and its bindings, before anything in this
+// module is compiled. The ABIs follow the app's reactNativeArchitectures,
+// so the Rust library and React Native always cover the same ABIs.
+def abis = (findProperty('reactNativeArchitectures') ?: 'arm64-v8a').toString()
+def buildRustEngine = tasks.register('buildRustEngine', Exec) {
+  group = 'build'
+  description = 'Builds the Rust bridge for Android and generates its Kotlin bindings.'
+  rustInputs(it, ['phone/ffi', 'phone/engine', 'core', 'link'])
+  inputs.property('abis', abis)
+  outputs.dir(new File(generatedDir, 'kotlin'))
+  outputs.dir(new File(generatedDir, 'jniLibs'))
+  environment 'LIMO_ABIS', abis
+  commandLine 'node', engineScript.absolutePath, 'android'
+}
+tasks.named('preBuild') { dependsOn buildRustEngine }
+
+// The library for this PC, with the testkit, and its bindings: for the JVM
+// tests only. Nothing that goes into the APK depends on it.
+def buildRustEngineForTests = tasks.register('buildRustEngineForTests', Exec) {
+  group = 'verification'
+  description = 'Builds the Rust bridge for this PC, with the testkit, for the JVM tests.'
+  rustInputs(it, ['phone/ffi', 'phone/engine', 'core', 'link', 'hub'])
+  outputs.dir(new File(generatedDir, 'test-kotlin'))
+  outputs.dir(new File(generatedDir, 'test-native'))
+  commandLine 'node', engineScript.absolutePath, 'host'
+}
+tasks.configureEach { t ->
+  if (t.name ==~ /compile.*UnitTest.*/ || t instanceof Test) {
+    t.dependsOn buildRustEngineForTests
   }
 }

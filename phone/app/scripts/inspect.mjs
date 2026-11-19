@@ -18,9 +18,16 @@
 // build PC's user name, home folder and repository folder appear nowhere in
 // the APK's files.
 // For the child form: every stub component is there with its guard, and the
-// development receiver is not (it is in debug builds only). For the guardian
-// form: no accessibility service, no device admin receiver, no usage access,
-// no foreground service, and nothing of the child module at all.
+// development receiver is not (it is in debug builds only); the Rust bridge
+// (liblimo_phone_ffi.so) is there for every ABI the APK names, with JNA's
+// library and the bindings in the dex. For the guardian form: no
+// accessibility service, no device admin receiver, no usage access, no
+// foreground service, and nothing of the child module at all: no Rust
+// bridge, no JNA, no bindings.
+// For both: nothing of the testkit (the Rust feature that plays the master
+// PC in the JVM tests) in any native library or dex file. The same check is
+// run once on the library built for the JVM tests, which has the testkit,
+// to show that it finds it.
 //
 // Exit code 0 when every check passes, 1 when one fails, 2 when there is
 // nothing to inspect or a tool is missing.
@@ -31,6 +38,8 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+
+import { testkitProblems } from './build-engine.mjs';
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = path.join(appDir, 'out');
@@ -210,6 +219,13 @@ const STUBS = [
   ['receiver', `${CHILD}.keep.AlarmReceiver`, undefined],
   ['receiver', `${CHILD}.keep.AdminReceiver`, 'android.permission.BIND_DEVICE_ADMIN'],
 ];
+// The Rust bridge (phone/ffi) and what comes with it.
+const BRIDGE = 'liblimo_phone_ffi.so';
+const BRIDGE_EXPORT = Buffer.from('uniffi_limo_phone_ffi_fn_method_phoneengine_tick');
+const BINDINGS_CLASS = Buffer.from('Lai/lucidloom/limo/child/ffi/PhoneEngine;');
+const BINDINGS_PACKAGE = Buffer.from('Lai/lucidloom/limo/child/ffi/');
+const TESTKIT_CLASSES = [Buffer.from('Lai/lucidloom/limo/child/ffi/testkit/'), Buffer.from('TestFamily')];
+
 const CHILD_PERMISSIONS = [
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
@@ -296,6 +312,35 @@ function inspect(form, file, tools) {
   const devClass = Buffer.from('Lai/lucidloom/limo/child/dev/DevReceiver;');
   check(!dex.some((e) => e.bytes().includes(devClass)), 'the development receiver is not compiled in');
 
+  // The Rust bridge: in the child form only, and never with the testkit.
+  const libs = entries.filter((e) => e.name.startsWith('lib/') && e.name.endsWith('.so'));
+  const bridges = libs.filter((e) => path.posix.basename(e.name) === BRIDGE);
+  const abis = [...(pick(/native-code: (.*)/) ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  const inDexAny = (needle) => dex.some((e) => e.bytes().includes(needle));
+  if (form === 'child') {
+    check(abis.length > 0, `names its ABIs (${abis.join(', ') || 'none'})`);
+    for (const abi of abis) {
+      const lib = bridges.find((e) => e.name === `lib/${abi}/${BRIDGE}`);
+      check(Boolean(lib), `holds the Rust bridge for ${abi} (lib/${abi}/${BRIDGE}${lib ? `, ${lib.size} bytes` : ''})`);
+      check(libs.some((e) => e.name === `lib/${abi}/libjnidispatch.so`), `holds JNA's library for ${abi} (libjnidispatch.so)`);
+    }
+    check(
+      bridges.length > 0 && bridges.every((e) => e.bytes().includes(BRIDGE_EXPORT)),
+      'the Rust bridge exports the engine (PhoneEngine.tick)',
+    );
+    check(inDexAny(BINDINGS_CLASS), 'the bindings are compiled in (PhoneEngine in the dex)');
+  } else {
+    check(bridges.length === 0, `has no Rust bridge (no ${BRIDGE})`);
+    check(!libs.some((e) => e.name.endsWith('/libjnidispatch.so')), 'has no JNA library (no libjnidispatch.so)');
+    check(!inDexAny(BINDINGS_PACKAGE), 'has no bindings (nothing of ai.lucidloom.limo.child.ffi in the dex)');
+  }
+  const testkitIn = libs.filter((e) => testkitProblems(e.bytes()).length > 0).map((e) => e.name);
+  check(
+    testkitIn.length === 0,
+    `no native library holds the testkit or SQLite${testkitIn.length ? ` (found in ${testkitIn.join(', ')})` : ''}`,
+  );
+  check(!TESTKIT_CLASSES.some(inDexAny), 'no testkit class in the dex (no ...ffi.testkit, no TestFamily)');
+
   const user = os.userInfo().username;
   const home = os.homedir();
   const repo = path.resolve(appDir, '..', '..');
@@ -343,6 +388,18 @@ for (const form of ['child', 'guardian']) {
 if (!found) {
   console.error('\ninspect: nothing to inspect. Build first: npm run build:both');
   process.exit(2);
+}
+
+// The control: the library built for the JVM tests has the testkit, so the
+// check above must find it there. Shown when that library has been built
+// (npm run test:child).
+const testNative = path.join(appDir, 'modules', 'limo-child', 'android', 'src', 'generated', 'test-native');
+if (fs.existsSync(testNative)) {
+  for (const name of fs.readdirSync(testNative)) {
+    const seen = testkitProblems(fs.readFileSync(path.join(testNative, name)));
+    console.log(`\ncontrol: the testkit check on the JVM tests' library ${name}: ${seen.length ? seen.join('; ') : 'FOUND NOTHING'}`);
+    if (seen.length === 0) allPass = false;
+  }
 }
 console.log(`\ninspect: ${allPass ? 'every check passed' : 'a check FAILED'}`);
 process.exit(allPass ? 0 : 1);

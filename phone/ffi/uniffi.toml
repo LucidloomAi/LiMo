@@ -1,0 +1,6 @@
+[bindings.kotlin]
+# The package of the generated Kotlin file, in the child module's own
+# namespace. The library it loads stays limo_phone_ffi, named after the
+# crate. The JVM tests generate a second copy for the testkit in
+# ai.lucidloom.limo.child.ffi.testkit (phone/app/scripts/build-engine.mjs).
+package_name = "ai.lucidloom.limo.child.ffi"

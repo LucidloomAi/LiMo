@@ -13,11 +13,12 @@ The theme comes from the design, the three fonts and the icon set are in,
 and each form shows one plain start screen in Paper and Ink that says which
 form it is and that setup is not built yet.
 
-**What it is not.** It counts nothing, covers nothing and limits nothing. It
-has no Rust engine yet, no link to the master PC and no setup. It holds no
-permission to open a network socket. It has been built and its files
-inspected on the development PC only: nothing here has run on a phone or an
-emulator.
+**What it is not.** It counts nothing, covers nothing and limits nothing.
+The child form carries the Rust engine and the phone's side of the link
+(see [The Rust engine](#the-rust-engine)), but nothing calls them yet; it
+has no link to the master PC and no setup. It holds no permission to open a
+network socket. It has been built and its files inspected on the
+development PC only: nothing here has run on a phone or an emulator.
 
 ## Contents
 
@@ -25,6 +26,7 @@ emulator.
 - [The two forms](#the-two-forms)
 - [Layout](#layout)
 - [The child module](#the-child-module)
+- [The Rust engine](#the-rust-engine)
 - [Permissions](#permissions)
 - [Nothing leaves the phone](#nothing-leaves-the-phone)
 - [The design in the app](#the-design-in-the-app)
@@ -53,7 +55,11 @@ npm run build:guardian     # out/limo-guardian-release.apk
 npm run build:both         # both, one after the other
 npm run inspect            # looks inside both and checks them
 npm run typecheck
+npm run test:child         # the child module's JVM tests: the Rust engine from Kotlin
 ```
+
+The child form's build also needs Rust with the `aarch64-linux-android`
+target: see [The Rust engine](#the-rust-engine).
 
 `npm ci` also runs `scripts/make-design.mjs` (see [Scripts](#scripts)). A
 build makes `android/` again from nothing for the form it builds, with
@@ -123,7 +129,8 @@ modules/limo-child/       the child module (a local Expo module)
     host/   watch/   show/   keep/   link/   strict/
   android/src/main/res/   the accessibility and admin settings, words, a theme
   android/src/debug/      the development receiver (folder dev/), debug builds only
-  android/src/generated/  written by scripts/make-design.mjs, git ignored
+  android/src/test/       the JVM tests of the Rust engine from Kotlin
+  android/src/generated/  written by scripts/make-design.mjs and scripts/build-engine.mjs, git ignored
 plugins/
   with-limo-android.js    Gradle settings, theme, backups, launcher icon, debug manifests
   with-limo-form.js       what differs between the forms
@@ -175,6 +182,51 @@ Settings say what this build does: nothing yet.
 `LimoChildModule` answers one request, `about`, so the start screen can show
 that the module is linked; any other name is refused with the code
 `UnknownRequest`.
+
+## The Rust engine
+
+The child form carries the phone's Rust: the engine and the phone's side of
+the link, through the bridge crate [`../ffi`](../ffi/) (`limo-phone-ffi`)
+and the Kotlin bindings UniFFI generates for it, which call it through JNA.
+Its README says what crosses and in which shape. Nothing calls it yet: the
+engine host (a later piece) will, from Kotlin, never from JavaScript.
+
+**The build step.** The child module's Gradle task `buildRustEngine` runs
+`scripts/build-engine.mjs android` before the module is compiled, so
+`npm run build:child` gives an APK with the library inside. It builds
+`liblimo_phone_ffi.so` for each ABI of `reactNativeArchitectures` (now
+`arm64-v8a`) with the NDK's clang, refuses a library that holds the
+testkit, SQLite or a path of the build PC, and generates the bindings from
+it, into the module's git ignored `src/generated/` (`jniLibs/` and
+`kotlin/`, package `ai.lucidloom.limo.child.ffi`). Gradle skips it when no
+Rust source changed. `npm run build:engine` runs the same step by itself.
+The guardian form leaves the module out of autolinking, so its build never
+runs the step and its APK gains nothing: no library, no JNA, no bindings.
+
+Needs, once per PC: Rust (1.91 or later, for UniFFI's generator) and
+`rustup target add aarch64-linux-android`. The first build of UniFFI's
+generator takes about two and a half minutes; after that a Rust change costs
+seconds.
+
+**The JVM tests.** `npm run test:child` makes `android/` for the child form
+if it is not already, and runs `gradlew :limo-child:testReleaseUnitTest`.
+Before the tests, the task `buildRustEngineForTests` runs
+`scripts/build-engine.mjs host`: the same crate for this PC, with the
+testkit (a family on the master PC, played over a temporary file), and a
+second copy of the bindings for the testkit only, in `src/generated/`
+(`test-native/` and `test-kotlin/`). The tests, in
+`modules/limo-child/android/src/test/java/ai/lucidloom/limo/child/ffi/`,
+drive the real engine and the real link from Kotlin through the bindings
+that ship, with the PC library loaded by JNA: a short day from a made up
+welcome to a right code and a reload, and a pairing and a session over the
+link. Nothing in the APK depends on this step.
+
+**What `npm run inspect` adds.** The child form must hold
+`lib/<abi>/liblimo_phone_ffi.so` for every ABI it names, exporting the
+engine, with `libjnidispatch.so` and the bindings in the dex; the guardian
+form must hold none of the three; and neither may hold the testkit in any
+native library or dex file. The same testkit check runs once on the PC
+library of the JVM tests, which has the testkit, to show that it finds it.
 
 ## Permissions
 
@@ -311,6 +363,8 @@ as a Gradle task instead, as proof three did it.
 | `icons.mjs` | | paints the icons with `clay.js`; used by `make-design` and the launcher icon |
 | `vector-drawable.mjs` | | one painted icon as an Android vector drawable |
 | `build.mjs` | `build:child`, `build:guardian`, `build:both` | prebuild and a release build of a form, into `out/` |
+| `build-engine.mjs` | `build:engine` | the Rust bridge and its bindings, for the phone (run by the child module's Gradle build) or for the JVM tests on this PC |
+| `test-child.mjs` | `test:child` | the child module's JVM tests |
 | `inspect.mjs` | `inspect` | looks inside `out/*.apk` and checks them |
 | `newer-ninja.gradle` | | from proof three: a ninja that copes with long Windows paths, now reaching the app's own C++ build too |
 | `no-build-paths.gradle` | | keeps the build PC's folders out of the C and C++ libraries |
@@ -338,18 +392,27 @@ build tools 36.0.0, 19 Nov 2026:
 - The 44 icons as vector drawables, turned back into SVG and laid beside the
   design's own SVG at 96 and 24: the same.
 
+With the Rust engine in the child form (the same day, later):
+`npm run build:both` took Gradle 193 s for the child form (the Rust step 17
+s of it, after a Rust change) and 134 s for the guardian form;
+`npm run test:child` ran its 7 JVM tests, all passing; `npm run inspect`
+passed every check, the new ones among them; `npm run typecheck` had no
+errors.
+
 | | Child form | Guardian form |
 | --- | --- | --- |
-| APK | 28,441,712 bytes (27.1 MiB) | 28,210,427 bytes (26.9 MiB) |
-| Native libraries (React Native, Hermes, Expo, the codegen of svg and safe area) | 16,926,528 | 16,926,528 |
-| Dex files | 7,428,005 | 7,422,229 |
+| APK | 30,203,195 bytes (28.8 MiB) | 28,213,203 bytes (26.9 MiB) |
+| Native libraries (React Native, Hermes, Expo, the codegen of svg and safe area) | 18,457,552 | 16,926,528 |
+| of which the Rust bridge (`liblimo_phone_ffi.so`) and JNA (`libjnidispatch.so`) | 1,365,032 and 165,992 | none |
+| Dex files | 7,601,426 | 7,422,229 |
 | Fonts (three files, compressed) | 426,456 | 426,456 |
-| Other resources (the icon drawables, React Native's own, `resources.arsc`) | 1,793,805 | 1,596,133 |
-| JavaScript bundle (Hermes bytecode) | 1,397,924 | 1,397,924 |
+| Other resources (the icon drawables, React Native's own, `resources.arsc`) | 1,801,916 | 1,596,133 |
+| JavaScript bundle (Hermes bytecode) | 1,400,700 | 1,400,700 |
 
-The child module itself costs about 230 KB (its classes and the 63 icon
-drawables). Nearly all of the rest is React Native and Expo, as in proof
-three.
+The child module itself costs about 230 KB (its classes and the icon
+drawables), and the Rust engine about 1.7 MB more (the library, JNA, and
+JNA's classes with the bindings in the dex). Nearly all of the rest is
+React Native and Expo, as in proof three.
 
 **What the inspection found on the way.** The first build's codegen
 libraries for react-native-svg and react-native-safe-area-context held the
@@ -357,8 +420,8 @@ path of a React Native header in the Gradle cache, under the user's home
 folder: a `__FILE__` in that header. `scripts/no-build-paths.gradle` now
 compiles every C and C++ file with `-ffile-prefix-map` for the repository,
 Gradle's folder and the home folder, and the check passes. The Rust library
-of a later piece needs the same (`--remap-path-prefix`), as proof six found
-for its exe.
+does the same with `--remap-path-prefix` (`scripts/build-engine.mjs`), as
+proof six found for its exe, and the check passes for it too.
 
 Not checked, because it needs a phone: that the start screens look right
 and clear the system bars, that Android picks each font weight and optical
@@ -407,6 +470,8 @@ What ships in the APK:
 | expo-asset, expo-constants, expo-file-system, expo-font, expo-keep-awake, @expo/dom-webview, @expo/log-box | 57.0.x | MIT | linked by `expo` itself; only expo-constants is used |
 | react-native-svg | 15.15.4 | MIT | the icons |
 | react-native-safe-area-context | 5.7.0 | MIT | the insets |
+| LiMo's Rust bridge (`../ffi`), with the engine, the core and the link | 0.1.0 | Apache-2.0 (its crates are listed in its README) | child form only |
+| JNA | 5.19.1 (aar) | Apache-2.0 or LGPL-2.1-or-later, used under Apache-2.0 | child form only: Kotlin to Rust |
 | AndroidX, Kotlin standard library | as React Native pins them | Apache-2.0 | Android support |
 | Fraunces, Instrument Sans, Spline Sans Mono | the variable fonts in `../../screens/fonts` | SIL Open Font License 1.1, each licence in the APK | the type |
 | The LucidLoom AI logo | `../../docs/images/lucidloom-logo.png` | LucidLoom AI's own | the maker's mark |
