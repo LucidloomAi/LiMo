@@ -13,7 +13,10 @@
     "build:both": "node scripts/build.mjs child guardian",
     "build:engine": "node scripts/build-engine.mjs android",
     "test:child": "node scripts/test-child.mjs",
-    "inspect": "node scripts/inspect.mjs"
+    "inspect": "node scripts/inspect.mjs",
+    "test": "node scripts/make-design.mjs && jest",
+    "preview": "node scripts/preview.mjs",
+    "check:release-js": "node scripts/check-release-js.mjs"
   },
   "dependencies": {
     "expo": "~57.0.33",
@@ -24,7 +27,14 @@
     "react-native-svg": "15.15.4"
   },
   "devDependencies": {
+    "@react-native/jest-preset": "0.86.3",
+    "@testing-library/react-native": "13.3.3",
+    "@types/jest": "~29.5.14",
     "@types/react": "~19.2.18",
+    "jest": "~29.7.0",
+    "jest-expo": "~57.0.6",
+    "react-dom": "19.2.3",
+    "react-native-web": "~0.21.0",
     "typescript": "~5.9.3"
   }
 }

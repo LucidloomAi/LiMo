@@ -6,6 +6,8 @@
 // each optical size in fonts.json. A browser sets Fraunces' optical size to
 // the font size; display() picks the nearest one the app carries.
 
+import { Platform } from 'react-native';
+
 import { tokens } from '../generated/tokens';
 import FONTS from './fonts.json';
 
@@ -21,5 +23,8 @@ export function display(size: number): string {
   for (const candidate of FONTS.displaySizes) {
     if (Math.abs(Math.log(candidate / size)) < Math.abs(Math.log(best / size))) best = candidate;
   }
-  return `${tokens.font.display} ${best}`;
+  const family = `${tokens.font.display} ${best}`;
+  // In a browser (the preview of the screens) the name goes into CSS as it
+  // is, where a family name with a number in it must be quoted.
+  return Platform.OS === 'web' ? `"${family}"` : family;
 }

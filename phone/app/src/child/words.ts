@@ -1,0 +1,174 @@
+// The child form's own words: setup, the child's introduction, the labels of
+// Today and How it works, and the banner. They are the drawings' words
+// (design/screens/phone-setup.js and phone.js), word for word.
+//
+// Words about time and rules are not here: they come from the phone's
+// engine, through the host (TodayView, RulesView).
+//
+// The words name the child and never say "her" or "him": the app knows a
+// name, not how a child is spoken of.
+
+import type { StepId } from '../host';
+import type { IconName } from '../icons/Icon';
+import type { Rich } from '../ui/paper/parts';
+
+/** A name and a typographic apostrophe s: the child’s, by name. */
+export const possessive = (name: string) => `${name}’s`;
+
+export const notSetUp = {
+  heading: 'This phone is not set up yet.',
+  text: ['Connect it to the family PC with a USB cable, then choose ', { strong: 'Add a phone' }, ' in LiMo on the PC.'] as Rich,
+};
+
+export const welcome = {
+  eyebrow: 'For a guardian',
+  heading: (name: string) => `This phone is now ${possessive(name)}.`,
+  text: 'Five short steps finish the setup. Each one asks Android for one thing, and says why.',
+  button: 'Start',
+};
+
+export const agree = {
+  label: 'Before you start',
+  heading: 'What LiMo does here',
+  rows: [
+    { icon: 'hourglass', title: 'Counts time', text: 'How long each app is open, while the screen is on.' },
+    { icon: 'lock', title: 'Covers and locks', text: 'A blocked app is covered. The phone locks when today’s time is used up, or at bedtime.' },
+    { icon: 'eyeoff', title: 'Never reads', text: 'Messages, web addresses or anything typed. It knows which app is open, never what is in it.' },
+  ] satisfies readonly { icon: IconName; title: string; text: string }[],
+  line: 'Nothing leaves your home. This phone talks only to your family PC.',
+  tick: (name: string) => `I am ${possessive(name)} guardian, and I agree.`,
+  button: 'Continue',
+};
+
+export type StepWords = {
+  icon: IconName;
+  title: string;
+  why: (name: string) => string;
+  what: Rich;
+  button: string;
+  note?: { label: string; text: string };
+  /** The banner's line on Today when this step is switched off later. */
+  banner: string;
+};
+
+const allow: Rich = ['Android asks once. Choose ', { strong: 'Allow' }, '.'];
+
+export const steps: Readonly<Record<StepId, StepWords>> = {
+  notifications: {
+    icon: 'bell',
+    title: 'Notifications',
+    why: (name) => `So ${name} sees the time left, and a warning before the phone locks.`,
+    what: allow,
+    button: 'Allow notifications',
+    banner: 'Notifications are switched off, so LiMo cannot show the time left or a warning.',
+  },
+  usage: {
+    icon: 'chart',
+    title: 'Usage access',
+    why: () => 'So LiMo can count the time in each app. It gets app names and minutes from Android, nothing else.',
+    what: ['Android opens its own settings. Find LiMo in the list and switch it on.'],
+    button: 'Open Android’s settings',
+    banner: 'Usage access is switched off, so LiMo cannot count the time in each app.',
+  },
+  accessibility: {
+    icon: 'shield',
+    title: 'Accessibility',
+    why: () =>
+      'So LiMo can see which app is in front, and cover it when it is blocked or the time is used up. It is told the app’s name only, never what is on the screen.',
+    what: ['Android opens its own settings and shows a warning of its own. Find LiMo under Installed apps and switch it on.'],
+    button: 'Open Android’s settings',
+    banner: 'Accessibility is switched off, so LiMo cannot see which app is open.',
+  },
+  battery: {
+    icon: 'battery',
+    title: 'Battery',
+    why: () => 'So Android does not put LiMo to sleep to save battery.',
+    what: allow,
+    button: 'Allow',
+    note: {
+      label: 'On a Samsung phone',
+      text: 'Also open Settings, then Battery, then Background usage limits, then Never sleeping apps, and add LiMo there.',
+    },
+    banner: 'Battery saving is on for LiMo, so Android may put it to sleep.',
+  },
+  protection: {
+    icon: 'key',
+    title: 'Protection',
+    why: () => 'So LiMo cannot be switched off or removed without the guardian PIN.',
+    what: ['Android asks you to make LiMo a device admin app. Choose ', { strong: 'Activate' }, '.'],
+    button: 'Turn on protection',
+    banner: 'Protection is switched off, so LiMo can be removed without the guardian PIN.',
+  },
+};
+
+export const step = {
+  why: 'Why',
+  what: 'What happens',
+  count: (at: number, of: number) => `Step ${at} of ${of}`,
+  on: 'On',
+  notOnYet: 'Not on yet',
+  onLine: 'Android says it is on.',
+  /** Under the stamp when Android's own screen could not be opened. */
+  notOpened: 'Android did not open it. Try again.',
+  next: 'Next',
+};
+
+export const done = {
+  heading: 'This phone is set up.',
+  after: (name: string) => `Hand the phone to ${name}. The next three screens are ${possessive(name)}.`,
+  button: (name: string) => `Show ${name} how it works`,
+};
+
+export type IntroWords = { icon: IconName; eyebrow?: (name: string) => string; title: string; text: Rich; button: string };
+
+export const intro: readonly IntroWords[] = [
+  {
+    icon: 'hourglass',
+    eyebrow: (name) => `For ${name}`,
+    title: 'What LiMo counts',
+    text: ['The time your screen is on with an app open. Calls, the home screen and LiMo itself do not count.'],
+    button: 'Next',
+  },
+  {
+    icon: 'eyeoff',
+    title: 'What LiMo never looks at',
+    text: ['Your messages, what you type, and the pages you visit. It only knows which app is open, and for how long.'],
+    button: 'Next',
+  },
+  {
+    icon: 'hand',
+    title: 'How to ask for more time',
+    text: [
+      'When the time is used up, tap ',
+      { strong: 'Ask for more time' },
+      '. A guardian answers. A guardian who is away can read you a code to type.',
+    ],
+    button: 'Got it',
+  },
+];
+
+export const introCount = (at: number, of: number) => `${at} of ${of}`;
+
+export const tabs = { today: 'Today', how: 'How it works' };
+
+export const today = {
+  left: 'Left today',
+  quiet: 'Looking at this screen does not use your time.',
+  ask: 'Ask for more time',
+  apps: 'Today on this phone',
+  needsGuardian: 'Needs a guardian',
+  showGuardian: 'Show a guardian what to do',
+};
+
+export const how = {
+  rules: 'Your rules',
+  timeADay: 'Time a day',
+  screensOff: 'Screens off',
+  alwaysOpen: 'Always open',
+  notAllowed: 'Not allowed',
+  does: 'What LiMo does',
+  about: 'About',
+  name: (version: string) => `LiMo ${version}`,
+  licence: 'Free and open source, under the Apache 2.0 licence.',
+  repo: 'github.com/LucidloomAi/LiMo',
+};

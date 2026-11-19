@@ -6,19 +6,24 @@ an accessibility service, a foreground service, a device admin, receivers
 and the activity for the ways out of a lock. The **guardian form** goes on a
 parent's phone and holds none of them.
 
-**What it is now.** The skeleton both forms are built on. Every component of
-the child form is declared once, in one manifest, as a stub that does
-nothing; later pieces fill the Kotlin folders and leave the manifest alone.
-The theme comes from the design, the three fonts and the icon set are in,
-and each form shows one plain start screen in Paper and Ink that says which
-form it is and that setup is not built yet.
+**What it is now.** The skeleton both forms are built on, and the child
+form's own screens. Every component of the child form is declared once, in
+one manifest, as a stub that does nothing; later pieces fill the Kotlin
+folders and leave the manifest alone. The theme comes from the design, the
+three fonts and the icon set are in. The child form has its screens, drawn
+to the approved design: setup, the child's introduction, Today and How it
+works (see [The child form's screens](#the-child-forms-screens)). They ask
+for everything through one seam that Kotlin answers later; until it does,
+the phone counts as not paired and the child form shows "This phone is not
+set up yet." The guardian form still shows one plain start screen.
 
 **What it is not.** It counts nothing, covers nothing and limits nothing.
 The child form carries the Rust engine and the phone's side of the link
 (see [The Rust engine](#the-rust-engine)), but nothing calls them yet; it
-has no link to the master PC and no setup. It holds no permission to open a
-network socket. It has been built and its files inspected on the
-development PC only: nothing here has run on a phone or an emulator.
+has no link to the master PC, and the child module does not answer the
+screens yet. It holds no permission to open a network socket. It has been
+built and its files inspected on the development PC only: nothing here has
+run on a phone or an emulator.
 
 ## Contents
 
@@ -31,6 +36,10 @@ development PC only: nothing here has run on a phone or an emulator.
 - [Nothing leaves the phone](#nothing-leaves-the-phone)
 - [The design in the app](#the-design-in-the-app)
 - [The host seam](#the-host-seam)
+- [The child form's screens](#the-child-forms-screens)
+- [The child's seam](#the-childs-seam)
+- [The preview](#the-preview)
+- [Tests](#tests)
 - [Scripts](#scripts)
 - [Checks](#checks)
 - [Versions, and why](#versions-and-why)
@@ -56,7 +65,12 @@ npm run build:both         # both, one after the other
 npm run inspect            # looks inside both and checks them
 npm run typecheck
 npm run test:child         # the child module's JVM tests: the Rust engine from Kotlin
+npm test                   # the screens' tests (jest), against the mock host
+npm run preview            # the screens in a browser: dist/preview/index.html
+npm run check:release-js   # no mock and no preview in either form's JavaScript
 ```
+
+The last three need nothing but Node.
 
 The child form's build also needs Rust with the `aarch64-linux-android`
 target: see [The Rust engine](#the-rust-engine).
@@ -107,20 +121,38 @@ must never meet.
 ```
 app.config.ts             the two forms: package, name, icon, permissions, plugins
 index.ts, App.tsx         the entry point; App picks the form's start screen
+App.web.tsx               in a browser only: the preview (never in a built app)
 app/
-  child/index.tsx         the child form's start screen
+  child/index.tsx         the child form: its screens (src/child)
   guardian/index.tsx      the guardian form's start screen
 src/
   form.ts                 which form this build is (from the app's embedded config)
-  host.ts                 THE seam: host.request(name, args), see below
+  host.ts                 THE seam: host.request(name, args) and childHost, see below
+  childSeam.ts            the child's part of the seam, as plain data, and its readers
+  child/                  the child form's screens
+    ChildApp.tsx          which screen shows, and what each tap asks of the host
+    SetupScreens.tsx      S0 to S8, and C1 to C3
+    AppScreens.tsx        Today (E and T) and How it works (H)
+    words.ts              the screens' own words
+    HostContext.tsx       which ChildHost the screens ask
+    useHostValue.ts       an answer from the host, asked again when it may change
+  ui/paper/               the parts the phone drawings are made of
+    Page.tsx              the page, the safe areas, a pinned button
+    Tabs.tsx              the floating tab bar
+    parts.tsx             card, button, label, stamp, tile, divider, top row, dots, maker
+    text.tsx              the type styles, measured from the drawings
+  mock/childMock.ts       a made up phone in every state: the preview and the tests only
+  preview/                the preview's page (App.web.tsx): every screen in every state
   theme/                  Paper and Ink for React Native
     index.ts              colours, radius, border, space, the hard shadow
     fonts.ts, fonts.json  the font families and Fraunces' optical sizes
   icons/Icon.tsx          draws a design icon with react-native-svg
   icons/types.ts
-  ui/StartScreen.tsx      the plain start screen both forms share
+  ui/StartScreen.tsx      the plain start screen of the guardian form
   env.d.ts
   generated/              written by scripts/make-design.mjs, git ignored
+tests/                    the screens' tests (jest)
+jest.config.js
 modules/limo-child/       the child module (a local Expo module)
   expo-module.config.json, index.ts
   android/build.gradle
@@ -139,7 +171,8 @@ scripts/                  see Scripts
 ```
 
 Ignored and made by the build: `node_modules/`, `android/`, `out/`,
-`src/generated/`, `modules/limo-child/android/src/generated/`.
+`dist/` (the preview), `src/generated/`,
+`modules/limo-child/android/src/generated/`.
 
 The screens live in `app/<form>/` so that, if the app takes up Expo Router
 later, they are already where its routes would be. It does not use Expo
@@ -323,8 +356,10 @@ install, type check and build.
   for the child, `guardian` for the guardian, set in `app.config.ts`) on
   paper, from the same converter. Expo's placeholder pictures are removed.
   It is a stand in until LiMo has its own mark.
-- **The maker's mark** ends both start screens: "MADE BY", the LucidLoom AI
-  logo at `tokens.maker.logoSize`, the name. It is not a link.
+- **The maker's mark**: "MADE BY", the LucidLoom AI logo, the name. It is
+  not a link. The guardian's start screen draws the logo at
+  `tokens.maker.logoSize` (26); the child form's screens at 22, as the
+  design says for a phone.
 - **Safe areas.** Android draws apps edge to edge, and proof three's page
   ran under the navigation bar. The start screen fills the display with
   paper and pads its content by the safe area insets
@@ -335,13 +370,14 @@ install, type check and build.
 ## The host seam
 
 `src/host.ts` is proof six's seam: screens call `host.request(name, args)`
-and nothing else, and only `host.ts` knows who answers. Today:
+(or `childHost`, below) and nothing else, and only `host.ts` knows who
+answers. Today:
 
 | Place | When | Answers |
 | --- | --- | --- |
 | `child-module` | the child module is linked (the child form) | `LimoChildModule` in Kotlin |
 | `none` | no native module (the guardian form, until its link exists) | what JavaScript knows by itself |
-| `mock` | a development run with no native module | the same, never in a release build |
+| `mock` | a development run with no native module | the same, never in a release build; it holds no made up data |
 
 Requests are typed in one list (`Requests`), with what each is sent and
 answers, so a screen cannot ask for one that does not exist. Errors are a
@@ -349,6 +385,166 @@ answers, so a screen cannot ask for one that does not exist. Errors are a
 in a Tauri window on the PC join here as further places, not in the
 screens. JavaScript is never on the enforcement path: the Kotlin side calls
 the Rust engine itself.
+
+## The child form's screens
+
+The child form's screens are the approved drawings
+(`../../design/screens/phone-setup.html`, and frame E of
+`../../design/screens/phone.html`), built in React Native and measured
+against them: every size, gap, border, shadow, stamp and dot is the
+drawings' own, and the words are word for word. In a browser at two pixels
+per point they match the drawings to within the smoothing of the letters
+(see [The preview](#the-preview)).
+
+| Screen | What | States |
+| --- | --- | --- |
+| S0 | This phone is not set up yet: connect it to the family PC | not paired; nothing to tap |
+| S1 | Welcome, for a guardian, naming the child | Start pinned |
+| S2, S2b | What LiMo does here, and the guardian agrees | Continue switched off until the box is ticked |
+| S3 to S7 | One step each: notifications, usage access, accessibility, battery, protection | NOT ON YET (coral) with the step's own button, or ON (teal), "Android says it is on." and Next |
+| S8 | This phone is set up | a teal tick for each step Android says is on |
+| C1 to C3 | For the child: what LiMo counts, what it never looks at, how to ask for more time | Next, Next, Got it |
+| E | Today, under the floating tab bar | the time left, the bar, where the time went, the hours off, Ask for more time, the apps |
+| T | Today with the banner | a step switched off: Needs a guardian, and a button that shows a guardian the step |
+| H | How it works, the second tab | the child's rules, what LiMo does, the version |
+
+Where to start is worked out when the app opens, from the host: not paired
+is S0 and nothing else; paired with no guardian agreed is S1; agreed with
+the introduction not seen is the first step not on, or S8; after that,
+Today. The pairing is watched: S0 moves on by itself when the PC pairs the
+phone. Android's back button goes back a screen.
+
+**A step is never taken on trust.** Its screen shows ON only when the host
+says Android says so, asks again whenever the app comes back to the front
+(as it does after Android's own settings) and after Android's own screen
+was opened. Each step's button opens Android's own screen through the host
+and does nothing else. The banner's button walks a guardian through the
+steps that are off, then back to Today.
+
+**Words.** Setup's words, the labels and the banner are the screens'
+(`src/child/words.ts`). Every word about time or rules comes from the
+engine through the host, and the screens make no sentence about either. A
+time keeps its am or pm, and a span its unit, on one line. The words name
+the child and never say "her" or "him".
+
+**The theme's rules that are easy to break in React Native.** The hard
+shadow is a second shape behind a card, which takes no room. A dashed
+divider is drawn, because Android's own dashed border on one side is not
+reliable. Nothing changes size when it is picked, pressed, ticked or
+switched off, and the line under a step's stamp keeps its room when empty.
+The tab bar floats, set in by 14; Android cannot blur what is behind a
+view, so it takes the design's own answer for that, the card colour at
+nearly full strength, with the hairline drawn as a ring so it shows on
+every Android and the soft shadow where Android draws one (9.0 and later).
+The page keeps room at its end as tall as the bar, measured. A pinned
+button's strip grows with its button, and the page scrolls above it.
+
+**Long names and large text.** The child's name at the top stays on one
+line and ends in an ellipsis; everywhere else names wrap. With very large
+text, a tab's label wraps to a second line (both tabs grow together), a
+rule's label takes at most half its row, and the banner's stamp goes under
+its tile. Everything was tried with a 43 character name, long app names,
+and text at 1.3 and 2 times its size.
+
+**For a screen reader.** Everything to tap is at least 48 high and has a
+role (button, checkbox, tab) and a label. Headings, the step's state and
+the section labels are read as such; icons and dots are skipped, except
+the introduction's "1 of 3". Each screen reads in the order it is drawn,
+with the pinned button and then the tab bar last.
+
+## The child's seam
+
+The screens ask for everything through one interface, `ChildHost` in
+`src/childSeam.ts`. Every call is asynchronous and every answer plain data,
+so the Kotlin side can be built against it. In the app it is `childHost` in
+`src/host.ts`, which sends each call to the child module as a request (the
+names below) and checks the answer with the reader beside it. The screens
+get it through `src/child/HostContext.tsx`; only the preview and the tests
+pass another.
+
+| Call | Request to the child module | Answer |
+| --- | --- | --- |
+| `pairing()` | `child.pairing` | `{ paired: false }`, or `{ paired: true, childName }` |
+| `agreed()` | `child.agreed` | whether a guardian has agreed to S2 |
+| `agree()` | `child.agree` | nothing: keep that a guardian agreed |
+| `steps()` | `child.steps` | `{ notifications, usage, accessibility, battery, protection }`, each `"on"` or `"off"`, as Android says now, never remembered |
+| `openStep(step)` | `child.openStep` with `{ step }` | nothing, once Android's screen is open or its question answered |
+| `introSeen()` | `child.introSeen` | whether the child has seen C1 to C3 |
+| `markIntroSeen()` | `child.markIntroSeen` | nothing: keep it |
+| `today()` | `child.today` | `TodayView`, below |
+| `rules()` | `child.rules` | `{ timeADay, screensOff, alwaysOpen, notAllowed }`: words, and app names |
+| `version()` | none | the version the app was built as, from its own config |
+| `askForMoreTime()` | `child.askForMoreTime` | nothing: opens LiMo's ways out activity at asking, and does nothing else |
+| `subscribe(listener)` | the module's `change` event, `{ what }` | `what` is `pairing`, `agreement`, `steps`, `intro`, `today` or `rules`; the screens ask again |
+
+`TodayView`: `left` (`{ kind: "left" | "no-limit" | "open", words }`, such
+as "1 h 12 min", "No limit today", "Open until 9:30 pm"), `used` ("48 min
+used of 2 h"), `usedPart` (0 to 1 for the bar, or null with no limit),
+`where` ("On this phone 31 min · on the PC 17 min"), `bedtime` ("Screens
+are off from 9:00 pm to 7:00 am.", or null), `apps` (`{ name, minutes }`,
+names and minutes only) and `guardianNeeded` (`{ off: [steps] }`, or null).
+
+**What the engine has and what it needs.** "1 h 12 min" is the engine's
+`time_left` span, "Open until 9:30 pm" and "No limit today" its time left
+words. The lines "48 min used of 2 h", "On this phone 31 min · on the PC
+17 min" and "Screens are off from 9:00 pm to 7:00 am.", a day's minutes per
+app, and the rules as words, are not in `phone/engine` yet: they belong in
+its `words.rs` and its view, so that Kotlin passes words through and never
+makes them.
+
+**Until Kotlin answers.** The child module answers only `about` today. A
+request it does not know is refused, and `childHost.pairing()` takes that as
+not paired, so the child form shows S0 and asks nothing else. A malformed
+answer fails with a message naming the field; a step reads as on only for
+the exact word `"on"`.
+
+## The preview
+
+`npm run preview` writes a static page of every screen in every state,
+from the app's own code, through react-native-web, driven by the mock host
+(`src/mock/childMock.ts`): the drawings' screens at 390 by 844 and at 360
+by 640, the states the drawings do not show (each step on, other times
+left, no limit, open until), and a long name with long app names at 1.3
+and 2 times the text size. Taps work: opening a step's Android screen
+switches the step on after a moment, as a guardian would.
+
+Open `dist/preview/index.html` from disk, in any browser; there is no
+server. Expo's web export names its script and pictures from the root of a
+web server, which from disk would be the root of the drive, so
+`scripts/preview.mjs` makes those names relative and stops if any is left;
+it copies the three fonts and their licences beside the page. Add
+`#one=S4b&size=390` (or `360`, and `&scale=1.3` for larger text) to the
+address for one phone alone, for a picture.
+
+It is a development tool. `App.web.tsx` is its page: Metro takes it only
+for the web, and Android's bundle takes `App.tsx`. The preview is never in
+either built app, and neither is the mock: see [Tests](#tests).
+
+What it cannot show: Android's own text layout and line breaking (the
+browser's stands in), Fraunces at the phone's fixed optical sizes (a
+browser sets it to the font size, as the drawings do), Android's font size
+setting (the preview multiplies the text instead), and anything of Android
+itself.
+
+## Tests
+
+`npm test` runs 65 tests with jest (Expo's preset for Android), against the
+mock host. Nothing in them runs on a phone.
+
+| File | What |
+| --- | --- |
+| `tests/setup.test.tsx` | S0, also as the app shows it with no native side; S0 moving on when the PC pairs; Continue switched off until the box is ticked; each step not on yet and then on; a step shown on only when the host says so, and asked again when the app is back in front; Android's screen not opening; done; the introduction to Today |
+| `tests/app.test.tsx` | Today in the engine's words, never "counting"; times kept whole; other times left; asking for more time; the banner and putting it right; How it works; every tab keeping its size; long names |
+| `tests/seam.test.ts` | the readers of what Kotlin sends; the app's host with no child module: not paired, nothing else answered |
+| `tests/access.test.tsx` | a role, a label and 48 of height for everything to tap; headings; the reading order |
+| `tests/release.test.ts` | no screen names a native module, the network or a link out; only `src/host.ts` reaches the child module; the app's imports, as Android resolves them from `index.ts`, never reach the mock, the preview or the tests |
+
+`npm run check:release-js` shows the last on the bundles themselves: it
+makes each form's JavaScript as Gradle's release build does (`expo
+export:embed --platform android --dev false`), checks that it is the app's,
+and that it holds neither the mock's mark, nor the made up names, nor the
+preview's words; then, as a control, finds all of them in the preview's
+own bundle.
 
 ## Scripts
 
@@ -366,6 +562,9 @@ as a Gradle task instead, as proof three did it.
 | `build-engine.mjs` | `build:engine` | the Rust bridge and its bindings, for the phone (run by the child module's Gradle build) or for the JVM tests on this PC |
 | `test-child.mjs` | `test:child` | the child module's JVM tests |
 | `inspect.mjs` | `inspect` | looks inside `out/*.apk` and checks them |
+| `preview.mjs` | `preview` | the screens' preview, into `dist/preview`, made to open from disk |
+| `check-release-js.mjs` | `check:release-js` | each form's release JavaScript holds no mock and no preview |
+| | `test` | the screens' tests (jest, `jest.config.js`) |
 | `newer-ninja.gradle` | | from proof three: a ninja that copes with long Windows paths, now reaching the app's own C++ build too |
 | `no-build-paths.gradle` | | keeps the build PC's folders out of the C and C++ libraries |
 | `form-check.gradle` | | stops a Gradle run whose `LIMO_FORM` differs from `android/`'s form |
@@ -428,6 +627,19 @@ and clear the system bars, that Android picks each font weight and optical
 size from the variable fonts as expected, the launcher icon on a real
 launcher, and the first start time.
 
+With the child form's screens (the same day, later), all on the PC:
+`npm run typecheck` had no errors; `npm test` ran its 65 tests, all
+passing; `npm run check:release-js` passed for both forms, with its control;
+`npm run make:design` was up to date. Every drawn screen (S0 to S8, S4b, C1
+to C3, E, T, H) was pictured from the preview and from the drawings at 390
+by 844 and at 360 by 640, two pixels per point, and compared pixel by
+pixel: under half a percent of the pixels of any screen differ by more than
+an eighth of the way from paper to ink, and those are the smoothing of
+letters and the phase of the dashes. The differences that remain are
+chosen: the tab bar is solid where the drawing is glass (Android cannot
+blur), and "17 MIN" stays on one line at 360 where the drawing leaves "MIN"
+alone. Android itself was not run: no Gradle build was made for this.
+
 ## Versions, and why
 
 - **Expo SDK 57**: expo 57.0.33, React Native 0.86.3, React 19.2.3, Hermes,
@@ -477,6 +689,22 @@ What ships in the APK:
 | The LucidLoom AI logo | `../../docs/images/lucidloom-logo.png` | LucidLoom AI's own | the maker's mark |
 | The NDK's `libc++_shared.so` | NDK 27.1.12297006 | Apache-2.0 with LLVM exception | C++ runtime |
 
+Development only, not in the APK (each is named in `devDependencies`, and
+none of them holds native code, so autolinking finds the same 10 Expo
+modules and 3 React Native libraries as before they were added):
+
+| What | Version | Licence | Role |
+| --- | --- | --- | --- |
+| jest | 29.7 | MIT | runs the screens' tests |
+| jest-expo | 57.0.x | MIT | Expo's jest preset for this SDK |
+| @react-native/jest-preset | 0.86.3 | MIT | React Native's jest preset, which jest-expo builds on (named because `.npmrc` installs no peer by itself) |
+| @testing-library/react-native | 13.3.3 | MIT | finds what a screen shows by its role and label; it uses the react-test-renderer jest-expo brings |
+| @types/jest | 29.5.x | MIT | types for the tests |
+| react-dom, react-native-web | 19.2.3, 0.21.x | MIT | the preview in a browser |
+
+None of them sends anything anywhere; the preview loads no font or script
+from the network.
+
 Build only, not in the APK: Expo's command line tool, Metro and Babel
 (MIT); TypeScript (Apache-2.0); Gradle, the Android Gradle Plugin and Kotlin
 (Apache-2.0); lightningcss (MPL-2.0, a CSS tool of Expo's Metro setup);
@@ -511,10 +739,34 @@ follow Expo's blank template (0BSD).
   GIF and animated WebP support (`expo.gif.enabled`, about 320 KB) is unused
   too.
 - **The console on the PC.** The theme's font families are Android ones
-  (`Fraunces 28` and so on). If these screens are ever exported for the web,
-  `src/theme/fonts.ts` needs the CSS family names there; the app does not
-  build for the web now.
+  (`Fraunces 28` and so on). In a browser `display()` quotes the name, as
+  CSS needs, and the preview declares the families with `@font-face`; a
+  console in a Tauri window would do the same. `App.web.tsx` is the
+  preview's page now: a console for the web would take it over and move
+  the preview to its own entry.
 - **The launcher icon** is a stand in from the icon set until LiMo has its
   own mark.
-- **The maker's logo** is drawn at `tokens.maker.logoSize` (26); the phone
-  sheet the lead is drawing uses 22. The tokens win until they change.
+- **The maker's logo** is 22 on the child form's screens, as the phone
+  sheet says, and `tokens.maker.logoSize` (26) on the guardian's start
+  screen.
+- **For the child module (Kotlin):** answer the `child.*` requests and send
+  the `change` event of [The child's seam](#the-childs-seam). Until then the
+  child form shows S0 on every phone.
+- **For the engine:** the words Today and How it works need that it does
+  not have yet (see [The child's seam](#the-childs-seam)), and a day's
+  minutes per app, which the core keeps only until they are reported.
+- **Not drawn, decided here for the lead to look at:** the banner's words
+  for the four steps other than accessibility; the line "Android did not
+  open it. Try again." under a step's stamp; Today with no limit or open
+  until (the engine's words take the time's place, without "Left today");
+  How it works leaving out a rule with nothing in it; the list of apps left
+  out with no app used today.
+- **A step that cannot be turned on.** Setup has no way past a step: on a
+  phone whose maker hides a setting, a guardian is stuck at it. The Samsung
+  note shows on every phone; the seam does not say the phone's maker.
+- **App tiles** on Today show the app's first letter, as the drawing does;
+  the seam carries names only, not Android's icons.
+- **Both forms carry the child form's JavaScript**, because `App.tsx`
+  imports both forms' screens and picks one when the app starts. The
+  guardian's has no child module to drive them; a later piece may split
+  the bundle by form.
