@@ -1,0 +1,205 @@
+//! The orders carried out: a warning held until it is shown, programs
+//! closed in their own session only and never the parts of Windows or
+//! LiMo's own, phones ignored and said once, problems logged once in a
+//! while.
+
+use limo_agent::{SessionState, Show, WarningShown};
+use limo_core::DeviceKind;
+use limo_hub::AccountLink;
+use limo_windows::os::ProcessSeen;
+use limo_windows::protocol::{FromHelper, ToHelper};
+
+use crate::common::*;
+
+const ASHA: &str = "S-1-5-21-1001";
+const MIRA: &str = "S-1-5-21-1002";
+const MUM: &str = "S-1-5-21-1000";
+const GAME: &str = r"C:\Games\Blocks\blocks.exe";
+
+/// Every show a session's helpers got, in order, with its warning.
+fn warnings_shown(pc: &mut Pc, session: u32) -> Vec<(u64, Option<WarningShown>)> {
+    let mut out = Vec::new();
+    for helper in pc.os().helpers.iter().filter(|h| h.session == session) {
+        for message in &helper.got {
+            if let ToHelper::Show { seq, show: Show::TimeLeft { warning, .. }, .. } = message {
+                out.push((*seq, warning.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// Runs until the session's helper has been shown a warning; its show's
+/// number and the warning.
+fn run_to_warning(pc: &mut Pc, session: u32) -> (u64, WarningShown) {
+    for _ in 0..1_200 {
+        pc.step();
+        if let Some((seq, Some(warning))) = warnings_shown(pc, session).into_iter().find(|(_, w)| w.is_some()) {
+            return (seq, warning);
+        }
+    }
+    panic!("no warning came");
+}
+
+#[test]
+fn a_warning_is_held_until_the_helper_says_it_showed_it() {
+    let mut pc = Pc::new(at(16, 0));
+    pc.add_child("Asha", ASHA, 6);
+    pc.login(1, ASHA, "asha");
+    pc.step();
+    pc.greet(1);
+    let (seq, warning) = run_to_warning(&mut pc, 1);
+    // With 6 minutes a day, the first warning point reached is 15 minutes.
+    assert_eq!((warning.minutes, warning.message.as_str()), (15, "15 minutes of screen time left today."));
+    // The engine gave it in one call; every show after it carries it still.
+    pc.run(10);
+    let after: Vec<_> = warnings_shown(&mut pc, 1).into_iter().filter(|(s, _)| *s > seq).collect();
+    assert!(after.len() >= 9, "{after:?}");
+    assert!(after.iter().all(|(_, w)| w.as_ref() == Some(&warning)), "{after:?}");
+    assert_eq!(pc.service.session_view(1).unwrap().held_warning, Some(warning.clone()));
+    // The helper says it showed it: it is held no more.
+    pc.say(1, FromHelper::WarningShown { cause: warning.cause, minutes: warning.minutes, lock_at: warning.lock_at });
+    pc.step();
+    let last = warnings_shown(&mut pc, 1).last().cloned().unwrap();
+    assert_eq!(last.1, None);
+    assert_eq!(pc.service.session_view(1).unwrap().held_warning, None);
+    pc.run(5);
+    assert!(warnings_shown(&mut pc, 1).iter().rev().take(5).all(|(_, w)| w.is_none()));
+}
+
+#[test]
+fn a_warning_never_confirmed_is_held_until_its_lock_time_passes() {
+    let mut pc = Pc::new(at(16, 0));
+    let asha = pc.add_child("Asha", ASHA, 6);
+    pc.login(1, ASHA, "asha");
+    pc.step();
+    pc.greet(1);
+    let (_, warning) = run_to_warning(&mut pc, 1);
+    // A guardian gives more time: the PC stays open past the lock time the
+    // warning named, so only that time ends the hold.
+    let now = pc.now();
+    pc.hub().give_extra(&asha, 30, "tap-1", now).unwrap();
+    while pc.now() < warning.lock_at - 2 {
+        pc.step();
+    }
+    assert_eq!(pc.service.session_view(1).unwrap().held_warning, Some(warning.clone()));
+    pc.run(4);
+    assert!(matches!(pc.service.session_view(1).unwrap().show, Show::TimeLeft { warning: None, .. }));
+    assert_eq!(pc.service.session_view(1).unwrap().held_warning, None);
+}
+
+#[test]
+fn a_blocked_program_is_closed_in_its_own_session_only_every_copy_and_logged_once() {
+    let mut pc = Pc::new(at(16, 0));
+    let asha = pc.add_child("Asha", ASHA, 60);
+    pc.add_child("Mira", MIRA, 60);
+    pc.hub().link_account(MUM, "Mum", AccountLink::NotLimited).unwrap();
+    pc.change_rules(&asha, |rules| rules.blocked_apps = vec!["Blocks.exe".into()]);
+    pc.login(1, ASHA, "asha");
+    pc.login(2, MIRA, "mira");
+    pc.set_state(2, SessionState::Disconnected);
+    pc.login(3, MUM, "mum");
+    pc.set_state(3, SessionState::Disconnected);
+    pc.file(GAME, Some("Blocks.exe"), Some("Blocks Ltd"));
+    let ashas = [pc.start(1, GAME), pc.start(1, GAME)];
+    let miras = pc.start(2, GAME);
+    let mums = pc.start(3, GAME);
+    let pid = pc.os().new_pid();
+    pc.os().processes.push(ProcessSeen { pid, session_id: 0, started: 3, name: "blocks.exe".into(), path: GAME.into() });
+    pc.step();
+    pc.greet(1);
+    pc.run(2);
+
+    let ended: Vec<u32> = pc.os().ended.iter().map(|p| p.pid).collect();
+    assert_eq!(ended, ashas.to_vec());
+    for other in [miras, mums, pid] {
+        assert!(pc.os().processes.iter().any(|p| p.pid == other), "{other} was closed");
+    }
+    let closed = pc.logged("Closed blocks.exe in session 1 (2 running copies): blocks.exe is blocked by your family's rules");
+    assert_eq!(closed.len(), 1, "{:?}", pc.os().log);
+    assert!(pc.helper(1).unwrap().got.iter().any(
+        |m| matches!(m, ToHelper::Notice { text } if text == "blocks.exe is blocked by your family's rules, so LiMo closed it.")
+    ));
+
+    // Started again and again: closed each time, logged once.
+    for _ in 0..10 {
+        pc.start(1, GAME);
+        pc.run(1);
+    }
+    assert_eq!(pc.os().ended.len(), 12);
+    assert_eq!(pc.logged("Closed blocks.exe in session 1").len(), 1);
+}
+
+#[test]
+fn limos_own_processes_and_the_parts_of_windows_are_never_closed() {
+    let mut pc = Pc::new(at(16, 0));
+    let asha = pc.add_child("Asha", ASHA, 60);
+    pc.change_rules(&asha, |rules| {
+        rules.blocked_apps = vec!["explorer.exe".into(), "limo.exe".into(), "RobloxPlayerBeta.exe".into(), "mystery.exe".into()];
+    });
+    pc.login(1, ASHA, "asha");
+    let shell = r"C:\Windows\explorer.exe";
+    let renamed = r"C:\Users\Asha\Downloads\explorer.exe";
+    pc.file(shell, Some("EXPLORER.EXE.MUI"), Some("Microsoft Corporation"));
+    pc.file(renamed, Some("RobloxPlayerBeta.exe"), Some("Roblox Corporation"));
+    let shell_pid = pc.start(1, shell);
+    let renamed_pid = pc.start(1, renamed);
+    // A stray copy of LiMo's own program, and a process whose file cannot be
+    // read.
+    let stray = pc.start(1, OWN_EXE);
+    let mystery = pc.os().new_pid();
+    pc.os().processes.push(ProcessSeen { pid: mystery, session_id: 1, started: 0, name: "mystery.exe".into(), path: String::new() });
+    pc.step();
+    pc.greet(1);
+    pc.run(3);
+
+    let ended: Vec<u32> = pc.os().ended.iter().map(|p| p.pid).collect();
+    assert_eq!(ended, vec![renamed_pid]);
+    let helper = pc.helper(1).unwrap().pid;
+    for kept in [shell_pid, stray, mystery, helper] {
+        assert!(pc.os().processes.iter().any(|p| p.pid == kept), "{kept} was closed");
+    }
+    assert_eq!(pc.logged("it is part of Windows and LiMo never closes it").len(), 1);
+    assert_eq!(pc.logged("cannot read where its file is").len(), 1);
+    // LiMo's own program is not even among the programs running.
+    assert!(pc.facts_of(1).unwrap().running.iter().all(|p| p.file_name != "limo.exe"));
+
+    // A process that refuses to end: said, once in a while.
+    let stubborn = pc.start(1, renamed);
+    pc.os().refuse_end.insert(stubborn);
+    pc.run(10);
+    assert_eq!(pc.logged("LiMo could not close explorer.exe").len(), 1);
+}
+
+#[test]
+fn phones_the_books_want_to_hear_from_are_ignored_and_said_once() {
+    let mut pc = Pc::new(at(16, 0));
+    let asha = pc.add_child("Asha", ASHA, 60);
+    let now = pc.now();
+    pc.hub().pair_device(&asha, "Phone", DeviceKind::Portable, "android", now).unwrap();
+    pc.login(1, ASHA, "asha");
+    pc.step();
+    pc.greet(1);
+    pc.run(20);
+    pc.change_rules(&asha, |rules| rules.warning_minutes = vec![10]);
+    pc.run(20);
+    assert_eq!(pc.logged("no network yet").len(), 1);
+}
+
+#[test]
+fn the_engines_problems_are_logged_without_repeating_every_second() {
+    let mut pc = Pc::new(at(16, 0));
+    let asha = pc.add_child("Asha", ASHA, 60);
+    pc.login(1, ASHA, "asha");
+    pc.step();
+    pc.greet(1);
+    pc.run(5);
+    for _ in 0..3 {
+        let device = pc.service.engine().child_on_pc(&asha).unwrap().device_id;
+        let now = pc.now();
+        pc.hub().remove_device(&device, now).unwrap();
+        pc.run(10);
+    }
+    let problems = pc.logged("The engine met a problem");
+    assert_eq!(problems.len(), 1, "{problems:?}");
+}

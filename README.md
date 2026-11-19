@@ -127,6 +127,7 @@ and a `TESTING.md` with the exact steps that were run.
 core/                        Rust: the rules core, the first part of the product
 hub/                         Rust: the family's database on the master PC
 agent/                       Rust: the engine of the agent on the master PC
+windows/                     Rust: the Windows service around the engine, and its helper
 design/                      the Paper and Ink theme and LiMo's icons
 spikes/
   01-windows-service-lock/   Rust: a Windows service and a lock on every monitor
@@ -158,7 +159,16 @@ the master PC. About once a second it is told the facts (the clock, who is
 signed in, which program is in front) and answers with orders: show the
 time left, warn, lock, close a blocked program. It has no Windows code in
 it, so every rule is tested without a PC to lock. The service that feeds it
-and the lock screen that carries out its orders come next.
+and the lock screen that carries out its orders are in the next folder.
+
+[`windows/`](windows/) is the fourth part: the Windows service that runs
+the engine on a real PC, and the helper it starts in each signed in session.
+The service gathers the facts, carries out the orders and closes blocked
+programs; the helper shows the time left and the lock. It is written and
+tested against a stand in for Windows, and has **not yet been run as a
+service**: that happens next, with care, on a real PC. The lock screen it
+shows today is a plain one; the designed one in [`design/`](design/) is
+drawn next.
 
 **A warning about proof five.** It makes a test app the Device Owner of a
 phone. Run it only on a spare phone with no accounts on it, and read its

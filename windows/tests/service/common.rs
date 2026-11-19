@@ -1,0 +1,409 @@
+//! The fake PC: a fake [`Os`] with sessions, processes, program files,
+//! helpers and their channels, and a clock of its own; and a harness around
+//! the real service, with a real family file in a temporary folder.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use limo_agent::{Session, SessionState, Show};
+use limo_core::{CivilDate, DailyBudget, RuleSet, WeekBudgets};
+use limo_hub::{AccountLink, AgeBand, Hub};
+use limo_windows::os::{HelperId, HelperStarted, Os, ProcessSeen, Received, SendProblem, SessionSeen, VersionNames};
+use limo_windows::protocol::{Decoder, Frame, FromHelper, PROTOCOL_VERSION, ToHelper, encode};
+use limo_windows::service::{STEP_MS, Service, ServiceConfig};
+use tempfile::TempDir;
+
+/// India, the home zone of every story.
+pub const IST: i32 = 19_800;
+/// The guardian's password in every story.
+pub const PASSWORD: &str = "correct horse battery";
+/// The guardian's PIN in every story.
+pub const PIN: &str = "482915";
+/// LiMo's own program, as installed.
+pub const OWN_EXE: &str = r"C:\Program Files\LiMo\limo.exe";
+/// The service's own process id.
+pub const OWN_PID: u32 = 400;
+/// The Windows folder.
+pub const WINDOWS: &str = r"C:\Windows";
+
+/// Wednesday 18 November 2026 at `hour:minute`, home time.
+pub fn at(hour: u8, minute: u8) -> i64 {
+    RuleSet::new(1, IST).calendar().at(CivilDate::new(2026, 11, 18).unwrap(), hour, minute, 0)
+}
+
+/// A helper on the fake PC.
+#[derive(Debug)]
+pub struct FakeHelper {
+    pub id: HelperId,
+    pub session: u32,
+    pub pid: u32,
+    pub running: bool,
+    /// Everything the service sent it, read from its frames.
+    pub got: Vec<ToHelper>,
+    /// True to make it stop reading what it is sent.
+    pub not_reading: bool,
+    decoder: Decoder,
+}
+
+/// The fake Windows.
+pub struct FakeOs {
+    pub wall_ms: i64,
+    pub steady_ms: u64,
+    pub offset: i32,
+    pub sessions: Vec<SessionSeen>,
+    pub processes: Vec<ProcessSeen>,
+    /// Processes that started after the list was taken: found by their id
+    /// alone.
+    pub not_listed: BTreeSet<u32>,
+    pub versions: BTreeMap<String, VersionNames>,
+    pub stamps: BTreeMap<String, u64>,
+    pub version_reads: Vec<String>,
+    pub helpers: Vec<FakeHelper>,
+    /// Bytes the helpers wrote, not yet read by the service.
+    pub from_helpers: Vec<(HelperId, Vec<u8>)>,
+    /// Channels that closed, not yet seen by the service.
+    pub closed: Vec<HelperId>,
+    decoders: BTreeMap<HelperId, Option<Decoder>>,
+    pub launch_fails: Option<String>,
+    pub launches: u32,
+    pub ended: Vec<ProcessSeen>,
+    pub refuse_end: BTreeSet<u32>,
+    pub disconnected: Vec<u32>,
+    pub test_cap: bool,
+    pub log: Vec<String>,
+    next_id: u64,
+    next_pid: u32,
+}
+
+impl FakeOs {
+    pub fn new(start: i64) -> FakeOs {
+        FakeOs {
+            wall_ms: start * 1_000,
+            steady_ms: 9_000_000,
+            offset: IST,
+            sessions: Vec::new(),
+            processes: Vec::new(),
+            not_listed: BTreeSet::new(),
+            versions: BTreeMap::new(),
+            stamps: BTreeMap::new(),
+            version_reads: Vec::new(),
+            helpers: Vec::new(),
+            from_helpers: Vec::new(),
+            closed: Vec::new(),
+            decoders: BTreeMap::new(),
+            launch_fails: None,
+            launches: 0,
+            ended: Vec::new(),
+            refuse_end: BTreeSet::new(),
+            disconnected: Vec::new(),
+            test_cap: false,
+            log: Vec::new(),
+            next_id: 0,
+            next_pid: 5_000,
+        }
+    }
+
+    pub fn new_pid(&mut self) -> u32 {
+        self.next_pid += 4;
+        self.next_pid
+    }
+}
+
+impl Os for FakeOs {
+    fn wall_secs(&mut self) -> i64 {
+        self.wall_ms.div_euclid(1_000)
+    }
+
+    fn steady_ms(&mut self) -> u64 {
+        self.steady_ms
+    }
+
+    fn utc_offset_secs(&mut self) -> i32 {
+        self.offset
+    }
+
+    fn sessions(&mut self) -> Vec<SessionSeen> {
+        self.sessions.clone()
+    }
+
+    fn processes(&mut self) -> Vec<ProcessSeen> {
+        self.processes.iter().filter(|p| !self.not_listed.contains(&p.pid)).cloned().collect()
+    }
+
+    fn process(&mut self, pid: u32) -> Option<ProcessSeen> {
+        self.processes.iter().find(|p| p.pid == pid).cloned()
+    }
+
+    fn file_stamp(&mut self, path: &str) -> Option<u64> {
+        self.stamps.get(path).copied()
+    }
+
+    fn version_names(&mut self, path: &str) -> VersionNames {
+        self.version_reads.push(path.to_string());
+        self.versions.get(path).cloned().unwrap_or_default()
+    }
+
+    fn start_helper(&mut self, session_id: u32) -> Result<HelperStarted, String> {
+        self.launches += 1;
+        if let Some(problem) = &self.launch_fails {
+            return Err(problem.clone());
+        }
+        self.next_id += 1;
+        let id = HelperId(self.next_id);
+        let pid = self.new_pid();
+        self.helpers.push(FakeHelper { id, session: session_id, pid, running: true, got: Vec::new(), not_reading: false, decoder: Decoder::new() });
+        self.processes.push(ProcessSeen { pid, session_id, started: 77, name: "limo.exe".into(), path: OWN_EXE.into() });
+        Ok(HelperStarted { id, pid, detail: "uiaccess=1 integrity=set dacl=admin-owner channel=inherited".into(), problems: Vec::new() })
+    }
+
+    fn helper_running(&mut self, id: HelperId) -> bool {
+        self.helpers.iter().any(|h| h.id == id && h.running)
+    }
+
+    fn end_helper(&mut self, id: HelperId) {
+        if let Some(helper) = self.helpers.iter_mut().find(|h| h.id == id) {
+            helper.running = false;
+            let pid = helper.pid;
+            self.processes.retain(|p| p.pid != pid);
+        }
+    }
+
+    fn send(&mut self, id: HelperId, frame: Frame) -> Result<(), SendProblem> {
+        let Some(helper) = self.helpers.iter_mut().find(|h| h.id == id && h.running) else { return Err(SendProblem::Gone) };
+        if helper.not_reading {
+            return Err(SendProblem::NotReading);
+        }
+        helper.decoder.push(&frame).unwrap();
+        while let Some(message) = helper.decoder.next_message::<ToHelper>().unwrap() {
+            helper.got.push(message);
+        }
+        Ok(())
+    }
+
+    fn received(&mut self) -> Vec<(HelperId, Received)> {
+        let mut out = Vec::new();
+        for (id, bytes) in std::mem::take(&mut self.from_helpers) {
+            let slot = self.decoders.entry(id).or_insert_with(|| Some(Decoder::new()));
+            // The real reader stops at the first problem: so does this one.
+            let Some(decoder) = slot.as_mut() else { continue };
+            if let Err(problem) = decoder.push(&bytes) {
+                out.push((id, Received::Broken(problem)));
+                *slot = None;
+                continue;
+            }
+            loop {
+                match decoder.next_message::<FromHelper>() {
+                    Ok(Some(message)) => out.push((id, Received::Message(message))),
+                    Ok(None) => break,
+                    Err(problem) => {
+                        out.push((id, Received::Broken(problem)));
+                        *slot = None;
+                        break;
+                    }
+                }
+            }
+        }
+        for id in std::mem::take(&mut self.closed) {
+            out.push((id, Received::Closed));
+        }
+        out
+    }
+
+    fn end_process(&mut self, process: &ProcessSeen) -> Result<(), String> {
+        if self.refuse_end.contains(&process.pid) {
+            return Err("Win32 error 5: Access is denied.".into());
+        }
+        self.ended.push(process.clone());
+        self.processes.retain(|p| p.pid != process.pid);
+        Ok(())
+    }
+
+    fn disconnect_session(&mut self, session_id: u32) -> Result<(), String> {
+        self.disconnected.push(session_id);
+        if let Some(session) = self.sessions.iter_mut().find(|s| s.session_id == session_id) {
+            session.state = SessionState::Disconnected;
+        }
+        Ok(())
+    }
+
+    fn test_cap(&mut self) -> bool {
+        self.test_cap
+    }
+
+    fn log(&mut self, line: &str) {
+        self.log.push(line.to_string());
+    }
+}
+
+/// The fake PC with the real service on it.
+pub struct Pc {
+    _dir: TempDir,
+    pub service: Service<FakeOs>,
+}
+
+impl Pc {
+    /// A PC with a family set up, at `start`.
+    pub fn new(start: i64) -> Pc {
+        let dir = tempfile::tempdir().unwrap();
+        let mut hub = Hub::open(&dir.path().join("family.limo")).unwrap();
+        hub.create_family(PASSWORD, start).unwrap();
+        let config = ServiceConfig {
+            pc_name: "Family PC".into(),
+            own_pid: OWN_PID,
+            own_exe: OWN_EXE.into(),
+            windows_dir: WINDOWS.into(),
+        };
+        let mut os = FakeOs::new(start);
+        os.processes.push(ProcessSeen { pid: OWN_PID, session_id: 0, started: 1, name: "limo.exe".into(), path: OWN_EXE.into() });
+        Pc { _dir: dir, service: Service::new(os, hub, config) }
+    }
+
+    pub fn os(&mut self) -> &mut FakeOs {
+        self.service.os()
+    }
+
+    pub fn hub(&mut self) -> &mut Hub {
+        self.service.hub()
+    }
+
+    pub fn now(&mut self) -> i64 {
+        self.os().wall_ms.div_euclid(1_000)
+    }
+
+    /// A child with `minutes` a day, linked to a Windows account.
+    pub fn add_child(&mut self, name: &str, account: &str, minutes: u32) -> String {
+        let now = self.now();
+        let child = self.hub().add_child(name, AgeBand::TenToTwelve, IST, now).unwrap().child_id;
+        self.hub().link_account(account, name, AccountLink::Child { child_id: child.clone() }).unwrap();
+        self.change_rules(&child, |rules| rules.budgets = WeekBudgets::every_day(DailyBudget::Minutes(minutes)));
+        child
+    }
+
+    pub fn change_rules(&mut self, child: &str, change: impl FnOnce(&mut RuleSet)) {
+        let now = self.now();
+        let mut rules = self.hub().rules(child).unwrap();
+        change(&mut rules);
+        self.hub().replace_rules(child, rules, now).unwrap();
+    }
+
+    /// Someone signs in to `account` in `session`, and it is the one in use.
+    pub fn login(&mut self, session: u32, account: &str, name: &str) {
+        self.os().sessions.push(SessionSeen {
+            session_id: session,
+            account_id: account.into(),
+            account_name: name.into(),
+            state: SessionState::InUse,
+            is_administrator: false,
+        });
+    }
+
+    pub fn set_state(&mut self, session: u32, state: SessionState) {
+        self.os().sessions.iter_mut().find(|s| s.session_id == session).unwrap().state = state;
+    }
+
+    /// A program file, with what its version resource says.
+    pub fn file(&mut self, path: &str, original: Option<&str>, maker: Option<&str>) {
+        let os = self.os();
+        os.versions.insert(path.into(), VersionNames { original_name: original.map(Into::into), maker: maker.map(Into::into) });
+        os.stamps.insert(path.into(), 1);
+    }
+
+    /// Starts a program from `path` in `session`; its process id.
+    pub fn start(&mut self, session: u32, path: &str) -> u32 {
+        let os = self.os();
+        let pid = os.new_pid();
+        let name = path.rsplit('\\').next().unwrap().to_string();
+        os.processes.push(ProcessSeen { pid, session_id: session, started: 1_000 + u64::from(pid), name, path: path.into() });
+        pid
+    }
+
+    /// One step, 100 ms later.
+    pub fn step(&mut self) {
+        let os = self.os();
+        os.steady_ms += STEP_MS;
+        os.wall_ms += STEP_MS as i64;
+        self.service.step();
+    }
+
+    /// Steps for `ms` milliseconds.
+    pub fn run_ms(&mut self, ms: u64) {
+        for _ in 0..ms / STEP_MS {
+            self.step();
+        }
+    }
+
+    /// Steps for `secs` seconds.
+    pub fn run(&mut self, secs: u64) {
+        self.run_ms(secs * 1_000);
+    }
+
+    /// The running helper of a session.
+    pub fn helper(&mut self, session: u32) -> Option<&mut FakeHelper> {
+        self.os().helpers.iter_mut().rev().find(|h| h.session == session && h.running)
+    }
+
+    pub fn helper_id(&mut self, session: u32) -> HelperId {
+        self.helper(session).unwrap().id
+    }
+
+    /// How many helpers were ever started in a session.
+    pub fn helpers_started(&mut self, session: u32) -> usize {
+        self.os().helpers.iter().filter(|h| h.session == session).count()
+    }
+
+    /// How many helpers run in a session now.
+    pub fn helpers_running(&mut self, session: u32) -> usize {
+        self.os().helpers.iter().filter(|h| h.session == session && h.running).count()
+    }
+
+    /// Bytes the session's helper writes to its channel.
+    pub fn write_raw(&mut self, session: u32, bytes: Vec<u8>) {
+        let id = self.helper_id(session);
+        self.os().from_helpers.push((id, bytes));
+    }
+
+    /// A message the session's helper sends.
+    pub fn say(&mut self, session: u32, message: FromHelper) {
+        let frame = encode(&message).unwrap();
+        self.write_raw(session, frame.to_vec());
+    }
+
+    /// The session's helper says hello.
+    pub fn greet(&mut self, session: u32) {
+        self.say(session, FromHelper::Hello { protocol: PROTOCOL_VERSION });
+    }
+
+    /// The session's helper reports.
+    pub fn report(&mut self, session: u32, idle_ms: u64, front_pid: Option<u32>, full_screen: bool) {
+        self.say(session, FromHelper::Report { idle_ms, front_pid, full_screen });
+    }
+
+    /// The last show the session's running helper got.
+    pub fn last_show(&mut self, session: u32) -> Option<(u64, Option<String>, Show)> {
+        self.helper(session)?.got.iter().rev().find_map(|m| match m {
+            ToHelper::Show { seq, child_name, show } => Some((*seq, child_name.clone(), show.clone())),
+            _ => None,
+        })
+    }
+
+    /// The facts the engine was given for a session at the last call.
+    pub fn facts_of(&self, session: u32) -> Option<Session> {
+        self.service.last_facts()?.sessions.iter().find(|s| s.session_id == session).cloned()
+    }
+
+    /// Seconds counted today on this PC for a child.
+    pub fn counted(&self, child: &str) -> u64 {
+        self.service.engine().child_on_pc(child).map_or(0, |c| c.counted_secs)
+    }
+
+    /// The log lines containing `text`.
+    pub fn logged(&mut self, text: &str) -> Vec<String> {
+        self.os().log.iter().filter(|l| l.contains(text)).cloned().collect()
+    }
+
+    /// The helper confirms the lock it was last sent.
+    pub fn confirm_lock(&mut self, session: u32) {
+        let (seq, _, show) = self.last_show(session).unwrap();
+        assert!(matches!(show, Show::Locked { .. }), "{show:?}");
+        self.say(session, FromHelper::LockOnScreen { seq });
+    }
+}

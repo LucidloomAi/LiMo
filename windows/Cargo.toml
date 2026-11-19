@@ -1,0 +1,76 @@
+[package]
+name = "limo-windows"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+description = "LiMo for Windows: the service on the master PC, and its helper in each signed in session"
+publish = false
+
+[lib]
+name = "limo_windows"
+
+[[bin]]
+name = "limo"
+path = "src/main.rs"
+
+[dependencies]
+# The engine: facts in, orders out.
+limo-agent = { path = "../agent" }
+# The family's file.
+limo-hub = { path = "../hub" }
+# The rules core, for the types the engine and the hub hand over.
+limo-core = { path = "../core" }
+# The channel's messages and the data folder's settings file are JSON.
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+# Wiping a typed PIN or code from memory when it is no longer needed.
+zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
+
+[target.'cfg(windows)'.dependencies]
+# The service control manager: the same crate and version as the first spike.
+windows-service = "0.8.1"
+
+[target.'cfg(windows)'.dependencies.windows]
+# Windows itself: the same version as the first spike.
+version = "0.62.2"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Environment",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_Time",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[dev-dependencies]
+# A real family file in a temporary folder, for the stories.
+tempfile = "3.27.0"
+
+# The guardian password and the PIN are hashed slowly on purpose. Optimised
+# dependencies in debug and test builds keep them as fast as they are in the
+# product, as in the agent and the hub; overflow checks stay on.
+[profile.dev]
+opt-level = 1
+[profile.test]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 2
