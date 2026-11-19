@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+The accessibility service's settings (watch/WatchService), as proof two used
+them.
+
+Privacy rule: LiMo records an app's name and how long it was used, never what
+is on the screen. So canRetrieveWindowContent is false: Android gives this
+service no window content at all, event.getSource() is always null, and no
+node tree can be read. No key filtering, no gestures, no touch exploration.
+
+Only window state changes are asked for. flagIncludeNotImportantViews only
+widens which window state events arrive (an app's root view is often judged
+not important for accessibility, and its events would otherwise be dropped);
+it gives no content, because content retrieval is off.
+
+notificationTimeout 0: each event at once, no batching delay.
+
+isAccessibilityTool false: LiMo is not a tool for people with disabilities,
+and says so.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagIncludeNotImportantViews"
+    android:canPerformGestures="false"
+    android:canRequestFilterKeyEvents="false"
+    android:canRequestTouchExplorationMode="false"
+    android:canRetrieveWindowContent="false"
+    android:description="@string/limo_watch_description"
+    android:isAccessibilityTool="false"
+    android:notificationTimeout="0" />

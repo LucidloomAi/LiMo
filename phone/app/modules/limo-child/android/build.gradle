@@ -1,0 +1,32 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+// The child form's own Android code. Only the child form links this module;
+// the guardian form leaves it out (plugins/with-limo-form.js).
+
+group = 'ai.lucidloom.limo'
+version = '0.1.0'
+
+android {
+  // The code lives in ai.lucidloom.limo.child.<folder>. The namespace, which
+  // only names this module's R class, has to differ from the child app's
+  // package (ai.lucidloom.limo.child), or the two R classes would clash.
+  namespace 'ai.lucidloom.limo.child.module'
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+    buildConfigField 'String', 'LIMO_CHILD_MODULE_VERSION', "\"${project.version}\""
+  }
+  buildFeatures {
+    buildConfig true
+  }
+  sourceSets {
+    main {
+      // Written by scripts/make-design.mjs from design/tokens.json, git ignored:
+      // the Paper and Ink colours and sizes as Android resources.
+      res.srcDirs += 'src/generated/res'
+    }
+  }
+}

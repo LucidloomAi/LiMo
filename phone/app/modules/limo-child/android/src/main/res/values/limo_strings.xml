@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Words Android shows for LiMo's components in Settings. They say what this
+build does, which is nothing yet; the pieces that fill each folder change
+them to say what LiMo then does.
+-->
+<resources>
+    <string name="limo_watch_label">LiMo</string>
+    <string name="limo_watch_description">LiMo will note which app is in front, by its name only, to count screen time and to cover apps a parent blocked. It never reads what is on the screen. In this early build it does nothing yet.</string>
+    <string name="limo_admin_label">LiMo</string>
+    <string name="limo_admin_description">LiMo will stop itself from being removed without a parent. It asks for no other powers: it cannot wipe the phone, change the screen lock or use the camera. In this early build it does nothing yet.</string>
+</resources>

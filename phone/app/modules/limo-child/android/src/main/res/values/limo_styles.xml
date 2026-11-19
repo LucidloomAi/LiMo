@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+The theme of show/WaysOutActivity until its screens are drawn: paper, ink
+text, light system bars. The colours come from design/tokens.json through
+src/generated/res/values/limo_tokens.xml (scripts/make-design.mjs).
+-->
+<resources>
+    <style name="Theme.LiMo.WaysOut" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/limo_paper</item>
+        <item name="android:colorBackground">@color/limo_paper</item>
+        <item name="android:textColorPrimary">@color/limo_ink</item>
+        <item name="android:textColorSecondary">@color/limo_ink_soft</item>
+        <item name="android:colorAccent">@color/limo_marigold</item>
+        <item name="android:statusBarColor">@color/limo_paper</item>
+        <item name="android:navigationBarColor">@color/limo_paper</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

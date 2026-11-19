@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Every Android component of LiMo's child form, declared once, here. Each is a
+stub that does nothing yet. Later pieces fill the Kotlin folders named below
+and leave this file alone.
+
+The guardian form leaves this whole module out (see plugins/with-limo-form.js),
+so nothing in this file can reach a guardian's phone.
+
+The class names are part of the app from now on: a device admin, an
+accessibility service a child's guardian switched on, and a device owner are
+all remembered by Android by their class name. Renaming one later switches it
+off on every phone. Short forms, relative to the child's package
+ai.lucidloom.limo.child: .watch.WatchService, .keep.AdminReceiver.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+    Permissions. Only what these components need, each one for a reason.
+    Not here, on purpose: the camera, the microphone, location, contacts,
+    accounts, the phone's state, reading or writing shared storage, and "draw
+    over other apps" (the covers are accessibility overlays, which need no
+    permission of their own). Also not here: INTERNET. Nothing in this build
+    opens a socket; the link to the master PC (folder link/, a later piece)
+    adds INTERNET and ACCESS_NETWORK_STATE for the home network only, and
+    says so where it adds them.
+    -->
+
+    <!-- keep/KeepService runs as a foreground service (Android 9 and later). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- keep/KeepService's type, specialUse (Android 14 and later). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- The time left notification of keep/KeepService (Android 13 and later asks the person). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- keep/RestartReceiver starts LiMo again after the phone restarts. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!--
+    Usage access, for watch/: Android's own record of which app was in front,
+    to check the accessibility service missed nothing. A person grants it in
+    Settings; the app cannot grant it to itself.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!--
+    Package visibility (Android 11 and later): instead of QUERY_ALL_PACKAGES,
+    only the apps these intents lead to.
+    -->
+    <queries>
+        <!-- Apps a child can open: the app list for the master, and the tiles of allowed apps. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- Home screens: they never count. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <!-- Diallers: never covered, so a lock never stands between a child and a call. -->
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+        </intent>
+        <!-- Keyboards: their windows are not an app coming to the front. -->
+        <intent>
+            <action android:name="android.view.InputMethod" />
+        </intent>
+    </queries>
+
+    <application>
+
+        <!--
+        watch/WatchService: the accessibility service. It is told which app
+        comes to the front, by package name only, and the covers of show/ are
+        its overlay windows. It may never read what is on the screen: see
+        res/xml/limo_watch_service.xml.
+        -->
+        <service
+            android:name="ai.lucidloom.limo.child.watch.WatchService"
+            android:exported="true"
+            android:label="@string/limo_watch_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/limo_watch_service" />
+        </service>
+
+        <!-- watch/ClockReceiver: the clock or the time zone was changed. -->
+        <receiver
+            android:name="ai.lucidloom.limo.child.watch.ClockReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+        show/WaysOutActivity: the three ways out of a lock (ask with a typed
+        reason, a code, the PIN). An activity, because a keyboard cannot type
+        into an overlay. Only LiMo itself can open it.
+        -->
+        <activity
+            android:name="ai.lucidloom.limo.child.show.WaysOutActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@style/Theme.LiMo.WaysOut"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+
+        <!--
+        keep/KeepService: the foreground service that hosts the engine and
+        shows the time left notification.
+        -->
+        <service
+            android:name="ai.lucidloom.limo.child.keep.KeepService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Screen time limits that a parent set: counts time while the child uses the phone and shows the time left." />
+        </service>
+
+        <!-- keep/RestartReceiver: the phone restarted, or LiMo was updated. -->
+        <receiver
+            android:name="ai.lucidloom.limo.child.keep.RestartReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- keep/AlarmReceiver: LiMo's own alarms. Reached only by its own pending intents. -->
+        <receiver
+            android:name="ai.lucidloom.limo.child.keep.AlarmReceiver"
+            android:exported="false" />
+
+        <!--
+        keep/AdminReceiver: the device admin for the base protection, and the
+        same component later becomes the device owner in strict mode
+        (folder strict/). Its policy list is empty: see res/xml/limo_admin.xml.
+        -->
+        <receiver
+            android:name="ai.lucidloom.limo.child.keep.AdminReceiver"
+            android:description="@string/limo_admin_description"
+            android:exported="true"
+            android:label="@string/limo_admin_label"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/limo_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+        The development receiver (folder dev/) is declared in
+        src/debug/AndroidManifest.xml, so a release build never has it.
+        -->
+
+    </application>
+</manifest>

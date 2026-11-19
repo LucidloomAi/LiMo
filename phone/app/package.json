@@ -1,0 +1,28 @@
+{
+  "name": "limo-phone-app",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "main": "index.ts",
+  "scripts": {
+    "postinstall": "node scripts/make-design.mjs",
+    "make:design": "node scripts/make-design.mjs",
+    "typecheck": "node scripts/make-design.mjs && tsc --noEmit",
+    "build:child": "node scripts/build.mjs child",
+    "build:guardian": "node scripts/build.mjs guardian",
+    "build:both": "node scripts/build.mjs child guardian",
+    "inspect": "node scripts/inspect.mjs"
+  },
+  "dependencies": {
+    "expo": "~57.0.33",
+    "expo-constants": "~57.0.24",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.4"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.18",
+    "typescript": "~5.9.3"
+  }
+}

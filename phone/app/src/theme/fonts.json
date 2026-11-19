@@ -1,0 +1,9 @@
+{
+  "weights": [400, 500, 600, 700],
+  "displaySizes": [18, 28, 44, 72],
+  "files": {
+    "display": "fraunces/Fraunces-VariableFont_SOFT,WONK,opsz,wght.ttf",
+    "body": "instrument-sans/InstrumentSans-VariableFont_wdth,wght.ttf",
+    "mono": "spline-sans-mono/SplineSansMono-VariableFont_wght.ttf"
+  }
+}

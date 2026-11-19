@@ -1,0 +1,33 @@
+# Node and Expo
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+*.tsbuildinfo
+.metro-health-check*
+npm-debug.*
+
+# Made by `expo prebuild` for one form at a time; nothing in them is written by hand.
+# Anchored: modules/limo-child/android/ is source and is committed.
+/android/
+/ios/
+
+# Made by scripts/make-design.mjs from ../../design and ../../docs/images
+src/generated/
+modules/limo-child/android/src/generated/
+
+# The built files, copied here by scripts/build.mjs
+out/
+
+# Android and Gradle build output
+build/
+.gradle/
+.kotlin/
+.cxx/
+local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+*.hprof

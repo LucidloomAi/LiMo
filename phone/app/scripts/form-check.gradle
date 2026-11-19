@@ -1,0 +1,19 @@
+// Applied from android/build.gradle (plugins/with-limo-android.js adds the
+// line during prebuild).
+//
+// android/ is made for one form at a time, and plugins/with-limo-form.js
+// writes which one into android/gradle.properties as limo.form. While Gradle
+// bundles the JavaScript, Expo reads app.config.ts again, which reads
+// LIMO_FORM. The two must agree, or the app would be one form with the other
+// form's settings inside. This stops the build when they do not.
+
+def madeFor = findProperty('limo.form')
+def asked = System.getenv('LIMO_FORM')
+if (madeFor == null) {
+  throw new GradleException('[LiMo] android/ has no limo.form. Make it again: npm run build:child or npm run build:guardian.')
+}
+if (asked != madeFor) {
+  throw new GradleException("[LiMo] android/ was made for the ${madeFor} form, but LIMO_FORM is ${asked ?: 'not set'}. " +
+    "Build with npm run build:${madeFor}, or set LIMO_FORM=${madeFor} for this Gradle run.")
+}
+logger.lifecycle("[LiMo] Building the ${madeFor} form")

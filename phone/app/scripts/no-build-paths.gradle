@@ -1,0 +1,46 @@
+// Applied from android/build.gradle (plugins/with-limo-android.js adds the
+// line during prebuild, before React Native's root plugin, so :app gets it).
+//
+// Why: C and C++ code that uses __FILE__, such as a check in one of React
+// Native's headers, keeps the full path of the source file in the built
+// library. Without this, the app's codegen libraries for react-native-svg
+// and react-native-safe-area-context carried a path from the Gradle cache,
+// which holds the build PC's user name. A built app must not say who built
+// it or where.
+//
+// What: every CMake build compiles with -ffile-prefix-map, which writes
+//   the repository's folder        as  limo
+//   Gradle's folder (caches)       as  gradle-home
+//   the user's home folder         as  home
+// in place of the real paths. scripts/inspect.mjs checks the result.
+//
+// A folder whose path has a space cannot be passed this way (the flags are
+// split at spaces); it is left out with a warning.
+
+def repoDir = new File(rootDir, '../../..').canonicalFile
+def maps = [
+  [repoDir, 'limo'],
+  [gradle.gradleUserHomeDir.canonicalFile, 'gradle-home'],
+  [new File(System.getProperty('user.home')).canonicalFile, 'home'],
+]
+def flags = []
+maps.each { pair ->
+  def from = pair[0].absolutePath.replace('\\', '/')
+  if (from.contains(' ')) {
+    logger.warn("[LiMo] A build folder's path has a space, so it stays in the C++ libraries: ${pair[1]}")
+  } else {
+    flags << "-ffile-prefix-map=${from}=${pair[1]}"
+  }
+}
+
+if (!flags.isEmpty()) {
+  def mapPaths = { project ->
+    def cmake = project.android.defaultConfig.externalNativeBuild.cmake
+    cmake.cFlags(*flags)
+    cmake.cppFlags(*flags)
+  }
+  allprojects { p ->
+    p.plugins.withId('com.android.library') { mapPaths(p) }
+    p.plugins.withId('com.android.application') { mapPaths(p) }
+  }
+}

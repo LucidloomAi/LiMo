@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+The device admin's policies (keep/AdminReceiver): none, on purpose, as in
+proof five. An active device admin cannot be uninstalled until it is switched
+off in Settings, which is all the base protection asks of it, and a device
+owner needs no policy here for what strict mode does. An empty list means
+Android refuses this admin the old powers: wiping the phone, resetting or
+changing the screen lock, locking the screen, switching off the camera or
+features of the lock screen.
+-->
+<device-admin>
+    <uses-policies />
+</device-admin>
