@@ -174,7 +174,7 @@ ends exist from the moment it is made. Nothing else of the service's is
 inherited. The helper checks that both values are pipes, and marks them not
 inheritable before it does anything else.
 
-**One thing only real hardware can tell.** Microsoft's page for
+**One thing only real hardware could tell.** Microsoft's page for
 `CreateProcessAsUserW` says, of `bInheritHandles`, under "Terminal
 Services": "You cannot inherit handles across sessions. Additionally, if this
 parameter is TRUE, you must create the process in the same session as the
@@ -183,12 +183,15 @@ literally this forbids the design. The remark dates from Windows XP, when a
 process for another session was made by a helper inside that session; since
 Windows Vista the caller makes the process itself, and the handles it
 inherits are copied from the caller's own table, whatever the session. That
-is the reason to expect it to work, and why it was built as the brief asks.
-But it has not been tried here. If it does not hold, the helper is never started
-(or never says hello): the log says so every second, nothing is shown, and
-the fallback disconnects any session ordered locked. There is no quiet
-fallback to a pipe anyone can open. TESTING.md, part D, is where this is
-settled.
+was the reason to expect it to work, and why it was built as the brief asks.
+It holds: in the first run on a real PC (19 November 2026, Windows 11 Home,
+build 26200) the helper, started in the child's session by the service in
+session 0, was born with both ends and said hello at once, every time it was
+started (`channel=inherited` in the log). Where it ever did not hold, the
+helper would never be started (or never say hello): the log says so every
+second, nothing is shown, and the fallback disconnects any session ordered
+locked. There is no quiet fallback to a pipe anyone can open. TESTING.md,
+part D, is where this is checked.
 
 **Frames.** Each message is the protocol version (2 bytes), the length of
 what follows (4 bytes), both little endian, then that many bytes of JSON. A
@@ -647,7 +650,17 @@ as in the hub and the agent, so the slow password and PIN hashes stay quick.
   hook always returns in time while a large picture is being drawn (a
   first draw at 3840 by 2160 takes longest); and that the pictures go on
   monitors of different scalings in the right places. [TESTING.md](TESTING.md),
-  parts I to L, is where.
+  parts I to L, is where. The first run (19 November 2026, three monitors of
+  1920 by 1080 at 100% scaling) saw the display, its notices, the drag on to
+  another monitor, the lock and its ways out all work, typed text included,
+  and nothing look wrong. Still to see: monitors of different scalings, a
+  large first draw, and the lock set beside the design.
+- **A video in a window pauses the count.** Only something in full screen
+  keeps a session counted while nobody types or moves the mouse, so a video
+  left playing in a browser window stops being counted after the idle
+  minutes. Seen in the first run, and decided the same day: a session is
+  also counted while it plays sound, or while a program keeps the screen
+  awake. Not built yet.
 - **The plain display names no program.** It shows the engine's sentence,
   which names the file ("gamelauncher.exe is blocked by your family's
   rules, so LiMo closed it."); only the drawn notice shows the description.

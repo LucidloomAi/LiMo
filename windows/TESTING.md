@@ -2,8 +2,9 @@
 
 These are the steps to try `limo.exe` on a real PC, with the owner there.
 They go from the safest to the riskiest; stop at any part, and undo it as
-its last lines say. Nothing here has been run yet: every part says what to
-look for, and the results go in the table at the end.
+its last lines say. Every part says what to look for, and the results go in
+the table at the end. They were first run on 19 November 2026: what was seen
+is in that table, with notes under it.
 
 Everything is undone by `limo uninstall`, run from the build folder in an
 administrator terminal: it stops and removes the service and deletes both
@@ -33,6 +34,12 @@ folders, the family's file with them.
 - From any lock, you can always get back to your own account: press
   Ctrl+Alt+Del and choose Switch user. From there, `sc.exe stop LiMo` (in an
   elevated terminal) ends every lock at once.
+- Between parts, switch between the accounts; do not sign out of the child's.
+  Signing out ends its helper with everything else in it, and the next sign
+  in is a new session with a new number.
+- For a picture of LiMo's screens, use a phone. In the first run a screen
+  capture taken by a program in the child's account showed the desktop
+  without LiMo's windows.
 
 ## Part A: no install, nothing changed
 
@@ -163,16 +170,20 @@ In the child's session:
 1. Open Notepad. Within about a second it closes, and a notice shows above
    the time left display: a blocked sign, `Notepad was closed.`, and under
    it `It is blocked by your family's rules.`, for 10 seconds. The name is
-   the description Notepad's own file carries; were there none, the notice
-   would name the file, `Notepad.exe was closed.`. Open it again: it closes
-   again.
+   the description Notepad's own file carries, without a closing `.exe`
+   (Windows 11's Notepad describes itself as "Notepad.exe"); were there
+   none, the notice would name the file, `Notepad.exe was closed.`. Open it
+   again: it closes again.
 2. The taskbar and the desktop stay: `explorer.exe` is blocked too, but is
    part of Windows, and LiMo never closes it.
 3. Switch back and run `.\limo status` (elevated). Look for one line
-   `Closed Notepad.exe ("Notepad") in session N (1 running copy): ...`,
-   however many times it was opened, the description in brackets after the
-   file name, and one line `The family's rules block explorer.exe
-   in session N, but it is part of Windows and LiMo never closes it: ...`.
+   `Closed Notepad.exe in session N (1 running copy): ...`, however many
+   times it was opened in ten minutes. The count may be 2 the first time:
+   Windows' own starter and the app it starts. A program whose description
+   says more than its file name has it in brackets after the file name, as
+   in `Closed gl.exe ("Game Launcher")`. And one line `The family's rules
+   block explorer.exe in session N, but it is part of Windows and LiMo never
+   closes it: ...`, said once for the session.
 
 Undo: nothing; part G goes on from here.
 
@@ -405,51 +416,89 @@ then `.\limo uninstall`.
 
 | Check | Expected | Seen |
 | --- | --- | --- |
-| A1 to A5 | as written | |
-| B1 access list of the data folder | only SY and BA, FA, begins D:P | |
-| B2 status elevated: Running, test cap on, two log lines | yes | |
-| B3 status not elevated: state only; dir refused | yes | |
-| B4 child: dir refused, sc stop refused, status state only | yes | |
-| C1 dev-setup and dev-code refused while the service runs | yes | |
-| C2, C4 family made, service started again | yes | |
-| C3 dev-code prints a code, a different one the second time; the log has no code | yes | |
-| D1 time left display above the clock in the child's session | yes | |
-| D2 launch line: uiaccess=1 integrity=set display=drawn, which dacl= | note which | |
-| D2 "says it got" line: uiaccess=1, 0x2100, band 2 | yes | |
-| D2 process_sddl: child's SID gets only 0x101000 | yes | |
-| D2 no "shows the plain display" line | none | |
-| D3 channel failure lines | none | |
-| D4 own session: no helper, nothing shown | yes | |
-| E2 paused after 3 idle minutes, grey | yes | |
-| E3 full screen video keeps counting | yes | |
-| E4 nothing counted while locked by Windows | yes | |
-| E5 warning at 15 minutes, above the display, gone after 30 s | yes | |
-| F1 Notepad closed each time, "Notepad was closed." | yes | |
-| F2 explorer.exe kept | yes | |
-| F3 one close line, one never closes line | yes | |
-| G1 child cannot end the helper | refused | |
-| G2 back after ended by an administrator, gap_ms | note gap_ms | |
-| H1 warnings at 5 and 1 minutes, the last counting down | yes | |
-| H2 lock on every monitor, keys swallowed, nothing on top | yes | |
-| H3 lifted after 120 s | yes | |
-| H4 confirmed line, TEST CAP line, no disconnect | yes | |
-| I2 main monitor's lock against the design, sharp at its scaling | note differences | |
-| I3 other monitors: look at the main one, sharp | yes | |
-| I4 the lock's clock in the PC's 12 or 24 hours | note which | |
-| I5 keys with no panel open do nothing, reach nothing | yes | |
-| J1 a request with a typed reason, by the layout; reason not logged | yes | |
-| J2 Escape leaves a panel and keeps nothing typed | yes | |
-| J3 wrong PIN, then right PIN adds 15 minutes and the lock goes | yes | |
-| J4 five wrong tries: a wait of a minute, rows greyed, back after it | yes | |
-| J5 the one time code adds 15 minutes; the code not logged | yes | |
-| K1 the display's place, clear corners and shadow, never takes the keyboard | yes | |
-| K2 drag follows, stops at the edges, onto another monitor, keeps its place | yes | |
-| K3 closed notice above the display, OK only on OK, gone by itself after 10 s | yes | |
-| K4 each warning above the display, OK, gone by itself after 30 s | yes | |
-| L2 launch line display=plain, and the "shows the plain display" line | yes | |
-| L3 the plain display shows | yes | |
-| L4 drawn again after the switch is off | yes | |
-| M2 steady N s and wall M s after sleep | note both | |
-| N4 disconnected within about 6 s, programs still open | yes | |
-| N5 the two log lines | yes | |
-| Finish: uninstall twice, status not installed | yes | |
+| A1 to A5 | as written | as written |
+| B1 access list of the data folder | only SY and BA, FA, begins D:P | `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)` |
+| B2 status elevated: Running, test cap on, two log lines | yes | yes |
+| B3 status not elevated: state only; dir refused | yes | yes |
+| B4 child: dir refused, sc stop refused, status state only | yes | yes; reading the log and the settings file refused too; `sc.exe stop` gave error 5 |
+| C1 dev-setup and dev-code refused while the service runs | yes | yes |
+| C2, C4 family made, service started again | yes | yes |
+| C3 dev-code prints a code, a different one the second time; the log has no code | yes | yes |
+| D1 time left display above the clock in the child's session | yes | yes |
+| D2 launch line: uiaccess=1 integrity=set display=drawn, which dacl= | note which | `dacl=admin-owner`, `channel=inherited`; no variant failed |
+| D2 "says it got" line: uiaccess=1, 0x2100, band 2 | yes | yes |
+| D2 process_sddl: child's SID gets only 0x101000 | yes | yes: `O:BAD:P(A;;0x1fffff;;;SY)(A;;0x1fffff;;;BA)(A;;0x101000;;;`the child's SID`)S:AI(ML;;NWNR;;;MP)` |
+| D2 no "shows the plain display" line | none | none |
+| D3 channel failure lines | none | none |
+| D4 own session: no helper, nothing shown | yes | yes |
+| E2 paused after 3 idle minutes, grey | yes | yes |
+| E3 full screen video keeps counting | yes | yes; a video in a window does not (note 2) |
+| E4 nothing counted while locked by Windows | yes | yes |
+| E5 warning at 15 minutes, above the display, gone after 30 s | yes | yes |
+| F1 Notepad closed each time, "Notepad was closed." | yes | closed each time, 1.1 s after it opened; the notice named it "Notepad.exe" (note 3) |
+| F2 explorer.exe kept | yes | yes |
+| F3 one close line, one never closes line | yes | one close line; the never closes line came again every 10 minutes (note 4) |
+| G1 child cannot end the helper | refused | refused: End task, and `taskkill /F` |
+| G2 back after ended by an administrator, gap_ms | note gap_ms | `gap_ms=0` |
+| H1 warnings at 5 and 1 minutes, the last counting down | yes | yes |
+| H2 lock on every monitor, keys swallowed, nothing on top | yes | yes, on three monitors; no always on top program was tried |
+| H3 lifted after 120 s | yes | in the log, 121 s after the lock was confirmed; not watched on the screen |
+| H4 confirmed line, TEST CAP line, no disconnect | yes | yes |
+| I2 main monitor's lock against the design, sharp at its scaling | note differences | nothing looked wrong at 100% scaling; not set beside the design, no pictures |
+| I3 other monitors: look at the main one, sharp | yes | yes |
+| I4 the lock's clock in the PC's 12 or 24 hours | note which | not noted |
+| I5 keys with no panel open do nothing, reach nothing | yes | yes |
+| J1 a request with a typed reason, by the layout; reason not logged | yes | yes |
+| J2 Escape leaves a panel and keeps nothing typed | yes | yes |
+| J3 wrong PIN, then right PIN adds 15 minutes and the lock goes | yes | yes |
+| J4 five wrong tries: a wait of a minute, rows greyed, back after it | yes | yes |
+| J5 the one time code adds 15 minutes; the code not logged | yes | yes |
+| K1 the display's place, clear corners and shadow, never takes the keyboard | yes | in its place, nothing looked wrong; the keyboard was not tried |
+| K2 drag follows, stops at the edges, onto another monitor, keeps its place | yes | yes |
+| K3 closed notice above the display, OK only on OK, gone by itself after 10 s | yes | yes |
+| K4 each warning above the display, OK, gone by itself after 30 s | yes | each warning seen; OK on a warning was not tried |
+| L2 launch line display=plain, and the "shows the plain display" line | yes | yes |
+| L3 the plain display shows | yes | yes, and its lock on three monitors |
+| L4 drawn again after the switch is off | yes | yes |
+| M2 steady N s and wall M s after sleep | note both | not run |
+| N4 disconnected within about 6 s, programs still open | yes | yes, both times |
+| N5 the two log lines | yes | yes; `gap_ms=112949` once the program was put back |
+| Finish: uninstall twice, status not installed | yes | yes |
+
+## Notes from the first run, 19 November 2026
+
+Windows 11 Home (build 26200), three monitors of 1920 by 1080 at 100%
+scaling, an administrator's account and a standard account for the child.
+Every part but M was run, in this order: A to H, I to K, L, N, the rest of
+J, Finish.
+
+1. **The channel is inherited across sessions.** The helper, started in the
+   child's session by the service in session 0, was born with both ends of
+   its channel and said hello at once, every time: at sign in, after it was
+   ended by an administrator, with the plain display, and after the program
+   was hidden and put back in part N.
+2. **A video in a window pauses the count.** A video left playing in a
+   browser window, not in full screen, stopped being counted after 3 idle
+   minutes: 13 minutes of screen time took 31. That is the rule as it was
+   written, and it lets a child watch without limit. Decided the same day:
+   a session is also counted while it plays sound, or while a program keeps
+   the screen awake. Not built yet.
+3. **Windows 11's Notepad describes itself as "Notepad.exe".** So the
+   notice said "Notepad.exe was closed." and the log `Closed Notepad.exe
+   ("Notepad.exe")`. Changed after the run: a description loses a closing
+   `.exe`, and the log leaves out a description that only repeats the file's
+   name. The first close found 2 running copies: Windows' own starter in
+   System32 and the app it starts.
+4. **One line filled the log.** "The family's rules block explorer.exe
+   ..., but it is part of Windows and LiMo never closes it" came back every
+   10 minutes, each time with a count near 590. Changed after the run: it is
+   said once for a session.
+5. **Two texts.** The hints said `sc stop LiMo`, which PowerShell reads as
+   another command; they say `sc.exe` now. A sentence that ends with
+   Windows' own message had two full stops; it has one now.
+6. **Signing out of the child's account** ends its helper with the session.
+   The log then says the helper ended and that one was started again: the
+   service tried once more while the session was closing. Nothing is wrong.
+7. **Not seen yet:** sleep (part M); the lock set beside the design, and
+   monitors of different scalings (part I); an always on top program over
+   the lock (part H).

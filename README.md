@@ -165,17 +165,21 @@ and the lock screen that carries out its orders are in the next folder.
 [`windows/`](windows/) is the fourth part: the Windows service that runs
 the engine on a real PC, and the helper it starts in each signed in session.
 The service gathers the facts, carries out the orders and closes blocked
-programs; the helper shows the time left and the lock. It is written and
-tested against a stand in for Windows, and has **not yet been run as a
-service**: that happens next, with care, on a real PC. The lock screen it
-shows today is a plain one; the designed one comes from the next folder.
+programs; the helper shows the time left and the lock. It is tested against
+a stand in for Windows, and it **first ran as a service on a real PC on 19
+November 2026**: the time ran out, three monitors locked, the child's
+account could not stop it or read the family's file, and a guardian's PIN
+and a one time code opened it again. The steps and what was seen are in
+[`windows/TESTING.md`](windows/TESTING.md). There is no installer, no
+guardian console and no pairing with a phone yet.
 
 [`screens/`](screens/) is the fifth part: it draws the lock screen, the
 time left display and its notices into pixels, to the design in
 [`design/`](design/), with no operating system code at all. A helper puts
 the picture on the screen and hands it clicks and keys, so the same
-drawing can serve Windows now and another system later. It is not yet
-joined to the Windows helper.
+drawing can serve Windows now and another system later. The Windows helper
+shows these pictures, and falls back to a plain display of its own if they
+ever fail.
 
 **A warning about proof five.** It makes a test app the Device Owner of a
 phone. Run it only on a spare phone with no accounts on it, and read its
