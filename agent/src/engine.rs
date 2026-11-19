@@ -442,7 +442,7 @@ impl Engine {
                     None => Show::TimeLeft {
                         seconds_left: decision.seconds_left,
                         counting: outcome.counting && session.state == SessionState::InUse,
-                        warning: decision.warning.map(|w| WarningShown::new(w.cause, w.minutes, w.lock_at)),
+                        warning: decision.warning.map(|w| WarningShown::new(w.cause, w.minutes, w.lock_at, now)),
                         unlocked_until: decision.unlocked_until,
                     },
                 }

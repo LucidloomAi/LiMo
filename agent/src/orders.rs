@@ -182,7 +182,8 @@ impl LockWhy {
 pub struct WarningShown {
     /// What the lock will be for.
     pub cause: WarningCause,
-    /// The warning point reached, in minutes.
+    /// The warning point reached, in minutes. It tells one warning from
+    /// another; the words say the time actually left, which can be less.
     pub minutes: u32,
     /// When the lock is expected, unix seconds, if use goes on.
     pub lock_at: i64,
@@ -191,9 +192,15 @@ pub struct WarningShown {
 }
 
 impl WarningShown {
-    /// The warning, with its words.
-    pub(crate) fn new(cause: WarningCause, minutes: u32, lock_at: i64) -> WarningShown {
-        let span = if minutes == 1 { "1 minute".to_string() } else { format!("{minutes} minutes") };
+    /// The warning, with its words, given at `now`, unix seconds.
+    ///
+    /// The words say the time left until the lock, never more than there
+    /// is: with 6 minutes a day, the first point reached is 15 minutes, and
+    /// the warning says "6 minutes of screen time left today.". See
+    /// `minutes_to_say`.
+    pub(crate) fn new(cause: WarningCause, minutes: u32, lock_at: i64, now: i64) -> WarningShown {
+        let said = minutes_to_say(minutes, lock_at.saturating_sub(now));
+        let span = if said == 1 { "1 minute".to_string() } else { format!("{said} minutes") };
         let message = match cause {
             WarningCause::TimeRunsOut => format!("{span} of screen time left today."),
             WarningCause::BlockedHoursStart => format!("The PC locks in {span}, for the hours it is not used."),
@@ -201,6 +208,16 @@ impl WarningShown {
         };
         WarningShown { cause, minutes, lock_at, message }
     }
+}
+
+/// The minutes a warning says, for the warning point reached (`point`) with
+/// `secs_left` seconds left until the lock: the time left in whole minutes,
+/// rounded up, never less than 1 and never more than the point. When the
+/// time left is the point, as it is on most days, that is the point itself.
+fn minutes_to_say(point: u32, secs_left: i64) -> u32 {
+    let secs = u64::try_from(secs_left).unwrap_or(0);
+    let left = u32::try_from(secs.div_ceil(60)).unwrap_or(u32::MAX);
+    left.min(point).max(1)
 }
 
 /// A program to close.
@@ -254,5 +271,59 @@ mod tests {
             assert!(title.ends_with('.') && title.chars().count() <= 32, "{title}");
             assert_ne!(title, why.message());
         }
+    }
+
+    const NOW: i64 = 1_800_000_000;
+
+    fn words(cause: WarningCause, point: u32, secs_left: i64) -> String {
+        let warning = WarningShown::new(cause, point, NOW + secs_left, NOW);
+        assert_eq!((warning.minutes, warning.lock_at), (point, NOW + secs_left), "the point and the lock stay as given");
+        warning.message
+    }
+
+    #[test]
+    fn a_warning_at_its_point_says_the_point() {
+        assert_eq!(words(WarningCause::TimeRunsOut, 15, 15 * 60), "15 minutes of screen time left today.");
+        assert_eq!(words(WarningCause::TimeRunsOut, 5, 5 * 60), "5 minutes of screen time left today.");
+        assert_eq!(words(WarningCause::TimeRunsOut, 1, 60), "1 minute of screen time left today.");
+        assert_eq!(words(WarningCause::BlockedHoursStart, 15, 15 * 60), "The PC locks in 15 minutes, for the hours it is not used.");
+        assert_eq!(words(WarningCause::UnlockEnds, 1, 60), "The unlock ends in 1 minute, and the PC locks then.");
+        // A part of a minute short of the point still rounds up to it.
+        assert_eq!(words(WarningCause::TimeRunsOut, 15, 15 * 60 - 59), "15 minutes of screen time left today.");
+        // More than the point (a clock set back meanwhile, say): the point.
+        assert_eq!(words(WarningCause::TimeRunsOut, 5, 9 * 60), "5 minutes of screen time left today.");
+    }
+
+    #[test]
+    fn a_warning_short_of_its_point_says_the_time_actually_left() {
+        // Each of the three causes, at the 15 minute point with 6 left.
+        assert_eq!(words(WarningCause::TimeRunsOut, 15, 6 * 60), "6 minutes of screen time left today.");
+        assert_eq!(words(WarningCause::BlockedHoursStart, 15, 6 * 60), "The PC locks in 6 minutes, for the hours it is not used.");
+        assert_eq!(words(WarningCause::UnlockEnds, 15, 6 * 60), "The unlock ends in 6 minutes, and the PC locks then.");
+        // Whole minutes, rounded up: 5 minutes and a second says 6.
+        assert_eq!(words(WarningCause::TimeRunsOut, 15, 5 * 60 + 1), "6 minutes of screen time left today.");
+        assert_eq!(words(WarningCause::TimeRunsOut, 15, 10 * 60), "10 minutes of screen time left today.");
+        // One minute or less is "1 minute", never "0 minutes".
+        assert_eq!(words(WarningCause::TimeRunsOut, 5, 42), "1 minute of screen time left today.");
+        assert_eq!(words(WarningCause::UnlockEnds, 15, 1), "The unlock ends in 1 minute, and the PC locks then.");
+        assert_eq!(words(WarningCause::BlockedHoursStart, 5, 0), "The PC locks in 1 minute, for the hours it is not used.");
+        assert_eq!(words(WarningCause::TimeRunsOut, 5, -30), "1 minute of screen time left today.");
+    }
+
+    #[test]
+    fn any_numbers_give_sound_words_and_no_panic() {
+        for (point, lock_at, now) in [
+            (0, NOW, NOW),
+            (u32::MAX, i64::MAX, i64::MIN),
+            (u32::MAX, i64::MIN, i64::MAX),
+            (15, i64::MAX, 0),
+            (1, i64::MIN, 0),
+        ] {
+            let warning = WarningShown::new(WarningCause::TimeRunsOut, point, lock_at, now);
+            assert!(warning.message.ends_with(" of screen time left today."), "{}", warning.message);
+            assert!(!warning.message.starts_with("0 "), "{}", warning.message);
+        }
+        assert_eq!(minutes_to_say(u32::MAX, i64::MAX), u32::MAX);
+        assert_eq!(minutes_to_say(0, 600), 1);
     }
 }

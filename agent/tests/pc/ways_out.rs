@@ -102,6 +102,27 @@ fn an_unlock_from_the_master_keeps_the_pc_open_and_counts_beyond() {
 }
 
 #[test]
+fn an_unlock_shorter_than_a_warning_point_is_warned_of_with_the_time_it_has() {
+    let (mut pc, asha) = used_up(20);
+    // Only the unlock's warnings: the day's own came before.
+    pc.warnings.clear();
+    let until = pc.now() + 8 * MIN;
+    let now = pc.now();
+    pc.hub().unlock_until(&asha, until, now).unwrap();
+    pc.run_until(until + 1);
+    assert_eq!(lock(&pc).why, LockWhy::TimeUsedUp);
+    let shown: Vec<(i64, WarningCause, u32, i64, String)> =
+        pc.warnings.iter().map(|(_, when, w)| (*when, w.cause, w.minutes, w.lock_at, w.message.clone())).collect();
+    // The 15 minute point is reached at the first call of the unlock, with
+    // 7 minutes and 59 seconds left: it says 8.
+    assert_eq!(shown, vec![
+        (now + 1, WarningCause::UnlockEnds, 15, until, "The unlock ends in 8 minutes, and the PC locks then.".to_string()),
+        (until - 5 * MIN, WarningCause::UnlockEnds, 5, until, "The unlock ends in 5 minutes, and the PC locks then.".to_string()),
+        (until - MIN, WarningCause::UnlockEnds, 1, until, "The unlock ends in 1 minute, and the PC locks then.".to_string()),
+    ]);
+}
+
+#[test]
 fn a_request_is_answered_at_the_master_and_reaches_the_lock_screen() {
     let (mut pc, asha) = used_up(10);
     let screen = lock(&pc);
@@ -249,8 +270,8 @@ fn new_rules_take_effect_at_the_next_call_with_their_warnings() {
     pc.front(1, made("Minecraft.exe", "Minecraft.exe", "Mojang"));
     pc.tick();
     pc.run(MIN);
-    // Bedtime from 20:10 to 07:00, set at 20:01: ten minutes ahead, so the
-    // fifteen minute warning comes at once.
+    // Bedtime from 20:10 to 07:00, set at 20:01: nine minutes ahead, so the
+    // fifteen minute warning comes at once, and says the nine.
     pc.change_rules(&asha, |r| {
         r.blocked_hours = vec![BlockedWindow { days: Weekday::ALL.to_vec(), start_minute: 20 * 60 + 10, end_minute: 7 * 60 }]
     });
@@ -262,6 +283,7 @@ fn new_rules_take_effect_at_the_next_call_with_their_warnings() {
         (at(20, 5), WarningCause::BlockedHoursStart, 5),
         (at(20, 9), WarningCause::BlockedHoursStart, 1),
     ]);
+    assert_eq!(pc.warnings[0].2.message, "The PC locks in 9 minutes, for the hours it is not used.");
     assert_eq!(pc.warnings[1].2.message, "The PC locks in 5 minutes, for the hours it is not used.");
     let screen = lock(&pc);
     assert_eq!((screen.why, screen.until, screen.can_ask_for_time), (LockWhy::BlockedHours, Some(on(1, 7, 0)), false));

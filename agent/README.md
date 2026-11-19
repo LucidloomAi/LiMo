@@ -143,7 +143,12 @@ is dropped. The guardian's lists in the rules should use these names.
   the one call it falls due, with its words ("5 minutes of screen time left
   today.", "The PC locks in 5 minutes, for the hours it is not used.", "The
   unlock ends in 1 minute, and the PC locks then."); and `unlocked_until`
-  while a guardian's unlock keeps the PC open.
+  while a guardian's unlock keeps the PC open. A warning's `minutes` is the
+  warning point reached, which tells one warning from another; its words
+  say the time actually left until its `lock_at`, in whole minutes rounded
+  up and never less than 1, which is the point itself on most days. On a
+  day of 6 minutes the first point reached is 15 minutes, and its words are
+  "6 minutes of screen time left today.".
 - **`Locked`**: cover the whole screen. The `LockScreen` says why (`LockWhy`:
   blocked hours, no time today, today's time used up, waiting for time,
   the rest of the time on another device, a guardian's lock, an account not
@@ -214,9 +219,17 @@ every one of the child's sessions is ordered locked; when it gives none, none
 is. The fake PC checks this at every call of every test. A warning is carried
 in the one call it falls due: the core keeps the warnings given, and the
 engine keeps them by letting the device state decide itself whenever a
-decision changes them. Test:
+decision changes them. **A warning never says more time than there is**:
+its words come from the time left when it is given, not from the point it
+reached, so a day of 6 minutes is first warned of with "6 minutes", and a
+bedtime or an unlock that is closer than a point says how close. Tests:
 `day::a_plain_day_runs_to_zero_with_each_warning_given_once` (15, 5 and 1
-minutes, each once, at its moment).
+minutes, each once, at its moment),
+`day::a_short_day_is_warned_of_with_the_time_actually_left` (6 and 10
+minutes),
+`ways_out::an_unlock_shorter_than_a_warning_point_is_warned_of_with_the_time_it_has`,
+`ways_out::new_rules_take_effect_at_the_next_call_with_their_warnings`
+(a bedtime 9 minutes away).
 
 **5. Blocked programs.** At every call, every program running in a child's
 session (any session, in use or not) and the one in front are checked
@@ -448,11 +461,11 @@ used, or lower it below.
 | Where | What | Count |
 | --- | --- | --- |
 | `src/facts.rs` | Program names: the original name when there is one, folders dropped, lists matched by either name for blocking | 2 |
-| `src/orders.rs` | Every lock's short title, beside its message | 1 |
-| `tests/pc/day.rs` | A plain day to zero with each warning once; idle pauses and full screen; the always allowed list; midnight in use; a budget cut and raised in the middle of the day | 5 |
+| `src/orders.rs` | Every lock's short title, beside its message; a warning's words at its point, short of it for each cause, and for any numbers | 4 |
+| `tests/pc/day.rs` | A plain day to zero with each warning once; days of 6 and 10 minutes warned of with the time they have; idle pauses and full screen; the always allowed list; midnight in use; a budget cut and raised in the middle of the day | 6 |
 | `tests/pc/programs.rs` | A blocked program renamed, closed again and again, noted once a day, and the hole; one child's list closing nothing in other sessions | 2 |
 | `tests/pc/sessions.rs` | Two children switching; a guardian's session; an account not linked, free and locked; an administrator's account not linked never locked, and one linked to a child limited; the PC device paired once, through restarts, re-paired after the guardian removes it | 6 |
-| `tests/pc/ways_out.rs` | Extra time, lock now and lift; an unlock that counts beyond; a request granted and refused; a code once, wrong codes and their wait across a crash; the PIN adding, unlocking and confirming a release; new rules with their warnings | 6 |
+| `tests/pc/ways_out.rs` | Extra time, lock now and lift; an unlock that counts beyond; an unlock shorter than a warning point, warned of with the time it has; a request granted and refused; a code once, wrong codes and their wait across a crash; the PIN adding, unlocking and confirming a release; new rules with their warnings | 7 |
 | `tests/pc/phone.rs` | The core README's worked day with the real engine; the PC and a phone at home used at once | 2 |
 | `tests/pc/clock.rs` | The wall clock set back and forward; forward over midnight; a time zone change; sleep both ways and a service held up | 4 |
 | `tests/pc/restart.rs` | One script for a whole day played uninterrupted, with a crash after every single call (over 4,000), with crashes here and there, and with clean stops: every call shows and counts the same, and each day's total is the same; a crash losing at most five seconds and a clean stop nothing; a lock on again at the first call | 4 |

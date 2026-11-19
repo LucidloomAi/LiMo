@@ -1,6 +1,7 @@
-//! Whole days on one PC: a plain day to zero, idle pauses and full screen,
-//! the always allowed list, midnight with the session in use, and a budget
-//! changed in the middle of the day.
+//! Whole days on one PC: a plain day to zero, short days warned of with the
+//! time they have, idle pauses and full screen, the always allowed list,
+//! midnight with the session in use, and a budget changed in the middle of
+//! the day.
 
 use limo_agent::{LockWhy, SessionState, Show};
 use limo_core::{DailyBudget, WarningCause, WeekBudgets};
@@ -60,6 +61,7 @@ fn a_plain_day_runs_to_zero_with_each_warning_given_once() {
         (at(9, 59), WarningCause::TimeRunsOut, 1, at(10, 0)),
     ]);
     assert_eq!(pc.warnings[0].2.message, "15 minutes of screen time left today.");
+    assert_eq!(pc.warnings[1].2.message, "5 minutes of screen time left today.");
     assert_eq!(pc.warnings[2].2.message, "1 minute of screen time left today.");
 
     // Asha stays at the lock screen: nothing more counts, and the lock stays.
@@ -77,6 +79,38 @@ fn a_plain_day_runs_to_zero_with_each_warning_given_once() {
     // The guardian sees the PC as this child's device on the master.
     let devices = pc.hub().devices(&asha).unwrap();
     assert_eq!((devices.len(), devices[0].name.as_str()), (1, "Family PC"));
+}
+
+/// Asha's day with `minutes` of screen time, run to zero: every warning,
+/// with when it came, its point and its words.
+fn warnings_of_a_short_day(minutes: u32) -> Vec<(i64, u32, String)> {
+    let (mut pc, asha) = asha_at_the_pc(at(8, 0));
+    pc.change_rules(&asha, |r| r.budgets = WeekBudgets::every_day(DailyBudget::Minutes(minutes)));
+    pc.tick();
+    while locked_why(&pc.show(1)).is_none() {
+        assert!(pc.now() < at(9, 0), "never locked");
+        pc.advance(1_000);
+        pc.tick();
+    }
+    assert_eq!(pc.now(), at(8, 0) + i64::from(minutes) * MIN);
+    assert!(pc.warnings.iter().all(|(_, _, w)| w.cause == WarningCause::TimeRunsOut && w.lock_at == pc.now()));
+    pc.warnings.iter().map(|(_, when, w)| (*when, w.minutes, w.message.clone())).collect()
+}
+
+#[test]
+fn a_short_day_is_warned_of_with_the_time_actually_left() {
+    // Six minutes: the first point reached is 15 minutes, at the first
+    // call, and it says the six there are.
+    assert_eq!(warnings_of_a_short_day(6), vec![
+        (at(8, 0), 15, "6 minutes of screen time left today.".to_string()),
+        (at(8, 1), 5, "5 minutes of screen time left today.".to_string()),
+        (at(8, 5), 1, "1 minute of screen time left today.".to_string()),
+    ]);
+    assert_eq!(warnings_of_a_short_day(10), vec![
+        (at(8, 0), 15, "10 minutes of screen time left today.".to_string()),
+        (at(8, 5), 5, "5 minutes of screen time left today.".to_string()),
+        (at(8, 9), 1, "1 minute of screen time left today.".to_string()),
+    ]);
 }
 
 #[test]
