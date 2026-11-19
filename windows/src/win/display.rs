@@ -1,6 +1,7 @@
 //! The plain display: a [`Display`] with no styling, ported from the first
-//! spike's overlay, until the real lock screen and time left display are
-//! drawn to the agreed design.
+//! spike's overlay. The helper uses the drawn display (`drawn.rs`); this
+//! one takes its place at once if the drawn one cannot start or fails, and
+//! when the settings file asks for it, for testing.
 //!
 //! - A lock: one borderless window over each monitor, above every other
 //!   window (in the UIAccess band, when the helper has UIAccess), put back on
@@ -77,15 +78,16 @@ thread_local! {
 }
 
 /// One monitor: its whole area, the part not under the taskbar, and
-/// whether it is the main one.
+/// whether it is the main one, in real pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Monitor {
-    area: RECT,
-    work: RECT,
-    primary: bool,
+pub(crate) struct Monitor {
+    pub(crate) area: RECT,
+    pub(crate) work: RECT,
+    pub(crate) primary: bool,
 }
 
-fn monitors() -> Vec<Monitor> {
+/// Every monitor, as Windows lists them.
+pub(crate) fn monitors() -> Vec<Monitor> {
     unsafe extern "system" fn each(monitor: HMONITOR, _dc: HDC, _clip: *mut RECT, data: LPARAM) -> BOOL {
         // SAFETY: `data` is the Vec handed to EnumDisplayMonitors below,
         // which calls this on the same thread before it returns.
@@ -460,7 +462,8 @@ impl Display for PlainDisplay {
         }
     }
 
-    fn notice(&mut self, text: &str) {
+    fn notice(&mut self, text: &str, _program: Option<&str>) {
+        // The service's sentence names the program already.
         self.notice = Some((text.to_string(), Instant::now() + NOTICE_SHOWN_FOR));
         if self.mode == Mode::TimeLeft {
             self.render_left();

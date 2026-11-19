@@ -148,9 +148,11 @@ pub(crate) fn first_variant_that_launches<T, E>(
     (None, failures)
 }
 
-/// The command line a helper is started with.
-pub(crate) fn helper_command_line(exe: &Path, read: usize, write: usize) -> String {
-    format!("\"{}\" helper --channel {read}:{write}", exe.display())
+/// The command line a helper is started with; with `--plain` when the
+/// settings file asks for the plain display.
+pub(crate) fn helper_command_line(exe: &Path, read: usize, write: usize, plain: bool) -> String {
+    let plain = if plain { " --plain" } else { "" };
+    format!("\"{}\" helper --channel {read}:{write}{plain}", exe.display())
 }
 
 /// A helper started, with the service's ends of its channel.
@@ -318,8 +320,9 @@ fn spawn(
     }
 }
 
-/// Starts a helper in a session, the guarded way, born with its channel.
-pub(crate) fn launch_helper(session: u32, exe: &Path) -> Result<Launched, String> {
+/// Starts a helper in a session, the guarded way, born with its channel;
+/// told to show the plain display when `plain` is set.
+pub(crate) fn launch_helper(session: u32, exe: &Path, plain: bool) -> Result<Launched, String> {
     let channel = |e: windows::core::Error| format!("its channel could not be made: {}", error_text(&e));
     let (helper_reads, service_writes) = pipe().map_err(channel)?;
     let (service_reads, helper_writes) = pipe().map_err(channel)?;
@@ -344,7 +347,7 @@ pub(crate) fn launch_helper(session: u32, exe: &Path) -> Result<Launched, String
     }
     let level = if integrity.is_ok() { IL_MEDIUM_PLUS } else { IL_MEDIUM };
     let handles = [helper_reads.raw(), helper_writes.raw()];
-    let command_line = helper_command_line(exe, helper_reads.raw().0 as usize, helper_writes.raw().0 as usize);
+    let command_line = helper_command_line(exe, helper_reads.raw().0 as usize, helper_writes.raw().0 as usize, plain);
 
     let (launched, failed) = first_variant_that_launches(|variant| {
         let descriptor = guarded_descriptor(token.raw(), variant, level).map_err(|e| (DaclStage::Build, e))?;
@@ -373,9 +376,10 @@ pub(crate) fn launch_helper(session: u32, exe: &Path) -> Result<Launched, String
     }
     let process = Owned::new(info.hProcess).ok_or_else(|| "the helper's process handle was not given".to_string())?;
     let detail = format!(
-        "uiaccess={} integrity={} dacl={dacl} channel=inherited",
+        "uiaccess={} integrity={} dacl={dacl} channel=inherited display={}",
         if uiaccess.is_ok() { 1 } else { 0 },
         if integrity.is_ok() { "set" } else { "failed" },
+        if plain { "plain" } else { "drawn" },
     );
     Ok(Launched { process, pid: info.dwProcessId, to_helper: service_writes, from_helper: service_reads, detail, problems })
 }
@@ -432,10 +436,18 @@ mod tests {
 
     #[test]
     fn the_command_line_carries_the_two_handles() {
-        let line = helper_command_line(Path::new(r"C:\Program Files\LiMo\limo.exe"), 524, 612);
+        let line = helper_command_line(Path::new(r"C:\Program Files\LiMo\limo.exe"), 524, 612, false);
         assert_eq!(line, r#""C:\Program Files\LiMo\limo.exe" helper --channel 524:612"#);
         let args: Vec<String> = ["helper", "--channel", "524:612"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(crate::cli::parse(&args), Ok(crate::cli::Command::Helper { channel: Some((524, 612)) }));
+        assert_eq!(crate::cli::parse(&args), Ok(crate::cli::Command::Helper { channel: Some((524, 612)), plain: false }));
+    }
+
+    #[test]
+    fn the_command_line_asks_for_the_plain_display_when_the_settings_do() {
+        let line = helper_command_line(Path::new(r"C:\Program Files\LiMo\limo.exe"), 524, 612, true);
+        assert_eq!(line, r#""C:\Program Files\LiMo\limo.exe" helper --channel 524:612 --plain"#);
+        let args: Vec<String> = ["helper", "--channel", "524:612", "--plain"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(crate::cli::parse(&args), Ok(crate::cli::Command::Helper { channel: Some((524, 612)), plain: true }));
     }
 
     /// Builds each variant's descriptor for this test process's own user and

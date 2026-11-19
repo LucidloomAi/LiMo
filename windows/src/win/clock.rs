@@ -4,12 +4,15 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use windows::Win32::Foundation::{FILETIME, SYSTEMTIME};
+use windows::Win32::Globalization::{GetLocaleInfoEx, LOCALE_STIMEFORMAT};
 use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::System::Time::{
     FileTimeToSystemTime, GetTimeZoneInformation, SystemTimeToTzSpecificLocalTime, TIME_ZONE_INFORMATION,
 };
 use windows::Win32::System::WindowsProgramming::QueryInterruptTime;
+use windows::core::PCWSTR;
 
+use super::from_wide;
 use crate::text::LocalMoment;
 
 /// `GetTimeZoneInformation`: standard time is in force.
@@ -57,6 +60,18 @@ pub(crate) fn utc_offset_secs() -> i32 {
     // SAFETY: writes into the structure handed to it.
     let id = unsafe { GetTimeZoneInformation(&mut zone) };
     offset_from(id, zone.Bias, zone.StandardBias, zone.DaylightBias)
+}
+
+/// The signed in user's time format, as their own Windows settings give it,
+/// such as "h:mm:ss tt" or "HH:mm:ss"; empty when it cannot be read.
+pub(crate) fn time_format() -> String {
+    let mut buffer = [0u16; 80];
+    // SAFETY: asks for the user's own locale (a null name) and writes at
+    // most the buffer's length into it; the count it returns includes the
+    // ending NUL, which `from_wide` drops.
+    let written = unsafe { GetLocaleInfoEx(PCWSTR::null(), LOCALE_STIMEFORMAT, Some(&mut buffer)) };
+    let count = usize::try_from(written).unwrap_or(0).min(buffer.len());
+    from_wide(&buffer[..count])
 }
 
 /// A unix moment on the PC's own clock, for showing.
@@ -110,5 +125,8 @@ mod tests {
         let moment = local_moment(wall_secs()).unwrap();
         assert!((1..=12).contains(&moment.month) && moment.hour < 24 && moment.minute < 60);
         assert_eq!(timestamp().len(), 19);
+        // This account's own time format names an hour, 12 or 24.
+        let format = time_format();
+        assert!(format.contains('h') || format.contains('H'), "{format}");
     }
 }

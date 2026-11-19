@@ -11,7 +11,7 @@ use super::pipe::{Incoming, spawn_reader, spawn_writer};
 use super::{Owned, clock, launch, logfile, processes, sessions};
 use crate::os::{HelperId, HelperStarted, Os, ProcessSeen, Received, SendProblem, SessionSeen, VersionNames};
 use crate::protocol::{Frame, FromHelper};
-use crate::settings::{Places, read_settings};
+use crate::settings::{Places, Settings, read_settings};
 
 /// How often the settings file is read again, in milliseconds.
 const SETTINGS_EVERY_MS: u64 = 10_000;
@@ -30,7 +30,7 @@ pub(crate) struct WinOs {
     events_tx: Sender<(HelperId, Received)>,
     events_rx: Receiver<(HelperId, Received)>,
     settings_read_at: Option<u64>,
-    test_cap: bool,
+    settings: Settings,
 }
 
 impl WinOs {
@@ -38,7 +38,27 @@ impl WinOs {
     /// `places`.
     pub(crate) fn new(exe: PathBuf, places: Places) -> WinOs {
         let (events_tx, events_rx) = channel();
-        WinOs { exe, places, next_id: 0, helpers: HashMap::new(), events_tx, events_rx, settings_read_at: None, test_cap: false }
+        WinOs {
+            exe,
+            places,
+            next_id: 0,
+            helpers: HashMap::new(),
+            events_tx,
+            events_rx,
+            settings_read_at: None,
+            settings: Settings::default(),
+        }
+    }
+
+    /// The settings file, read again when the last read is older than
+    /// [`SETTINGS_EVERY_MS`]. A file that cannot be read is no setting.
+    fn settings(&mut self) -> Settings {
+        let now = clock::steady_ms();
+        if self.settings_read_at.is_none_or(|at| now.saturating_sub(at) >= SETTINGS_EVERY_MS) {
+            self.settings_read_at = Some(now);
+            self.settings = std::fs::read_to_string(self.places.settings_file()).map(|text| read_settings(&text)).unwrap_or_default();
+        }
+        self.settings
     }
 }
 
@@ -76,7 +96,8 @@ impl Os for WinOs {
     }
 
     fn start_helper(&mut self, session_id: u32) -> Result<HelperStarted, String> {
-        let launched = launch::launch_helper(session_id, &self.exe)?;
+        let plain = self.settings().plain_display;
+        let launched = launch::launch_helper(session_id, &self.exe, plain)?;
         self.next_id += 1;
         let id = HelperId(self.next_id);
         let events = self.events_tx.clone();
@@ -144,12 +165,7 @@ impl Os for WinOs {
     }
 
     fn test_cap(&mut self) -> bool {
-        let now = clock::steady_ms();
-        if self.settings_read_at.is_none_or(|at| now.saturating_sub(at) >= SETTINGS_EVERY_MS) {
-            self.settings_read_at = Some(now);
-            self.test_cap = std::fs::read_to_string(self.places.settings_file()).map(|text| read_settings(&text).test_cap).unwrap_or(false);
-        }
-        self.test_cap
+        self.settings().test_cap
     }
 
     fn log(&mut self, line: &str) {

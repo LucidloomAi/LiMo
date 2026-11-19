@@ -8,6 +8,7 @@ mod about;
 mod clock;
 mod console;
 mod display;
+mod drawn;
 mod helper;
 mod install;
 mod launch;
@@ -30,11 +31,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
             0
         }
         Ok(Command::Service) => service::run(),
-        Ok(Command::Helper { channel }) => helper::run(channel),
+        Ok(Command::Helper { channel, plain }) => helper::run(channel, plain),
         Ok(Command::Install { dev }) => install::install(dev),
         Ok(Command::Uninstall) => install::uninstall(),
         Ok(Command::Status) => install::status(),
         Ok(Command::DevSetup { child, account, minutes, block }) => install::dev_setup(&child, &account, minutes, &block),
+        Ok(Command::DevCode { child, minutes }) => install::dev_code(child.as_deref(), minutes),
         Err(problem) => {
             println!("{problem}");
             2
@@ -70,6 +72,12 @@ impl Drop for Owned {
             }
         }
     }
+}
+
+/// The name the guardian sees for each child's device on this PC: the PC's
+/// own name.
+pub(crate) fn pc_name() -> String {
+    std::env::var("COMPUTERNAME").unwrap_or_else(|_| "This PC".to_string())
 }
 
 /// A string as UTF-16 ending in a NUL, for a Windows call.

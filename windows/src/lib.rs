@@ -15,8 +15,10 @@
 //!   integrity step above the user's own programs, and a process access
 //!   list that does not let the user end it. It is born with its channel to
 //!   the service, reports what only a program inside the session can see,
-//!   and shows what it is told through a [`helper::Display`]. See
-//!   [`helper`] and [`protocol`].
+//!   and shows what it is told through a [`helper::Display`]: the lock
+//!   screen and time left display drawn to the agreed design (see
+//!   [`drawn`]), or the plain display in their place. See [`helper`] and
+//!   [`protocol`].
 //!
 //! Everything the service decides is written against the [`os::Os`] trait,
 //! and tested against a fake PC. The calls into Windows are thin and live in
@@ -32,6 +34,7 @@
 pub mod about;
 pub mod cli;
 pub mod close;
+pub mod drawn;
 pub mod helper;
 pub mod os;
 pub mod programs;

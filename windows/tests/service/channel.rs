@@ -52,7 +52,7 @@ fn bad_inputs() -> Vec<(&'static str, bool, Vec<u8>)> {
         ),
         ("a report before hello", false, encode(&FromHelper::Report { idle_ms: 900_000, front_pid: None, full_screen: true }).unwrap().to_vec()),
         ("hello twice", true, encode(&FromHelper::Hello { protocol: PROTOCOL_VERSION }).unwrap().to_vec()),
-        ("hello in another version", false, encode(&FromHelper::Hello { protocol: 2 }).unwrap().to_vec()),
+        ("hello in another version", false, encode(&FromHelper::Hello { protocol: PROTOCOL_VERSION - 1 }).unwrap().to_vec()),
         ("a lock it was never sent", true, encode(&FromHelper::LockOnScreen { seq: 999_999 }).unwrap().to_vec()),
         (
             "a PIN as a number",
@@ -189,6 +189,31 @@ fn ways_out_are_taken_at_most_one_a_second() {
     let got = answers(&mut pc, 1);
     assert!(matches!(got[0], (1, Answer::Tried { .. })), "{got:?}");
     assert!(matches!(&got[1], (2, Answer::Refused { message }) if message.contains("One thing at a time")), "{got:?}");
+}
+
+#[test]
+fn a_helper_that_shows_the_plain_display_is_logged_in_plain_words_and_nothing_else_changes() {
+    let mut pc = Pc::new(at(16, 0));
+    pc.add_child("Asha", ASHA, 60);
+    pc.login(1, ASHA, "asha");
+    pc.run(1);
+    pc.greet(1);
+    pc.run(1);
+    let pid = pc.helper(1).unwrap().pid;
+    // A reason with a line break in it, and far too long: one line, cut.
+    let why = format!("the drawn display could not start: {}\nforged line", "x".repeat(1_000));
+    pc.say(1, FromHelper::ShowsPlain { why });
+    pc.run(1);
+    let lines = pc.logged("shows the plain display");
+    assert_eq!(lines.len(), 1, "{:?}", pc.os().log);
+    let start = format!("The helper in session 1 (pid {pid}) shows the plain display, not the drawn one, because the drawn display");
+    assert!(lines[0].starts_with(&start), "{}", lines[0]);
+    assert!(!lines[0].contains('\n') && !lines[0].contains("forged") && lines[0].len() < 500, "{}", lines[0]);
+    // Said again, it is no harm, and logged at most once in a while.
+    pc.say(1, FromHelper::ShowsPlain { why: "again".into() });
+    pc.run(1);
+    assert_eq!((pc.helpers_started(1), pc.helpers_running(1)), (1, 1));
+    assert_eq!(pc.logged("shows the plain display").len(), 1);
 }
 
 #[test]

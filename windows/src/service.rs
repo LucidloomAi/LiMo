@@ -17,8 +17,8 @@ use limo_hub::Hub;
 use crate::about::about_line;
 use crate::close::{never_close, same_path};
 use crate::os::{HelperId, HelperStarted, Os, ProcessSeen, Received, SendProblem, SessionSeen};
-use crate::programs::ProgramCache;
-use crate::protocol::{Answer, ChannelProblem, FromHelper, PROTOCOL_VERSION, Secret, ToHelper, encode};
+use crate::programs::{ProgramCache, shown_name};
+use crate::protocol::{Answer, ChannelProblem, FromHelper, MAX_WHY_CHARS, PROTOCOL_VERSION, Secret, ToHelper, encode};
 use crate::quiet::Quiet;
 use crate::settings::TEST_CAP_SECS;
 
@@ -165,7 +165,16 @@ struct Keep {
     lifted: bool,
     launch_after: u64,
     died_at: Option<u64>,
-    notices: Vec<String>,
+    notices: Vec<Waiting>,
+}
+
+/// A notice of a program closed, waiting to be handed to the helper.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Waiting {
+    /// The engine's sentence.
+    text: String,
+    /// The program's name, as the child knows it.
+    program: String,
 }
 
 impl Keep {
@@ -473,6 +482,16 @@ impl<O: Os> Service<O> {
             }
             FromHelper::TryPin { ask, pin, action } => {
                 self.way_out(session, ask, WayOut::Pin(pin, action), now);
+                Ok(())
+            }
+            FromHelper::ShowsPlain { why } => {
+                let why: String = why.chars().filter(|c| !c.is_control()).take(MAX_WHY_CHARS).collect();
+                let text = format!(
+                    "The helper in session {session} (pid {}) shows the plain display, not the drawn one, because {}.",
+                    slot.pid,
+                    why.trim().trim_end_matches('.')
+                );
+                self.log_quiet(&format!("plain/{session}"), &text, now);
                 Ok(())
             }
         }
@@ -890,14 +909,15 @@ impl<O: Os> Service<O> {
                 let text = format!("Closed {name} in session {session} ({copies}): {}", order.reason);
                 self.log_quiet(&format!("closed/{session}/{}", order.program.app_id()), &text, now);
                 // Handed to the helper with what to show, or as soon as one
-                // runs.
+                // runs, with the program's name beside the sentence.
+                let waiting = Waiting { text: order.reason.clone(), program: shown_name(&order.program) };
                 if let Some(keep) = self.keeps.get_mut(&session)
-                    && !keep.notices.contains(&order.reason)
+                    && !keep.notices.contains(&waiting)
                 {
                     if keep.notices.len() >= MAX_NOTICES_WAITING {
                         keep.notices.remove(0);
                     }
-                    keep.notices.push(order.reason.clone());
+                    keep.notices.push(waiting);
                 }
             }
         }
@@ -1003,15 +1023,15 @@ impl<O: Os> Service<O> {
             }
         }
         // Notices of programs closed, to the session's helper.
-        let waiting: Vec<(u32, HelperId, Vec<String>)> = self
+        let waiting: Vec<(u32, HelperId, Vec<Waiting>)> = self
             .keeps
             .iter_mut()
             .filter(|(_, keep)| !keep.notices.is_empty())
             .filter_map(|(session, keep)| self.slots.get(session).map(|slot| (*session, slot.id, std::mem::take(&mut keep.notices))))
             .collect();
         for (session, id, notices) in waiting {
-            for text in notices {
-                if !self.send(session, id, &ToHelper::Notice { text }, now) {
+            for Waiting { text, program } in notices {
+                if !self.send(session, id, &ToHelper::Notice { text, program: Some(program) }, now) {
                     break;
                 }
             }

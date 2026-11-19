@@ -234,9 +234,6 @@ pub fn notice_states() -> Vec<(&'static str, Notice)> {
         ("warn1", warning(WarningCause::TimeRunsOut, 1, NOW + 42)),
         ("bed15", warning(WarningCause::BlockedHoursStart, 15, NOW + 18 * 60)),
         ("unlock5", warning(WarningCause::UnlockEnds, 5, NOW + 5 * 60)),
-        (
-            "closed",
-            Notice::Closed { text: "Game Launcher is blocked by your family's rules, so LiMo closed it.".to_string() },
-        ),
+        ("closed", Notice::Blocked { program: "Game Launcher".to_string() }),
     ]
 }

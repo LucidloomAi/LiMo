@@ -36,6 +36,14 @@ pub fn clean_name(raw: &str) -> Option<String> {
     if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
 
+/// The name a child knows a program by, for a notice that it was closed:
+/// its file name as it is now ("Game.exe"), as the engine's own sentence
+/// names it; the name LiMo records it under when the file name is empty.
+pub fn shown_name(program: &Program) -> String {
+    let base = file_name_of(&program.file_name).trim();
+    if base.is_empty() { program.app_id() } else { base.to_string() }
+}
+
 /// The program for a file name and what its version resource says.
 pub fn program_from(file_name: &str, names: &VersionNames) -> Program {
     Program {
@@ -127,5 +135,14 @@ mod tests {
         assert_eq!(program.original_name.as_deref(), Some("Minecraft.exe"));
         assert_eq!(program.maker, None);
         assert_eq!(program.app_id(), "minecraft.exe");
+    }
+
+    #[test]
+    fn a_program_is_shown_by_its_file_name_as_it_is_now() {
+        let names = VersionNames { original_name: Some("Minecraft.exe".into()), maker: None };
+        assert_eq!(shown_name(&program_from(r"C:\Users\Asha\Downloads\Homework.exe", &names)), "Homework.exe");
+        assert_eq!(shown_name(&program_from("Game Launcher.exe", &VersionNames::default())), "Game Launcher.exe");
+        let nameless = Program { file_name: "  ".into(), original_name: Some("Minecraft.exe".into()), maker: None };
+        assert_eq!(shown_name(&nameless), "minecraft.exe");
     }
 }

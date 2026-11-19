@@ -21,6 +21,9 @@ pub enum Command {
         /// The handles, when `--channel R:W` was given and reads as two
         /// numbers.
         channel: Option<(usize, usize)>,
+        /// `--plain`: show the plain display, not the drawn one, because the
+        /// settings file asks for it.
+        plain: bool,
     },
     /// Install the service, with the test cap when `dev` is set.
     Install {
@@ -42,9 +45,20 @@ pub enum Command {
         /// Programs to block for the child, by file name.
         block: Vec<String>,
     },
+    /// Make a one time code for the test child's device on this PC, until
+    /// the guardian's phone app exists.
+    DevCode {
+        /// The child's name, when the family has more than one child.
+        child: Option<String>,
+        /// The minutes the code adds: 15, 30 or 60.
+        minutes: u32,
+    },
     /// Say how to use it.
     Help,
 }
+
+/// The minutes `dev-code` makes a code for when not told.
+pub const DEFAULT_CODE_MINUTES: u32 = 15;
 
 /// The value after a flag, if the flag is there.
 fn value_of<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
@@ -67,7 +81,10 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     match args.first().map(String::as_str) {
         None | Some("help" | "--help" | "-h" | "/?") => Ok(Command::Help),
         Some("service") => Ok(Command::Service),
-        Some("helper") => Ok(Command::Helper { channel: value_of(rest, "--channel").and_then(parse_channel) }),
+        Some("helper") => Ok(Command::Helper {
+            channel: value_of(rest, "--channel").and_then(parse_channel),
+            plain: rest.iter().any(|a| a == "--plain"),
+        }),
         Some("install") => match rest {
             [] => Ok(Command::Install { dev: false }),
             [flag] if flag == "--dev" => Ok(Command::Install { dev: true }),
@@ -102,6 +119,24 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 .collect();
             Ok(Command::DevSetup { child: child.to_string(), account: account.to_string(), minutes, block })
         }
+        Some("dev-code") => {
+            let child =
+                value_of(rest, "--child").map(str::trim).filter(|s| !s.is_empty() && !s.starts_with("--")).map(String::from);
+            if rest.iter().any(|a| a == "--child") && child.is_none() {
+                return Err("--child takes the child's name, for example: limo dev-code --child Asha".to_string());
+            }
+            let minutes = match value_of(rest, "--minutes") {
+                None if rest.iter().any(|a| a == "--minutes") => {
+                    return Err("--minutes takes 15, 30 or 60.".to_string());
+                }
+                None => DEFAULT_CODE_MINUTES,
+                Some(text) => match text.parse::<u32>() {
+                    Ok(m) if limo_core::CODE_MINUTES.contains(&m) => m,
+                    _ => return Err("--minutes takes 15, 30 or 60.".to_string()),
+                },
+            };
+            Ok(Command::DevCode { child, minutes })
+        }
         Some(other) => Err(format!("limo does not know the command \"{other}\". Run limo help.")),
     }
 }
@@ -126,6 +161,13 @@ pub fn usage() -> String {
         "                         account to the child, and gives the child N",
         "                         minutes a day (10 when not given, 1 to 240),",
         "                         blocking each PROGRAM given, such as notepad.exe.",
+        "  limo dev-code [--minutes 15|30|60] [--child NAME]",
+        "                         (administrator, with the service stopped)",
+        "                         SCAFFOLDING until the guardian's phone app exists:",
+        "                         makes and prints a one time code for the test",
+        "                         child's device on this PC, for today only, worth",
+        "                         the minutes given (15 when not given). Each run",
+        "                         makes a new code; a device takes ten a day.",
         "  limo service           the service control manager's entry only.",
         "  limo helper            started by the service only.",
     ]
@@ -170,10 +212,25 @@ mod tests {
 
     #[test]
     fn a_helper_without_a_channel_says_so() {
-        assert_eq!(parse(&args("helper")), Ok(Command::Helper { channel: None }));
-        assert_eq!(parse(&args("helper --channel 524:612")), Ok(Command::Helper { channel: Some((524, 612)) }));
+        assert_eq!(parse(&args("helper")), Ok(Command::Helper { channel: None, plain: false }));
+        assert_eq!(parse(&args("helper --channel 524:612")), Ok(Command::Helper { channel: Some((524, 612)), plain: false }));
+        assert_eq!(parse(&args("helper --channel 524:612 --plain")), Ok(Command::Helper { channel: Some((524, 612)), plain: true }));
         for bad in ["helper --channel", "helper --channel 1", "helper --channel a:b", "helper --channel 0:5", "helper --channel 7:7"] {
-            assert_eq!(parse(&args(bad)), Ok(Command::Helper { channel: None }), "{bad}");
+            assert_eq!(parse(&args(bad)), Ok(Command::Helper { channel: None, plain: false }), "{bad}");
         }
+    }
+
+    #[test]
+    fn dev_code_takes_the_minutes_of_a_code_and_a_child_if_needed() {
+        assert_eq!(parse(&args("dev-code")), Ok(Command::DevCode { child: None, minutes: DEFAULT_CODE_MINUTES }));
+        assert_eq!(parse(&args("dev-code --minutes 60")), Ok(Command::DevCode { child: None, minutes: 60 }));
+        assert_eq!(
+            parse(&args("dev-code --child Mira --minutes 30")),
+            Ok(Command::DevCode { child: Some("Mira".into()), minutes: 30 })
+        );
+        for bad in ["dev-code --minutes 20", "dev-code --minutes", "dev-code --minutes x", "dev-code --child", "dev-code --child --minutes 30"] {
+            assert!(parse(&args(bad)).is_err(), "{bad}");
+        }
+        assert!(usage().contains("dev-code") && usage().contains("SCAFFOLDING until the guardian's phone app exists"));
     }
 }

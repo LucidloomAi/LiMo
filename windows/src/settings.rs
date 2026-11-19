@@ -5,7 +5,8 @@
 //! - `%ProgramFiles%\LiMo\limo.exe`, the program;
 //! - `%ProgramData%\LiMo\`, for SYSTEM and Administrators only, holding
 //!   `family.limo` (the family's file), `limo.log` (the service's log, and
-//!   `limo.log.old` before it) and `settings.json` (the test cap).
+//!   `limo.log.old` before it) and `settings.json` (the test cap, and the
+//!   switch that forces the plain display).
 
 #![forbid(unsafe_code)]
 
@@ -54,6 +55,11 @@ pub struct Settings {
     /// with the owner present only. Written by `limo install --dev`.
     #[serde(default)]
     pub test_cap: bool,
+    /// True to have each helper started from now on show the plain display
+    /// instead of the drawn lock screen and time left display: for testing
+    /// only. Written by hand.
+    #[serde(default)]
+    pub plain_display: bool,
 }
 
 /// The settings in a settings file's text. Anything that cannot be read is
@@ -124,13 +130,25 @@ mod tests {
 
     #[test]
     fn the_test_cap_is_on_only_when_the_file_says_so_plainly() {
-        assert_eq!(read_settings(&settings_text(&Settings { test_cap: true })), Settings { test_cap: true });
-        assert_eq!(read_settings(&settings_text(&Settings { test_cap: false })), Settings { test_cap: false });
+        let cap = Settings { test_cap: true, plain_display: false };
+        assert_eq!(read_settings(&settings_text(&cap)), cap);
+        assert_eq!(read_settings(&settings_text(&Settings::default())), Settings::default());
         assert_eq!(read_settings(""), Settings::default());
         assert_eq!(read_settings("{}"), Settings::default());
         assert_eq!(read_settings("test_cap = true"), Settings::default());
         assert_eq!(read_settings(r#"{"test_cap": "yes"}"#), Settings::default());
         assert!(!Settings::default().test_cap);
+    }
+
+    #[test]
+    fn the_plain_display_is_forced_only_when_the_file_says_so_plainly() {
+        assert!(!Settings::default().plain_display);
+        // The file the test install writes, with the switch added by hand.
+        assert_eq!(read_settings(r#"{"test_cap": true, "plain_display": true}"#), Settings { test_cap: true, plain_display: true });
+        assert_eq!(read_settings(r#"{"plain_display": true}"#), Settings { test_cap: false, plain_display: true });
+        assert_eq!(read_settings(r#"{"plain_display": 1}"#), Settings::default());
+        let both = Settings { test_cap: false, plain_display: true };
+        assert_eq!(read_settings(&settings_text(&both)), both);
     }
 
     #[test]

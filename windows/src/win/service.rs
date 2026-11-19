@@ -113,7 +113,7 @@ fn run_service(places: &Places) -> windows_service::Result<()> {
 
     if let Some(hub) = hub {
         let config = ServiceConfig {
-            pc_name: std::env::var("COMPUTERNAME").unwrap_or_else(|_| "This PC".to_string()),
+            pc_name: super::pc_name(),
             own_pid: std::process::id(),
             own_exe: exe.to_string_lossy().to_string(),
             windows_dir: windows_dir(),

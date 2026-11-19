@@ -35,10 +35,11 @@ pub struct Shown {
     pub warning_on_screen: bool,
 }
 
-/// What draws, in the helper. Its one implementation now, the plain display
-/// in the Windows modules (`win/display.rs`), is replaced later by the real
-/// lock screen and time left display, drawn to the agreed design; whatever
-/// replaces it must do exactly this:
+/// What draws, in the helper. It has two implementations in the Windows
+/// modules: the drawn display (`win/drawn.rs`), the lock screen and time
+/// left display drawn to the agreed design, which the helper uses; and the
+/// plain display (`win/display.rs`), which takes its place at once if the
+/// drawn one cannot start or fails ([`Chooser`]). Each must do exactly this:
 ///
 /// - **[`Display::show`]** puts up what the service orders, every time it is
 ///   called, as a level: the same show again changes nothing on the screen
@@ -61,22 +62,197 @@ pub struct Shown {
 ///   screen unless it covers every monitor: the service disconnects the
 ///   session when no lock is confirmed within five seconds.
 /// - **[`Display::notice`]** shows that a program was closed, and why, for a
-///   while, beside the time left (or on the lock).
+///   while, beside the time left.
 /// - **[`Display::answer`]** shows the answer to a way out it sent.
 /// - **[`Display::pump`]**, called about four times a second on the same
 ///   thread, keeps the lock on top, counts down and lets notices fade.
+/// - **[`Display::input`]**, called on the same thread when the display's
+///   own windows or keyboard hook say the child did something, takes it.
 ///
 /// It never shows or keeps a window title, a file name or a web address:
-/// the service sends none.
+/// the service sends none. The only program name it shows is the one a
+/// notice carries, of a program LiMo closed.
 pub trait Display {
     /// Puts up what the service orders now, and says what is on the screen.
     fn show(&mut self, now: &ShowNow<'_>) -> Shown;
-    /// Shows that a program was closed, and why.
-    fn notice(&mut self, text: &str);
+    /// Shows that a program was closed, and why; `program` is its name, when
+    /// the notice is about one program.
+    fn notice(&mut self, text: &str, program: Option<&str>);
     /// Shows the answer to a way out, by the number the [`Outbox`] gave it.
     fn answer(&mut self, ask: u32, answer: &Answer);
     /// Keeps what is shown on top and up to date.
     fn pump(&mut self);
+    /// Takes the clicks and keys that came since the last call. A display
+    /// with nothing to take does nothing.
+    fn input(&mut self) {}
+}
+
+/// A display that can find it can no longer be trusted to show what it is
+/// told: the drawn one, whose windows, pictures or keyboard hook may fail.
+pub trait MayFail {
+    /// Why it failed, once it has; None while it works.
+    fn failure(&self) -> Option<String>;
+}
+
+/// The display the helper uses: the drawn one, and in its place, at once,
+/// the plain one, if the drawn one cannot start, or fails, or does not
+/// cover every monitor with a lock it was ordered to show. A lock must
+/// always show. The service is told, for its log, once.
+///
+/// When it falls back, the plain display is made and shown what was last
+/// ordered before the drawn one is dropped, so a lock is never off the
+/// screen between the two.
+pub struct Chooser<D, P, F> {
+    drawn: Option<D>,
+    plain: Option<P>,
+    make_plain: F,
+    to_service: Sender<FromHelper>,
+    last: Option<(u64, Option<String>, Show)>,
+}
+
+impl<D, P, F> std::fmt::Debug for Chooser<D, P, F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Chooser").field("drawn", &self.drawn.is_some()).field("plain", &self.plain.is_some()).finish()
+    }
+}
+
+/// Why a lock the drawn display was ordered to show is taken over by the
+/// plain one, when it gave no reason of its own.
+pub const LOCK_NOT_COVERED: &str = "the drawn lock did not cover every monitor";
+
+impl<D, P, F> Chooser<D, P, F>
+where
+    D: Display + MayFail,
+    P: Display,
+    F: FnMut(Outbox) -> P,
+{
+    /// The drawn display, as it was made; the plain one at once if it could
+    /// not be.
+    pub fn drawn(made: Result<D, String>, to_service: Sender<FromHelper>, make_plain: F) -> Chooser<D, P, F> {
+        let mut chooser = Chooser { drawn: None, plain: None, make_plain, to_service, last: None };
+        match made {
+            Ok(drawn) => chooser.drawn = Some(drawn),
+            Err(why) => {
+                chooser.fall_back(&format!("the drawn display could not start: {why}"));
+            }
+        }
+        chooser
+    }
+
+    /// The plain display from the start, for this reason.
+    pub fn plain(why: &str, to_service: Sender<FromHelper>, make_plain: F) -> Chooser<D, P, F> {
+        let mut chooser = Chooser { drawn: None, plain: None, make_plain, to_service, last: None };
+        chooser.fall_back(why);
+        chooser
+    }
+
+    /// True while the drawn display is in use.
+    pub fn is_drawn(&self) -> bool {
+        self.drawn.is_some()
+    }
+
+    /// The plain display takes over: made, shown what was last ordered, and
+    /// only then is the drawn one dropped. The service is told why. What the
+    /// plain display says it shows, when it was shown something.
+    fn fall_back(&mut self, why: &str) -> Option<Shown> {
+        if self.plain.is_some() {
+            return None;
+        }
+        let mut plain = (self.make_plain)(Outbox::new(self.to_service.clone()));
+        let shown = self
+            .last
+            .as_ref()
+            .map(|(seq, child_name, show)| plain.show(&ShowNow { seq: *seq, child_name: child_name.as_deref(), show }));
+        self.plain = Some(plain);
+        self.drawn = None;
+        let _ = self.to_service.send(FromHelper::ShowsPlain { why: why.to_string() });
+        shown
+    }
+
+    /// Falls back when the drawn display says it failed.
+    fn check(&mut self) {
+        if let Some(why) = self.drawn.as_ref().and_then(MayFail::failure) {
+            self.fall_back(&why);
+        }
+    }
+
+    /// Falls back while a show is being put up, and says what the plain
+    /// display shows of it.
+    fn fall_back_now(&mut self, why: &str, now: &ShowNow<'_>) -> Shown {
+        match self.fall_back(why) {
+            Some(shown) => shown,
+            None => self.plain.as_mut().map(|plain| plain.show(now)).unwrap_or_default(),
+        }
+    }
+}
+
+impl<D, P, F> Display for Chooser<D, P, F>
+where
+    D: Display + MayFail,
+    P: Display,
+    F: FnMut(Outbox) -> P,
+{
+    fn show(&mut self, now: &ShowNow<'_>) -> Shown {
+        self.last = Some((now.seq, now.child_name.map(str::to_string), now.show.clone()));
+        if let Some(drawn) = self.drawn.as_mut() {
+            let shown = drawn.show(now);
+            let uncovered = matches!(now.show, Show::Locked { .. }) && !shown.lock_on_screen;
+            return match drawn.failure() {
+                Some(why) => self.fall_back_now(&why, now),
+                None if uncovered => self.fall_back_now(LOCK_NOT_COVERED, now),
+                None => shown,
+            };
+        }
+        match self.plain.as_mut() {
+            Some(plain) => plain.show(now),
+            None => Shown::default(),
+        }
+    }
+
+    fn notice(&mut self, text: &str, program: Option<&str>) {
+        if let Some(drawn) = self.drawn.as_mut() {
+            drawn.notice(text, program);
+            self.check();
+        }
+        if self.drawn.is_none()
+            && let Some(plain) = self.plain.as_mut()
+        {
+            plain.notice(text, program);
+        }
+    }
+
+    fn answer(&mut self, ask: u32, answer: &Answer) {
+        match (self.drawn.as_mut(), self.plain.as_mut()) {
+            (Some(drawn), _) => {
+                drawn.answer(ask, answer);
+                self.check();
+            }
+            (None, Some(plain)) => plain.answer(ask, answer),
+            (None, None) => {}
+        }
+    }
+
+    fn pump(&mut self) {
+        match (self.drawn.as_mut(), self.plain.as_mut()) {
+            (Some(drawn), _) => {
+                drawn.pump();
+                self.check();
+            }
+            (None, Some(plain)) => plain.pump(),
+            (None, None) => {}
+        }
+    }
+
+    fn input(&mut self) {
+        match (self.drawn.as_mut(), self.plain.as_mut()) {
+            (Some(drawn), _) => {
+                drawn.input();
+                self.check();
+            }
+            (None, Some(plain)) => plain.input(),
+            (None, None) => {}
+        }
+    }
 }
 
 /// Where a display sends the ways out from the lock screen. Each call gives
@@ -183,7 +359,7 @@ impl HelperCore {
                     _ => {}
                 }
             }
-            ToHelper::Notice { text } => display.notice(&text),
+            ToHelper::Notice { text, program } => display.notice(&text, program.as_deref()),
             ToHelper::Answer { ask, answer } => display.answer(ask, &answer),
             ToHelper::Quit => reaction.quit = true,
         }
@@ -200,9 +376,11 @@ mod tests {
     #[derive(Default)]
     struct Paper {
         shows: Vec<(u64, Option<String>, Show)>,
-        notices: Vec<String>,
+        notices: Vec<(String, Option<String>)>,
         answers: Vec<(u32, Answer)>,
         lock_draws: bool,
+        pumps: u32,
+        inputs: u32,
     }
 
     impl Display for Paper {
@@ -213,13 +391,179 @@ mod tests {
                 warning_on_screen: matches!(now.show, Show::TimeLeft { warning: Some(_), .. }),
             }
         }
-        fn notice(&mut self, text: &str) {
-            self.notices.push(text.to_string());
+        fn notice(&mut self, text: &str, program: Option<&str>) {
+            self.notices.push((text.to_string(), program.map(String::from)));
         }
         fn answer(&mut self, ask: u32, answer: &Answer) {
             self.answers.push((ask, answer.clone()));
         }
+        fn pump(&mut self) {
+            self.pumps += 1;
+        }
+        fn input(&mut self) {
+            self.inputs += 1;
+        }
+    }
+
+    /// A drawn display that can be made to fail, and that records into a
+    /// log shared with the test.
+    struct Drawn {
+        log: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+        covers: bool,
+        fail_on_pump: bool,
+        failed: Option<String>,
+    }
+
+    impl Display for Drawn {
+        fn show(&mut self, now: &ShowNow<'_>) -> Shown {
+            self.log.borrow_mut().push(format!("drawn show {}", now.seq));
+            Shown { lock_on_screen: self.covers && matches!(now.show, Show::Locked { .. }), warning_on_screen: false }
+        }
+        fn notice(&mut self, text: &str, _program: Option<&str>) {
+            self.log.borrow_mut().push(format!("drawn notice {text}"));
+        }
+        fn answer(&mut self, ask: u32, _answer: &Answer) {
+            self.log.borrow_mut().push(format!("drawn answer {ask}"));
+        }
+        fn pump(&mut self) {
+            if self.fail_on_pump {
+                self.failed = Some("a picture could not be put on the screen".into());
+            }
+        }
+    }
+
+    impl MayFail for Drawn {
+        fn failure(&self) -> Option<String> {
+            self.failed.clone()
+        }
+    }
+
+    impl Drop for Drawn {
+        fn drop(&mut self) {
+            self.log.borrow_mut().push("drawn dropped".into());
+        }
+    }
+
+    type Log = std::rc::Rc<std::cell::RefCell<Vec<String>>>;
+
+    /// A plain display that records into the shared log.
+    struct Plain(Log);
+
+    impl Display for Plain {
+        fn show(&mut self, now: &ShowNow<'_>) -> Shown {
+            self.0.borrow_mut().push(format!("plain show {}", now.seq));
+            Shown { lock_on_screen: matches!(now.show, Show::Locked { .. }), warning_on_screen: false }
+        }
+        fn notice(&mut self, text: &str, _program: Option<&str>) {
+            self.0.borrow_mut().push(format!("plain notice {text}"));
+        }
+        fn answer(&mut self, _ask: u32, _answer: &Answer) {}
         fn pump(&mut self) {}
+    }
+
+    fn told(rx: &mpsc::Receiver<FromHelper>) -> Vec<String> {
+        rx.try_iter()
+            .filter_map(|m| match m {
+                FromHelper::ShowsPlain { why } => Some(why),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn log() -> Log {
+        std::rc::Rc::new(std::cell::RefCell::new(Vec::new()))
+    }
+
+    fn drawn(log: &Log) -> Drawn {
+        drawn_with(log, true, false)
+    }
+
+    fn drawn_with(log: &Log, covers: bool, fail_on_pump: bool) -> Drawn {
+        Drawn { log: log.clone(), covers, fail_on_pump, failed: None }
+    }
+
+    fn show_lock(display: &mut dyn Display, seq: u64) -> Shown {
+        let show = lock();
+        display.show(&ShowNow { seq, child_name: Some("Asha"), show: &show })
+    }
+
+    #[test]
+    fn a_healthy_drawn_display_is_used_and_nothing_is_told() {
+        let (tx, rx) = mpsc::channel();
+        let log = log();
+        let plain_log = log.clone();
+        let mut chooser = Chooser::drawn(Ok(drawn(&log)), tx, move |_| Plain(plain_log.clone()));
+        assert!(show_lock(&mut chooser, 1).lock_on_screen);
+        chooser.notice("game.exe was closed.", Some("game.exe"));
+        chooser.answer(3, &Answer::Refused { message: "No.".into() });
+        chooser.pump();
+        chooser.input();
+        assert!(chooser.is_drawn());
+        assert_eq!(*log.borrow(), vec!["drawn show 1", "drawn notice game.exe was closed.", "drawn answer 3"]);
+        assert!(told(&rx).is_empty());
+    }
+
+    #[test]
+    fn a_drawn_display_that_cannot_start_gives_way_to_the_plain_one_at_once() {
+        let (tx, rx) = mpsc::channel();
+        let log = log();
+        let plain_log = log.clone();
+        let mut chooser: Chooser<Drawn, Plain, _> =
+            Chooser::drawn(Err("its windows could not be made".into()), tx, move |_| Plain(plain_log.clone()));
+        assert!(!chooser.is_drawn());
+        assert!(show_lock(&mut chooser, 1).lock_on_screen);
+        assert_eq!(*log.borrow(), vec!["plain show 1"]);
+        assert_eq!(told(&rx), vec!["the drawn display could not start: its windows could not be made".to_string()]);
+    }
+
+    #[test]
+    fn a_lock_the_drawn_display_does_not_cover_is_shown_by_the_plain_one_in_the_same_call() {
+        let (tx, rx) = mpsc::channel();
+        let log = log();
+        let plain_log = log.clone();
+        let mut chooser = Chooser::drawn(Ok(drawn_with(&log, false, false)), tx, move |_| Plain(plain_log.clone()));
+        // The time left is not a lock: the drawn display keeps it.
+        let left = Show::TimeLeft { seconds_left: Some(600), counting: true, warning: None, unlocked_until: None };
+        chooser.show(&ShowNow { seq: 1, child_name: None, show: &left });
+        assert!(chooser.is_drawn());
+        // A lock it does not cover: the plain one has it before the call
+        // returns, and is made before the drawn one is dropped.
+        let shown = show_lock(&mut chooser, 2);
+        assert!(shown.lock_on_screen);
+        assert!(!chooser.is_drawn());
+        assert_eq!(*log.borrow(), vec!["drawn show 1", "drawn show 2", "plain show 2", "drawn dropped"]);
+        assert_eq!(told(&rx), vec![LOCK_NOT_COVERED.to_string()]);
+        // Told once, however many shows follow.
+        show_lock(&mut chooser, 3);
+        chooser.notice("game.exe was closed.", None);
+        assert!(told(&rx).is_empty());
+        assert_eq!(log.borrow().last().map(String::as_str), Some("plain notice game.exe was closed."));
+    }
+
+    #[test]
+    fn a_drawn_display_that_fails_while_a_lock_is_up_is_replaced_and_the_lock_shown_again() {
+        let (tx, rx) = mpsc::channel();
+        let log = log();
+        let plain_log = log.clone();
+        let mut chooser = Chooser::drawn(Ok(drawn_with(&log, true, true)), tx, move |_| Plain(plain_log.clone()));
+        assert!(show_lock(&mut chooser, 4).lock_on_screen);
+        chooser.pump();
+        assert!(!chooser.is_drawn());
+        assert_eq!(*log.borrow(), vec!["drawn show 4", "plain show 4", "drawn dropped"]);
+        assert_eq!(told(&rx), vec!["a picture could not be put on the screen".to_string()]);
+    }
+
+    #[test]
+    fn the_settings_can_ask_for_the_plain_display_and_the_service_is_told() {
+        let (tx, rx) = mpsc::channel();
+        let log = log();
+        let plain_log = log.clone();
+        let mut chooser: Chooser<Drawn, Plain, _> =
+            Chooser::plain("the settings file asks for the plain display", tx, move |_| Plain(plain_log.clone()));
+        assert!(!chooser.is_drawn());
+        show_lock(&mut chooser, 1);
+        assert_eq!(*log.borrow(), vec!["plain show 1"]);
+        assert_eq!(told(&rx), vec!["the settings file asks for the plain display".to_string()]);
     }
 
     fn lock() -> Show {
@@ -282,9 +626,18 @@ mod tests {
     fn notices_answers_and_quit_reach_the_display() {
         let mut core = HelperCore::new();
         let mut paper = Paper::default();
-        core.on_message(ToHelper::Notice { text: "game.exe was closed.".into() }, &mut paper);
+        core.on_message(
+            ToHelper::Notice { text: "game.exe is blocked by your family's rules, so LiMo closed it.".into(), program: Some("game.exe".into()) },
+            &mut paper,
+        );
         core.on_message(ToHelper::Answer { ask: 4, answer: Answer::Refused { message: "No.".into() } }, &mut paper);
-        assert_eq!(paper.notices, vec!["game.exe was closed.".to_string()]);
+        assert_eq!(
+            paper.notices,
+            vec![("game.exe is blocked by your family's rules, so LiMo closed it.".to_string(), Some("game.exe".to_string()))]
+        );
+        paper.pump();
+        paper.input();
+        assert_eq!((paper.pumps, paper.inputs), (1, 1));
         assert_eq!(paper.answers.len(), 1);
         assert!(core.on_message(ToHelper::Quit, &mut paper).quit);
     }

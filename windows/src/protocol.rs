@@ -26,8 +26,13 @@ use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
 
 /// The version of this protocol. A frame of any other version closes the
-/// channel.
-pub const PROTOCOL_VERSION: u16 = 1;
+/// channel. Version 2 added the program's name to a notice, and the
+/// helper's word that it shows the plain display.
+pub const PROTOCOL_VERSION: u16 = 2;
+
+/// The longest reason a helper gives for showing the plain display that the
+/// service keeps, in characters.
+pub const MAX_WHY_CHARS: usize = 300;
 
 /// The bytes in front of each message: the version and the length.
 pub const HEADER_BYTES: usize = 6;
@@ -150,6 +155,13 @@ pub enum FromHelper {
         /// What the PIN is to do.
         action: PinAction,
     },
+    /// The helper shows the plain display, not the drawn one, and why: the
+    /// drawn one could not start, or failed, or the settings file asks for
+    /// the plain one. For the service's log; it changes nothing else.
+    ShowsPlain {
+        /// Why, in plain words.
+        why: String,
+    },
 }
 
 /// What the service says to a helper.
@@ -168,8 +180,12 @@ pub enum ToHelper {
     },
     /// A program was closed: show why, for a while.
     Notice {
-        /// The reason, in plain words.
+        /// The reason, in plain words, as one sentence.
         text: String,
+        /// The program's name, as the child knows it, when the notice is
+        /// about one program: "Game.exe". A drawn notice says "Game.exe was
+        /// closed." with the reason under it.
+        program: Option<String>,
     },
     /// The answer to a way out.
     Answer {
@@ -390,6 +406,7 @@ mod tests {
             FromHelper::AskForTime { ask: 1, minutes: 20, reason: "For the school project".into() },
             FromHelper::TryCode { ask: 2, code: Secret::new("1342 0715".into()) },
             FromHelper::TryPin { ask: 3, pin: Secret::new("482915".into()), action: PinAction::AddMinutes { minutes: 20 } },
+            FromHelper::ShowsPlain { why: "the settings file asks for the plain display".into() },
         ]
     }
 
@@ -412,7 +429,11 @@ mod tests {
                 child_name: None,
                 show: Show::TimeLeft { seconds_left: Some(600), counting: true, warning: None, unlocked_until: None },
             },
-            ToHelper::Notice { text: "game.exe is blocked by your family's rules, so LiMo closed it.".into() },
+            ToHelper::Notice {
+                text: "game.exe is blocked by your family's rules, so LiMo closed it.".into(),
+                program: Some("game.exe".into()),
+            },
+            ToHelper::Notice { text: "A program was closed.".into(), program: None },
             ToHelper::Answer { ask: 3, answer: Answer::Tried { outcome: TryOutcome::Malformed } },
             ToHelper::Answer { ask: 4, answer: Answer::Refused { message: "Not now.".into() } },
             ToHelper::Quit,

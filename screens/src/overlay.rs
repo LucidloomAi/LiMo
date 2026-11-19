@@ -123,6 +123,15 @@ pub enum Notice {
         /// The service's words for it.
         text: String,
     },
+    /// A program the family's rules block was closed, by its name: "Game
+    /// Launcher was closed.", with "It is blocked by your family's rules."
+    /// under it, as the design says it. Closing a blocked program is the
+    /// only reason LiMo closes one; [`Notice::Closed`] is for words that
+    /// come without the program's name.
+    Blocked {
+        /// The program's name, as the child knows it.
+        program: String,
+    },
 }
 
 impl Notice {
@@ -133,6 +142,12 @@ impl Notice {
             Notice::Closed { text } => {
                 (Icon::Block, "A program was closed.".to_string(), words::typographic(text), Foot::Nothing)
             }
+            Notice::Blocked { program } => (
+                Icon::Block,
+                format!("{} was closed.", words::typographic(program.trim())),
+                "It is blocked by your family\u{2019}s rules.".to_string(),
+                Foot::Nothing,
+            ),
             Notice::Warning { warning, now, pc } => {
                 let last = warning.minutes <= 1;
                 let icon = match warning.cause {
@@ -439,11 +454,39 @@ mod tests {
     }
 
     #[test]
+    fn a_closed_program_is_named_as_the_design_says_it() {
+        let named = Notice::Blocked { program: " Game Launcher ".to_string() };
+        assert_eq!(
+            named.content(),
+            (
+                Icon::Block,
+                "Game Launcher was closed.".to_string(),
+                "It is blocked by your family\u{2019}s rules.".to_string(),
+                Foot::Nothing
+            )
+        );
+        // Without a name, the service's own words under a plain heading.
+        let unnamed = Notice::Closed { text: "Game.exe is blocked by your family's rules, so LiMo closed it.".to_string() };
+        let (icon, title, words, foot) = unnamed.content();
+        assert_eq!((icon, title.as_str(), foot), (Icon::Block, "A program was closed.", Foot::Nothing));
+        assert_eq!(words, "Game.exe is blocked by your family\u{2019}s rules, so LiMo closed it.");
+        // Its own picture, with its OK button.
+        let mut overlay = Overlay::new();
+        let first = overlay.notice(&named, 1.0).clone();
+        assert!(overlay.notice_ok().is_some_and(|ok| ok.width > 0));
+        assert_ne!(overlay.notice(&unnamed, 1.0).rgba(), first.rgba());
+    }
+
+    #[test]
     fn nothing_spills_out_and_every_scale_draws() {
         let mut overlay = Overlay::new();
         let long = Notice::Closed { text: "A program with a very long name indeed, longer than any real one, ".repeat(8) };
+        let long_name = Notice::Blocked { program: "A program with a very long name indeed ".repeat(8) };
+        let one_word = Notice::Blocked { program: "x".repeat(300) };
         let mut notices = notice_states();
         notices.push(("long", long));
+        notices.push(("long name", long_name));
+        notices.push(("one long word", one_word));
         for scale in [0.0, 0.8, 1.0, 1.4, 2.2, 9.0, f32::NAN] {
             for (name, t) in time_left_states() {
                 let p = overlay.time_left(&t, scale);

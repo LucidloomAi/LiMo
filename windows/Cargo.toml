@@ -21,6 +21,9 @@ limo-agent = { path = "../agent" }
 limo-hub = { path = "../hub" }
 # The rules core, for the types the engine and the hub hand over.
 limo-core = { path = "../core" }
+# The screens the helper draws: the lock screen, the time left display and
+# its notices, drawn in software to the agreed design.
+limo-screens = { path = "../screens" }
 # The channel's messages and the data folder's settings file are JSON.
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -36,6 +39,7 @@ windows-service = "0.8.1"
 version = "0.62.2"
 features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Security_Authorization",

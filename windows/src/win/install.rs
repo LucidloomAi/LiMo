@@ -34,7 +34,7 @@ use crate::close::path_is_inside;
 use crate::settings::{
     DATA_FOLDER_SDDL, Places, SERVICE_DESCRIPTION, SERVICE_DISPLAY, SERVICE_NAME, Settings, read_settings, settings_text,
 };
-use crate::setup::{DevFamily, make_dev_family};
+use crate::setup::{DevFamily, make_dev_code, make_dev_family};
 
 const ERROR_SERVICE_DOES_NOT_EXIST: i32 = 1060;
 
@@ -165,7 +165,7 @@ fn do_install(places: &Places, dev: bool) -> Result<(), String> {
         println!("  Its access list, as Windows applied it: {access}");
     }
     if dev {
-        std::fs::write(places.settings_file(), settings_text(&Settings { test_cap: true }))
+        std::fs::write(places.settings_file(), settings_text(&Settings { test_cap: true, ..Settings::default() }))
             .map_err(|e| format!("writing the settings: {e}"))?;
         println!("TEST CAP ON: this is a test install. Any single lock is lifted after 120 seconds, and the log says so each time.");
     }
@@ -298,8 +298,17 @@ pub(crate) fn status() -> i32 {
     println!("This terminal is {}.", if is_elevated() { "elevated" } else { "not elevated" });
     let places = Places::here();
     match std::fs::read_to_string(places.settings_file()) {
-        Ok(text) if read_settings(&text).test_cap => println!("TEST CAP ON: any single lock is lifted after 120 seconds."),
-        Ok(_) => println!("Test cap: off."),
+        Ok(text) => {
+            let settings = read_settings(&text);
+            if settings.test_cap {
+                println!("TEST CAP ON: any single lock is lifted after 120 seconds.");
+            } else {
+                println!("Test cap: off.");
+            }
+            if settings.plain_display {
+                println!("PLAIN DISPLAY: each helper started from now on shows the plain display, not the drawn one.");
+            }
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound && places.data_dir.exists() => println!("Test cap: off."),
         Err(_) => {}
     }
@@ -359,31 +368,80 @@ fn account_sid(name: &str) -> Result<String, String> {
     }
 }
 
-/// `limo dev-setup`: scaffolding until the guardian's console exists.
-pub(crate) fn dev_setup(child: &str, account: &str, minutes: u32, block: &[String]) -> i32 {
-    println!("dev-setup is scaffolding until the guardian's console exists.");
+/// The checks `dev-setup` and `dev-code` make before they touch the
+/// family's file: an elevated terminal, LiMo installed, and the service
+/// stopped, since it holds the file while it runs. The data folder's places
+/// when they pass; the exit code when they do not, with the reason printed.
+fn ready_for_family_file(command: &str) -> Result<Places, i32> {
     if !is_elevated() {
-        println!("dev-setup must be run from an administrator terminal. Nothing was changed.");
-        return 2;
+        println!("{command} must be run from an administrator terminal. Nothing was changed.");
+        return Err(2);
     }
     let places = Places::here();
     if !places.data_dir.exists() {
         println!("LiMo is not installed: there is no data folder. Run limo install first. Nothing was changed.");
-        return 2;
+        return Err(2);
     }
     match service_state() {
-        Ok(Some(ServiceState::Stopped)) | Ok(None) => {}
+        Ok(Some(ServiceState::Stopped)) | Ok(None) => Ok(places),
         Ok(Some(state)) => {
             println!(
-                "The service is {state:?}, and holds the family's file while it runs. Stop it first (sc stop {SERVICE_NAME}), then run dev-setup again. Nothing was changed."
+                "The service is {state:?}, and holds the family's file while it runs. Stop it first (sc stop {SERVICE_NAME}), then run {command} again. Nothing was changed."
             );
-            return 2;
+            Err(2)
         }
         Err(problem) => {
             println!("The service control manager could not be asked about the service: {problem}. Nothing was changed.");
-            return 1;
+            Err(1)
         }
     }
+}
+
+/// `limo dev-code`: scaffolding until the guardian's phone app exists. The
+/// code is printed here only, never logged.
+pub(crate) fn dev_code(child: Option<&str>, minutes: u32) -> i32 {
+    println!("dev-code is scaffolding until the guardian's phone app exists.");
+    let places = match ready_for_family_file("dev-code") {
+        Ok(places) => places,
+        Err(code) => return code,
+    };
+    let mut hub = match Hub::open(&places.family_file()) {
+        Ok(hub) => hub,
+        Err(problem) => {
+            println!("The family's file could not be opened: {problem}");
+            return 1;
+        }
+    };
+    let made = make_dev_code(&mut hub, child, minutes, &super::pc_name(), wall_secs());
+    let closed = hub.close();
+    match made {
+        Ok(code) => {
+            println!("A one time code for {}'s device on this PC, worth {} minutes, for today only:", code.child, code.minutes);
+            println!();
+            println!("    {}", code.shown);
+            println!();
+            println!("It works once. On the lock screen, choose \"Type a one time code\" and type its 8 digits.");
+            if let Err(problem) = closed {
+                println!("The family's file did not close cleanly: {problem}");
+            }
+            println!("Start the service again (sc start {SERVICE_NAME}) to use it.");
+            append(&places, &format!("dev-code made a one time code of {} minutes.", code.minutes));
+            0
+        }
+        Err(problem) => {
+            println!("{problem}");
+            1
+        }
+    }
+}
+
+/// `limo dev-setup`: scaffolding until the guardian's console exists.
+pub(crate) fn dev_setup(child: &str, account: &str, minutes: u32, block: &[String]) -> i32 {
+    println!("dev-setup is scaffolding until the guardian's console exists.");
+    let places = match ready_for_family_file("dev-setup") {
+        Ok(places) => places,
+        Err(code) => return code,
+    };
     let account_id = match account_sid(account) {
         Ok(sid) => sid,
         Err(problem) => {

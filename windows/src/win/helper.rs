@@ -24,10 +24,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::about::about;
 use super::display::PlainDisplay;
+use super::drawn::{DrawnDisplay, WM_LIMO_INPUT};
 use super::pipe::{Incoming, handle_from, is_pipe, set_inheritable, spawn_reader, spawn_writer};
 use super::{Owned, from_wide};
-use crate::helper::{Display, HelperCore, Outbox, hello, report};
+use crate::helper::{Chooser, Display, HelperCore, Outbox, hello, report};
 use crate::protocol::{FromHelper, ToHelper, encode};
+
+/// Why the helper shows the plain display when it is started with
+/// `--plain`.
+const PLAIN_ASKED: &str = "the settings file asks for the plain display";
 
 /// Posted to the user interface thread when something came from the
 /// service, or the channel closed.
@@ -100,8 +105,9 @@ fn report_now(own_pid: u32) -> FromHelper {
     report(idle_ms(), front_pid, own_pid, full_screen)
 }
 
-/// Runs the helper. Refuses, doing nothing, without a channel.
-pub(crate) fn run(channel_handles: Option<(usize, usize)>) -> i32 {
+/// Runs the helper. Refuses, doing nothing, without a channel. Shows the
+/// drawn display, or the plain one when `plain` is set.
+pub(crate) fn run(channel_handles: Option<(usize, usize)>, plain: bool) -> i32 {
     let refuse = || {
         println!("limo helper is started by the LiMo service only, with its channel. Run by hand it does nothing.");
         2
@@ -175,7 +181,14 @@ pub(crate) fn run(channel_handles: Option<(usize, usize)>) -> i32 {
         }
     });
 
-    let mut display = PlainDisplay::new(Outbox::new(out_tx.clone()));
+    // The drawn display, with the plain one in its place at once if it
+    // cannot start or fails; the plain one alone when the settings ask.
+    let make_plain = PlainDisplay::new;
+    let mut display = if plain {
+        Chooser::plain(PLAIN_ASKED, out_tx.clone(), make_plain)
+    } else {
+        Chooser::drawn(DrawnDisplay::new(Outbox::new(out_tx.clone())), out_tx.clone(), make_plain)
+    };
     let mut core = HelperCore::new();
     let code = message_loop(&mut display, &mut core, &in_rx, &out_tx);
     drop(display);
@@ -184,7 +197,7 @@ pub(crate) fn run(channel_handles: Option<(usize, usize)>) -> i32 {
 
 /// The user interface thread's loop, until the channel closes or the
 /// service says quit.
-fn message_loop(display: &mut PlainDisplay, core: &mut HelperCore, from_service: &Receiver<Incoming<ToHelper>>, to_service: &std::sync::mpsc::Sender<FromHelper>) -> i32 {
+fn message_loop(display: &mut dyn Display, core: &mut HelperCore, from_service: &Receiver<Incoming<ToHelper>>, to_service: &std::sync::mpsc::Sender<FromHelper>) -> i32 {
     // SAFETY: a timer of this thread's own, killed before returning.
     let timer = unsafe { SetTimer(None, 0, PUMP_MS, None) };
     let mut message = MSG::default();
@@ -213,6 +226,10 @@ fn message_loop(display: &mut PlainDisplay, core: &mut HelperCore, from_service:
         }
         if message.hwnd == HWND::default() && message.message == WM_TIMER {
             display.pump();
+            continue;
+        }
+        if message.hwnd == HWND::default() && message.message == WM_LIMO_INPUT {
+            display.input();
             continue;
         }
         // SAFETY: hands a message of this thread's own windows to them.
@@ -245,6 +262,7 @@ mod tests {
 
     #[test]
     fn run_by_hand_without_a_channel_it_does_nothing() {
-        assert_eq!(run(None), 2);
+        assert_eq!(run(None, false), 2);
+        assert_eq!(run(None, true), 2);
     }
 }

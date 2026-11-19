@@ -98,10 +98,16 @@ if let Some(t) = TimeLeft::from_show(&show, now, pc) {
     let pill = overlay.time_left(&t, scale);
 }
 let warning = Notice::Warning { warning, now, pc };          // from the show
-let closed = Notice::Closed { text };                       // from a notice
+let closed = Notice::Blocked { program };                   // from a notice
 let picture = overlay.notice(&warning, scale);
 let ok = overlay.notice_ok();   // where its OK button is, in its pixels
 ```
+
+A notice that a blocked program was closed names it, as the design does:
+`Notice::Blocked { program }` says "Game Launcher was closed." with "It is
+blocked by your family's rules." under it. `Notice::Closed { text }` is for
+words that come without a name: "A program was closed." with the words
+under it.
 
 ### Pixels
 
@@ -270,7 +276,7 @@ folder, which git ignores):
 * `pill-<state>.png`: the time left display (`counting`, `paused`, `soon`,
   `last`, `nolimit`, `unlocked`), and `-1920` at the scale of 1920 by 1080;
 * `notice-<kind>.png`: the notices (`warn15`, `warn5`, `warn1`, `bed15`,
-  `unlock5`, `closed`), and `-1920`.
+  `unlock5`, `closed`, the last by the program's name), and `-1920`.
 
 It also prints how long a draw takes. The sample child is Mira, and it is
 Wednesday 18 November 2026, 9:42 pm.

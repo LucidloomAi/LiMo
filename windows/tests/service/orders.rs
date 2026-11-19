@@ -117,9 +117,12 @@ fn a_blocked_program_is_closed_in_its_own_session_only_every_copy_and_logged_onc
     }
     let closed = pc.logged("Closed blocks.exe in session 1 (2 running copies): blocks.exe is blocked by your family's rules");
     assert_eq!(closed.len(), 1, "{:?}", pc.os().log);
-    assert!(pc.helper(1).unwrap().got.iter().any(
-        |m| matches!(m, ToHelper::Notice { text } if text == "blocks.exe is blocked by your family's rules, so LiMo closed it.")
-    ));
+    // The sentence, with the program's name beside it for the drawn notice.
+    assert!(pc.helper(1).unwrap().got.iter().any(|m| matches!(
+        m,
+        ToHelper::Notice { text, program: Some(program) }
+            if text == "blocks.exe is blocked by your family's rules, so LiMo closed it." && program == "blocks.exe"
+    )));
 
     // Started again and again: closed each time, logged once.
     for _ in 0..10 {
