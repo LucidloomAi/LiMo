@@ -71,6 +71,25 @@ is 4 across and 4 down with no blur. Spacing steps by 4.
    height as well as width, before it is called done.
 7. **Tabs float, in glass.** A tab bar is never fixed to the edge of the
    screen. See below.
+8. **The maker's mark is said once, at the end.** See below.
+
+## The maker's mark
+
+LiMo is made by LucidLoom AI, and its screens say so, quietly.
+
+- **What it is.** The words "made by" in small mono capitals, the LucidLoom
+  AI logo, and the name. The logo keeps its own colours and is never
+  redrawn in the theme's. On a LiMo screen it is 26 high.
+- **Where it goes.** Once, at the end of a screen that fills the display:
+  bottom right on the lock screen, and on the start and about screens of
+  the app and the console. It is never the first thing on a screen; LiMo's
+  own name is.
+- **Where it does not go.** On small things that float over a child's own
+  programs, such as the time left display and the notices.
+- **On a lock screen it is not a link.** Nothing there opens anything.
+
+The logo file is `../docs/images/lucidloom-logo.png`, the one at the top of
+the repository's README.
 
 ## The tab bar
 

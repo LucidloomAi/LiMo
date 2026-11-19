@@ -197,16 +197,23 @@
       '<section class="lk-do">' + right + '</section></div>';
   }
 
+  // The maker's mark: LiMo is made by LucidLoom AI. It is said once, small,
+  // at the end of a screen that fills the display, and never on the small
+  // things that float over a child's own programs.
+  // It is not a link: nothing on a lock screen opens anything.
+  var MAKER = '<div class="lk-maker" aria-label="Made by LucidLoom AI">' +
+    '<span>Made by</span><img src="../../docs/images/lucidloom-logo.png" alt="" width="26" height="26"><b>LucidLoom AI</b></div>';
+
   /** The whole lock screen. On any screen but the main one it only says so. */
   function lock(s) {
     var top = '<div class="lk-top"><div class="lk-mark">' + icon('hourglass', 30) + '<span>LiMo</span></div>' +
       '<div class="lk-now"><b>' + s.now + '</b><span>' + s.date + '</span></div></div>';
     if (s.second) {
       return '<div class="lk">' + top + '<div class="lk-second">' + icon('lock', 72) +
-        '<span class="lk-stamp">Locked</span><p>Look at the main screen.</p></div><div class="lk-foot">&nbsp;</div></div>';
+        '<span class="lk-stamp">Locked</span><p>Look at the main screen.</p></div><div class="lk-foot">&nbsp;</div>' + MAKER + '</div>';
     }
     return '<div class="lk">' + top + '<div class="lk-mid">' + card(s) + '</div>' +
-      '<div class="lk-foot">Nothing was closed. Your programs are still open behind this screen.</div></div>';
+      '<div class="lk-foot">Nothing was closed. Your programs are still open behind this screen.</div>' + MAKER + '</div>';
   }
 
   // ---------- The time left display ----------

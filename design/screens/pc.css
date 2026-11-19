@@ -159,6 +159,15 @@
 
 .lk-foot { flex: none; padding: 0 20px 24px; text-align: center; font: 500 12px/1.4 var(--mono); color: var(--ink-soft); }
 
+/* The maker's mark, at the end of the screen. The logo keeps its own colours. */
+.lk-maker {
+  position: absolute; right: 34px; bottom: 20px; display: flex; align-items: center; gap: 7px;
+  color: var(--ink);
+}
+.lk-maker span { font: 500 10.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.lk-maker img { display: block; width: 26px; height: 26px; margin-left: 2px; }
+.lk-maker b { font: 600 14px/1 var(--body); letter-spacing: -.005em; }
+
 /* Any other screen attached to the PC. */
 .lk-second { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
 .lk-second .lk-stamp { margin: 0; }
