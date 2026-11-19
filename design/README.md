@@ -80,7 +80,7 @@ LiMo is made by LucidLoom AI, and its screens say so, quietly.
 
 - **What it is.** The words "made by" in small mono capitals, the LucidLoom
   AI logo, and the name. The logo keeps its own colours and is never
-  redrawn in the theme's. On a LiMo screen it is 26 high.
+  redrawn in the theme's. On a LiMo screen it is 26 high, and 22 on a phone.
 - **Where it goes.** Once, at the end of a screen that fills the display:
   bottom right on the lock screen, and on the start and about screens of
   the app and the console. It is never the first thing on a screen; LiMo's
@@ -153,6 +153,52 @@ between 0.8 and 2.2.
 These pages are drawings to agree the look. The real lock screen is drawn
 by LiMo's helper in the child's session, not by a browser, and has to
 match them.
+
+## On the phone
+
+What a child sees on an Android phone: the lock, the block screen, the
+warning, and their own Today screen in the app. Open `screens/phone.html`
+for every state, each drawn at its real size.
+
+**The lock** says what the PC's lock says, stacked for an upright screen:
+the reason card, then what can be done, then the apps that stay open. The
+words are the PC's own, with "PC" changed to "phone" and "programs" to
+"apps", and they come from the phone's engine, not from the screen.
+
+- **A way out takes the whole screen.** Asking for time, a one time code
+  and the guardian PIN each open as a screen of their own, because a phone
+  has no room to set them beside the reason. The reason stays in sight as a
+  strip at the top, and the main button is pinned to the bottom, above the
+  keyboard when one is up.
+- **Emergency call is pinned to the bottom of every lock and block
+  screen,** so it is in sight even on a small phone that has to scroll. A
+  lock never stands between a child and a call for help.
+- **A call is never trapped and never a way around.** A ringing call is
+  not covered. While a call is on, the phone app itself stays free, and the
+  lock carries a teal "Back to the call" button above "Emergency call". It
+  is the only teal on the screen.
+- **The apps that stay open** are shown with their own icons and open from
+  the lock. The drawings show letter tiles in their place.
+- The maker's mark is 22 high on a phone, at the end of the scrolling part.
+
+**The block screen** covers an app the family's rules block: one card that
+names the app, and one button that goes to the home screen. Nothing is
+closed.
+
+**Today** is the child's own screen in the app: the time left, the time
+used on this phone and on the PC, and the minutes per app, names and
+minutes only. It never says "counting": looking at LiMo itself does not use
+time, and the screen says so. Its two tabs float in glass.
+
+**The warning** floats over the child's own app, as on the PC. The time
+left is in Android's own notification, which Android draws.
+
+**Size.** Everything is laid out for a phone of 390 by 844 and checked on
+one of 360 by 640, where the screen scrolls above the pinned buttons. No
+text is smaller than 12, and nothing to tap is lower than 48.
+
+The real screens are native Android views drawn by the app, not by a
+browser, and have to match these drawings.
 
 ## The icons
 

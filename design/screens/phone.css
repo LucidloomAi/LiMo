@@ -1,0 +1,300 @@
+/* LiMo on the phone: the lock, the ways out, the block screen, the child's
+   own Today screen and a warning, in the Paper and Ink theme. Drawings to
+   agree the look, not the product.
+
+   Sizes are CSS pixels on a phone 390 wide. Reading text 16, small reading
+   text 14, mono labels 12 and never smaller, headings in Fraunces 28 to 32,
+   and anything that can be tapped is at least 48 high. */
+
+/* The theme's three fonts, from the copies the product bundles. */
+@font-face { font-family: 'Fraunces'; src: url('../../screens/fonts/fraunces/Fraunces-VariableFont_SOFT%2CWONK%2Copsz%2Cwght.ttf') format('truetype'); font-weight: 100 900; font-display: block; }
+@font-face { font-family: 'Instrument Sans'; src: url('../../screens/fonts/instrument-sans/InstrumentSans-VariableFont_wdth%2Cwght.ttf') format('truetype'); font-weight: 400 700; font-display: block; }
+@font-face { font-family: 'Spline Sans Mono'; src: url('../../screens/fonts/spline-sans-mono/SplineSansMono-VariableFont_wght.ttf') format('truetype'); font-weight: 300 700; font-display: block; }
+
+:root {
+  --paper: #f6f1e4; --paper2: #efe7d2; --card: #fffdf6; --ink: #1b2638; --ink-soft: #46506a;
+  --marigold: #e89c1c; --marigold-deep: #b97a08; --teal: #0e7c66; --coral: #cf4326;
+  --border: rgba(27,38,56,.16); --shadow: rgba(27,38,56,.85);
+  --display: Fraunces, Georgia, 'Times New Roman', serif;
+  --body: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Spline Sans Mono', Consolas, 'Courier New', monospace;
+}
+
+/* ---------- The phone: a plain outline, Android's own bars kept clear ---------- */
+
+.ph-frame, .ph-crop {
+  position: relative; box-sizing: content-box; overflow: hidden;
+  color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.4;
+  background-color: var(--paper);
+  background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+  border: 1.5px solid var(--ink);
+}
+/* --fh is the phone's height; --pb is what is under the page at the bottom:
+   the gesture bar, or the keyboard when it is up. */
+.ph-frame { --fh: 844px; --pb: 24px; width: 390px; height: var(--fh); border-radius: 40px; }
+.ph-frame.small { --fh: 640px; width: 360px; border-radius: 34px; }
+.ph-frame.kb { --pb: 300px; }
+.ph-frame *, .ph-crop * { box-sizing: border-box; }
+.ph-frame img, .ph-frame svg, .ph-crop img, .ph-crop svg { display: block; flex: none; }
+
+/* 32 at the top for Android's status bar: only the time, quietly. */
+.ph-status {
+  position: absolute; z-index: 5; left: 0; right: 0; top: 0; height: 32px; display: flex; align-items: center;
+  padding: 2px 30px 0; font: 500 12px/1 var(--mono); letter-spacing: .04em; color: var(--ink-soft);
+}
+/* 24 at the bottom for the gesture bar. */
+.ph-gesture { position: absolute; z-index: 5; left: 0; right: 0; bottom: 0; height: 24px; display: grid; place-items: center; }
+.ph-gesture i { width: 108px; height: 4px; border-radius: 2px; background: rgba(27,38,56,.3); }
+/* What LiMo draws, between the two. It scrolls when it does not fit. */
+.ph-page { position: absolute; left: 0; right: 0; top: 32px; bottom: var(--pb); overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+.ph-page::-webkit-scrollbar { display: none; }
+/* One thing pinned to the bottom, above the gesture bar or the keyboard, on
+   a strip of the page itself (its dots lined up with the page's), so
+   nothing shows through it. The page scrolls above it. */
+.ph-frame { --pin: 64px; }
+.ph-frame.pin2 { --pin: 122px; }
+.ph-frame.pinned .ph-page { bottom: calc(var(--pb) + var(--pin)); }
+.ph-pin {
+  position: absolute; z-index: 4; left: 0; right: 0; bottom: var(--pb); height: var(--pin); padding: 8px 16px 0;
+  display: flex; flex-direction: column; gap: 10px;
+  background-color: var(--paper);
+  background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px);
+  background-size: 18px 18px; background-position: 0 calc(var(--pb) + var(--pin) - var(--fh));
+}
+
+/* ---------- The lock ---------- */
+
+.ph-lock { min-height: 100%; display: flex; flex-direction: column; padding: 4px 16px 6px; }
+
+.ph-top { flex: none; display: flex; align-items: flex-start; justify-content: space-between; padding: 2px 2px 0; }
+.ph-top + .ph-card { margin-top: 10px; }
+.ph-mark { display: flex; align-items: center; gap: 7px; padding-top: 2px; font: 600 22px/1 var(--display); letter-spacing: -.01em; }
+.ph-now { text-align: right; }
+.ph-now b { display: block; font: 600 22px/1 var(--display); }
+.ph-now span { display: block; margin-top: 5px; }
+
+.ph-label, .ph-now span {
+  font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft);
+}
+.ph-label em { margin-left: 6px; font: 400 14px/1 var(--body); letter-spacing: 0; text-transform: none; }
+.ph-sec { margin: 16px 2px 8px; }
+
+.ph-card {
+  flex: none; padding: 14px 16px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--shadow);
+}
+
+/* The reason: why the phone is locked, and when it opens again. */
+.ph-why-top { display: flex; align-items: flex-start; justify-content: space-between; }
+.ph-stamp {
+  margin: 10px 4px 0 0; padding: 7px 8px 6px 11px; border: 2px solid var(--coral); border-radius: 7px;
+  font: 600 13px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--coral);
+  transform: rotate(-4deg);
+}
+.ph-eyebrow { margin-top: 10px; }
+.ph-h1 { margin: 6px 0 0; font: 600 28px/1.1 var(--display); letter-spacing: -.012em; text-wrap: balance; }
+.ph-detail { margin: 6px 0 0; font-size: 16px; line-height: 1.35; color: var(--ink-soft); text-wrap: pretty; }
+.ph-until { margin-top: 12px; padding-top: 10px; border-top: 1.5px dashed var(--border); }
+.ph-until b { display: block; margin-top: 6px; font: 600 24px/1.1 var(--display); color: var(--marigold-deep); }
+
+/* What can be done: each way out is a card of its own. */
+.ph-rows { display: flex; flex-direction: column; gap: 8px; }
+.ph-row {
+  display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 5px 14px 5px 5px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--shadow);
+}
+.ph-row b { display: block; font-size: 16px; font-weight: 600; line-height: 1.25; }
+.ph-row i { display: block; margin-top: 1px; font-style: normal; font-size: 14px; line-height: 1.25; color: var(--ink-soft); text-wrap: pretty; }
+.ph-row .mk { margin-left: auto; }
+.ph-row.off { border-style: dashed; box-shadow: none; opacity: .5; }
+/* An icon in a row sits on a tile of the quieter paper, so a pale drawing
+   still has an edge on a card. */
+.ph-tile { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 8px; background: var(--paper2); }
+.ph-tile.lg { width: 48px; height: 48px; border-radius: 10px; }
+
+/* A request that waits, and the wait after too many wrong tries. */
+.ph-req, .ph-wait {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px; padding: 10px 12px 10px 10px;
+  border: 1.5px dashed rgba(27,38,56,.42); border-radius: 10px; font-size: 14px; line-height: 1.35; text-wrap: pretty;
+}
+.ph-req .ph-st { margin-left: auto; }
+.ph-wait { border: 1.5px solid var(--coral); background: rgba(207,67,38,.06); }
+
+/* A small stamp that says a state, straight. */
+.ph-st {
+  flex: none; padding: 5px 8px 4px; border: 1.5px solid var(--ink); border-radius: 6px; white-space: nowrap;
+  font: 600 12px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+}
+.ph-st.teal { color: var(--teal); border-color: var(--teal); }
+.ph-st.coral { color: var(--coral); border-color: var(--coral); }
+
+/* The apps that are always allowed. The real app shows each app's own icon;
+   the drawing shows a plain tile with the first letter. */
+.ph-apps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ph-app { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 14px; line-height: 1.2; }
+.ph-letter {
+  display: grid; place-items: center; width: 48px; height: 48px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 12px; font: 600 18px/1 var(--mono); color: var(--ink);
+}
+.ph-letter.sm { width: 36px; height: 36px; border-radius: 9px; font-size: 15px; }
+
+/* Buttons. */
+.ph-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; padding: 0 16px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--shadow);
+  font: 600 16px/1 var(--body); color: var(--ink);
+}
+.ph-btn.go { background: var(--marigold); }
+.ph-btn.ink { background: var(--ink); color: var(--card); }
+/* Back to the call: teal, the colour for allowed and connected. */
+.ph-btn.teal { border-color: var(--teal); color: var(--teal); }
+
+/* The end of the scrolling part: the plain line, then the maker. On a way
+   out, Emergency call comes just before it. */
+.ph-end { flex: none; padding-top: 16px; }
+.ph-tail { flex: none; margin-top: auto; padding-top: 18px; }
+.ph-end + .ph-tail { margin-top: 0; padding-top: 10px; }
+.ph-foot { margin: 0 4px; text-align: center; font: 500 12px/1.4 var(--mono); color: var(--ink-soft); text-wrap: balance; }
+.ph-maker { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 8px; color: var(--ink); }
+.ph-maker span { font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.ph-maker img { width: 22px; height: 22px; margin-left: 2px; }
+.ph-maker b { font: 600 14px/1 var(--body); letter-spacing: -.005em; }
+
+/* ---------- A way out, opened: it takes the screen ---------- */
+
+/* The reason, kept in sight at the top of the card. */
+.ph-strip { display: flex; align-items: flex-start; gap: 10px; padding-bottom: 10px; border-bottom: 1.5px dashed var(--border); }
+.ph-strip img { margin-top: 1px; }
+.ph-strip b { display: block; font-size: 16px; font-weight: 600; line-height: 1.25; }
+.ph-strip span { display: block; margin-top: 1px; font-size: 14px; font-weight: 600; line-height: 1.25; color: var(--marigold-deep); }
+
+.ph-back {
+  display: inline-flex; align-items: center; gap: 4px; height: 48px; margin-top: 10px; padding: 0 16px 0 10px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; font: 600 16px/1 var(--body);
+}
+.ph-h2 { margin: 8px 0 0; font: 600 28px/1.1 var(--display); letter-spacing: -.012em; }
+.ph-note { margin: 6px 0 0; font-size: 16px; line-height: 1.4; color: var(--ink-soft); text-wrap: pretty; }
+.ph-small { margin: 10px 0 0; font-size: 14px; line-height: 1.4; color: var(--ink-soft); text-wrap: pretty; }
+.ph-card .ph-label.gap { margin-top: 12px; }
+
+.ph-chips { display: flex; gap: 8px; margin-top: 6px; }
+.ph-chip {
+  flex: 1 1 0; display: grid; place-items: center; min-width: 0; height: 48px; padding: 0 4px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 8px; font: 500 14px/1 var(--mono); white-space: nowrap;
+}
+.ph-chip.on { background: var(--ink); color: var(--card); }
+
+.ph-text {
+  height: 88px; margin-top: 6px; padding: 9px 12px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; font: 16px/1.4 var(--body);
+  box-shadow: inset 0 -4px 0 var(--marigold);
+}
+.ph-caret { display: inline-block; width: 2px; height: 1.2em; margin-left: 1px; vertical-align: text-bottom; background: var(--ink); }
+.ph-count { margin-top: 4px; text-align: right; font: 500 12px/1 var(--mono); color: var(--ink-soft); }
+
+.ph-cells { display: flex; gap: 6px; margin-top: 14px; }
+.ph-cell {
+  flex: 1 1 0; min-width: 0; height: 52px; display: grid; place-items: center;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 8px; font: 600 22px/1 var(--mono);
+}
+.ph-cell.gap { margin-left: 10px; }
+.ph-cell.at, .ph-pinbox { box-shadow: inset 0 -4px 0 var(--marigold); }
+.ph-pinbox {
+  display: flex; align-items: center; gap: 10px; height: 52px; margin-top: 14px; padding: 0 16px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px;
+}
+.ph-pinbox .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--ink); }
+.ph-pinbox .ph { font: 500 14px/1 var(--mono); color: rgba(70,80,106,.8); }
+/* A message under a field has its room kept, two lines, so nothing moves. */
+.ph-err { min-height: 36px; margin-top: 6px; font-size: 14px; line-height: 18px; font-weight: 600; color: var(--coral); text-wrap: pretty; }
+
+.ph-pad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: var(--key, 48px); gap: 8px; margin-top: 4px; }
+.ph-key {
+  display: grid; place-items: center;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; font: 600 22px/1 var(--mono);
+}
+.ph-key.none { visibility: hidden; }
+.ph-card > .ph-btn { margin-top: 12px; }
+
+/* The phone's own keyboard: Android draws it, so it is only a grey band. */
+.ph-keyboard {
+  position: absolute; z-index: 4; left: 0; right: 0; bottom: 0; height: 300px; padding-bottom: 24px;
+  display: grid; place-items: center; background: #d9dce1; border-top: 1px solid #c4c8cf;
+  font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: #5b6272;
+}
+
+/* ---------- The block screen ---------- */
+
+.ph-mid { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: 20px 0 6px; }
+.ph-mid .ph-card > .ph-btn { margin-top: 20px; }
+
+/* ---------- The child's own screen in the app: Today ---------- */
+
+.ph-who {
+  margin-top: 1px; padding: 7px 10px 6px; border: 1.5px solid var(--ink); border-radius: 8px;
+  font: 600 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+}
+/* The page keeps room at its end as tall as the tab bar and its inset. */
+.ph-today { padding-bottom: 90px; }
+.ph-today > .ph-card + .ph-card, .ph-today > .ph-card + .ph-btn { margin-top: 14px; }
+.ph-big { display: block; font: 600 44px/1 var(--display); letter-spacing: -.02em; color: var(--marigold-deep); }
+.ph-big-label { margin-top: 9px; }
+.ph-quiet { margin: 10px 0 0; font-size: 14px; line-height: 1.4; color: var(--ink-soft); }
+.ph-used { margin-top: 12px; padding-top: 14px; border-top: 1.5px dashed var(--border); }
+.ph-bar { height: 10px; border: 1.5px solid var(--ink); border-radius: 999px; overflow: hidden; background: var(--paper); }
+.ph-bar i { display: block; height: 100%; background: var(--marigold); border-right: 1.5px solid var(--ink); }
+.ph-used p { margin: 10px 0 0; font-size: 16px; line-height: 1.4; }
+.ph-used .ph-label { margin-top: 8px; line-height: 1.45; letter-spacing: .08em; }
+.ph-hours { display: flex; align-items: center; gap: 12px; padding: 12px 14px 12px 12px; }
+.ph-hours p { margin: 0; font-size: 16px; line-height: 1.4; text-wrap: balance; }
+.ph-list { padding: 2px 14px; }
+.ph-li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1.5px dashed var(--border); font-size: 16px; }
+.ph-li:first-child { border-top: 0; }
+.ph-li .min { margin-left: auto; font: 500 14px/1 var(--mono); }
+
+/* Tabs float, in glass, set in from the sides and the gesture bar by 14. */
+.ph-tabs {
+  position: absolute; z-index: 4; left: 14px; right: 14px; bottom: 38px; display: flex; gap: 4px; padding: 6px; border-radius: 24px;
+  background: rgba(255,253,246,.44);
+  -webkit-backdrop-filter: blur(9px) saturate(1.7); backdrop-filter: blur(9px) saturate(1.7);
+  border: 1.5px solid rgba(255,255,255,.72);
+  box-shadow: 0 0 0 1px rgba(27,38,56,.16), 0 12px 28px rgba(27,38,56,.22);
+}
+.ph-tab {
+  flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 7px 0 7px; border-radius: 18px;
+  font: 600 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft);
+}
+.ph-tab.on { color: var(--ink); background: rgba(27,38,56,.09); }
+
+/* ---------- A warning over the child's own app ---------- */
+
+.ph-frame.app { background: #cfd5df; background-image: none; }
+.ph-app-behind { position: absolute; inset: 0; display: grid; place-items: center; }
+.ph-app-behind span { font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: #5b6272; }
+.ph-nt {
+  position: absolute; z-index: 3; left: 12px; right: 12px; top: 8px; padding: 14px 14px 12px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--shadow);
+}
+.ph-nt-top { display: flex; align-items: flex-start; gap: 12px; }
+.ph-nt h3 { margin: 2px 0 0; font: 600 20px/1.2 var(--display); letter-spacing: -.005em; }
+.ph-nt p { margin: 6px 0 0; font-size: 14px; line-height: 1.4; color: var(--ink-soft); }
+.ph-nt-foot { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1.5px dashed var(--border); }
+.ph-nt-foot .ph-btn { width: auto; margin-left: auto; padding: 0 22px; }
+
+/* ---------- Android's own notification: only the words ---------- */
+
+.ph-frame.shade { background: #e3e5e9; background-image: none; }
+.ph-shade { padding: 16px 14px; font-family: Roboto, 'Segoe UI', Arial, sans-serif; color: #1f1f1f; }
+.ph-shade .ph-label { margin: 4px 6px 14px; color: #5b6272; }
+.ph-ntf { display: flex; gap: 12px; padding: 14px 16px; margin-bottom: 8px; background: #f4f5f7; border-radius: 22px; }
+.ph-ntf .ic { width: 28px; height: 28px; border-radius: 50%; background: #b9bec7; }
+.ph-ntf small { display: block; font-size: 12px; line-height: 1.3; color: #5f6368; }
+.ph-ntf b { display: block; margin-top: 2px; font-size: 15px; font-weight: 600; line-height: 1.3; }
+.ph-ntf span { display: block; margin-top: 2px; font-size: 14px; line-height: 1.35; color: #444746; }
+
+/* ---------- Only the card ---------- */
+
+/* As wide as the phone: 358 inside, 16 at each side. */
+.ph-crop { width: 358px; padding: 16px 16px 20px; border-radius: 18px; }
+.ph-crop .ph-sec { margin-top: 0; }

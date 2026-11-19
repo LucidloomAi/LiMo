@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiMo on the phone</title>
+<link rel="stylesheet" href="phone.css">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 16px 60px; color: var(--ink); font-family: var(--body);
+    background-color: var(--paper);
+    background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px);
+    background-size: 18px 18px;
+  }
+  main { max-width: 1300px; margin: 0 auto; }
+  h1 { font-family: var(--display); font-size: 34px; margin: 0 0 4px; letter-spacing: -.01em; }
+  h2 { font-family: var(--display); font-size: 22px; margin: 44px 0 4px; }
+  .lead { margin: 0 0 18px; max-width: 760px; line-height: 1.5; color: var(--ink-soft); }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--teal); }
+
+  /* The phones, in a wrapping grid, each at its real size. */
+  .shots { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 36px 32px; }
+  .shot { flex: none; width: min-content; }
+  /* Three lines of room, so the phones in a row start level. */
+  .cap { min-height: calc(3 * 1.45em); margin: 0 0 10px; font: 500 12px/1.45 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+  .cap b { display: block; font-weight: 600; color: var(--ink); }
+
+  .notes { max-width: 860px; background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 rgba(27,38,56,.85); padding: 16px; }
+  .line { display: flex; gap: 14px; padding: 10px 0; border-top: 1.5px dashed var(--border); font-size: 14.5px; line-height: 1.5; }
+  .line:first-child { border-top: 0; padding-top: 0; }
+  .line:last-child { padding-bottom: 0; }
+  .line .k { flex: none; width: 118px; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); padding-top: 2px; }
+  @media (max-width: 760px) {
+    h1 { font-size: 28px; }
+    .line { flex-direction: column; gap: 2px; }
+    .line .k { width: auto; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">LiMo · design · on the phone</div>
+  <h1>The lock, the block screen and Today on the phone</h1>
+  <p class="lead">What a child sees on an Android phone, in the Paper and Ink theme. These are drawings to agree the look, each at its real size in CSS pixels. The words are the PC lock screen’s own, with “PC” changed to “phone” and “programs” to “apps”. The top 32 of every phone is Android’s status bar and the bottom 24 its gesture bar.</p>
+
+  <h2>A. The lock: time is used up</h2>
+  <p class="lead">The main state. The reason first, then what can be done, then the apps that stay open. Emergency call is pinned to the bottom of every lock and block screen, so it is always in sight: a lock never stands between a child and an emergency call. A call is never a way around the limits, and never trapped behind a lock: a ringing call is never covered, and while a call is on the phone app itself stays free, so a call can always be answered, used and ended. During a call the lock carries a way back to it, in teal, pinned above Emergency call.</p>
+  <div class="shots" id="a"></div>
+
+  <h2>B. The ways out</h2>
+  <p class="lead">On a phone a way out takes the screen instead of sitting beside the reason. The reason stays in sight as a strip at the top of the card, and the main button is pinned to the bottom, above the keyboard when it is up. Emergency call comes at the end of the page.</p>
+  <div class="shots" id="b"></div>
+  <p class="lead" style="margin-top:36px">A wrong code, the wait after too many wrong tries, and a request that waits. Only the card is drawn.</p>
+  <div class="shots" id="b-more"></div>
+
+  <h2>C. The lock: bedtime</h2>
+  <p class="lead">As A, with the moon. Only a guardian’s PIN opens it.</p>
+  <div class="shots" id="c"></div>
+
+  <h2>D. The block screen</h2>
+  <p class="lead">Shown when a blocked app comes to the front. During a call, the same teal Back to the call button sits above Emergency call, as on the lock in A2.</p>
+  <div class="shots" id="d"></div>
+
+  <h2>E. Today, the child’s own screen in the app</h2>
+  <p class="lead">The time left, the hours when screens are off, and the minutes each app took today: names and minutes only. Looking at LiMo’s own screen never uses time, so nothing is counted while a child reads it, and it says so.</p>
+  <div class="shots" id="e"></div>
+
+  <h2>F and G. Over the child’s own app</h2>
+  <p class="lead">A warning floats over whatever the child has open, so it carries no maker’s mark. Android draws its own notifications, so only their words are LiMo’s.</p>
+  <div class="shots" id="fg"></div>
+
+  <h2>For the build</h2>
+  <div class="notes" id="notes"></div>
+</main>
+<script src="phone.js"></script>
+<script>
+  var P = window.LIMO_PHONE;
+  function byId(id) { return document.getElementById(id); }
+  function shot(name, sub, html) {
+    // A dot between parts stays with the part before it.
+    return '<div class="shot"><div class="cap"><b>' + name + '</b>' + sub.replace(/ · /g, ' · ') + '</div>' + html + '</div>';
+  }
+
+  byId('a').innerHTML =
+    shot('A · Time is used up', '390 by 844 · fits, no scroll · Emergency call pinned', P.frame(P.lock(P.fresh()))) +
+    shot('A2 · The lock during a call', '390 by 844 · two buttons pinned · scrolls a little: the end is below', P.frame(P.lock(P.fresh({ call: true })))) +
+    shot('A on a small phone', '360 by 640 · scrolls above the pinned Emergency call', P.frame(P.lock(P.fresh()), { small: true }));
+
+  var asked = { minutes: 30, at: '9:32 pm', answer: 'waiting' };
+  byId('b').innerHTML =
+    shot('B1 · Ask for more time', '390 by 844 · keyboard up · button pinned on it · the card fits, the end is below',
+      P.frame(P.way(P.fresh({ panel: 'ask', reason: 'To finish my science project' })), { keyboard: true })) +
+    shot('B2 · Type a one time code', '390 by 844 · button pinned · the card fits · scrolls a little: the maker’s mark is below',
+      P.frame(P.way(P.fresh({ panel: 'code', typed: '13420' })))) +
+    shot('B3 · Guardian PIN', '390 by 844 · button pinned · the card fits · scrolls: the end is below',
+      P.frame(P.way(P.fresh({ panel: 'pin', typed: '2468' }))));
+
+  byId('b-more').innerHTML =
+    shot('B · A wrong code', 'only the card · 2 wrong tries so far',
+      P.crop(P.wayCard(P.fresh({ panel: 'code', error: 'That code is not right. 3 more tries before a wait.' })))) +
+    shot('B · The wait', 'only what you can do · after five wrong tries',
+      P.crop(P.waysOnly(P.fresh({ waitUntil: '9:47 pm' })))) +
+    shot('B · A request that waits', 'only what you can do · asking comes back once it is answered',
+      P.crop(P.waysOnly(P.fresh({ request: asked }))));
+
+  byId('c').innerHTML =
+    shot('C · Bedtime', '390 by 844 · fits, no scroll · Emergency call pinned', P.frame(P.lock(P.fresh({ why: 'blocked_hours' }))));
+
+  byId('d').innerHTML =
+    shot('D · The block screen', '390 by 844 · fits, no scroll · Emergency call pinned', P.frame(P.block('Game Launcher')));
+
+  byId('e').innerHTML =
+    shot('E · Today', '390 by 844 · fits, no scroll', P.frame(P.today(), { over: P.TABS }));
+
+  byId('fg').innerHTML =
+    shot('F · A warning', '390 by 844 · over the child’s own app', P.frame(P.warning(), { cls: 'app' })) +
+    shot('G · Android’s own notification', '390 by 844 · words only, Android’s look', P.frame(P.shade(), { cls: 'shade' }));
+
+  byId('notes').innerHTML = [
+    ['Size', 'Drawn for a phone 390 wide in CSS pixels, and checked at 360 by 640. Reading text 16, small text 14, mono labels 12 and never smaller, headings 28 in Fraunces. Anything that can be tapped is at least 48 high.'],
+    ['Android', 'The top 32 is Android’s status bar and the bottom 24 its gesture bar; LiMo draws nothing there. When a screen does not fit, it scrolls between them.'],
+    ['Emergency', 'On every lock and block screen, Emergency call is pinned to the bottom, above the gesture bar, on a strip of the page so nothing shows through it. The rest scrolls above it. A lock never stands between a child and an emergency call.'],
+    ['Calls', 'A ringing call is never covered, and while a call is on the phone app stays free. During a call, the lock and the block screen pin Back to the call, outlined in teal, directly above Emergency call, on the same strip.'],
+    ['Still open', 'The apps a family always allows. The real lock shows each app’s own icon and name; the drawing shows a plain tile with the first letter.'],
+    ['Ways out', 'A way out takes the screen. The reason stays at the top of its card as a strip. The main button is pinned to the bottom, above the keyboard when it is up; Emergency call, the plain line and the maker come at the end of the page. Back returns to the lock.'],
+    ['PIN', 'A guardian first chooses what to give, then types the PIN, then presses Unlock.'],
+    ['Messages', 'A message under a field has two lines of room kept when there is none, so nothing moves.'],
+    ['Today', 'Looking at LiMo’s own screen never uses time, so Today has no counting stamp. One quiet line under the time left says so.'],
+    ['Keyboard', 'Only the reason for a request needs the phone’s own keyboard. Codes and PINs use the keys on the screen.'],
+    ['Maker', 'The LucidLoom AI logo and name, centred at the end of every lock and block screen, with the words made by. The logo keeps its own colours, at 22. It is not a link, and it is not on the warning.'],
+    ['Not here', 'No picture of what is behind the lock and no list of what was done in an app. Today shows app names and minutes only.']
+  ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
+
+  // A frame drawn scrolled, as Android would scroll it, once the fonts have
+  // set the heights.
+  function scrolled() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-scroll-to]'), function (page) {
+      var to = page.querySelector(page.getAttribute('data-scroll-to'));
+      if (to) { page.scrollTop += to.getBoundingClientRect().top - page.getBoundingClientRect().top - 4; }
+    });
+  }
+  window.addEventListener('load', function () {
+    if (document.fonts && document.fonts.ready) { document.fonts.ready.then(scrolled); } else { scrolled(); }
+  });
+
+  // On a screen narrower than a phone, the phones are drawn smaller.
+  function fit() {
+    var room = document.querySelector('main').clientWidth;
+    Array.prototype.forEach.call(document.querySelectorAll('.shot'), function (s) {
+      s.style.zoom = '';
+      var w = s.firstChild.nextSibling.offsetWidth;
+      s.style.zoom = w > room ? String(room / w) : '';
+    });
+  }
+  window.addEventListener('resize', fit);
+  fit();
+</script>
+</body>
+</html>
