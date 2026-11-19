@@ -5,6 +5,12 @@
    Sizes are for a screen of 1366 by 768. lock.html scales the whole screen
    to fit the window, and the real helper does the same. */
 
+/* The theme's three fonts, loaded from the copies the product itself
+   bundles (screens/fonts), so the pages show the real type on any PC. */
+@font-face { font-family: 'Fraunces'; src: url('../../screens/fonts/fraunces/Fraunces-VariableFont_SOFT%2CWONK%2Copsz%2Cwght.ttf') format('truetype'); font-weight: 100 900; font-display: block; }
+@font-face { font-family: 'Instrument Sans'; src: url('../../screens/fonts/instrument-sans/InstrumentSans-VariableFont_wdth%2Cwght.ttf') format('truetype'); font-weight: 400 700; font-display: block; }
+@font-face { font-family: 'Spline Sans Mono'; src: url('../../screens/fonts/spline-sans-mono/SplineSansMono-VariableFont_wght.ttf') format('truetype'); font-weight: 300 700; font-display: block; }
+
 :root {
   --paper: #f6f1e4; --paper2: #efe7d2; --card: #fffdf6; --ink: #1b2638; --ink-soft: #46506a;
   --marigold: #e89c1c; --marigold-deep: #b97a08; --teal: #0e7c66; --coral: #cf4326;

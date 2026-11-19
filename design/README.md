@@ -48,8 +48,9 @@ outlined box.
 
 Type: Fraunces for headings and large numbers, Instrument Sans for reading
 text, Spline Sans Mono for labels, times and other data. All three are
-published under the SIL Open Font License 1.1. Check the licence file that
-comes with each font before bundling it.
+published under the SIL Open Font License 1.1. The product bundles them,
+each beside its licence, in `../screens/fonts/`, and the pages in this folder
+load them from there, so they show the real type on any PC.
 
 Shape: borders are 1.5 wide, corners are 7, 10 or 14, and the card shadow
 is 4 across and 4 down with no blur. Spacing steps by 4.
