@@ -128,6 +128,7 @@ core/                        Rust: the rules core, the first part of the product
 hub/                         Rust: the family's database on the master PC
 agent/                       Rust: the engine of the agent on the master PC
 windows/                     Rust: the Windows service around the engine, and its helper
+screens/                     Rust: the lock screen and the time left display, drawn in software
 design/                      the Paper and Ink theme and LiMo's icons
 spikes/
   01-windows-service-lock/   Rust: a Windows service and a lock on every monitor
@@ -167,8 +168,14 @@ The service gathers the facts, carries out the orders and closes blocked
 programs; the helper shows the time left and the lock. It is written and
 tested against a stand in for Windows, and has **not yet been run as a
 service**: that happens next, with care, on a real PC. The lock screen it
-shows today is a plain one; the designed one in [`design/`](design/) is
-drawn next.
+shows today is a plain one; the designed one comes from the next folder.
+
+[`screens/`](screens/) is the fifth part: it draws the lock screen, the
+time left display and its notices into pixels, to the design in
+[`design/`](design/), with no operating system code at all. A helper puts
+the picture on the screen and hands it clicks and keys, so the same
+drawing can serve Windows now and another system later. It is not yet
+joined to the Windows helper.
 
 **A warning about proof five.** It makes a test app the Device Owner of a
 phone. Run it only on a spare phone with no accounts on it, and read its

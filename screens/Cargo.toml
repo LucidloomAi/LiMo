@@ -1,0 +1,47 @@
+[package]
+name = "limo-screens"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+description = "LiMo's screens on the PC: the lock screen, the time left display and its notices, drawn into pixels in software"
+publish = false
+
+[lib]
+name = "limo_screens"
+
+[dependencies]
+# The engine's orders (what a lock screen shows) and the rules core's types
+# for the ways out (what became of a code or a PIN, what a PIN is to do).
+limo-agent = { path = "../agent" }
+limo-core = { path = "../core" }
+# Shapes: rectangles with rounded corners, borders, dashed lines, the hard
+# shadows, and the pixel buffer every picture is drawn into. Its PNG support
+# reads the built in logo, and writes the preview pictures.
+tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "simd", "png-format"] }
+# The icons: the SVG files of the design, read and painted as they are.
+# Default features off: no text inside SVG, no system fonts, no pictures
+# inside SVG, no compressed SVG.
+resvg = { version = "0.50.0", default-features = false }
+usvg = { version = "0.50.0", default-features = false }
+# Text: shaping and kerning, a port of HarfBuzz. The fonts are read by
+# read-fonts, which it brings: the glyph outlines and the line metrics of the
+# variable fonts at any weight and optical size.
+harfrust = "0.16.0"
+read-fonts = "0.47.0"
+# Glyph outlines into exact coverage, for text that looks like a browser's.
+ab_glyph_rasterizer = "0.1.10"
+# Wiping a typed PIN or code from memory.
+zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
+
+# Text and icons are drawn in software. A little optimisation in debug and
+# test builds keeps the tests that draw every state at three sizes quick;
+# overflow checks stay on.
+[profile.dev]
+opt-level = 1
+[profile.test]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test.package."*"]
+opt-level = 3
