@@ -384,9 +384,24 @@ impl Pc {
         self.say(session, FromHelper::Hello { protocol: PROTOCOL_VERSION });
     }
 
-    /// The session's helper reports.
+    /// The session's helper reports, with no sound and nothing keeping the
+    /// screen awake.
     pub fn report(&mut self, session: u32, idle_ms: u64, front_pid: Option<u32>, full_screen: bool) {
-        self.say(session, FromHelper::Report { idle_ms, front_pid, full_screen });
+        self.report_playing(session, idle_ms, front_pid, full_screen, false, false);
+    }
+
+    /// The session's helper reports, saying whether a program of the
+    /// session plays sound and whether a program keeps the screen awake.
+    pub fn report_playing(
+        &mut self,
+        session: u32,
+        idle_ms: u64,
+        front_pid: Option<u32>,
+        full_screen: bool,
+        playing_sound: bool,
+        screen_kept_awake: bool,
+    ) {
+        self.say(session, FromHelper::Report { idle_ms, front_pid, full_screen, playing_sound, screen_kept_awake });
     }
 
     /// The last show the session's running helper got.

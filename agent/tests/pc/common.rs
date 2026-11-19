@@ -229,6 +229,7 @@ impl Pc {
                 is_administrator: false,
                 idle_secs: 0,
                 full_screen: false,
+                playing: false,
                 in_front: None,
                 running: Vec::new(),
             },

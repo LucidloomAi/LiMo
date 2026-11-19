@@ -69,6 +69,7 @@ helper in each session that needs one  (src/win/helper.rs)
   reader thread  -> user interface thread (HelperCore + Display:
                     the drawn display, or the plain one in its place)
   report thread  -> writer thread -> the service
+  sound thread   -> report thread (whether sound plays: src/win/playing.rs)
 ```
 
 - **The seam.** Everything the service decides is in `src/service.rs`,
@@ -89,8 +90,9 @@ helper in each session that needs one  (src/win/helper.rs)
   helpers, the held warning, the fallback, the test cap. `close.rs`: the
   never close list. `programs.rs`: programs and their cache.
   `protocol.rs`: the channel's messages, frames and limits. `helper.rs`:
-  the helper's side, the `Display` trait, and the choice of the drawn or the
-  plain display. `drawn.rs`: everything the drawn display decides. `quiet.rs`:
+  the helper's side, the `Display` trait, the choice of the drawn or the
+  plain display, and what counts as playing sound or keeping the screen
+  awake. `drawn.rs`: everything the drawn display decides. `quiet.rs`:
   keeping the log readable. `settings.rs`, `cli.rs`, `setup.rs`, `text.rs`,
   `about.rs`: names and places, the command line, `dev-setup`'s and
   `dev-code`'s work, the plain display's words, and words for what a helper
@@ -105,7 +107,7 @@ helper in each session that needs one  (src/win/helper.rs)
 | `utc_offset_secs` | `GetTimeZoneInformation`: the zone's bias, and the daylight bias when daylight time is in force. |
 | Sessions | `WTSEnumerateSessionsW`: every session but session 0 with a user name. The account's SID and whether it is an administrator come from the session's user token (`WTSQueryUserToken`): the Administrators group among the token's groups, enabled or kept for denying only (a UAC filtered token), or among its linked token's. The state: in use when the session is active and Windows does not say it is locked (`WTSSessionInfoEx`), locked when it does, disconnected otherwise. |
 | Programs running | Read by the service itself, never taken from a helper: `WTSEnumerateProcessesExW` for every process with its session, then for each one its start (`GetProcessTimes`) and its file's path (`QueryFullProcessImageNameW`). A program is the file's name, and the original file name and company name from its version resource. The same resource's description (`FileDescription`, such as "Game Launcher") is read beside them and kept in the cache with them, but never handed to the engine: it only names a program in the notice that it was closed, and in the log line for the close. All three are properties of the program's file, written in by its maker and the same for every copy; none is a window title, a document's name or a web address, and LiMo reads none of those. LiMo's own processes are left out. |
-| Idle, front, full screen | From the session's helper, about once a second: milliseconds since the last input (`GetLastInputInfo`), the process id of the window in front, and whether something is in full screen (the window in front covers its monitor and is not the desktop or the taskbar, or Windows says a full screen program or a presentation is running). |
+| Idle, front, full screen, playing | From the session's helper, about once a second: milliseconds since the last input (`GetLastInputInfo`), the process id of the window in front, whether something is in full screen (the window in front covers its monitor and is not the desktop or the taskbar, or Windows says a full screen program or a presentation is running), whether a program of the session plays sound, and whether a program keeps the screen awake (both below). The engine's `playing` is true when either of the last two is. |
 
 - **Version resources are read once per file.** The cache keeps each
   file's program, with its description beside it, by its path and last
@@ -120,8 +122,111 @@ helper in each session that needs one  (src/win/helper.rs)
   name from a helper. Test: `facts::the_program_in_front_is_found_by_the_service_itself_and_only_in_that_session`.
 - **No fresh report means time counts.** With no report from the session's
   helper in the last 3 seconds (`REPORT_FRESH_MS`), or no helper: idle 0,
-  not full screen, nothing in front. A missing helper never gives free time.
+  not full screen, nothing playing, nothing in front. A missing helper never
+  gives free time.
   Test: `facts::with_no_fresh_report_input_counts_as_just_now_so_a_missing_helper_gives_no_free_time`.
+- **Sound, or the screen kept awake, keeps the count going.** A session is
+  also counted with nobody at the keyboard or the mouse while a program of
+  it plays sound, or while a program keeps the screen awake (the owner's
+  decision of 19 November 2026: in the first run a video left playing in a
+  browser window, not in full screen, stopped being counted after the idle
+  minutes, and 13 minutes of screen time took 31). The helper says each in
+  its report; the service hands the engine one fact, `playing`, true when
+  either is, and the engine treats it as it treats full screen (its README,
+  rule 2). A PC that is silent and left alone still pauses. Test:
+  `facts::sound_or_the_screen_kept_awake_keeps_the_count_going_with_no_input`.
+
+**Sound** (`src/win/playing.rs`; what counts is decided in `src/helper.rs`,
+`audio_session_plays`). On a thread of its own, about once a second, the
+helper asks Windows for every sound device that plays (`IMMDeviceEnumerator::EnumAudioEndpoints`
+for `eRender` in `DEVICE_STATE_ACTIVE`, which its page explains as "the
+audio adapter that connects to the endpoint device is present and
+enabled"): every one, not only the default, since a program can play to a
+device that is not the default. On each it activates the session manager
+(`IMMDevice::Activate` for `IAudioSessionManager2`, as that interface's page
+says) and lists the device's audio sessions (`GetSessionEnumerator`). An
+audio session counts when all of these hold:
+
+- it is active (`IAudioSessionControl::GetState`, whose page says "The
+  state is active if the session has one or more streams that are
+  running");
+- it is not the system sounds session (`IAudioSessionControl2::IsSystemSoundsSession`,
+  `S_OK` for it). That session carries Windows' own short sounds, a
+  notification's chime or an error's ding, for every program at once: not
+  something a child plays, and not one program of the session. It never
+  counts;
+- the process that made it (`IAudioSessionControl2::GetProcessId`; for a
+  session of several processes its page says it gives "the initial
+  identifier of the process that created the session") is in the helper's
+  own Windows session (`ProcessIdToSessionId`, "the Remote Desktop Services
+  session under which the specified process is running"), so sound from
+  another account's session, or from Windows' own in session 0, never
+  counts for this one. **Expected, and not documented:** that Windows
+  answers it for the browser's or the player's own process. Its page says
+  the caller needs "the PROCESS_QUERY_INFORMATION access right" to the
+  process; the helper runs as the child, one integrity step above the
+  child's programs, so it should have it for them. Where it is refused,
+  that audio session counts as no; TESTING.md part E, step 9, in a browser
+  tab, shows it;
+- its loudness meter is above zero (`IAudioMeterInformation::GetPeakValue`,
+  asked of the audio session itself). The meter's page says the value is
+  "a number in the normalized range from 0.0 to 1.0" and is "the peak value
+  recorded during the previous device period". A stream that is open and
+  silent, such as a paused video, reads 0.0 and does not count; the
+  quietest sound heard does. **Expected, and not documented:** the meter's
+  pages describe it for a whole device, got through `IMMDevice::Activate`,
+  and no page says that an audio session gives a meter of its own. The
+  helper asks each audio session for one (`QueryInterface`); a session that
+  gives none counts as silent, so if Windows never gives one, sound never
+  counts and only the screen kept awake does. Music alone, in TESTING.md
+  part E, step 9, is what shows it. Were the meter the device's and not the
+  session's, an active but silent stream of this session would count while
+  another one played on the same device; no step tells the two apart.
+
+Anything Windows will not say counts as no. A meter reads only the last few
+milliseconds, so a pause between two sentences of a video can read as
+silence: sound heard counts for 3 seconds (`SOUND_HELD_MS`), and a paused
+video stops counting that long after its sound stopped. That also makes a
+read that fails, or a thread that is stuck, say no within 3 seconds, so the
+audio service can never hold back the rest of the report. COM is started on
+that thread for the multithreaded apartment (`CoInitializeEx`) and ended
+there when the thread ends (`CoUninitialize`); every interface a read makes
+is released before the read ends. Each read starts afresh, so a device
+plugged in (headphones) is read from the next second, a device taken away
+in the middle of a read fails only its own calls, and a PC with no sound
+device, or with the Windows audio service stopped, reads no. A read takes
+about 3 ms on the development PC.
+
+**The screen kept awake** (`CallNtPowerInformation` for
+`SystemExecutionState`, on the report thread). Its page says that for this
+level "The lpInBuffer parameter must be NULL", and that the output
+"receives a ULONG value containing the system execution state buffer",
+which "may contain any combination of the following values:
+ES_SYSTEM_REQUIRED, ES_DISPLAY_REQUIRED, or ES_USER_PRESENT". With
+`ES_DISPLAY_REQUIRED` set, a program keeps the screen awake; the page of
+`SetThreadExecutionState` says "Multimedia applications, such as video
+players and presentation applications, must use ES_DISPLAY_REQUIRED when
+they display video for long periods of time without user input".
+**Expected, and not documented:** that browsers and video players do so
+while a video plays, muted or not, and that they ask in a way that shows in
+this state. A program can also ask through a power request (`PowerSetRequest`
+with `PowerRequestDisplayRequired`), and neither page says whether such a
+request shows in the execution state. A muted video in a browser, TESTING.md
+part E, step 7, is what shows it; where it does not, a muted video pauses
+after the idle minutes, as before. A read that fails says no. **It is the
+whole PC's state, not one session's**: a program keeping the screen awake
+in another account's session counts for the child's session in use too.
+That is accepted because the engine counts only the session in use, and
+this only matters while that session would otherwise be idle.
+
+**Whether, never what.** Of a sound LiMo learns only whether it is coming
+out: one meter, compared with zero. No sound is captured, recorded,
+analysed or kept. Of an audio session the helper asks only the four things
+above; its name, its icon and its identifier, which can name a program's
+file, are never asked for. The process id is used once, to ask its Windows
+session, and forgotten. The report carries two yes or no answers, and the
+engine one; nothing of what plays, or which program plays it, reaches the
+service, the engine or the family's file.
 
 ## The orders
 
@@ -198,15 +303,17 @@ what follows (4 bytes), both little endian, then that many bytes of JSON. A
 message may be at most 64 KiB (`MAX_MESSAGE_BYTES`); the longest real one is
 under 2 KiB. A frame that says it is longer is refused from its header,
 before any of it is kept, and a reader never holds more than two frames'
-worth. The protocol is version 2: version 2 added the program's name to a
-notice, and `shows_plain`. A helper and a service of different versions
-never talk: the first frame closes the channel.
+worth. The protocol is version 3: version 2 added the program's name to a
+notice, and `shows_plain`; version 3 added to a report whether the session
+plays sound and whether a program keeps the screen awake. A helper and a
+service of different versions never talk: the first frame closes the
+channel.
 
 | Helper to service | |
 | --- | --- |
 | `hello` | First, and only first: the protocol version. |
 | `about` | Once: what the helper got (UIAccess, integrity, band, its access list). |
-| `report` | About once a second: idle milliseconds, the process id in front, full screen. |
+| `report` | About once a second: idle milliseconds, the process id in front, full screen, whether a program of the session plays sound (`playing_sound`), and whether a program keeps the screen awake (`screen_kept_awake`). Each of the last two is only a yes or a no, and both must be there. |
 | `lock_on_screen` | The lock handed over with this number covers every monitor. |
 | `warning_shown` | This warning (its cause, minutes and lock time) is on the screen. |
 | `ask_for_time`, `try_code`, `try_pin` | The three ways out, each with a number for its answer. |
@@ -221,7 +328,8 @@ never talk: the first frame closes the channel.
 
 **What closes a channel.** A frame of another version, too long, or not
 JSON; a message nobody knows, or with a field it should not have (a
-`window_title`, say); a message before hello, hello twice, or "what I got"
+`window_title`, say) or without one it must have (a report that says
+nothing of sound); a message before hello, hello twice, or "what I got"
 twice; a lock confirmed that was never sent; or a helper that stops reading
 what it is sent. The service ends that helper and starts another. Nothing
 from a closed channel reaches the engine, and none of it can make the
@@ -250,13 +358,15 @@ string with an escape in it. Tests: `protocol::tests::a_pin_never_shows_in_debug
 `protocol::tests::what_was_read_is_wiped_from_the_decoder`,
 `channel::a_pin_or_a_code_is_never_logged_kept_or_shown`.
 
-**What the service believes from a helper.** Only the three things a
-program inside the session must say (idle, the process in front, full
-screen), and only while fresh; the confirmations of a lock and a warning;
-the ways out, which the engine judges; and its word that it shows the plain
-display, which only goes in the log. A helper that lies about idle
-time could stop the count: that is why the helper is guarded (below), so
-that the child's own programs cannot reach it, its channel or its handles.
+**What the service believes from a helper.** Only the things a program
+inside the session must say (idle, the process in front, full screen,
+sound, the screen kept awake), and only while fresh; the confirmations of a
+lock and a warning; the ways out, which the engine judges; and its word
+that it shows the plain display, which only goes in the log. A helper that
+lies about idle time could stop the count: that is why the helper is
+guarded (below), so that the child's own programs cannot reach it, its
+channel or its handles. A helper that said something plays when nothing
+does could only make more time count, never less.
 
 ## The guarded launch
 
@@ -422,7 +532,12 @@ only program name it shows is the one a notice carries, of a program LiMo
 closed: the description in the program's own file, or else that file's
 name. The
 helper reads the class name of the window in front only to tell the desktop
-and the taskbar from a program in full screen, and sends none of it.
+and the taskbar from a program in full screen, and sends none of it. Of
+sound it learns only whether some is coming out of a program of its session,
+from each audio session's loudness meter compared with zero, and sends only
+that yes or no: no sound is captured, recorded, analysed or kept, and it
+never asks which program plays or what (see
+[Once a second: the facts](#once-a-second-the-facts)).
 
 **The choice, and the fallback to the plain display** (`Chooser` in
 `src/helper.rs`). The helper makes the drawn display. If it cannot start
@@ -577,8 +692,9 @@ shows the plain display, and why; `install`, `dev-setup` and `dev-code`
 once and then at most every ten minutes.
 
 Never logged: a PIN or a code; the reason a child typed; a window title, a
-file being edited or a web address (LiMo never has them); a program's
-folder; a child's name. `dev-code` prints its code in the terminal it runs
+file being edited or a web address (LiMo never has them); any sound, or
+which program plays it (LiMo never has them either); a program's folder; a
+child's name. `dev-code` prints its code in the terminal it runs
 in, and nowhere else. The line for what a helper got carries its process
 object's access list, with the user's security identifier in it.
 
@@ -588,14 +704,17 @@ object's access list, with the user's security identifier in it.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain` and `dev-code`); the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup` and `dev-code` on a real file, the code tried on the device it was made for | 32 |
+| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain` and `dev-code`); the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup` and `dev-code` on a real file, the code tried on the device it was made for; an audio session counted as playing only when active, not the system sounds, in this session and above zero, anything unknown counting as no; sound heard held for 3 seconds, then stale; the screen kept awake only by the display bit | 37 |
 | `src/drawn/tests.rs` | The drawn display's decisions, with no window: Windows keys to the lock's keys, with the layout's text handed in; the modifiers and the keyboard state; text and points from Windows; the PC's clock from the time format; where the time left display starts, a drag kept on the screen, where a notice goes; pixels into a bitmap, and only a change saying so; the notices' turns; a way out sent once and only its own answer back to the same lock; an answer for a lock taken down, or one that waited too long, dropped; a PIN moved into its secret with nothing left behind; a reason typed with the layout's text, shortcuts typing nothing; keys reaching nothing but a lock; the same lock again keeping what the child did; the time left display and its notices only while the PC may be used, OK, and the notice by name; the lock drawn on the main monitor and the others; the service's answers as the lock's | 19 |
-| `src/win/*.rs` | Pure functions, and harmless reads of the test's own process only: the time zone offset; the clocks, and this account's own time format; session states and administrators; this process's own account; the order version resources are read in; this process's own entry, file and version resource (none); frames across a pipe inside this process; the three access lists and that they parse for this user; the command line a helper gets, with and without `--plain`; a log line; full screen; a helper run by hand doing nothing; what this process got | 19 |
-| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders and the fallback (below) | 36 |
+| `src/win/*.rs` | Pure functions, harmless reads of the test's own process, and harmless reads of what the PC says of itself, which pass whatever the answer: the time zone offset; the clocks, and this account's own time format; session states and administrators; this process's own account; the order version resources are read in; this process's own entry, file and version resource (none); frames across a pipe inside this process; the three access lists and that they parse for this user; the command line a helper gets, with and without `--plain`; a log line; full screen; a helper run by hand doing nothing; what this process got; the display bit as Windows numbers it; this process's own Windows session, and none for a process that is not there; whether this PC plays sound (twice, with COM started and ended) and keeps the screen awake, read and not judged, on a PC with a sound device or none | 23 |
+| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders and the fallback (below) | 38 |
 | `tests/house_rules.rs` | Unsafe code only in `src/win/`; no allow attributes; no dash punctuation | 3 |
 
-The stories: `facts.rs` (6): no fresh report counts as input just now; a
-fresh report's idle, full screen and program in front; the program in front
+The stories: `facts.rs` (7): no fresh report counts as input just now; a
+fresh report's idle, full screen and program in front; sound, or the screen
+kept awake, or both, keeping the count going with no input, a paused video
+letting it pause, and a missing report still never saying something plays;
+the program in front
 only from the same session, never LiMo's own; version resources read once
 per file; session 0 never in the facts, administrators marked; an
 administrator's account not linked never locked. `helpers.rs` (10): one per
@@ -603,27 +722,28 @@ session that needs one; back within a step; a helper that ends at once
 started again after a second; a failing launch tried every second, logged
 once; no hello, replaced; no longer needed, told to quit and ended;
 handed over at once and every five seconds; the child's name; a session
-ending; a clean stop. `channel.rs` (7): eleven kinds of bad input each
+ending; a clean stop. `channel.rs` (7): twelve kinds of bad input each
 closing the channel and restarting the helper, none reaching the engine; a
 helper that stops reading; a way out belongs to its helper's session; a PIN
 or code never logged, kept or shown; one way out a second; a helper that
 shows the plain display, logged in plain words, one line, cut short; a way
-out from a session not a child's refused. `orders.rs` (7): a warning held
+out from a session not a child's refused. `orders.rs` (8): a warning held
 until shown, its words the time actually left; held until its lock time; a
 blocked program closed in its own session only, every copy, logged once,
 its notice with the program's name; a closed program named by its file's
 description, or its file name when it has none, a long one cut and control
 characters dropped, the file still read once, and nothing of it in the
 facts or the family's records; LiMo's own processes and the parts of
-Windows never closed; phones ignored and said once; problems logged once in
-a while.
+Windows never closed, and that said once for a session; phones ignored and
+said once; problems logged once in a while.
 `fallback.rs` (6): disconnected after 5 seconds unconfirmed; confirmed in
 time, left alone; a helper that dies must confirm again; only a lock in a
 session on the screen; the test cap; no cap, the lock stays.
 
 None of the tests starts or stops a service, installs anything, writes
 under Program Files or ProgramData, ends, suspends or launches a process,
-locks or disconnects a session, or shows a window. The one window made is
+locks or disconnects a session, plays or records a sound, or shows a window.
+The one window made is
 the band check's, 1 by 1 pixel, off screen, never shown, and destroyed at
 once, as the spike's `bandcheck` did.
 
@@ -655,12 +775,20 @@ as in the hub and the agent, so the slow password and PIN hashes stay quick.
   another monitor, the lock and its ways out all work, typed text included,
   and nothing look wrong. Still to see: monitors of different scalings, a
   large first draw, and the lock set beside the design.
-- **A video in a window pauses the count.** Only something in full screen
-  keeps a session counted while nobody types or moves the mouse, so a video
-  left playing in a browser window stops being counted after the idle
-  minutes. Seen in the first run, and decided the same day: a session is
-  also counted while it plays sound, or while a program keeps the screen
-  awake. Not built yet.
+- **A video in a window is counted now, and so is anything else that
+  plays.** In the first run a video left playing in a browser window, not
+  in full screen, stopped being counted after the idle minutes. Decided the
+  same day, and built: a session is also counted while a program of it
+  plays sound, or while a program keeps the screen awake (see
+  [Once a second: the facts](#once-a-second-the-facts)). Its limits, by
+  design: music or a video left playing counts with nobody at the PC, for
+  as long as it plays; a program that keeps the screen awake all day (some
+  presentation, video call or "keep awake" programs do) counts all day,
+  and, since the screen kept awake is the whole PC's, such a program in
+  another account's session counts for the child's session in use too; a
+  video with no sound, in a player that does not keep the screen awake,
+  still pauses after the idle minutes. Not yet seen on a real PC:
+  [TESTING.md](TESTING.md), part E, steps 6 to 9.
 - **The plain display names no program.** It shows the engine's sentence,
   which names the file ("gamelauncher.exe is blocked by your family's
   rules, so LiMo closed it."); only the drawn notice shows the description.
@@ -735,6 +863,8 @@ windows/
       launch.rs     the guarded launch, with the channel
       pipe.rs       the pipes, and their reader and writer threads
       helper.rs     limo helper: its threads and its loop
+      playing.rs    whether the session plays sound, and whether a program
+                    keeps the screen awake
       drawn.rs      the drawn display: its windows, bitmaps and hook
       display.rs    the plain display
       about.rs      reading what a helper got

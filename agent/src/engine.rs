@@ -320,7 +320,7 @@ impl Engine {
 
         let active = in_use(sessions);
         run.take_step(at, active, idle_limit_ms);
-        let present = active.is_some_and(|s| s.full_screen || u64::from(s.idle_secs) * 1_000 <= idle_limit_ms);
+        let present = active.is_some_and(|s| s.plays() || u64::from(s.idle_secs) * 1_000 <= idle_limit_ms);
         let app: Option<String> = active.map(|s| s.in_front.as_ref().map(Program::app_id).unwrap_or_default());
 
         // An exchange, when one is due.

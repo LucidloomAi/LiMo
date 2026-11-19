@@ -1,8 +1,10 @@
 //! Everything that calls Windows. All of LiMo for Windows' unsafe code is
 //! here, and each call is as thin as it can be: what to do is decided in the
 //! modules above, which are tested against a fake PC. The tests in these
-//! modules are limited to pure functions and harmless reads of the test's
-//! own process.
+//! modules are limited to pure functions, harmless reads of the test's own
+//! process, and harmless reads of what the PC says of itself (its clocks,
+//! whether it plays sound or keeps the screen awake), which change nothing
+//! and pass whatever the answer.
 
 mod about;
 mod clock;
@@ -15,6 +17,7 @@ mod launch;
 mod logfile;
 mod os;
 mod pipe;
+mod playing;
 mod processes;
 mod service;
 mod sessions;

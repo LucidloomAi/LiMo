@@ -3,8 +3,16 @@
 //!
 //! The helper runs in a signed in session, started by the service. It
 //! reports what only a program inside the session can see (how long since
-//! the last input, the window in front, full screen), and shows what the
-//! service orders through a [`Display`]. It decides nothing.
+//! the last input, the window in front, full screen, whether a program of
+//! the session plays sound, whether a program keeps the screen awake), and
+//! shows what the service orders through a [`Display`]. It decides nothing.
+//!
+//! **Sound: whether, never what.** The helper learns only whether sound is
+//! coming out of a program in its session. It reads each audio session's
+//! loudness meter, a number Windows keeps from 0.0 for silence to 1.0, and
+//! compares it with zero ([`audio_session_plays`]). No sound is captured,
+//! recorded, analysed or kept, and nothing about which program plays it, or
+//! what it is, is sent to the service.
 
 #![forbid(unsafe_code)]
 
@@ -316,12 +324,79 @@ pub fn hello() -> FromHelper {
     FromHelper::Hello { protocol: PROTOCOL_VERSION }
 }
 
-/// A report of what the helper sees in its session.
-pub fn report(idle_ms: u64, front_pid: Option<u32>, own_pid: u32, full_screen: bool) -> FromHelper {
+/// A report of what the helper sees in its session: `playing_sound` when a
+/// program of the session plays sound, `screen_kept_awake` when a program
+/// asks Windows to keep the screen awake.
+pub fn report(
+    idle_ms: u64,
+    front_pid: Option<u32>,
+    own_pid: u32,
+    full_screen: bool,
+    playing_sound: bool,
+    screen_kept_awake: bool,
+) -> FromHelper {
     // The service also knows the helper's own process; saying nothing in
     // front for it here saves it the look.
     let front_pid = front_pid.filter(|pid| *pid != own_pid && *pid != 0);
-    FromHelper::Report { idle_ms, front_pid, full_screen }
+    FromHelper::Report { idle_ms, front_pid, full_screen, playing_sound, screen_kept_awake }
+}
+
+/// One audio session on a sound device, as the helper read it: only what
+/// decides whether it counts. Each is `None` when Windows would not say.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct AudioSessionSeen {
+    /// True when at least one of its streams is running.
+    pub active: Option<bool>,
+    /// True when it is Windows' own system sounds session.
+    pub system_sounds: Option<bool>,
+    /// The Windows session of the process that made it.
+    pub windows_session: Option<u32>,
+    /// Its loudness meter: 0.0 for silence, up to 1.0.
+    pub peak: Option<f32>,
+}
+
+/// True when an audio session counts as this session playing sound: it is
+/// active, it is not the system sounds session, its process is in the
+/// helper's own Windows session (`own_session`), and its loudness meter is
+/// above zero. A stream that is open but silent, such as a paused video,
+/// has a meter of zero and does not count. Anything Windows would not say
+/// counts as no.
+///
+/// The system sounds session never counts. It carries Windows' own short
+/// sounds (a notification's chime, an error's ding) for every program at
+/// once, not something a child plays, and it belongs to no one program of
+/// the session.
+pub fn audio_session_plays(seen: &AudioSessionSeen, own_session: u32) -> bool {
+    seen.active == Some(true)
+        && seen.system_sounds == Some(false)
+        && seen.windows_session == Some(own_session)
+        && seen.peak.is_some_and(|peak| peak > 0.0)
+}
+
+/// How long sound heard counts as still playing, in milliseconds. The
+/// helper reads the meters once a second, and a meter says the loudest
+/// moment of only the last few milliseconds: a pause between two sentences
+/// of a video can read as silence. Within this time of the last sound heard,
+/// the session still plays sound; longer, and it does not, so a paused
+/// video stops counting this long after its sound stopped. It also covers
+/// a read that is late or stuck: what was heard goes stale here too.
+pub const SOUND_HELD_MS: u64 = 3_000;
+
+/// True when sound was last heard `heard_ms` and that is no more than
+/// [`SOUND_HELD_MS`] before `now_ms`, both counted from the same moment.
+/// `None`: never heard.
+pub fn heard_lately(heard_ms: Option<u64>, now_ms: u64) -> bool {
+    heard_ms.is_some_and(|heard| heard <= now_ms && now_ms - heard <= SOUND_HELD_MS)
+}
+
+/// The bit of Windows' execution state that says a program asks for the
+/// display to stay on (`ES_DISPLAY_REQUIRED`).
+pub const DISPLAY_REQUIRED: u32 = 0x0000_0002;
+
+/// True when the whole PC's execution state, as Windows gives it, says a
+/// program keeps the screen awake.
+pub fn screen_kept_awake(execution_state: u32) -> bool {
+    execution_state & DISPLAY_REQUIRED != 0
 }
 
 impl HelperCore {
@@ -653,8 +728,79 @@ mod tests {
         let sent: Vec<FromHelper> = rx.try_iter().collect();
         assert_eq!(sent.len(), 3);
         assert!(!format!("{sent:?}").contains("482915") && !format!("{sent:?}").contains("1342"));
-        assert_eq!(report(10, Some(77), 77, false), FromHelper::Report { idle_ms: 10, front_pid: None, full_screen: false });
-        assert_eq!(report(10, Some(78), 77, true), FromHelper::Report { idle_ms: 10, front_pid: Some(78), full_screen: true });
+        assert_eq!(
+            report(10, Some(77), 77, false, false, false),
+            FromHelper::Report { idle_ms: 10, front_pid: None, full_screen: false, playing_sound: false, screen_kept_awake: false }
+        );
+        assert_eq!(
+            report(10, Some(78), 77, true, true, false),
+            FromHelper::Report { idle_ms: 10, front_pid: Some(78), full_screen: true, playing_sound: true, screen_kept_awake: false }
+        );
+        assert_eq!(
+            report(10, Some(0), 77, false, false, true),
+            FromHelper::Report { idle_ms: 10, front_pid: None, full_screen: false, playing_sound: false, screen_kept_awake: true }
+        );
         assert_eq!(hello(), FromHelper::Hello { protocol: PROTOCOL_VERSION });
+    }
+
+    #[test]
+    fn an_audio_session_counts_only_when_it_is_heard_in_this_session() {
+        let own = 2;
+        let playing = AudioSessionSeen { active: Some(true), system_sounds: Some(false), windows_session: Some(own), peak: Some(0.31) };
+        assert!(audio_session_plays(&playing, own));
+        // The quietest sound still counts: the meter is compared with zero.
+        assert!(audio_session_plays(&AudioSessionSeen { peak: Some(0.000_01), ..playing }, own));
+        // A paused video: the stream is open and running, and silent.
+        assert!(!audio_session_plays(&AudioSessionSeen { peak: Some(0.0), ..playing }, own));
+        // A stream stopped, or gone.
+        assert!(!audio_session_plays(&AudioSessionSeen { active: Some(false), ..playing }, own));
+        // Windows' own sounds, whatever their meter says.
+        assert!(!audio_session_plays(&AudioSessionSeen { system_sounds: Some(true), ..playing }, own));
+        // A program of another Windows session: another account's, or
+        // Windows' own in session 0.
+        assert!(!audio_session_plays(&AudioSessionSeen { windows_session: Some(1), ..playing }, own));
+        assert!(!audio_session_plays(&AudioSessionSeen { windows_session: Some(0), ..playing }, own));
+        // Anything Windows would not say counts as no.
+        for unknown in [
+            AudioSessionSeen { active: None, ..playing },
+            AudioSessionSeen { system_sounds: None, ..playing },
+            AudioSessionSeen { windows_session: None, ..playing },
+            AudioSessionSeen { peak: None, ..playing },
+            AudioSessionSeen { peak: Some(f32::NAN), ..playing },
+            AudioSessionSeen { peak: Some(-0.5), ..playing },
+            AudioSessionSeen::default(),
+        ] {
+            assert!(!audio_session_plays(&unknown, own), "{unknown:?}");
+        }
+    }
+
+    #[test]
+    fn sound_heard_counts_for_a_few_seconds_and_then_goes_stale() {
+        assert!(!heard_lately(None, 0));
+        assert!(!heard_lately(None, 60_000));
+        assert!(heard_lately(Some(10_000), 10_000));
+        // A moment of silence between two sentences is bridged.
+        assert!(heard_lately(Some(10_000), 10_000 + SOUND_HELD_MS));
+        // Longer, and it no longer plays: a paused video, or a read that
+        // stopped coming.
+        assert!(!heard_lately(Some(10_000), 10_001 + SOUND_HELD_MS));
+        assert!(!heard_lately(Some(10_000), 3_600_000));
+        // A time from after now is not believed.
+        assert!(!heard_lately(Some(10_001), 10_000));
+        assert_eq!(SOUND_HELD_MS, 3_000);
+    }
+
+    #[test]
+    fn the_screen_is_kept_awake_only_when_the_display_is_required() {
+        // ES_SYSTEM_REQUIRED, ES_DISPLAY_REQUIRED, ES_USER_PRESENT and
+        // ES_AWAYMODE_REQUIRED, as Windows numbers them.
+        assert!(!screen_kept_awake(0));
+        assert!(!screen_kept_awake(0x1));
+        assert!(screen_kept_awake(0x2));
+        assert!(screen_kept_awake(0x1 | 0x2));
+        assert!(!screen_kept_awake(0x4));
+        assert!(!screen_kept_awake(0x40));
+        assert!(screen_kept_awake(0x8000_0000 | 0x2));
+        assert!(!screen_kept_awake(0x8000_0000 | 0x1));
     }
 }

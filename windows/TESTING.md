@@ -161,6 +161,32 @@ In the child's session:
    left today.`, `The PC locks when the time is used up.`, `LOCKS ABOUT` and
    a time, and an OK button. It goes by itself after 30 seconds.
 
+Steps 6 to 9 check what the first run found (note 2 at the end): a session
+is also counted while a program of it plays sound, or while a program keeps
+the screen awake. They use about 15 minutes of the child's time. To run them
+on their own, do parts B to D with `--minutes 30` in part C's `dev-setup`,
+then these steps; on a run of every part, use `--minutes 40` there instead,
+so that parts F to H still have time (the display then starts at 30 or 40
+where the parts say 20).
+
+6. Play a video with sound in a browser window, not in full screen (the
+   window must not cover the screen), and leave the keyboard and mouse
+   alone for 4 minutes. The display keeps counting down, and never says
+   `PAUSED`.
+7. Mute the same video with the player's own mute button (not the PC's
+   volume), let it play, and leave the PC alone for 4 minutes: it still
+   counts, because the player keeps the screen awake. If it says `PAUSED`
+   after 3 minutes, write down which browser it was: that player does not
+   ask Windows to keep the screen awake in a way LiMo can see.
+8. Pause the video, and leave the PC alone: after 3 minutes the display
+   says `PAUSED`, as in step 2. Touch the mouse, and it is back.
+9. Sound alone: play music with no video (a music file in the Media
+   Player, its window minimized) and leave the PC alone for 4 minutes: it
+   keeps counting. Do the same with music in a browser tab, the browser's
+   window minimized: it keeps counting too. If there are headphones, plug
+   them in, or take them out, while it plays: it goes on counting. Stop the
+   music and leave the PC alone: after 3 minutes, `PAUSED`.
+
 Undo: nothing; part F goes on from here.
 
 ## Part F: blocked programs
@@ -435,6 +461,10 @@ then `.\limo uninstall`.
 | E3 full screen video keeps counting | yes | yes; a video in a window does not (note 2) |
 | E4 nothing counted while locked by Windows | yes | yes |
 | E5 warning at 15 minutes, above the display, gone after 30 s | yes | yes |
+| E6 a video with sound in a browser window, left alone 4 minutes, never PAUSED | yes | |
+| E7 the same video muted, left alone 4 minutes, still counting; which browser | yes | |
+| E8 the video paused, the PC left alone: PAUSED after the idle minutes | yes | |
+| E9 music alone, minimized, left alone 4 minutes, counting, in the Media Player and in a browser tab; headphones in or out; PAUSED 3 minutes after it stops | yes | |
 | F1 Notepad closed each time, "Notepad was closed." | yes | closed each time, 1.1 s after it opened; the notice named it "Notepad.exe" (note 3) |
 | F2 explorer.exe kept | yes | yes |
 | F3 one close line, one never closes line | yes | one close line; the never closes line came again every 10 minutes (note 4) |
@@ -482,7 +512,8 @@ J, Finish.
    minutes: 13 minutes of screen time took 31. That is the rule as it was
    written, and it lets a child watch without limit. Decided the same day:
    a session is also counted while it plays sound, or while a program keeps
-   the screen awake. Not built yet.
+   the screen awake. Built since; part E, steps 6 to 9, check it. Not yet
+   run on a PC.
 3. **Windows 11's Notepad describes itself as "Notepad.exe".** So the
    notice said "Notepad.exe was closed." and the log `Closed Notepad.exe
    ("Notepad.exe")`. Changed after the run: a description loses a closing

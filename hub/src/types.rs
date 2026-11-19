@@ -478,8 +478,8 @@ impl UnlinkedAccounts {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PcSettings {
     /// After how many minutes with no keyboard or mouse input the count
-    /// pauses, unless something plays in full screen: 1 to 60, 3 unless
-    /// changed.
+    /// pauses, unless something plays: in full screen, with sound, or
+    /// keeping the screen awake. 1 to 60, 3 unless changed.
     pub idle_minutes: u32,
     /// What happens in an account that is not linked.
     pub unlinked_accounts: UnlinkedAccounts,

@@ -27,8 +27,10 @@ use zeroize::{Zeroize, Zeroizing};
 
 /// The version of this protocol. A frame of any other version closes the
 /// channel. Version 2 added the program's name to a notice, and the
-/// helper's word that it shows the plain display.
-pub const PROTOCOL_VERSION: u16 = 2;
+/// helper's word that it shows the plain display. Version 3 added to a
+/// report whether the session plays sound and whether a program keeps the
+/// screen awake.
+pub const PROTOCOL_VERSION: u16 = 3;
 
 /// The longest reason a helper gives for showing the plain display that the
 /// service keeps, in characters.
@@ -115,6 +117,13 @@ pub enum FromHelper {
         front_pid: Option<u32>,
         /// True when something is in full screen.
         full_screen: bool,
+        /// True when a program of this session plays sound: its loudness
+        /// meter is above zero. Only whether; never what.
+        playing_sound: bool,
+        /// True when a program asks Windows to keep the screen awake, as a
+        /// video player is expected to while a video plays. This is the
+        /// whole PC's state, not this session's alone.
+        screen_kept_awake: bool,
     },
     /// The lock handed over with this number is on the screen now.
     LockOnScreen {
@@ -402,7 +411,13 @@ mod tests {
                 band: Some(2),
                 process_sddl: Some("O:BAD:P(A;;GA;;;SY)".into()),
             },
-            FromHelper::Report { idle_ms: 1_500, front_pid: Some(4_242), full_screen: true },
+            FromHelper::Report {
+                idle_ms: 1_500,
+                front_pid: Some(4_242),
+                full_screen: true,
+                playing_sound: true,
+                screen_kept_awake: false,
+            },
             FromHelper::LockOnScreen { seq: 7 },
             FromHelper::WarningShown { cause: WarningCause::TimeRunsOut, minutes: 5, lock_at: 1_800_000_000 },
             FromHelper::AskForTime { ask: 1, minutes: 20, reason: "For the school project".into() },
@@ -520,14 +535,33 @@ mod tests {
         frame[0] = 9;
         decoder.push(&frame).unwrap();
         assert_eq!(decoder.next_message::<FromHelper>(), Err(ChannelProblem::WrongVersion { got: 9 }));
+        // A helper of version 2, which knows nothing of sound or the screen
+        // kept awake, is refused from its first frame.
+        let mut decoder = Decoder::new();
+        let mut frame = frame_of(r#"{"say":"hello","protocol":2}"#);
+        frame[..2].copy_from_slice(&2u16.to_le_bytes());
+        decoder.push(&frame).unwrap();
+        assert_eq!(decoder.next_message::<FromHelper>(), Err(ChannelProblem::WrongVersion { got: 2 }));
+
+        let fine = r#"{"say":"report","idle_ms":1,"front_pid":null,"full_screen":false,"playing_sound":true,"screen_kept_awake":false}"#;
+        let mut decoder = Decoder::new();
+        decoder.push(&frame_of(fine)).unwrap();
+        assert!(matches!(decoder.next_message::<FromHelper>(), Ok(Some(FromHelper::Report { playing_sound: true, .. }))));
 
         for json in [
             "not json at all",
             r#"{"say":"take_over_the_pc"}"#,
             r#"{"say":"hello"}"#,
             r#"{"say":"hello","protocol":1,"extra":true}"#,
-            r#"{"say":"report","idle_ms":-5,"front_pid":null,"full_screen":false}"#,
-            r#"{"say":"report","idle_ms":1,"front_pid":null,"full_screen":false,"window_title":"x"}"#,
+            r#"{"say":"report","idle_ms":-5,"front_pid":null,"full_screen":false,"playing_sound":false,"screen_kept_awake":false}"#,
+            r#"{"say":"report","idle_ms":1,"front_pid":null,"full_screen":false,"playing_sound":false,"screen_kept_awake":false,"window_title":"x"}"#,
+            // A report as version 2 made it, with neither new field.
+            r#"{"say":"report","idle_ms":1,"front_pid":null,"full_screen":false}"#,
+            // Only one of the two.
+            r#"{"say":"report","idle_ms":1,"front_pid":null,"full_screen":false,"playing_sound":true}"#,
+            // What the sound is, which a helper never says.
+            r#"{"say":"report","idle_ms":1,"front_pid":null,"full_screen":false,"playing_sound":true,"screen_kept_awake":false,"sound_from":"x.exe"}"#,
+            r#"{"say":"report","idle_ms":1,"front_pid":null,"full_screen":false,"playing_sound":0.5,"screen_kept_awake":false}"#,
             "",
         ] {
             let mut decoder = Decoder::new();

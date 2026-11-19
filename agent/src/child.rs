@@ -6,10 +6,11 @@
 //! **How time is counted.** Between two calls the engine measures the step
 //! with the steady count, never with the wall clock. A step counts when the
 //! child's time was being counted at the look before it (the session in
-//! use, input within the idle minutes or something in full screen, the PC
-//! not locked, the program in front not blocked) and the same session is in
-//! use now. It is cut where the idle minutes ran out, and never more than
-//! the time the device held at the look before. A step longer than
+//! use; input within the idle minutes, or something playing in full screen,
+//! with sound or keeping the screen awake; the PC not locked; the program in
+//! front not blocked) and the same session is in use now. Unless something
+//! plays now, it is cut where the idle minutes ran out. It is never more
+//! than the time the device held at the look before. A step longer than
 //! [`crate::MAX_COUNTED_STEP_MS`] counts nothing: the PC slept, or the
 //! service was held up.
 //!
@@ -228,7 +229,7 @@ impl ChildRun {
             return 0;
         };
         let idle_ms = u64::from(session.idle_secs).saturating_mul(1_000);
-        let mut ms = if session.full_screen || idle_ms <= idle_limit_ms {
+        let mut ms = if session.plays() || idle_ms <= idle_limit_ms {
             step
         } else {
             // The count stopped when the idle minutes ran out after the last

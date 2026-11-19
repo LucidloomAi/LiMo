@@ -1,5 +1,6 @@
 //! Whole days on one PC: a plain day to zero, short days warned of with the
-//! time they have, idle pauses and full screen, the always allowed list,
+//! time they have, idle pauses and full screen, a video in a window that
+//! plays sound or keeps the screen awake, the always allowed list,
 //! midnight with the session in use, and a budget changed in the middle of
 //! the day.
 
@@ -167,6 +168,68 @@ fn time_pauses_after_the_idle_minutes_unless_something_plays_in_full_screen() {
     pc.advance(1_000);
     pc.tick();
     assert_eq!(pc.master_used(&asha), counted);
+}
+
+#[test]
+fn a_video_in_a_window_counts_with_no_input_while_it_plays_sound_or_keeps_the_screen_awake() {
+    let (mut pc, asha) = asha_at_the_pc(at(8, 0));
+    pc.front(1, made("chrome.exe", "chrome.exe", "A browser maker"));
+    pc.tick();
+    pc.run(10 * MIN);
+    assert_eq!(pc.counted(&asha), 600);
+
+    // A video in a browser window, not in full screen, and nobody at the
+    // keyboard or the mouse: it counts all through, past the idle minutes.
+    pc.typing(1, false);
+    pc.session(1).facts.playing = true;
+    pc.run(10 * MIN);
+    assert_eq!(pc.counted(&asha), 600 + 600);
+    let Show::TimeLeft { counting, .. } = pc.show(1) else { panic!() };
+    assert!(counting);
+    // A clean stop and start in the middle of it loses nothing and counts
+    // nothing twice.
+    pc.stop_and_restart();
+    pc.run(10 * MIN);
+    assert_eq!(pc.counted(&asha), 600 + 1_200);
+
+    // The video is paused, twenty minutes after the last input: the count
+    // stops at that call. The second in which it stopped is not counted,
+    // and nothing after it is.
+    pc.session(1).facts.playing = false;
+    pc.run(5 * MIN);
+    assert_eq!(pc.counted(&asha), 600 + 1_200);
+    let Show::TimeLeft { counting, .. } = pc.show(1) else { panic!() };
+    assert!(!counting);
+
+    // It plays again, still with no input: counting starts at that call,
+    // as it does when input comes back, and the step it came in is not
+    // counted.
+    pc.session(1).facts.playing = true;
+    pc.run(5 * MIN);
+    assert_eq!(pc.counted(&asha), 600 + 1_200 + 299);
+
+    // Input, then a video that plays for one minute after the last input
+    // and stops: the count runs on to the idle minutes after the last
+    // input, as it does with no video, and stops there.
+    pc.typing(1, true);
+    pc.run(MIN);
+    let before = pc.counted(&asha);
+    assert_eq!(before, 600 + 1_200 + 299 + 60);
+    pc.typing(1, false);
+    pc.run(MIN);
+    pc.session(1).facts.playing = false;
+    pc.run(10 * MIN);
+    assert_eq!(pc.counted(&asha), before + 180);
+
+    // Everything reaches the master when Asha logs off: nothing lost.
+    let counted = pc.counted(&asha);
+    pc.logout(1);
+    pc.advance(1_000);
+    pc.tick();
+    assert_eq!(pc.master_used(&asha), counted);
+    let today = day_of(pc.now());
+    let usage = pc.hub().usage(&asha, today, today).unwrap();
+    assert_eq!(usage.apps, vec![AppUsage { app_id: "chrome.exe".into(), secs: counted, counted_secs: counted }]);
 }
 
 #[test]

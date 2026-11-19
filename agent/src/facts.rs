@@ -71,6 +71,12 @@ pub struct Session {
     /// True when something plays in full screen in this session: a video or
     /// a game.
     pub full_screen: bool,
+    /// True when this session plays sound, or a program keeps the screen
+    /// awake: a video in a window, music. False when not given. Like
+    /// `full_screen`, it keeps the session counted with no input. It says
+    /// only whether, never what: no sound is ever part of the facts.
+    #[serde(default)]
+    pub playing: bool,
     /// The program that owns the window in front, if any.
     pub in_front: Option<Program>,
     /// The programs running in this session.
@@ -90,6 +96,15 @@ pub struct Program {
     /// Its maker, as recorded inside the file (`CompanyName`), when there is
     /// one.
     pub maker: Option<String>,
+}
+
+impl Session {
+    /// True when something in this session keeps it counted with no
+    /// keyboard or mouse input: something in full screen, sound, or a
+    /// program keeping the screen awake.
+    pub(crate) fn plays(&self) -> bool {
+        self.full_screen || self.playing
+    }
 }
 
 /// The last part of a path, lower case, with spaces trimmed.

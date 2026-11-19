@@ -112,7 +112,9 @@ the one in use (`InUse`: on the screen and not locked by Windows), `Locked`
 or `Disconnected`; whether the account is in the Windows Administrators group
 (`is_administrator`, false when not given), even when it is not running
 elevated; seconds since the last keyboard or mouse input; whether something
-plays in full screen; the program in front; the programs running.
+plays in full screen; whether the session plays sound or a program keeps the
+screen awake (`playing`, false when not given); the program in front; the
+programs running.
 
 `Program`: its file name, the original file name its maker recorded inside
 the file (`OriginalFilename`, when there is one) and its maker
@@ -166,6 +168,8 @@ for how long, and nothing else.** A program is its file name, its original
 file name and its maker. There is no field for a window title, a document, a
 file being edited, a web address or anything typed, anywhere in this crate,
 so the engine cannot record one, hand one to the hub, or put one in an order.
+Whether a session plays is a yes or a no (`Session::playing`): no sound, and
+nothing of what plays or which program plays it, ever reaches the engine.
 What reaches the family's file is what the core's slices hold: the program's
 name, the day, the start and the end, and whether it counted.
 
@@ -197,13 +201,21 @@ other. Tests:
 **2. Active time only.** Time counts only while the child's session is the
 one in use and not locked by Windows. After the idle minutes with no keyboard
 or mouse input (3 unless the guardian changes `PcSettings::idle_minutes`, 1 to
-60) the count pauses, unless something plays in full screen. **The minutes
-just before the pause count**: the count runs on through them and stops
-exactly the idle minutes after the last input. A child reading or watching
-something not in full screen uses the PC then, and walking away costs at
-most those minutes. When input comes back, counting starts again at that
-call; the step in which it came back does not count. Test:
-`day::time_pauses_after_the_idle_minutes_unless_something_plays_in_full_screen`.
+60) the count pauses, unless something plays: in full screen, or with sound,
+or with a program keeping the screen awake (`Session::playing`, the owner's
+decision of 19 Nov 2026, after a video left playing in a browser window was
+not counted in the first run on a real PC). **The minutes just before the
+pause count**: the count runs on through them and stops exactly the idle
+minutes after the last input. A child reading something uses the PC then,
+and walking away costs at most those minutes. While something plays the
+count runs on however long ago the last input was; when it stops, the count
+stops at that call if the idle minutes have run out, or else runs on to the
+idle minutes after the last input, as with nothing playing. When input
+comes back, or something starts to play, counting starts again at that
+call; the step in which it came back does not count. A PC that is silent and
+left alone still pauses. Tests:
+`day::time_pauses_after_the_idle_minutes_unless_something_plays_in_full_screen`,
+`day::a_video_in_a_window_counts_with_no_input_while_it_plays_sound_or_keeps_the_screen_awake`.
 
 **3. Usage per program.** Each stretch of use is recorded against the
 program that was in front, as the core's slices. Whether it counts is the
@@ -296,9 +308,10 @@ linked. Tests: `sessions::two_children_switching_sessions_count_only_while_in_us
 
 - **Steps.** Between two calls the engine measures the step with the steady
   count. A step counts for a child when, at the call before, the child's time
-  was being counted (the session in use, input within the idle minutes or
-  something in full screen, the PC not locked, the program in front not
-  blocked), and the same session is in use now. It is cut where the idle
+  was being counted (the session in use; input within the idle minutes, or
+  something playing in full screen, with sound or keeping the screen awake;
+  the PC not locked; the program in front not blocked), and the same session
+  is in use now. Unless something plays now, it is cut where the idle
   minutes ran out, and it is never more than the time the device held at the
   call before, so the lock is never late by a second's worth of use. A step
   longer than 10 seconds (`MAX_COUNTED_STEP_MS`) counts nothing: the PC
@@ -462,7 +475,7 @@ used, or lower it below.
 | --- | --- | --- |
 | `src/facts.rs` | Program names: the original name when there is one, folders dropped, lists matched by either name for blocking | 2 |
 | `src/orders.rs` | Every lock's short title, beside its message; a warning's words at its point, short of it for each cause, and for any numbers | 4 |
-| `tests/pc/day.rs` | A plain day to zero with each warning once; days of 6 and 10 minutes warned of with the time they have; idle pauses and full screen; the always allowed list; midnight in use; a budget cut and raised in the middle of the day | 6 |
+| `tests/pc/day.rs` | A plain day to zero with each warning once; days of 6 and 10 minutes warned of with the time they have; idle pauses and full screen; a video in a window with no input, counted while it plays, through a clean stop, stopping where the rule says when it stops, nothing lost; the always allowed list; midnight in use; a budget cut and raised in the middle of the day | 7 |
 | `tests/pc/programs.rs` | A blocked program renamed, closed again and again, noted once a day, and the hole; one child's list closing nothing in other sessions | 2 |
 | `tests/pc/sessions.rs` | Two children switching; a guardian's session; an account not linked, free and locked; an administrator's account not linked never locked, and one linked to a child limited; the PC device paired once, through restarts, re-paired after the guardian removes it | 6 |
 | `tests/pc/ways_out.rs` | Extra time, lock now and lift; an unlock that counts beyond; an unlock shorter than a warning point, warned of with the time it has; a request granted and refused; a code once, wrong codes and their wait across a crash; the PIN adding, unlocking and confirming a release; new rules with their warnings | 7 |
@@ -474,7 +487,8 @@ used, or lower it below.
 **The random run** plays six scenarios of two days each by default, in
 parallel, from a seeded generator of its own: two children and a guardian
 switching sessions, programs changing (always allowed, blocked and renamed,
-unknown), idle and full screen, Windows locking, the guardian giving extra
+unknown), idle, full screen, and sound or a video in a window, Windows
+locking, the guardian giving extra
 time, locking, lifting, unlocking, changing budgets and bedtime and answering
 requests, codes and the PIN typed right and wrong, a phone of the same child
 used at home and away, the clock set back and forward, the time zone

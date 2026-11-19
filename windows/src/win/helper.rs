@@ -1,11 +1,13 @@
 //! `limo helper`: the helper process, started by the service in a signed in
 //! session, born with its channel.
 //!
-//! Three threads besides the user interface: one reads what the service
+//! Four threads besides the user interface: one reads what the service
 //! says and wakes the user interface thread; one writes what the helper
 //! says; one reports, once a second, how long since the last input, the
-//! process of the window in front, and whether something is in full screen.
-//! When the channel closes, the helper ends.
+//! process of the window in front, whether something is in full screen,
+//! whether a program of the session plays sound and whether a program keeps
+//! the screen awake; and one listens for that sound (`playing.rs`). When the
+//! channel closes, the helper ends.
 
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
@@ -26,6 +28,7 @@ use super::about::about;
 use super::display::PlainDisplay;
 use super::drawn::{DrawnDisplay, WM_LIMO_INPUT};
 use super::pipe::{Incoming, handle_from, is_pipe, set_inheritable, spawn_reader, spawn_writer};
+use super::playing::{Listener, screen_kept_awake_now};
 use super::{Owned, from_wide};
 use crate::helper::{Chooser, Display, HelperCore, Outbox, hello, report};
 use crate::protocol::{FromHelper, ToHelper, encode};
@@ -98,11 +101,12 @@ fn shell_says_full_screen() -> bool {
     }
 }
 
-/// The report of this second.
-fn report_now(own_pid: u32) -> FromHelper {
+/// The report of this second. Whether sound plays comes from the
+/// listener's own thread, so the audio service never holds the report back.
+fn report_now(own_pid: u32, listener: &Listener) -> FromHelper {
     let (front_pid, covering) = front();
     let full_screen = front_pid != Some(own_pid) && (covering || shell_says_full_screen());
-    report(idle_ms(), front_pid, own_pid, full_screen)
+    report(idle_ms(), front_pid, own_pid, full_screen, listener.playing_sound(), screen_kept_awake_now())
 }
 
 /// Runs the helper. Refuses, doing nothing, without a channel. Shows the
@@ -169,12 +173,14 @@ pub(crate) fn run(channel_handles: Option<(usize, usize)>, plain: bool) -> i32 {
     let _ = out_tx.send(hello());
     let _ = out_tx.send(about());
 
-    // The report, once a second.
+    // The report, once a second, with the sound listened for on a thread of
+    // its own, which ends with the report's.
     let reports = out_tx.clone();
     let own_pid = std::process::id();
     let _ = std::thread::Builder::new().name("limo helper report".into()).spawn(move || {
+        let listener = Listener::start();
         loop {
-            if reports.send(report_now(own_pid)).is_err() {
+            if reports.send(report_now(own_pid, &listener)).is_err() {
                 break;
             }
             std::thread::sleep(Duration::from_secs(1));

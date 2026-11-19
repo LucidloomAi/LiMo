@@ -105,6 +105,17 @@ struct Report {
     idle_ms: u64,
     front_pid: Option<u32>,
     full_screen: bool,
+    playing_sound: bool,
+    screen_kept_awake: bool,
+}
+
+/// What a session's helper says it sees, as the facts take it.
+#[derive(Debug, Default)]
+struct HelperSees {
+    idle_secs: u32,
+    full_screen: bool,
+    playing: bool,
+    in_front: Option<Program>,
 }
 
 /// A running helper, in the session it was started in.
@@ -450,8 +461,8 @@ impl<O: Os> Service<O> {
                 self.os.log(&line);
                 Ok(())
             }
-            FromHelper::Report { idle_ms, front_pid, full_screen } => {
-                slot.report = Some((now, Report { idle_ms, front_pid, full_screen }));
+            FromHelper::Report { idle_ms, front_pid, full_screen, playing_sound, screen_kept_awake } => {
+                slot.report = Some((now, Report { idle_ms, front_pid, full_screen, playing_sound, screen_kept_awake }));
                 Ok(())
             }
             FromHelper::LockOnScreen { seq } => {
@@ -657,20 +668,27 @@ impl<O: Os> Service<O> {
         Some(self.programs.program(&mut self.os, &process))
     }
 
-    /// Idle seconds, full screen and the program in front, from the
-    /// session's helper's fresh report; with none: input just now, nothing
-    /// in full screen, nothing in front, so time counts.
-    fn helper_sees(&mut self, session: u32, processes: &mut Vec<ProcessSeen>, now: u64) -> (u32, bool, Option<Program>) {
+    /// What the session's helper's fresh report says; with none: input just
+    /// now, nothing in full screen, nothing playing, nothing in front, so
+    /// time counts.
+    fn helper_sees(&mut self, session: u32, processes: &mut Vec<ProcessSeen>, now: u64) -> HelperSees {
         let report = self
             .slots
             .get(&session)
             .and_then(|slot| slot.report)
             .filter(|(at, _)| now.saturating_sub(*at) <= REPORT_FRESH_MS)
             .map(|(_, report)| report);
-        let Some(report) = report else { return (0, false, None) };
+        let Some(report) = report else { return HelperSees::default() };
         let idle_secs = u32::try_from(report.idle_ms / 1_000).unwrap_or(u32::MAX);
         let in_front = report.front_pid.and_then(|pid| self.front_program(session, pid, processes, now));
-        (idle_secs, report.full_screen, in_front)
+        HelperSees {
+            idle_secs,
+            full_screen: report.full_screen,
+            // Sound, or a program keeping the screen awake: either keeps the
+            // session counted with no input, as full screen does.
+            playing: report.playing_sound || report.screen_kept_awake,
+            in_front,
+        }
     }
 
     fn tick(&mut self, now: u64) {
@@ -687,16 +705,17 @@ impl<O: Os> Service<O> {
 
         let mut sessions = Vec::with_capacity(seen.len());
         for s in &seen {
-            let (idle_secs, full_screen, in_front) = self.helper_sees(s.session_id, &mut processes, now);
+            let sees = self.helper_sees(s.session_id, &mut processes, now);
             sessions.push(Session {
                 session_id: s.session_id,
                 account_id: s.account_id.clone(),
                 account_name: s.account_name.clone(),
                 state: s.state,
                 is_administrator: s.is_administrator,
-                idle_secs,
-                full_screen,
-                in_front,
+                idle_secs: sees.idle_secs,
+                full_screen: sees.full_screen,
+                playing: sees.playing,
+                in_front: sees.in_front,
                 running: Vec::new(),
             });
         }

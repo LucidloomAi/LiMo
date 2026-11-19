@@ -1,7 +1,8 @@
 //! The seeded random run: many days on the fake PC that mix everything the
 //! other stories do one at a time. Two children and a guardian switch
 //! sessions; programs change, some always allowed, some blocked and
-//! renamed; children go idle, watch in full screen and lock Windows; the
+//! renamed; children go idle, watch in full screen, play sound or videos in
+//! a window, and lock Windows; the
 //! guardian gives extra time, locks, lifts, unlocks, changes the rules and
 //! answers requests; codes and the PIN are typed, right and wrong; a phone
 //! of the same child is used at home and away; the clock is set back and
@@ -64,6 +65,7 @@ impl Rng {
 struct Seen {
     calls: u64,
     counted_calls: u64,
+    counted_playing: u64,
     restarts: u64,
     clean_stops: u64,
     reboots: u64,
@@ -147,6 +149,12 @@ impl World {
                 Show::TimeLeft { warning, counting, .. } => {
                     self.seen.warnings += u64::from(warning.is_some());
                     self.seen.counted_calls += u64::from(*counting);
+                    // Counted with no input for longer than the idle minutes
+                    // (3 in this run), only because it plays in a window.
+                    let facts = self.pc.sessions.iter().map(|s| &s.facts).find(|f| f.session_id == order.session_id);
+                    if *counting && facts.is_some_and(|f| f.playing && !f.full_screen && f.idle_secs > 180) {
+                        self.seen.counted_playing += 1;
+                    }
                 }
                 Show::Nothing => {}
             }
@@ -223,6 +231,10 @@ impl World {
         if self.rng.one_in(400) && let Some(s) = in_use {
             let full = !self.pc.session(s).facts.full_screen;
             self.pc.session(s).facts.full_screen = full;
+        }
+        if self.rng.one_in(300) && let Some(s) = in_use {
+            let playing = !self.pc.session(s).facts.playing;
+            self.pc.session(s).facts.playing = playing;
         }
         if self.rng.one_in(500) && let Some(s) = in_use {
             self.pc.set_state(s, SessionState::Locked);
@@ -477,6 +489,7 @@ fn a_seeded_random_run_over_many_days_keeps_every_promise() {
     for seen in &all {
         total.calls += seen.calls;
         total.counted_calls += seen.counted_calls;
+        total.counted_playing += seen.counted_playing;
         total.restarts += seen.restarts;
         total.clean_stops += seen.clean_stops;
         total.reboots += seen.reboots;
@@ -506,6 +519,7 @@ fn a_seeded_random_run_over_many_days_keeps_every_promise() {
     if std::env::var("LIMO_AGENT_SEED").is_err() {
         for (what, n) in [
             ("counted calls", total.counted_calls),
+            ("calls counted only because something played in a window", total.counted_playing),
             ("restarts", total.restarts),
             ("reboots", total.reboots),
             ("warnings", total.warnings),

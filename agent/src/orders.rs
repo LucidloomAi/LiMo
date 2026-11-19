@@ -57,9 +57,10 @@ pub enum Show {
         /// no time limit.
         seconds_left: Option<u64>,
         /// True when time is being counted now: false while nothing has been
-        /// typed or moved for longer than the idle minutes, while a program
-        /// on the always allowed list is in front, and while the session is
-        /// not the one in use.
+        /// typed or moved for longer than the idle minutes and nothing plays
+        /// (in full screen, with sound, or keeping the screen awake), while
+        /// a program on the always allowed list is in front, and while the
+        /// session is not the one in use.
         counting: bool,
         /// A warning to show now. It comes in one call only.
         warning: Option<WarningShown>,

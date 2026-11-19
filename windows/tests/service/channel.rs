@@ -48,9 +48,29 @@ fn bad_inputs() -> Vec<(&'static str, bool, Vec<u8>)> {
         (
             "a window title",
             true,
-            frame_of(PROTOCOL_VERSION, r#"{"say":"report","idle_ms":900000,"front_pid":null,"full_screen":true,"window_title":"secret diary"}"#),
+            frame_of(
+                PROTOCOL_VERSION,
+                r#"{"say":"report","idle_ms":900000,"front_pid":null,"full_screen":true,"playing_sound":true,"screen_kept_awake":true,"window_title":"secret diary"}"#,
+            ),
         ),
-        ("a report before hello", false, encode(&FromHelper::Report { idle_ms: 900_000, front_pid: None, full_screen: true }).unwrap().to_vec()),
+        (
+            "a report that says nothing of sound or the screen kept awake",
+            true,
+            frame_of(PROTOCOL_VERSION, r#"{"say":"report","idle_ms":900000,"front_pid":null,"full_screen":true}"#),
+        ),
+        (
+            "a report before hello",
+            false,
+            encode(&FromHelper::Report {
+                idle_ms: 900_000,
+                front_pid: None,
+                full_screen: true,
+                playing_sound: true,
+                screen_kept_awake: true,
+            })
+            .unwrap()
+            .to_vec(),
+        ),
         ("hello twice", true, encode(&FromHelper::Hello { protocol: PROTOCOL_VERSION }).unwrap().to_vec()),
         ("hello in another version", false, encode(&FromHelper::Hello { protocol: PROTOCOL_VERSION - 1 }).unwrap().to_vec()),
         ("a lock it was never sent", true, encode(&FromHelper::LockOnScreen { seq: 999_999 }).unwrap().to_vec()),
@@ -84,10 +104,10 @@ fn anything_malformed_oversized_or_out_of_turn_closes_the_channel_and_restarts_t
             assert!(!closed[0].contains(secret), "{what}: {}", closed[0]);
         }
         // Nothing of it reached the engine: no idle time, no full screen,
-        // and time went on counting.
+        // nothing playing, and time went on counting.
         pc.run(3);
         let facts = pc.facts_of(1).unwrap();
-        assert_eq!((facts.idle_secs, facts.full_screen), (0, false), "{what}");
+        assert_eq!((facts.idle_secs, facts.full_screen, facts.playing), (0, false, false), "{what}");
         assert!(pc.counted(&asha) >= counted + 2, "{what}");
         // A new helper runs.
         assert_eq!((pc.helpers_started(1), pc.helpers_running(1)), (2, 1), "{what}");

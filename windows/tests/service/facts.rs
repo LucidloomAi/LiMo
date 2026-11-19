@@ -27,7 +27,7 @@ fn with_no_fresh_report_input_counts_as_just_now_so_a_missing_helper_gives_no_fr
     // The helper is started, and never says a word.
     pc.run(61);
     let facts = pc.facts_of(1).unwrap();
-    assert_eq!((facts.idle_secs, facts.full_screen, facts.in_front), (0, false, None));
+    assert_eq!((facts.idle_secs, facts.full_screen, facts.playing, facts.in_front), (0, false, false, None));
     assert!(pc.counted(&asha) >= 58, "{}", pc.counted(&asha));
 
     // A report that nothing was touched for ten minutes pauses the count,
@@ -62,6 +62,62 @@ fn a_fresh_report_gives_the_idle_time_full_screen_and_the_program_in_front() {
     // LiMo's own helper runs in the session, and is not among its programs.
     assert_eq!(pc.helpers_running(1), 1);
     assert!(pc.os().processes.iter().any(|p| p.session_id == 1 && p.path == OWN_EXE));
+}
+
+/// The session's helper reports once a second for `secs` seconds: nothing
+/// touched for ten minutes, with sound or the screen kept awake as given.
+fn reports_with_no_input(pc: &mut Pc, secs: u64, playing_sound: bool, screen_kept_awake: bool) {
+    for _ in 0..secs {
+        pc.report_playing(1, 600_000, None, false, playing_sound, screen_kept_awake);
+        pc.run(1);
+    }
+}
+
+#[test]
+fn sound_or_the_screen_kept_awake_keeps_the_count_going_with_no_input() {
+    let mut pc = Pc::new(at(16, 0));
+    let asha = pc.add_child("Asha", ASHA, 60);
+    pc.login(1, ASHA, "asha");
+    pc.run(1);
+    pc.greet(1);
+
+    // A video with sound in a window, nothing touched for ten minutes: the
+    // session plays, and every second counts.
+    let before = pc.counted(&asha);
+    reports_with_no_input(&mut pc, 10, true, false);
+    let facts = pc.facts_of(1).unwrap();
+    assert_eq!((facts.idle_secs, facts.full_screen, facts.playing), (600, false, true));
+    assert!(pc.counted(&asha) >= before + 9, "{before} then {}", pc.counted(&asha));
+
+    // The same video muted: the player keeps the screen awake, and that
+    // counts the same.
+    let before = pc.counted(&asha);
+    reports_with_no_input(&mut pc, 10, false, true);
+    assert!(pc.facts_of(1).unwrap().playing);
+    assert!(pc.counted(&asha) >= before + 9, "{before} then {}", pc.counted(&asha));
+
+    // Both at once are still one fact.
+    reports_with_no_input(&mut pc, 2, true, true);
+    assert!(pc.facts_of(1).unwrap().playing);
+
+    // The video paused: no sound, nothing keeping the screen awake. Ten
+    // minutes since the last input, so the count stops.
+    reports_with_no_input(&mut pc, 2, false, false);
+    assert!(!pc.facts_of(1).unwrap().playing);
+    let before = pc.counted(&asha);
+    reports_with_no_input(&mut pc, 10, false, false);
+    assert_eq!(pc.counted(&asha), before);
+    let Some((_, _, Show::TimeLeft { counting, .. })) = pc.last_show(1) else { panic!("{:?}", pc.last_show(1)) };
+    assert!(!counting);
+
+    // The helper stops reporting: as before, a missing report never gives
+    // free time, and never says something plays.
+    pc.run(5);
+    let facts = pc.facts_of(1).unwrap();
+    assert_eq!((facts.idle_secs, facts.playing), (0, false));
+    let before = pc.counted(&asha);
+    pc.run(10);
+    assert!(pc.counted(&asha) >= before + 9, "{before} then {}", pc.counted(&asha));
 }
 
 #[test]
