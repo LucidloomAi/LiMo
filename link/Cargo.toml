@@ -1,0 +1,69 @@
+[package]
+name = "limo-link"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+description = "LiMo link: the encrypted link between a phone and the family's master PC, with no sockets in it"
+publish = false
+
+[lib]
+name = "limo_link"
+
+[features]
+# The master played over a temporary family file, for tests of a phone's
+# side with no PC service. Never part of the product.
+dev = ["dep:limo-hub"]
+
+[dependencies]
+# The two values the link carries: the device's report and the master's
+# grant.
+limo-core = { path = "../core" }
+# The Noise Protocol Framework. No features at all: the crypto underneath is
+# this crate's own resolver (src/crypto.rs) over the four crates below,
+# because snow's default resolver never wipes the keys it holds.
+snow = { version = "0.10.0", default-features = false }
+# X25519, through the Montgomery form. Default features off: no tables, no
+# alloc; `zeroize` so its points can be wiped.
+curve25519-dalek = { version = "5.0.0", default-features = false, features = ["zeroize"] }
+# ChaCha20 with Poly1305. Default features off; `zeroize` wipes the key a
+# cipher holds when it is dropped.
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["zeroize"] }
+# BLAKE2s, the hash of the handshakes, the master id and the app list hash.
+# `zeroize` wipes a hash's state when it is dropped.
+blake2 = { version = "0.11.0", default-features = false, features = ["zeroize"] }
+# Wiping secrets and the buffers that held them.
+zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
+# Random keys, offer secrets and ids, from the operating system: the same
+# crate and version as the hub.
+getrandom = "0.4.3"
+# The messages inside the link are JSON.
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+# The family's file, for the `dev` master only.
+limo-hub = { path = "../hub", optional = true }
+
+[dev-dependencies]
+# The tests and the example use the `dev` master.
+limo-link = { path = ".", features = ["dev"] }
+# Real family files in temporary folders.
+tempfile = "3.27.0"
+# snow's own resolver, in the tests only, to check this crate's resolver
+# against it byte for byte.
+snow = { version = "0.10.0", default-features = false, features = ["use-curve25519", "use-chacha20poly1305", "use-blake2"] }
+
+# The hub hashes the guardian password and the PIN slowly on purpose; the
+# hub's own crates are built optimised in debug and test builds so that the
+# stories take seconds, as in the hub and the agent. Overflow checks stay on.
+[profile.dev]
+opt-level = 1
+[profile.test]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test.package."*"]
+opt-level = 3
+
+[[example]]
+name = "limo-link-dev"
+path = "examples/limo-link-dev.rs"
