@@ -146,7 +146,7 @@ pub(crate) fn install(dev: bool) -> i32 {
     match do_install(&places, dev) {
         Ok(()) => 0,
         Err(problem) => {
-            println!("install failed: {problem}");
+            println!("install failed: {problem}.");
             println!("Run limo uninstall to remove what was done.");
             1
         }
@@ -195,7 +195,7 @@ fn do_install(places: &Places, dev: bool) -> Result<(), String> {
         actions: Some(vec![restart(1), restart(1), restart(10)]),
     };
     if let Err(e) = service.update_failure_actions(failure) {
-        println!("The service's restart on failure could not be set: {e}");
+        println!("The service's restart on failure could not be set: {e}.");
     }
     let _ = service.set_failure_actions_on_non_crash_failures(true);
     let no_arguments: [OsString; 0] = [];
@@ -254,7 +254,7 @@ pub(crate) fn uninstall() -> i32 {
     let manager = match ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT) {
         Ok(manager) => manager,
         Err(e) => {
-            println!("The service control manager could not be reached: {e}");
+            println!("The service control manager could not be reached: {e}.");
             return 1;
         }
     };
@@ -278,7 +278,7 @@ pub(crate) fn uninstall() -> i32 {
             println!("The service {SERVICE_NAME} was not installed.");
         }
         Err(e) => {
-            println!("The service could not be opened: {e}");
+            println!("The service could not be opened: {e}.");
             return 1;
         }
     }
@@ -355,14 +355,14 @@ fn account_sid(name: &str) -> Result<String, String> {
             &mut domain_units,
             &mut kind,
         )
-        .map_err(|e| format!("Windows could not look up the account {name}: {}", error_text(&e)))?;
+        .map_err(|e| format!("Windows could not look up the account {name}: {}.", error_text(&e)))?;
         if kind != SidTypeUser {
             return Err(format!("{name} is not a user's account."));
         }
         let mut text = PWSTR::null();
         windows::Win32::Security::Authorization::ConvertSidToStringSidW(PSID(sid.as_mut_ptr() as *mut c_void), &mut text)
-            .map_err(|e| error_text(&e))?;
-        let found = text.to_string().map_err(|e| e.to_string());
+            .map_err(|e| format!("The security identifier of the account {name} could not be written out: {}.", error_text(&e)))?;
+        let found = text.to_string().map_err(|e| format!("The security identifier of the account {name} could not be read: {e}."));
         let _ = LocalFree(Some(HLOCAL(text.0 as *mut c_void)));
         found
     }
@@ -386,7 +386,7 @@ fn ready_for_family_file(command: &str) -> Result<Places, i32> {
         Ok(Some(ServiceState::Stopped)) | Ok(None) => Ok(places),
         Ok(Some(state)) => {
             println!(
-                "The service is {state:?}, and holds the family's file while it runs. Stop it first (sc stop {SERVICE_NAME}), then run {command} again. Nothing was changed."
+                "The service is {state:?}, and holds the family's file while it runs. Stop it first (sc.exe stop {SERVICE_NAME}), then run {command} again. Nothing was changed."
             );
             Err(2)
         }
@@ -424,7 +424,7 @@ pub(crate) fn dev_code(child: Option<&str>, minutes: u32) -> i32 {
             if let Err(problem) = closed {
                 println!("The family's file did not close cleanly: {problem}");
             }
-            println!("Start the service again (sc start {SERVICE_NAME}) to use it.");
+            println!("Start the service again (sc.exe start {SERVICE_NAME}) to use it.");
             append(&places, &format!("dev-code made a one time code of {} minutes.", code.minutes));
             0
         }
@@ -489,7 +489,7 @@ pub(crate) fn dev_setup(child: &str, account: &str, minutes: u32, block: &[Strin
             if let Err(problem) = closed {
                 println!("The family's file did not close cleanly: {problem}");
             }
-            println!("Start the service again (sc start {SERVICE_NAME}) to have it count.");
+            println!("Start the service again (sc.exe start {SERVICE_NAME}) to have it count.");
             append(&places, &format!("dev-setup made a family with one child and {minutes} minutes a day."));
             0
         }

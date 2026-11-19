@@ -17,7 +17,7 @@ use limo_hub::Hub;
 use crate::about::about_line;
 use crate::close::{never_close, same_path};
 use crate::os::{HelperId, HelperStarted, Os, ProcessSeen, Received, SendProblem, SessionSeen};
-use crate::programs::{ProgramCache, shown_name};
+use crate::programs::{ProgramCache, logged_description, shown_name};
 use crate::protocol::{Answer, ChannelProblem, FromHelper, MAX_WHY_CHARS, PROTOCOL_VERSION, Secret, ToHelper, encode};
 use crate::quiet::Quiet;
 use crate::settings::TEST_CAP_SECS;
@@ -166,6 +166,11 @@ struct Keep {
     launch_after: u64,
     died_at: Option<u64>,
     notices: Vec<Waiting>,
+    /// The parts of Windows the family's rules block in this session that
+    /// the log has already said LiMo never closes, by their entry in the
+    /// never close list: said once for the session, and forgotten with it.
+    /// It holds at most one of each entry on that list.
+    spared: BTreeSet<&'static str>,
 }
 
 /// A notice of a program closed, waiting to be handed to the helper.
@@ -198,6 +203,7 @@ impl Keep {
             launch_after: 0,
             died_at: None,
             notices: Vec::new(),
+            spared: BTreeSet::new(),
         }
     }
 }
@@ -254,7 +260,8 @@ fn answer_words(answer: &Answer) -> String {
             TryOutcome::AlreadyUsed => "not tried: that code was already used today".to_string(),
             TryOutcome::NotSet => "not tried: not set up on this PC".to_string(),
         },
-        Answer::Refused { message } => format!("refused: {message}"),
+        // The engine's refusals are whole sentences; the line ends them.
+        Answer::Refused { message } => format!("refused: {}", message.trim_end().trim_end_matches('.')),
     }
 }
 
@@ -894,11 +901,16 @@ impl<O: Os> Service<O> {
                     continue;
                 }
                 if let Some(spared) = never_close(&process.path, &self.config.windows_dir) {
-                    let text = format!(
-                        "The family's rules block {name} in session {session}, but it is part of Windows and LiMo never closes it: {}",
-                        spared.why
-                    );
-                    self.log_quiet(&format!("spared/{session}/{name}"), &text, now);
+                    // The engine orders the close every second for as long
+                    // as the part of Windows runs, which is all day: said
+                    // once for the session, never again while it lasts.
+                    let first = self.keeps.get_mut(&session).is_some_and(|keep| keep.spared.insert(spared.file));
+                    if first {
+                        self.os.log(&format!(
+                            "The family's rules block {name} in session {session}, but it is part of Windows and LiMo never closes it: {}",
+                            spared.why
+                        ));
+                    }
                     continue;
                 }
                 match self.os.end_process(&process) {
@@ -909,14 +921,17 @@ impl<O: Os> Service<O> {
                         }
                     }
                     Err(problem) => {
-                        let text = format!("LiMo could not close {name} (pid {}) in session {session}: {problem}", process.pid);
+                        let text = format!("LiMo could not close {name} (pid {}) in session {session}: {problem}.", process.pid);
                         self.log_quiet(&format!("cannot-close/{session}/{name}"), &text, now);
                     }
                 }
             }
             if closed > 0 {
                 let copies = if closed == 1 { "1 running copy".to_string() } else { format!("{closed} running copies") };
-                let described = description.as_deref().map(|d| format!(" (\"{d}\")")).unwrap_or_default();
+                // Left out when it says only the file name again, as
+                // Notepad's "Notepad.exe" does.
+                let described =
+                    logged_description(&name, description.as_deref()).map(|d| format!(" (\"{d}\")")).unwrap_or_default();
                 let text = format!("Closed {name}{described} in session {session} ({copies}): {}", order.reason);
                 self.log_quiet(&format!("closed/{session}/{}", order.program.app_id()), &text, now);
                 // Handed to the helper with what to show, or as soon as one
@@ -1010,7 +1025,7 @@ impl<O: Os> Service<O> {
                     LOCK_CONFIRM_MS / 1_000
                 )),
                 Err(problem) => {
-                    let text = format!("LiMo could not disconnect session {session}, whose lock no helper confirmed: {problem}");
+                    let text = format!("LiMo could not disconnect session {session}, whose lock no helper confirmed: {problem}.");
                     self.log_quiet(&format!("disconnect/{session}"), &text, now);
                 }
             }

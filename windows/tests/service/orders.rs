@@ -1,13 +1,15 @@
 //! The orders carried out: a warning held until it is shown, programs
 //! closed in their own session only and never the parts of Windows or
-//! LiMo's own, a closed program named by its description, phones ignored
-//! and said once, problems logged once in a while.
+//! LiMo's own, a part of Windows the rules block said once a session, a
+//! closed program named by its description, phones ignored and said once,
+//! problems logged once in a while.
 
 use limo_agent::{Program, SessionState, Show, WarningShown};
 use limo_core::DeviceKind;
 use limo_hub::{AccountLink, EventKind};
 use limo_windows::os::ProcessSeen;
 use limo_windows::protocol::{FromHelper, ToHelper};
+use limo_windows::service::QUIET_MS;
 
 use crate::common::*;
 
@@ -168,13 +170,17 @@ fn a_closed_program_is_named_by_its_files_description_when_it_has_one() {
     const NOISY: &str = r"C:\Games\Noisy\noisy.exe";
     const BLANK: &str = r"C:\Games\Blank\blank.exe";
     const PAINT: &str = r"C:\Apps\Paint\paint.exe";
+    const NOTEPAD: &str = r"C:\Program Files\WindowsApps\Notepad\Notepad.exe";
     let mut pc = Pc::new(at(16, 0));
     let asha = pc.add_child("Asha", ASHA, 60);
     pc.change_rules(&asha, |rules| {
-        rules.blocked_apps = ["GameLauncher.exe", "blocks.exe", "maze.exe", "noisy.exe", "blank.exe"].map(String::from).to_vec();
+        rules.blocked_apps =
+            ["GameLauncher.exe", "blocks.exe", "maze.exe", "noisy.exe", "blank.exe", "notepad.exe"].map(String::from).to_vec();
     });
     pc.login(1, ASHA, "asha");
     pc.described_file(LAUNCHER, Some("GameLauncher.exe"), Some("Some Studio"), "Game Launcher");
+    // Windows 11's Notepad describes itself by its file name.
+    pc.described_file(NOTEPAD, None, Some("Microsoft Corporation"), "Notepad.exe");
     pc.file(GAME, Some("Blocks.exe"), Some("Blocks Ltd"));
     let long = format!("The Amazing Maze of {}and More", "Endless ".repeat(20));
     pc.described_file(MAZE, None, None, &long);
@@ -205,6 +211,13 @@ fn a_closed_program_is_named_by_its_files_description_when_it_has_one() {
     assert_eq!(closed_as(&mut pc, NOISY).1.as_deref(), Some("Noisy Game Pro"));
     // Nothing left of it: the file name.
     assert_eq!(closed_as(&mut pc, BLANK).1.as_deref(), Some("blank.exe"));
+    // A description that is the file name again: the notice says
+    // "Notepad", and the log line has no bracket, since it would say
+    // nothing more.
+    assert_eq!(closed_as(&mut pc, NOTEPAD), (reason("Notepad.exe"), Some("Notepad".to_string())));
+    let line = "Closed Notepad.exe in session 1 (1 running copy): Notepad.exe is blocked";
+    assert_eq!(pc.logged(line).len(), 1, "{:?}", pc.os().log);
+    assert!(pc.logged("Closed Notepad.exe (").is_empty(), "{:?}", pc.os().log);
 
     // The file is read once, however often the program is started and
     // closed; written again (an update), it is read again, and its new
@@ -271,7 +284,54 @@ fn limos_own_processes_and_the_parts_of_windows_are_never_closed() {
     let stubborn = pc.start(1, renamed);
     pc.os().refuse_end.insert(stubborn);
     pc.run(10);
-    assert_eq!(pc.logged("LiMo could not close explorer.exe").len(), 1);
+    let refused = pc.logged("LiMo could not close explorer.exe");
+    assert_eq!(refused.len(), 1);
+    assert!(refused[0].ends_with(": Win32 error 5: Access is denied."), "{refused:?}");
+}
+
+#[test]
+fn a_part_of_windows_the_rules_block_is_said_once_for_each_session_and_never_again_while_it_lasts() {
+    let mut pc = Pc::new(at(16, 0));
+    let asha = pc.add_child("Asha", ASHA, 120);
+    let mira = pc.add_child("Mira", MIRA, 120);
+    for child in [&asha, &mira] {
+        pc.change_rules(child, |rules| rules.blocked_apps = vec!["explorer.exe".into()]);
+    }
+    let shell = r"C:\Windows\explorer.exe";
+    pc.file(shell, Some("EXPLORER.EXE.MUI"), Some("Microsoft Corporation"));
+    pc.login(1, ASHA, "asha");
+    let shell_pid = pc.start(1, shell);
+    pc.step();
+    pc.greet(1);
+    let spared = "The family's rules block explorer.exe in session 1, but it is part of Windows and LiMo never closes it";
+
+    // The engine orders the close every second, all afternoon: one line,
+    // with no count, past the ten minutes after which a quiet line comes
+    // back.
+    pc.run(QUIET_MS / 1_000 + 60);
+    assert_eq!(pc.logged(spared).len(), 1, "{:?}", pc.os().log);
+    assert!(pc.logged("since it was last logged").is_empty(), "{:?}", pc.os().log);
+    assert!(pc.os().processes.iter().any(|p| p.pid == shell_pid));
+
+    // Asha signs out and in again, in the same session id: said once more.
+    pc.os().sessions.retain(|s| s.session_id != 1);
+    pc.run(2);
+    pc.login(1, ASHA, "asha");
+    pc.run(2);
+    pc.greet(1);
+    pc.run(30);
+    assert_eq!(pc.logged(spared).len(), 2, "{:?}", pc.os().log);
+
+    // Mira takes the same session id at once, with no look at the PC
+    // between that misses it: once more.
+    let session = pc.os().sessions.iter_mut().find(|s| s.session_id == 1).unwrap();
+    session.account_id = MIRA.into();
+    session.account_name = "mira".into();
+    pc.run(2);
+    pc.greet(1);
+    pc.run(30);
+    assert_eq!(pc.logged(spared).len(), 3, "{:?}", pc.os().log);
+    assert!(pc.logged("since it was last logged").is_empty(), "{:?}", pc.os().log);
 }
 
 #[test]

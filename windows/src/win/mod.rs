@@ -97,9 +97,22 @@ pub(crate) fn win32_code(error: &windows::core::Error) -> u32 {
     if bits & 0xFFFF_0000 == 0x8007_0000 { bits & 0xFFFF } else { bits }
 }
 
-/// "Win32 error N: text", for the log.
+/// "Win32 error N: text", for the log. Windows' own text comes without its
+/// closing full stop, so that a sentence can go on after it: "The helper
+/// could not be started in session 1: Win32 error 2: The system cannot find
+/// the file specified. LiMo tries again every second." Just "Win32 error N"
+/// when Windows has no text for it.
 pub(crate) fn error_text(error: &windows::core::Error) -> String {
-    format!("Win32 error {}: {}", win32_code(error), error.message().trim())
+    let code = win32_code(error);
+    match without_closing_stop(&error.message()) {
+        "" => format!("Win32 error {code}"),
+        text => format!("Win32 error {code}: {text}"),
+    }
+}
+
+/// A message without the whitespace around it and its closing full stops.
+fn without_closing_stop(message: &str) -> &str {
+    message.trim().trim_end_matches('.').trim_end()
 }
 
 #[cfg(test)]
@@ -116,5 +129,29 @@ mod tests {
         assert_eq!(from_wide(&wide("Asha")), "Asha");
         assert_eq!(from_wide(&[0x41, 0, 0x42]), "A");
         assert!(Owned::new(HANDLE(std::ptr::null_mut())).is_none());
+    }
+
+    #[test]
+    fn an_error_reads_right_in_the_middle_of_a_sentence() {
+        // ERROR_FILE_NOT_FOUND: Windows' own text ends in a full stop. It is
+        // in the PC's own language, so only an English one is checked word
+        // for word.
+        let missing = windows::core::Error::from_hresult(windows::core::HRESULT(0x8007_0002_u32 as i32));
+        let raw = missing.message();
+        let text = error_text(&missing);
+        assert_eq!(text, format!("Win32 error 2: {}", raw.trim().trim_end_matches('.')));
+        assert!(text.len() > "Win32 error 2: ".len() && !text.ends_with('.') && text.trim_end() == text, "{text:?}");
+        let sentence = format!("The helper could not be started in session 1: {text}. LiMo tries again every second.");
+        assert!(!sentence.contains(".."), "{sentence}");
+        // On an English Windows, the words themselves.
+        if raw.starts_with("The system") {
+            assert_eq!(text, "Win32 error 2: The system cannot find the file specified");
+        }
+
+        assert_eq!(without_closing_stop(" Access is denied.\r\n"), "Access is denied");
+        assert_eq!(without_closing_stop("Access is denied"), "Access is denied");
+        assert_eq!(without_closing_stop("Wait... "), "Wait");
+        assert_eq!(without_closing_stop(" . \r\n"), "");
+        assert_eq!(without_closing_stop("Version 1.2 is needed."), "Version 1.2 is needed");
     }
 }

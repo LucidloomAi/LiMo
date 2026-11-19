@@ -36,7 +36,7 @@ pub(crate) fn run() -> i32 {
             2
         }
         Err(e) => {
-            println!("The service could not start: {e}");
+            println!("The service could not start: {e}.");
             1
         }
     }
@@ -69,7 +69,7 @@ fn windows_dir() -> String {
 fn service_main(_arguments: Vec<OsString>) {
     let places = Places::here();
     if let Err(problem) = run_service(&places) {
-        append(&places, &format!("The service stopped with an error: {problem}"));
+        append(&places, &format!("The service stopped with an error: {problem}."));
     }
 }
 
@@ -99,7 +99,11 @@ fn run_service(places: &Places) -> windows_service::Result<()> {
         match Hub::open(&places.family_file()) {
             Ok(hub) => break Some(hub),
             Err(problem) => {
-                if let Some(line) = quiet.line("hub", &format!("The family's file could not be opened: {problem}. LiMo tries again every five seconds; until then it limits nothing."), waited) {
+                // The family's file says why in whole sentences; this one
+                // goes on after it.
+                let problem = problem.to_string();
+                let why = problem.trim_end().trim_end_matches('.');
+                if let Some(line) = quiet.line("hub", &format!("The family's file could not be opened: {why}. LiMo tries again every five seconds; until then it limits nothing."), waited) {
                     append(places, &line);
                 }
                 waited += 5_000;

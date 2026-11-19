@@ -429,8 +429,10 @@ mod tests {
         let (got, failed) = first_variant_that_launches::<u32, u32>(|_| Err((DaclStage::Build, 5)));
         assert_eq!(got, None);
         assert_eq!(failed.len(), 3);
-        let text = dacl_failure_text(DaclVariant::OwnerRightsNoLabel, DaclStage::Launch, "Win32 error 5: Access is denied.");
+        // As error_text gives it: with no closing full stop of its own.
+        let text = dacl_failure_text(DaclVariant::OwnerRightsNoLabel, DaclStage::Launch, "Win32 error 5: Access is denied");
         assert!(text.contains("started without one"), "{text}");
+        assert!(text.contains("Access is denied. It is started") && !text.contains(".."), "{text}");
         assert!(dacl_failure_text(DaclVariant::AdminOwner, DaclStage::Build, "x").contains("Variant owner-rights is tried next."));
     }
 

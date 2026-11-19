@@ -56,14 +56,40 @@ pub fn clean_name(raw: &str) -> Option<String> {
     if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
 
+/// The ending of a program's file name, which some descriptions repeat:
+/// Windows 11's Notepad describes itself as "Notepad.exe".
+const EXE: &str = ".exe";
+
+/// A name with a closing ".exe" dropped, in any ASCII case: "Notepad.exe"
+/// gives "Notepad", "GAME.EXE" gives "GAME", and ".exe" gives nothing. Any
+/// other name is given as it is.
+pub fn without_exe(name: &str) -> &str {
+    let at = name.len().saturating_sub(EXE.len());
+    match (name.get(..at), name.get(at..)) {
+        (Some(stem), Some(ending)) if ending.eq_ignore_ascii_case(EXE) => stem,
+        _ => name,
+    }
+}
+
+/// True when the characters end in ".exe", in any ASCII case.
+fn ends_in_exe(kept: &[char]) -> bool {
+    kept.len() >= EXE.len() && kept[kept.len() - EXE.len()..].iter().map(char::to_ascii_lowercase).eq(EXE.chars())
+}
+
 /// A program's description made fit to show: whitespace trimmed from both
 /// ends and each run of it inside made one space, control characters
-/// dropped, and at most [`MAX_SHOWN_CHARS`] characters, a longer one cut to
-/// end with an ellipsis. A tab or a line break is whitespace, so it parts
-/// two words rather than joining them. None when nothing is left. Doing it
-/// twice gives the same as doing it once.
+/// dropped, a closing ".exe" dropped (in any ASCII case, so "Notepad.exe"
+/// is shown as "Notepad"), and at most [`MAX_SHOWN_CHARS`] characters, a
+/// longer one cut to end with an ellipsis. A tab or a line break is
+/// whitespace, so it parts two words rather than joining them. None when
+/// nothing is left, so a description that is only ".exe" is none. Doing it
+/// twice gives the same as doing it once, so every closing ".exe" goes, not
+/// only the last.
 pub fn shown_description(raw: &str) -> Option<String> {
-    let mut kept: Vec<char> = Vec::with_capacity(MAX_SHOWN_CHARS + 1);
+    // Read as far as a closing ".exe" past what fits, so that it is dropped
+    // before a cut rather than cut.
+    let read = MAX_SHOWN_CHARS + EXE.len();
+    let mut kept: Vec<char> = Vec::with_capacity(read + 1);
     let mut space = false;
     for c in raw.chars() {
         if c.is_whitespace() {
@@ -78,9 +104,19 @@ pub fn shown_description(raw: &str) -> Option<String> {
             space = false;
         }
         kept.push(c);
-        // One more than fits says there is more: no need to read on.
-        if kept.len() > MAX_SHOWN_CHARS {
+        // One more than that says there is more: no need to read on.
+        if kept.len() > read {
             break;
+        }
+    }
+    // Only an end that was read is a closing ".exe"; a longer description
+    // is cut well before it.
+    if kept.len() <= read {
+        while ends_in_exe(&kept) {
+            kept.truncate(kept.len() - EXE.len());
+            while kept.last() == Some(&' ') {
+                kept.pop();
+            }
         }
     }
     if kept.len() > MAX_SHOWN_CHARS {
@@ -104,6 +140,17 @@ pub fn shown_name(program: &Program, description: Option<&str>) -> String {
     }
     let base = file_name_of(&program.file_name).trim();
     if base.is_empty() { program.app_id() } else { base.to_string() }
+}
+
+/// The description to put beside a program's file name in the log line for
+/// a close: None when there is none, or when it says nothing the file name
+/// does not, that is, when the two are the same with a closing ".exe"
+/// dropped from each, ignoring ASCII case. So Notepad, whose file
+/// `Notepad.exe` is described as "Notepad.exe", is logged by its file name
+/// alone, while `gl.exe`, described as "Game Launcher", keeps it beside.
+pub fn logged_description<'a>(file_name: &str, description: Option<&'a str>) -> Option<&'a str> {
+    let file = without_exe(file_name.trim()).trim();
+    description.filter(|d| !without_exe(d.trim()).trim().eq_ignore_ascii_case(file))
 }
 
 /// The program for a file name and what its version resource says.
@@ -263,7 +310,7 @@ mod tests {
         assert_eq!(cut.chars().count(), MAX_SHOWN_CHARS);
         assert!(cut.ends_with('\u{2026}'));
         // Twice is the same as once.
-        for raw in ["Game Launcher", words.as_str(), long.as_str(), "  a \n b  "] {
+        for raw in ["Game Launcher", words.as_str(), long.as_str(), "  a \n b  ", "Notepad.exe", "Game.exe .EXE"] {
             let once = shown_description(raw);
             assert_eq!(once.as_deref().and_then(shown_description), once);
         }
@@ -290,5 +337,65 @@ mod tests {
         assert_eq!(shown_name(&nameless, None), "minecraft.exe");
         assert_eq!(shown_name(&nameless, Some("Minecraft")), "Minecraft");
         assert_eq!(shown_name(&nameless, Some("\u{7}")), "minecraft.exe");
+    }
+
+    #[test]
+    fn a_description_that_ends_in_exe_is_shown_without_it() {
+        assert_eq!(without_exe("Notepad.exe"), "Notepad");
+        assert_eq!(without_exe("GAME.EXE"), "GAME");
+        assert_eq!(without_exe("game.Exe"), "game");
+        assert_eq!(without_exe(".exe"), "");
+        for kept in ["Notepad", "exe", "Notepadexe", "Notepad.exe2", "", "\u{0905}\u{0905}", "a\u{0905}.ex"] {
+            assert_eq!(without_exe(kept), kept);
+        }
+
+        // Windows 11's Notepad describes itself by its file name: the notice
+        // says "Notepad was closed."
+        assert_eq!(shown_description("Notepad.exe"), Some("Notepad".into()));
+        assert_eq!(shown_description("Game Launcher.exe"), Some("Game Launcher".into()));
+        assert_eq!(shown_description("  Game Launcher .EXE \t"), Some("Game Launcher".into()));
+        assert_eq!(shown_description("Notepad.exe.exe"), Some("Notepad".into()));
+        // Only a closing ".exe" goes.
+        assert_eq!(shown_description("Setup.exe Helper"), Some("Setup.exe Helper".into()));
+        assert_eq!(shown_description("Notepad.exe2"), Some("Notepad.exe2".into()));
+        assert_eq!(shown_description("exe"), Some("exe".into()));
+        // Only ".exe", or nothing: no description.
+        for none in [".exe", " .EXE ", ".exe.exe", ""] {
+            assert_eq!(shown_description(none), None, "{none:?}");
+        }
+        // The ".exe" goes before the cut: sixty characters and ".exe" fit.
+        let sixty = "x".repeat(MAX_SHOWN_CHARS);
+        assert_eq!(shown_description(&format!("{sixty}.exe")), Some(sixty.clone()));
+        let cut = shown_description(&format!("{sixty}y.exe")).unwrap();
+        assert_eq!(cut, format!("{}\u{2026}", "x".repeat(MAX_SHOWN_CHARS - 1)));
+
+        let notepad = Known::from_names(r"C:\Program Files\WindowsApps\Notepad\Notepad.exe", &names(None, Some("Notepad.exe")));
+        assert_eq!((notepad.description.as_deref(), notepad.shown_name().as_str()), (Some("Notepad"), "Notepad"));
+        // A description that is only ".exe" is none: the file name is shown.
+        let bare = Known::from_names(r"C:\Games\game.exe", &names(None, Some(".EXE")));
+        assert_eq!((bare.description.as_deref(), bare.shown_name().as_str()), (None, "game.exe"));
+        // A description that does not end in ".exe" is shown as it is.
+        let launcher = Known::from_names(r"C:\Games\gl.exe", &names(None, Some("Game Launcher")));
+        assert_eq!(launcher.shown_name(), "Game Launcher");
+    }
+
+    #[test]
+    fn the_log_line_leaves_out_a_description_that_says_only_the_file_name() {
+        // Notepad: the description says nothing the file name does not,
+        // however its case or its ".exe" goes.
+        for said in ["Notepad", "Notepad.exe", "NOTEPAD.EXE", "notepad", " Notepad .exe "] {
+            assert_eq!(logged_description("Notepad.exe", Some(said)), None, "{said:?}");
+        }
+        assert_eq!(logged_description("notepad.EXE", Some("Notepad")), None);
+        assert_eq!(logged_description("Notepad", Some("Notepad.exe")), None);
+        // Anything more is kept beside the file name.
+        assert_eq!(logged_description("gl.exe", Some("Game Launcher")), Some("Game Launcher"));
+        assert_eq!(logged_description("Notepad.exe", Some("Notepad Plus")), Some("Notepad Plus"));
+        assert_eq!(logged_description("gl.exe", None), None);
+        // As the service has it: the description made fit to show first.
+        let notepad = Known::from_names("Notepad.exe", &names(None, Some("Notepad.exe")));
+        assert_eq!(logged_description(&notepad.program.file_name, notepad.description.as_deref()), None);
+        let launcher = Known::from_names("gl.exe", &names(None, Some("Game Launcher.exe")));
+        assert_eq!(logged_description(&launcher.program.file_name, launcher.description.as_deref()), Some("Game Launcher"));
     }
 }

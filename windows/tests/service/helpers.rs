@@ -69,11 +69,15 @@ fn a_launch_that_fails_is_tried_every_second_and_logged_once() {
     let mut pc = Pc::new(at(16, 0));
     pc.add_child("Asha", ASHA, 60);
     pc.login(1, ASHA, "asha");
-    pc.os().launch_fails = Some("CreateProcessAsUserW failed: Win32 error 87: The parameter is incorrect.".into());
+    pc.os().launch_fails = Some("CreateProcessAsUserW failed: Win32 error 87: The parameter is incorrect".into());
     pc.run(10);
     let tries = pc.os().launches;
     assert!((9..=11).contains(&tries), "{tries}");
     assert_eq!(pc.logged("could not be started in session 1").len(), 1);
+    // One full stop after Windows' own words, not two.
+    let line = "The helper could not be started in session 1: CreateProcessAsUserW failed: Win32 error 87: \
+                The parameter is incorrect. LiMo tries again every second.";
+    assert_eq!(pc.logged(line).len(), 1, "{:?}", pc.os().log);
     pc.os().launch_fails = None;
     pc.run(2);
     assert_eq!(pc.helpers_running(1), 1);

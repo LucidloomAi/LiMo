@@ -210,7 +210,8 @@ impl Os for FakeOs {
 
     fn end_process(&mut self, process: &ProcessSeen) -> Result<(), String> {
         if self.refuse_end.contains(&process.pid) {
-            return Err("Win32 error 5: Access is denied.".into());
+            // As the real one gives it: Windows' text with no full stop.
+            return Err("Win32 error 5: Access is denied".into());
         }
         self.ended.push(process.clone());
         self.processes.retain(|p| p.pid != process.pid);
