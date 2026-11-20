@@ -68,7 +68,10 @@ internal object WatchTimes {
   /** For this long after the watch starts, a service switched on but not yet connected counts as on. */
   const val ACCESSIBILITY_START_MS = 60_000L
 
-  /** A screen with no icon that comes up this close to a call starting or being answered is that call's screen. */
+  /**
+   * After a call rings, is dialled or is answered, the first screen to come up decides, if it comes within
+   * this: it is learned as the call's screen only when it has no icon and is none of the known kinds.
+   */
   const val CALL_SCREEN_WINDOW_MS = 5_000L
 
   /**

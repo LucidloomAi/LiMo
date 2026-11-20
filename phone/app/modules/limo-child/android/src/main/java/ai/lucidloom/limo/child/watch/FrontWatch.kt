@@ -2,7 +2,6 @@ package ai.lucidloom.limo.child.watch
 
 import ai.lucidloom.limo.child.ffi.CallState
 import ai.lucidloom.limo.child.ffi.FrontKind
-import kotlin.math.abs
 
 /** What is in front, as the watch decided it: a kind, the package behind it, and why it is unknown when it is. */
 internal data class Pick(
@@ -42,8 +41,12 @@ internal enum class UsageState { NOT_READ, ON, OFF, UNREADABLE }
 internal class FrontWatch(private val ownPackage: String, private val log: WatchLog) {
   private class Pending(val packageName: String, val sinceMs: Long)
 
-  /** LiMo opened the emergency dialler at [sinceMs]; [forgets] is the record's count of fresh starts then. */
-  private class EmergencyWait(val sinceMs: Long, val forgets: Long)
+  /**
+   * A wait for the first screen to come up after LiMo opened the emergency
+   * dialler, or after a call rang, was dialled or was answered, begun at
+   * [sinceMs]; [forgets] is the record's count of fresh starts then.
+   */
+  private class Wait(val sinceMs: Long, val forgets: Long)
 
   val track = UsageTrack()
 
@@ -56,9 +59,8 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
   private val learnedCall = LinkedHashSet<String>()
   private val learnedEmergency = LinkedHashSet<String>()
   private var call = CallState.IDLE
-  private var callChangedAtMs: Long? = null
-  private var frontChangedAtMs: Long? = null
-  private var emergencyWait: EmergencyWait? = null
+  private var emergencyWait: Wait? = null
+  private var callWait: Wait? = null
 
   /**
    * A window event from [packageName] at [nowMs] (elapsed). True when usage
@@ -80,12 +82,9 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
   /** Usage was read: [events] for [window], at [nowMs] (elapsed). */
   fun usageTaken(events: List<UsageEvent>, window: UsageTrack.Window, nowMs: Long, roles: PhoneRoles) {
     usage = UsageState.ON
-    val moved = track.take(events, window, Overlays::isOverlay)
+    track.take(events, window, Overlays::isOverlay)
     awaitEmergency(nowMs, roles)
-    if (moved) {
-      frontChangedAtMs = nowMs
-      learnCallScreen(roles)
-    }
+    awaitCallScreen(nowMs, roles)
     settle(nowMs)
     val since = ownScreenSince
     // LiMo said its screen was shown, and another app resumed since: its
@@ -98,6 +97,7 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
     usage = UsageState.OFF
     pending = null
     endEmergencyWait("no_usage")
+    endCallWait("no_usage")
   }
 
   /** Usage could not be read: the call failed. */
@@ -105,6 +105,7 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
     usage = UsageState.UNREADABLE
     pending = null
     endEmergencyWait("no_usage")
+    endCallWait("no_usage")
   }
 
   /** LiMo's own activity came to the front (true) or left it (false). */
@@ -132,16 +133,40 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
       log.line("front emergency_wait not_started because=$why")
       return
     }
-    emergencyWait = EmergencyWait(nowMs, track.forgets)
+    emergencyWait = Wait(nowMs, track.forgets)
   }
 
-  /** The call state now, at [nowMs]. */
-  fun callState(state: CallState, nowMs: Long, roles: PhoneRoles) {
-    if (state == call) return
+  /**
+   * The call state now. True when a call began to ring, was dialled or was
+   * answered (any change to ringing or on): the caller then reads usage at
+   * once and calls [expectCallScreen]. A call ending ends the wait for its
+   * screen.
+   */
+  fun callState(state: CallState): Boolean {
+    if (state == call) return false
     call = state
-    callChangedAtMs = nowMs
     log.line("call now ${state.name.lowercase()}")
-    learnCallScreen(roles)
+    if (state == CallState.IDLE) {
+      endCallWait("call_ended")
+      return false
+    }
+    return true
+  }
+
+  /**
+   * A call rang, was dialled or was answered, at [nowMs], and usage was
+   * read just now, so whatever came to the front before it is taken. The
+   * wait for the first screen after it starts here ([awaitCallScreen]),
+   * unless usage could not be read (the next read could not tell what came
+   * first).
+   */
+  fun expectCallScreen(nowMs: Long) {
+    callWait = null
+    if (usage != UsageState.ON) {
+      log.line("front call_wait not_started because=no_usage")
+      return
+    }
+    callWait = Wait(nowMs, track.forgets)
   }
 
   /** In how many milliseconds usage should be read again to settle a window event; null when none waits. */
@@ -233,16 +258,10 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
    */
   private fun awaitEmergency(nowMs: Long, roles: PhoneRoles) {
     val wait = emergencyWait ?: return
-    if (track.forgets != wait.forgets) return endEmergencyWait("clock_set")
-    if (nowMs - wait.sinceMs > WatchTimes.EMERGENCY_WINDOW_MS) return endEmergencyWait("ten_seconds")
+    overBy(wait, nowMs, WatchTimes.EMERGENCY_WINDOW_MS, "ten_seconds")?.let { return endEmergencyWait(it) }
     val first = track.lastTaken.firstOrNull() ?: return
     emergencyWait = null
-    if (unexplained(first, roles)) {
-      remember(learnedEmergency, first)
-      log.line("front learned emergency_dialler package=$first")
-    } else {
-      log.line("front emergency_wait ended first=$first")
-    }
+    firstScreen(first, roles, learnedEmergency, "emergency_dialler", "emergency_wait")
   }
 
   private fun endEmergencyWait(because: String) {
@@ -252,20 +271,45 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
   }
 
   /**
-   * Learns the screen of a call when Android did not name it: a package
-   * with no icon that came to the front within five seconds of a call
-   * starting or being answered is that call's screen from then on, so it
-   * stays the dialler when a call rings silently. An app with an icon is
-   * never learned.
+   * **A call's own screen, learned where Android does not name it**: the
+   * first activity to come to the front after a call rang, was dialled or
+   * was answered, and nothing after, so it stays the dialler after the call
+   * too and a call that later rings silently is never covered. Whatever
+   * comes first ends the wait, as for the emergency dialler: it is learned
+   * only when it is none of the known kinds and has no icon. Five seconds
+   * with nothing come up end it too, and so do the call ending, the record
+   * read again from the start and a read of usage that failed. What came up
+   * before the call is never learned: usage is read when the call is seen,
+   * before the wait starts.
    */
-  private fun learnCallScreen(roles: PhoneRoles) {
-    val pkg = track.front ?: return
-    val changedAt = frontChangedAtMs ?: return
-    if (!unexplained(pkg, roles)) return
-    val callAt = callChangedAtMs ?: return
-    if (call != CallState.IDLE && abs(changedAt - callAt) <= WatchTimes.CALL_SCREEN_WINDOW_MS) {
-      remember(learnedCall, pkg)
-      log.line("front learned call_screen package=$pkg")
+  private fun awaitCallScreen(nowMs: Long, roles: PhoneRoles) {
+    val wait = callWait ?: return
+    overBy(wait, nowMs, WatchTimes.CALL_SCREEN_WINDOW_MS, "five_seconds")?.let { return endCallWait(it) }
+    val first = track.lastTaken.firstOrNull() ?: return
+    callWait = null
+    firstScreen(first, roles, learnedCall, "call_screen", "call_wait")
+  }
+
+  private fun endCallWait(because: String) {
+    if (callWait == null) return
+    callWait = null
+    log.line("front call_wait ended because=$because")
+  }
+
+  /** Why [wait] is over at this read with nothing taken for it, or null while it goes on. */
+  private fun overBy(wait: Wait, nowMs: Long, windowMs: Long, late: String): String? = when {
+    track.forgets != wait.forgets -> "clock_set"
+    nowMs - wait.sinceMs > windowMs -> late
+    else -> null
+  }
+
+  /** The first screen after a wait began: learned into [into] when unexplained, logged either way. */
+  private fun firstScreen(first: String, roles: PhoneRoles, into: LinkedHashSet<String>, kind: String, waitName: String) {
+    if (unexplained(first, roles)) {
+      remember(into, first)
+      log.line("front learned $kind package=$first")
+    } else {
+      log.line("front $waitName ended first=$first")
     }
   }
 

@@ -261,6 +261,134 @@ class FrontTest {
   }
 
   @Test
+  fun aPackageWithNoIconBroughtUpAfterTheCallsOwnScreenIsNeverLearned() {
+    // A call dialled from the dialler: its own screen comes up first and is
+    // learned. A package with no icon brought up after it, well inside the
+    // five seconds, is the dialler only while the call lasts.
+    val rig = Rig()
+    rig.open(LAUNCHER)
+    rig.open(PHONE_APP)
+    rig.phone.audioMode = 2
+    rig.core.callChanged()
+    rig.open(CALL_SCREEN)
+    assertTrue(rig.log.lines.contains("front learned call_screen package=$CALL_SCREEN"))
+    rig.phone.pass(1_000)
+    rig.open(HELPER)
+    assertEquals(FrontKind.DIALLER, rig.front().kind)
+    rig.phone.audioMode = 0
+    rig.core.callChanged()
+    assertEquals(FrontKind.APP, rig.front().kind)
+    rig.open(CALL_SCREEN)
+    assertEquals(FrontKind.DIALLER, rig.front().kind)
+    assertEquals(1, rig.log.lines.count { it.startsWith("front learned") })
+
+    // Where Android names the call's screen, that screen ends the wait, and
+    // nothing after it is learned either.
+    val named = Rig(TestPhone().apply { inCall = setOf(CALL_SCREEN) })
+    named.open(LAUNCHER)
+    named.open(PHONE_APP)
+    named.phone.audioMode = 2
+    named.core.callChanged()
+    named.open(CALL_SCREEN)
+    assertTrue(named.log.lines.contains("front call_wait ended first=$CALL_SCREEN"))
+    named.phone.pass(1_000)
+    named.open(HELPER)
+    named.phone.audioMode = 0
+    named.core.callChanged()
+    assertEquals(FrontKind.APP, named.front().kind)
+    assertFalse(named.log.lines.any { it.startsWith("front learned") })
+  }
+
+  @Test
+  fun aPackageWithNoIconThatCameUpBeforeTheCallIsNeverLearned() {
+    // A package with no icon in front; two seconds later a call rings as a
+    // heads up notification over it and rings out. No screen came up after
+    // the call, so nothing is learned: the package is the dialler only while
+    // the call rings.
+    val rig = Rig()
+    rig.open(LAUNCHER)
+    rig.open(HELPER)
+    rig.phone.pass(2_000)
+    rig.phone.audioMode = 1
+    rig.core.callChanged()
+    assertEquals(FrontKind.DIALLER, rig.front().kind)
+    rig.phone.pass(20_000)
+    rig.look()
+    rig.phone.audioMode = 0
+    rig.core.callChanged()
+    assertEquals(FrontKind.APP, rig.front().kind)
+    assertTrue(rig.log.lines.contains("front call_wait ended because=five_seconds"))
+
+    // The same when it came up a moment before the call and the watch had
+    // not read it yet (its window event missed): the read when the call is
+    // seen takes it before the wait starts.
+    val close = Rig()
+    close.open(LAUNCHER)
+    close.phone.pass(10)
+    close.phone.paused(LAUNCHER)
+    close.phone.resumed(HELPER)
+    close.phone.pass(200)
+    close.phone.audioMode = 1
+    close.core.callChanged()
+    close.phone.pass(600)
+    assertEquals(FrontKind.DIALLER, close.front().kind)
+    close.phone.audioMode = 0
+    close.core.callChanged()
+    assertEquals(FrontKind.APP, close.front().kind)
+    assertTrue(close.log.lines.contains("front call_wait ended because=call_ended"))
+
+    for (r in listOf(rig, close)) assertFalse(r.log.lines.any { it.startsWith("front learned") })
+  }
+
+  @Test
+  fun theCallsOwnScreenUnnamedAndFirstToComeUpIsLearnedAndStaysTheDiallerAfterTheCall() {
+    // A call rings while a game is in front, on a maker whose call screen
+    // Android does not name: the screen comes up over the game, first.
+    val rig = Rig()
+    rig.open(LAUNCHER)
+    rig.open(GAME)
+    rig.phone.audioMode = 1
+    rig.core.callChanged()
+    rig.open(CALL_SCREEN)
+    assertEquals(FrontKind.DIALLER, rig.front().kind)
+    assertTrue(rig.log.lines.contains("front learned call_screen package=$CALL_SCREEN"))
+    // Answered on that screen (nothing new comes up), a minute's talk, ended.
+    rig.phone.pass(2_000)
+    rig.phone.audioMode = 2
+    rig.core.callChanged()
+    rig.phone.pass(60_000)
+    rig.look()
+    rig.phone.audioMode = 0
+    rig.core.callChanged()
+    // With no call at all it is still the dialler: a call that later rings
+    // silently is never covered.
+    rig.open(LAUNCHER)
+    rig.open(CALL_SCREEN)
+    assertEquals(CallState.IDLE, rig.facts().call)
+    assertEquals(FrontKind.DIALLER, rig.front().kind)
+    assertEquals(1, rig.log.lines.count { it.startsWith("front learned") })
+
+    // Rung as a heads up notification over the game (no screen) and
+    // answered from it: the call's screen comes up then, the first after
+    // the answer, and is learned.
+    val heads = Rig()
+    heads.open(LAUNCHER)
+    heads.open(GAME)
+    heads.phone.audioMode = 1
+    heads.core.callChanged()
+    heads.phone.pass(3_000)
+    heads.phone.audioMode = 2
+    heads.core.callChanged()
+    heads.open(CALL_SCREEN)
+    assertTrue(heads.log.lines.contains("front learned call_screen package=$CALL_SCREEN"))
+    heads.phone.audioMode = 0
+    heads.core.callChanged()
+    heads.open(LAUNCHER)
+    heads.open(CALL_SCREEN)
+    assertEquals(FrontKind.DIALLER, heads.front().kind)
+  }
+
+  @Test
   fun theEmergencyDiallerIsKnownFromAndroidOrLearnedWhenLimoOpensIt() {
     val named = Rig(TestPhone().apply { emergency = setOf(SOS) })
     named.open(LAUNCHER)

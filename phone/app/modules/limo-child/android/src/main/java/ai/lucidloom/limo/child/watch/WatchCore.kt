@@ -299,7 +299,13 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
     }
     val state = Calls.both(audio, telephony) ?: callGood ?: CallState.IDLE
     if (audio != null || telephony != null) callGood = state
-    front.callState(state, now, roles)
+    if (front.callState(state)) {
+      // A call rang, was dialled or was answered: usage is read first, so
+      // what came to the front before it is taken before the wait for the
+      // call's own screen starts.
+      readUsage(now, remembered(wall, now) { phone.wallMs() })
+      front.expectCallScreen(now)
+    }
     return state
   }
 
