@@ -38,7 +38,7 @@
     return '<span class="su-dots" aria-label="' + (at + 1) + ' of ' + count + '">' + out + '</span>';
   }
   function stepCount(at) {
-    return '<div class="su-count">' + label('Step ' + (at + 1) + ' of 5') + dots(5, at) + '</div>';
+    return '<div class="su-count">' + label('Step ' + (at + 1) + ' of ' + STEPS.length) + dots(STEPS.length, at) + '</div>';
   }
 
   // The maker's mark: said once, small, at the end of a screen that fills
@@ -77,7 +77,7 @@
   function welcome() {
     return screen(top() +
       card('phone', 'For a guardian', 'This phone is now ' + CHILD + '’s.',
-        'Five short steps finish the setup. Each one asks Android for one thing, and says why.'),
+        'Six short steps finish the setup. Each one asks Android for one thing, and says why.'),
       'Start');
   }
 
@@ -110,12 +110,17 @@
     return tickRow(true) + '<div class="su-pinned"><div class="ph-btn go">Continue</div></div>';
   }
 
-  // ---------- S3 to S7. One permission each ----------
+  // ---------- S3 to S8. One permission each ----------
 
   var STEPS = [
     { icon: 'bell', title: 'Notifications',
       why: 'So ' + CHILD + ' sees the time left, and a warning before the phone locks.',
       what: 'Android asks once. Choose <strong class="su-name">Allow</strong>.', button: 'Allow notifications' },
+    // Only to know that a call is ringing or on, so a lock never hides it.
+    { icon: 'call', title: 'Phone',
+      why: 'So a lock never hides a call. LiMo is told that a call is ringing or on, never who is calling.',
+      what: 'Android asks once. Choose <strong class="su-name">Allow</strong>.', button: 'Allow',
+      note: ['What Android asks', 'Android’s words are “make and manage phone calls”. LiMo never makes a call. It only learns that one is ringing or on.'] },
     { icon: 'chart', title: 'Usage access',
       why: 'So LiMo can count the time in each app. It gets app names and minutes from Android, nothing else.',
       what: 'Android opens its own settings. Find LiMo in the list and switch it on.', button: 'Open Android’s settings' },
@@ -131,7 +136,7 @@
       what: 'Android asks you to make LiMo a device admin app. Choose <strong class="su-name">Activate</strong>.', button: 'Turn on protection' }
   ];
 
-  /** Step `at` (0 to 4), not yet on, or done. */
+  /** Step `at` (0 to 5), not yet on, or done. */
   function step(at, done) {
     var s = STEPS[at];
     return screen(top(stepCount(at)) +
@@ -148,7 +153,7 @@
       done ? 'Next' : s.button);
   }
 
-  // ---------- S8. Done ----------
+  // ---------- S9. Done ----------
 
   function done() {
     var list = STEPS.map(function (s) { return '<div class="su-ok">' + TICK + '<span>' + s.title + '</span></div>'; }).join('');

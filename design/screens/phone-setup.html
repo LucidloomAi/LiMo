@@ -54,8 +54,8 @@
   <p class="lead">The guardian learns what LiMo does on this phone, and agrees, before Android is asked for anything. Continue stays switched off until the box is ticked.</p>
   <div class="shots" id="s1"></div>
 
-  <h2>Five permissions, one at a time</h2>
-  <p class="lead">One layout for all five: why LiMo needs it, what Android will show, and where it stands. Each is drawn not yet on; Usage access is drawn a second time, done.</p>
+  <h2>Six permissions, one at a time</h2>
+  <p class="lead">One layout for all six: why LiMo needs it, what Android will show, and where it stands. Each is drawn not yet on; Usage access is drawn a second time, done.</p>
   <div class="shots" id="s3"></div>
 
   <h2>Done</h2>
@@ -82,8 +82,8 @@
   byId('order').innerHTML = [
     ['S0', 'Only on a phone the PC has not paired: how to start from the PC.'],
     ['S1 and S2', 'Welcome, then what LiMo does on this phone, and the guardian agrees.'],
-    ['S3 to S7', 'One permission each: notifications, usage access, accessibility, battery, protection.'],
-    ['S8', 'Done. The guardian hands the phone to the child.'],
+    ['S3 to S8', 'One permission each: notifications, phone, usage access, accessibility, battery, protection.'],
+    ['S9', 'Done. The guardian hands the phone to the child.'],
     ['C1 to C3', 'The child’s own introduction, ending on Today.'],
     ['H and T', 'In the child’s app from then on: How it works, and Today when something is switched off.']
   ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
@@ -96,17 +96,19 @@
     shot('S2 · What LiMo does here', '390 by 844 · Continue pinned, switched off · fits', S.frame(S.agree())) +
     shot('S2b · Ticked', 'only the box and the button · Continue switched on', S.crop(S.agreed()));
 
-  var names = ['Notifications', 'Usage access', 'Accessibility', 'Battery', 'Protection'];
+  // The six steps are S3 to S8; Usage access, the third, is drawn a second time, done.
+  var names = ['Notifications', 'Phone', 'Usage access', 'Accessibility', 'Battery', 'Protection'];
+  function stepShot(at, done) {
+    var id = 'S' + (at + 3) + (done ? 'b' : '');
+    return shot(id + ' · ' + names[at] + (done ? ', done' : ''),
+      'step ' + (at + 1) + ' of ' + names.length + ' · ' + (done ? 'on' : 'not on yet') + ' · fits, no scroll',
+      S.frame(S.step(at, done)));
+  }
   byId('s3').innerHTML =
-    shot('S3 · ' + names[0], 'step 1 of 5 · not on yet · fits, no scroll', S.frame(S.step(0))) +
-    shot('S4 · ' + names[1], 'step 2 of 5 · not on yet · fits, no scroll', S.frame(S.step(1))) +
-    shot('S4b · ' + names[1] + ', done', 'step 2 of 5 · on · fits, no scroll', S.frame(S.step(1, true))) +
-    shot('S5 · ' + names[2], 'step 3 of 5 · not on yet · fits, no scroll', S.frame(S.step(2))) +
-    shot('S6 · ' + names[3], 'step 4 of 5 · not on yet · fits, no scroll', S.frame(S.step(3))) +
-    shot('S7 · ' + names[4], 'step 5 of 5 · not on yet · fits, no scroll', S.frame(S.step(4)));
+    stepShot(0) + stepShot(1) + stepShot(2) + stepShot(2, true) + stepShot(3) + stepShot(4) + stepShot(5);
 
   byId('s8').innerHTML =
-    shot('S8 · Done', '390 by 844 · button pinned · fits, no scroll', S.frame(S.done()));
+    shot('S9 · Done', '390 by 844 · button pinned · fits, no scroll', S.frame(S.done()));
 
   byId('c').innerHTML =
     shot('C1 · What LiMo counts', '1 of 3 · fits, no scroll', S.frame(S.intro(0))) +

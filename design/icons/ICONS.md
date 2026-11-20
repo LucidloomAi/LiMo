@@ -2,7 +2,7 @@
 
 Written by `node export.js`. Do not edit by hand: change `shapes.js` and run it again.
 
-45 icons.
+46 icons.
 
 | Name | Icon | Colour | What it is for |
 | --- | --- | --- | --- |
@@ -12,6 +12,7 @@ Written by `node export.js`. Do not edit by hand: change `shapes.js` and run it 
 | `guardian` | <img src="svg/guardian.svg" width="32" height="32" alt=""> | ink | A guardian |
 | `pc` | <img src="svg/pc.svg" width="32" height="32" alt=""> | ink | The master PC |
 | `phone` | <img src="svg/phone.svg" width="32" height="32" alt=""> | ink | A phone |
+| `call` | <img src="svg/call.svg" width="32" height="32" alt=""> | ink | A call, ringing or on |
 | `devices` | <img src="svg/devices.svg" width="32" height="32" alt=""> | ink | All of a child’s devices |
 | `apps` | <img src="svg/apps.svg" width="32" height="32" alt=""> | ink | Apps |
 | `account` | <img src="svg/account.svg" width="32" height="32" alt=""> | ink | A Windows account |

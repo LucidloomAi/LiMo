@@ -183,6 +183,18 @@
         ['dot', 'rect', { x: 20.2, y: 37.5, width: 7.6, height: 2.6, rx: 1.3 }],
       ],
     },
+    // A handset, drawn upright (the ear at the top, the mouth at the bottom,
+    // both facing right, the back bowed) and turned as handsets are drawn.
+    // Not a phone: the phone permission is about calls, so it has its own
+    // drawing. The pads are the faces of the ear and mouth pieces.
+    call: {
+      clay: 'ink', use: 'A call, ringing or on',
+      shapes: [
+        ['body', 'path', { d: 'M19.5 5.3 H29.8 a5.2 5.2 0 0 1 5.2 5.2 V13.6 a5.2 5.2 0 0 1 -5.2 5.2 a5.6 5.6 0 0 0 0 11.2 a5.2 5.2 0 0 1 5.2 5.2 V38.3 a5.2 5.2 0 0 1 -5.2 5.2 H19.5 C14.5 43.5 11.2 38.8 11.2 33.2 V15.6 C11.2 10 14.5 5.3 19.5 5.3 Z', transform: 'rotate(-45 24 24)' }],
+        ['top', 'path', { d: 'M29 5.3 H29.8 a5.2 5.2 0 0 1 5.2 5.2 V13.6 a5.2 5.2 0 0 1 -5.2 5.2 H29 a2 2 0 0 1 -2 -2 V7.3 a2 2 0 0 1 2 -2 Z', transform: 'rotate(-45 24 24)' }],
+        ['top', 'path', { d: 'M29 30 H29.8 a5.2 5.2 0 0 1 5.2 5.2 V38.3 a5.2 5.2 0 0 1 -5.2 5.2 H29 a2 2 0 0 1 -2 -2 V32 a2 2 0 0 1 2 -2 Z', transform: 'rotate(-45 24 24)' }],
+      ],
+    },
     devices: {
       clay: 'ink', use: 'All of a child’s devices',
       shapes: [

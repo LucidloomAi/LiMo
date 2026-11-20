@@ -201,9 +201,11 @@ over the cable.
   asks the guardian to agree. The button to go on stays switched off until
   the box is ticked.
 - Then one screen for each thing Android has to grant: notifications,
-  usage access, accessibility, battery and protection. Each says why LiMo
-  needs it and what Android will show, and carries a stamp that reads NOT
-  ON YET until Android itself says it is on. Nothing is taken on trust.
+  phone, usage access, accessibility, battery and protection. The phone
+  step is there so that a lock never hides a call: LiMo learns that a call
+  is ringing or on, never who is calling. Each screen says why LiMo needs
+  it and what Android will show, and carries a stamp that reads NOT ON YET
+  until Android itself says it is on. Nothing is taken on trust.
 - Then three screens for the child: what LiMo counts, what it never looks
   at, and how to ask for more time. The same three are in the app's "How
   it works" tab, with the child's own rules.
