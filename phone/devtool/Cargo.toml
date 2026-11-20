@@ -1,0 +1,57 @@
+[package]
+name = "limo-phone-dev"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+description = "LiMo phone devtool: puts a test family on a child's phone over the USB cable, before pairing over the network exists"
+publish = false
+
+[lib]
+name = "limo_phone_dev"
+
+[[bin]]
+name = "limo-phone-dev"
+path = "src/main.rs"
+
+[dependencies]
+# The rules core: the rules of the test family, the welcome grant, and the
+# home calendar for times said in the terminal.
+limo-core = { path = "../../core" }
+# The test family's own file on this PC, made and kept as the master PC
+# keeps the real family's.
+limo-hub = { path = "../../hub" }
+# The phone's engine: it reads back what the phone kept, as the phone would.
+limo-phone = { path = "../engine" }
+# The pairing file is JSON, as the README fixes it ("What LiMo's debug build must do").
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+# Wiping the typed PIN and the pairing file's bytes from memory when they
+# are no longer needed.
+zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
+# The PIN typed at a prompt that does not show it, with no unsafe code here.
+console = { version = "0.16.6", default-features = false, features = ["std"] }
+# Reading the manifest inside an APK, which is compressed with deflate.
+miniz_oxide = "0.8.9"
+# A random guardian password for the test family, never shown and never
+# kept: the hub needs one, and nothing in this tool asks for it.
+getrandom = "0.4.3"
+
+[dev-dependencies]
+# The test family's file in a temporary folder.
+tempfile = "3.27.0"
+
+# The guardian PIN is hashed slowly on purpose. Optimised dependencies in
+# debug and test builds keep it as fast as it is in the product, as in the
+# engine and the hub; overflow checks stay on.
+[profile.dev]
+opt-level = 1
+[profile.test]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 2
