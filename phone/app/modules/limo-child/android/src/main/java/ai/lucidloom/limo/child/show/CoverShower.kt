@@ -240,7 +240,10 @@ class CoverShower private constructor(private val app: Context, private val chil
       val svc = WatchService.current ?: return false
       val ctx = themed(svc)
       val parts = Parts(ctx, ShowAssets.of(ctx))
-      val card = WarningView.build(parts, warning) { core.dismissWarning() }
+      val card = WarningView.build(parts, warning) { how ->
+        core.dismissWarning()
+        Log.i(TAG, "show warning gone by=${how.toString().lowercase()}")
+      }
       val lp = overlay(0, WindowManager.LayoutParams.WRAP_CONTENT, cover = false)
       // Room for the card's hard shadow, inside the window, and no more: every touch outside it goes to the app.
       val holder = object : FrameLayout(ctx) {

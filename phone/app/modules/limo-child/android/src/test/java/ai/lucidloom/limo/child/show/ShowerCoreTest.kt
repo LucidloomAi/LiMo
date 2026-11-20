@@ -11,7 +11,7 @@ import org.junit.Test
  * The shower as a level, with no Android: the same order twice changes
  * nothing, a changed order changes the window, an order ended takes the
  * cover down at once; stepping aside for a screen the child opens from the
- * cover; LiMo's own screen never covered; the warning's thirty seconds.
+ * cover; LiMo's own screen never covered; the warning's ten seconds.
  */
 class ShowerCoreTest {
   private val cover = FakeCover()
@@ -165,37 +165,40 @@ class ShowerCoreTest {
   }
 
   @Test
-  fun aWarningFloatsForThirtySecondsOrUntilOk() {
+  fun aWarningFloatsForTenSecondsOrUntilOk() {
     core.warn(warning)
     assertEquals(listOf(warning), card.floated)
-    timer.pass(29_999)
-    assertTrue(card.up)
+    timer.pass(9_999)
+    assertTrue("not before ten seconds", card.up)
     timer.pass(1)
-    assertFalse(card.up)
+    assertFalse("gone at ten seconds", card.up)
     core.warn(warning)
     core.dismissWarning()
     assertFalse(card.up)
-    // The timer of a warning gone by OK takes nothing away later.
+    // The timer of a warning gone by OK or a swipe takes nothing away later.
     core.warn(warning)
-    timer.pass(10_000)
+    timer.pass(4_000)
     assertTrue(card.up)
-    timer.pass(20_000)
+    timer.pass(6_000)
     assertFalse(card.up)
   }
 
   @Test
   fun aNewWarningTakesThePlaceOfTheOldAndACoverTakesItAway() {
     core.warn(warning)
-    timer.pass(20_000)
+    timer.pass(6_000)
     val next = warning.copy(message = "1 minute of screen time left today.")
     core.warn(next)
-    timer.pass(20_000)
-    assertTrue("the second keeps its own thirty seconds", card.up)
+    timer.pass(6_000)
+    assertTrue("the second keeps its own ten seconds", card.up)
+    timer.pass(4_000)
+    assertFalse(card.up)
+    core.warn(next)
     show(lock())
     assertFalse(card.up)
     // Under a cover a warning is not floated.
     core.warn(warning)
-    assertEquals(2, card.floated.size)
+    assertEquals(3, card.floated.size)
   }
 
   @Test

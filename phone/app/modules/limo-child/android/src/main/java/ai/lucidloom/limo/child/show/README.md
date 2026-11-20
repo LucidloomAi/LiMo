@@ -165,11 +165,34 @@ finds an allowed app in front and orders nothing.
 **The card (F)** floats at the top of the screen, 8 under the status bar
 and 12 from the sides, over the child's own app: the bell, the engine's
 message and hint, a dashed line, the engine's when ("LOCKS ABOUT 9:47 PM")
-and OK. It goes by itself after thirty seconds, or at OK; a new warning
-takes its place with thirty seconds of its own; a cover that comes up takes
-it away. Its window is no larger than the card and its shadow, is not
-focusable (the app under it keeps the keyboard), and lets every touch
-outside it through (`FLAG_NOT_TOUCH_MODAL`).
+and OK. It goes by itself after ten seconds (long enough to read, short
+enough not to stand on a browser's address bar), or at once at OK or a
+swipe; a new warning takes its place with ten seconds of its own; a cover
+that comes up takes it away. Its window is no larger than the card and its
+shadow, is not focusable (the app under it keeps the keyboard), and lets
+every touch outside it through (`FLAG_NOT_TOUCH_MODAL`).
+
+**A swipe pushes it away**, up or to either side, as a person expects of
+something that floats at the top (`Swipe`, fed by the card's own view,
+`SwipeCard`):
+
+- A touch becomes a swipe once it has moved Android's own touch slop
+  (`ViewConfiguration`, about 8). A touch that only rests on the card and
+  lifts, or trembles less than that, is a tap, and a tap on the card's body
+  does nothing. Its way is settled then: sideways when it moved more across
+  than up or down, up when it moved more up than across; a touch that first
+  moves down is never a swipe.
+- A swipe pushes the card away the moment it has gone **48** its way
+  (`Look.SWIPE_AWAY`), or when the finger lifts after a quick flick of at
+  least **1,000 a second** on average (`Look.SWIPE_SPEED`, 1 a
+  millisecond). A slow, short drag leaves it where it is.
+- Until a touch is a swipe it goes on to what is under the finger, so OK
+  works as a button; once it is a swipe the card takes the rest of it, so
+  a swipe that starts on OK pushes the card away and OK is not pressed.
+- The card does not move with the finger: its window is only as large as
+  the card, and nothing new is drawn on it (no grip line; the drawing has
+  none). A screen reader, which cannot swipe on it, is offered the same as
+  its "dismiss" action.
 
 **Its two forms.** keep/ posts each warning as a notification too. So
 that it is not shown twice, keep/ asks `canFloatWarning()`: while the card
@@ -289,6 +312,7 @@ words, a reason, a code or a PIN.
 | `show cover drawn ms=<milliseconds>` | A new cover window's first frame, from the order (Android 10 and later). |
 | `show cover now nothing` | A cover window taken away. Not said when none was up. |
 | `show warning floated` | A warning card. |
+| `show warning gone by=<ok, swipe>` | The card put away by OK, or pushed away by a swipe (or a screen reader's dismiss). Not said when it goes by itself. |
 | `show home by=<service, intent, none>` | Go to the home screen: by the accessibility service's Home action, by Android's home intent, or not at all. |
 | `show emergency opened how=<emergency_dialler, dial_emergency, dial, none>` | Emergency call on a cover; from the ways out the same line ends with ` from=ways_out`. |
 | `show back_to_call how=<in_call_screen, dial, none>` | Back to the call. |
@@ -343,7 +367,8 @@ tests.
 | Test | What |
 | --- | --- |
 | `CoverPlanTest` (12) | The lock's and the block screen's decisions: rows, pictures and words for the time used up and bedtime; the tiles (the dialler first, each once, only those Android can open, never LiMo); no way out and the engine's words; the wait greying the code and the PIN; a request and its stamp's colour; Back to the call pinned above Emergency call on both; the label with and without a name, nothing else changing; nothing ordered; a picture of the set for every reason; the drawings' words, the counter, the clock and the end of today |
-| `ShowerCoreTest` (12) | The shower as a level: the same order every second drawing once; an order ended taking the cover down at once; a changed order changing the window; a window Android took away drawn again; stepping aside for the emergency dialler until the engine sees it, at most three seconds, an order of nothing followed and the timer then drawing nothing; LiMo's own screen never covered, even by an order of the lock, and the orders leading when it closes; a call ringing as it closes never covered; the warning's thirty seconds, OK, a new one, a cover taking it away, no service |
+| `ShowerCoreTest` (12) | The shower as a level: the same order every second drawing once; an order ended taking the cover down at once; a changed order changing the window; a window Android took away drawn again; stepping aside for the emergency dialler until the engine sees it, at most three seconds, an order of nothing followed and the timer then drawing nothing; LiMo's own screen never covered, even by an order of the lock, and the orders leading when it closes; a call ringing as it closes never covered; the warning's ten seconds and not before, OK, a new one with ten of its own, a cover taking it away, no service |
+| `WarningSwipeTest` (10) | The real card, built as the shower builds it and wired to a real `ShowerCore`, under real touches: gone after ten seconds and not before; OK puts it away at once, its timer with it; a swipe up pushes it away the moment it has gone 48; a swipe to the right and to the left; a quick short flick does and a slow short drag does not; a tap on its body and a resting, trembling touch do not; a swipe that first goes down does not, even if it turns up; a swipe that starts on OK pushes it away without pressing OK; a screen reader's dismiss; the card still with its one button and its words |
 | `WaysOutModelTest` (10) | Each way out through right and wrong answers: a right code (bytes sent, digits wiped, the engine's words, closing), a wrong one, a malformed one, the wait, a request and the core's refusal, each PIN choice and Today, Back wiping, a failure; the screen rebuilt in the middle of a call getting the answer and never the digits |
 | `WaysOutEngineTest` (3) | On the real engine through the host: the lock's plan, a wrong PIN and a right code in the engine's words, a request waiting on the lock with asking no longer offered, five wrong codes greying the rows, the right PIN made to wait; the shower following the real orders as a level, the dialler never covered |
 | `LookTest` (5) | The table against the tokens and the drawings' style sheet: colours, shapes, the lock, the ways out, the warning, every kind of text, nothing under 12 |
@@ -386,18 +411,27 @@ paired by the development tool and `adb logcat -s LiMo LiMoWatch`:
 6. **Secrets.** A screenshot of B2 or B3 is refused, the recent apps list
    shows no picture of it, and nothing typed is in the log.
 7. **The warning.** At 15, 5 and 1 minute in a game: the card at the top,
-   gone after 30 seconds or at OK; the game under it still takes touches
+   gone after 10 seconds or at OK; the game under it still takes touches
    outside the card and keeps its keyboard (try a game's chat or a
    browser's search field with the keyboard up). In the shade, the warning
    notification without a heads up or a sound. Then switch accessibility
    off: the next warning is the heads up notification.
-8. **Turns, folds and sizes.** Turn the phone on the lock: laid out again,
+8. **The swipe.** Over a browser, with the card on its address bar: a
+   swipe up pushes the card away at once (`show warning gone by=swipe`) and
+   the address bar can be tapped; so does a swipe to the left and to the
+   right, and a quick flick. A tap on the card's body, a finger resting on
+   it and a swipe down leave it where it is; a swipe that starts on OK
+   pushes it away without OK. Whether 48 and 1,000 a second feel right
+   under a thumb, and whether a swipe ever starts by mistake while the
+   child scrolls the app just under the card. With TalkBack: "dismiss" in
+   its actions.
+9. **Turns, folds and sizes.** Turn the phone on the lock: laid out again,
    the cut out kept clear. Font size and display size to the largest:
    nothing cut, Emergency call in sight. Gesture navigation and three
    buttons both.
-9. **TalkBack.** On the lock: the title said when it comes up, then the
-   order above; every button and tile named.
-10. **The fonts and the logo.** Fraunces, Instrument Sans and Spline Sans
+10. **TalkBack.** On the lock: the title said when it comes up, then the
+    order above; every button and tile named.
+11. **The fonts and the logo.** Fraunces, Instrument Sans and Spline Sans
     Mono at their weights, and the logo beside "MADE BY". If the mark shows
     only words, the logo was not found by name (see Left open).
 
@@ -458,12 +492,13 @@ show/
   Type.kt             the fonts and the logo, the line heights, PaperText
   Parts.kt            the parts a screen is made of
   CoverPage.kt        the screen frame, the lock and the block screen
-  WarningView.kt      the warning card
+  WarningView.kt      the warning card, and its view that takes a swipe
+  Swipe.kt            whether a touch is a swipe that pushes the warning away (no Android)
   WaysOutPage.kt      B1, B2 and B3
   CoverShower.kt      the host's Shower: the overlay windows, the taps, the apps, the emergency dialler
   WaysOutActivity.kt  LiMo's own screen of the ways out
 src/test/java/ai/lucidloom/limo/child/show/
   ShowFixtures.kt     made up orders in the engine's words, and the fakes
   CoverPlanTest.kt, ShowerCoreTest.kt, WaysOutModelTest.kt, WaysOutEngineTest.kt,
-  LookTest.kt, PicturesTest.kt, ShowHouseRulesTest.kt
+  LookTest.kt, PicturesTest.kt, WarningSwipeTest.kt, ShowHouseRulesTest.kt
 ```

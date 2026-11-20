@@ -222,8 +222,14 @@ internal object Look {
   const val WARN_FOOT_PAD = 10f
   const val WARN_OK_PAD_H = 22f
 
-  /** A warning goes by itself after this long, in milliseconds. */
-  const val WARNING_SHOWN_MS = 30_000L
+  /** A warning goes by itself after this long, in milliseconds: long enough to read, short enough not to stand in the way. */
+  const val WARNING_SHOWN_MS = 10_000L
+
+  /** A swipe up or to either side pushes the warning away once it has gone this far. */
+  const val SWIPE_AWAY = 48f
+
+  /** Or when the finger lifts after a flick this quick on average: dp a millisecond, so 1,000 dp a second. */
+  const val SWIPE_SPEED = 1f
 
   // Type
 

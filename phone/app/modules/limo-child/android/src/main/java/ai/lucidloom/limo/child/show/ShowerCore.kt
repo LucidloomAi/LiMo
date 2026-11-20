@@ -69,8 +69,9 @@ internal data class WarningPlan(val message: String, val hint: String, val whenW
  * order of nothing, so a ringing call, a dialler or LiMo is never covered
  * by a cover kept from before.
  *
- * **The warning** floats for [Look.WARNING_SHOWN_MS] and goes by itself, or
- * at OK. A cover that comes up takes it away.
+ * **The warning** floats for [Look.WARNING_SHOWN_MS] (ten seconds) and goes
+ * by itself, or at once at OK or a swipe up or to either side
+ * ([dismissWarning]). A cover that comes up takes it away.
  */
 internal class ShowerCore(
   private val cover: CoverSurface,
@@ -136,7 +137,7 @@ internal class ShowerCore(
     }
   }
 
-  /** OK on the warning. */
+  /** OK on the warning, or a swipe that pushed it away: gone at once, its timer with it. */
   fun dismissWarning() {
     cardTimer?.close()
     cardTimer = null
