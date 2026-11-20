@@ -136,9 +136,12 @@
       what: 'Android asks you to make LiMo a device admin app. Choose <strong class="su-name">Activate</strong>.', button: 'Turn on protection' }
   ];
 
-  /** Step `at` (0 to 5), not yet on, or done. */
-  function step(at, done) {
+  /** Step `at` (0 to 5), not yet on, or done. With stuck, Android's screen
+      has been opened twice and the step is still off, so the guardian may go
+      on without it; the main button stays, to try again. */
+  function step(at, done, stuck) {
     var s = STEPS[at];
+    var line = done ? 'Android says it is on.' : stuck ? 'Android has not turned this on. You can go on and come back to it from Today.' : '';
     return screen(top(stepCount(at)) +
       '<div class="ph-card su-card">' + icon(s.icon, 64) +
         '<h1 class="ph-h1">' + s.title + '</h1>' +
@@ -148,7 +151,9 @@
         '</div>' +
         // The line under the stamp has its room kept, so nothing moves.
         '<div class="su-state">' + (done ? '<span class="ph-st teal">On</span>' : '<span class="ph-st coral">Not on yet</span>') +
-          '<p>' + (done ? 'Android says it is on.' : '') + '</p></div>' +
+          '<p>' + line + '</p></div>' +
+        // The way on without the step comes under the line, where nothing else is.
+        (stuck && !done ? '<div class="ph-btn su-goon">Go on without it</div>' : '') +
       '</div>',
       done ? 'Next' : s.button);
   }

@@ -49,7 +49,10 @@
 .su-state { margin-top: 16px; }
 .su-state .ph-st { display: inline-block; }
 /* The line under the stamp has its room kept, so nothing moves when it comes. */
-.su-state p { min-height: 20px; margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--ink-soft); }
+.su-state p { min-height: 20px; margin: 8px 0 0; font-size: 14px; line-height: 20px; color: var(--ink-soft); text-wrap: pretty; }
+/* Go on without it: outlined, never marigold, because the pinned button is
+   still the way the step is meant to go. */
+.su-card > .su-goon { margin-top: 14px; }
 
 /* Done: a teal tick for each step. */
 .su-oks { margin-top: 12px; }

@@ -206,6 +206,9 @@ over the cable.
   is ringing or on, never who is calling. Each screen says why LiMo needs
   it and what Android will show, and carries a stamp that reads NOT ON YET
   until Android itself says it is on. Nothing is taken on trust.
+- A step Android will not turn on does not trap the guardian. After two
+  tries the screen offers to go on without it, and Today's banner then
+  names the step.
 - Then three screens for the child: what LiMo counts, what it never looks
   at, and how to ask for more time. The same three are in the app's "How
   it works" tab, with the child's own rules.

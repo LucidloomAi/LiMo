@@ -25,7 +25,7 @@
   .shot { flex: none; width: min-content; }
   /* Three lines of room, so the phones in a row start level. */
   .cap { min-height: calc(3 * 1.45em); margin: 0 0 10px; font: 500 12px/1.45 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
-  .cap b { display: block; font-weight: 600; color: var(--ink); }
+  .cap b { display: block; font-weight: 600; color: var(--ink); text-wrap: balance; }
 
   .order { max-width: 860px; background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 rgba(27,38,56,.85); padding: 16px; }
   .line { display: flex; gap: 14px; padding: 10px 0; border-top: 1.5px dashed var(--border); font-size: 14.5px; line-height: 1.5; }
@@ -55,7 +55,7 @@
   <div class="shots" id="s1"></div>
 
   <h2>Six permissions, one at a time</h2>
-  <p class="lead">One layout for all six: why LiMo needs it, what Android will show, and where it stands. Each is drawn not yet on; Usage access is drawn a second time, done.</p>
+  <p class="lead">One layout for all six: why LiMo needs it, what Android will show, and where it stands. Each is drawn not yet on; Usage access is drawn a second time, done, and Accessibility a second time, after Android’s screen was opened twice and it is still off. A step Android will not turn on never traps a guardian: setup goes on, and Today’s banner names the step.</p>
   <div class="shots" id="s3"></div>
 
   <h2>Done</h2>
@@ -96,16 +96,19 @@
     shot('S2 · What LiMo does here', '390 by 844 · Continue pinned, switched off · fits', S.frame(S.agree())) +
     shot('S2b · Ticked', 'only the box and the button · Continue switched on', S.crop(S.agreed()));
 
-  // The six steps are S3 to S8; Usage access, the third, is drawn a second time, done.
+  // The six steps are S3 to S8. Usage access, the third, is drawn a second
+  // time, done (S5b); Accessibility, the fourth, a second time after Android's
+  // screen was opened twice and it is still off (S6c).
   var names = ['Notifications', 'Phone', 'Usage access', 'Accessibility', 'Battery', 'Protection'];
-  function stepShot(at, done) {
-    var id = 'S' + (at + 3) + (done ? 'b' : '');
-    return shot(id + ' · ' + names[at] + (done ? ', done' : ''),
-      'step ' + (at + 1) + ' of ' + names.length + ' · ' + (done ? 'on' : 'not on yet') + ' · fits, no scroll',
-      S.frame(S.step(at, done)));
+  function stepShot(at, state) {
+    var id = 'S' + (at + 3) + (state === 'done' ? 'b' : state === 'stuck' ? 'c' : '');
+    var name = names[at] + (state === 'done' ? ', done' : state === 'stuck' ? ', Android has not turned it on' : '');
+    var sub = 'step ' + (at + 1) + ' of ' + names.length + ' · ' +
+      (state === 'done' ? 'on' : state === 'stuck' ? 'opened twice' : 'not on yet') + ' · fits, no scroll';
+    return shot(id + ' · ' + name, sub, S.frame(S.step(at, state === 'done', state === 'stuck')));
   }
   byId('s3').innerHTML =
-    stepShot(0) + stepShot(1) + stepShot(2) + stepShot(2, true) + stepShot(3) + stepShot(4) + stepShot(5);
+    stepShot(0) + stepShot(1) + stepShot(2) + stepShot(2, 'done') + stepShot(3) + stepShot(3, 'stuck') + stepShot(4) + stepShot(5);
 
   byId('s8').innerHTML =
     shot('S9 · Done', '390 by 844 · button pinned · fits, no scroll', S.frame(S.done()));
