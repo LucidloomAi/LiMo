@@ -106,6 +106,13 @@ class Host private constructor(context: Context) : PhoneHost {
     if (!posted) answerOnMain { answer(WayOut.Failed) }
   }
 
+  override fun tryGuardPin(pin: ByteArray, answer: (WayOut<TryAnswer>) -> Unit) {
+    val posted = onEngine("guard_pin", fallback = { pin.fill(0) }) {
+      core.tryGuardPin(pin).also { a -> answerOnMain { answer(a) } }
+    }
+    if (!posted) answerOnMain { answer(WayOut.Failed) }
+  }
+
   override fun finishSetup(answer: (WayOut<Boolean>) -> Unit) {
     val posted = onEngine("setup") { core.finishSetup().also { a -> answerOnMain { answer(a) } } }
     if (!posted) answerOnMain { answer(WayOut.Failed) }

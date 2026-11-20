@@ -16,6 +16,15 @@ the Rust engine instead; these are only Android's labels.
     device admin app, which cannot be removed until it is switched off.
     -->
     <string name="limo_admin_description">LiMo asks for this only so that it cannot be removed from this phone while this is on. It uses no other power of a device admin app: it cannot wipe the phone, lock it, change its screen lock or switch off its camera. To remove LiMo, switch this off first.</string>
+    <!--
+    The device admin (keep/AdminReceiver), when someone asks to switch it off:
+    Android's Settings shows these words in its own dialog before it does,
+    with OK and Cancel. LiMo's guard covers that dialog until a guardian types
+    the PIN, so a guardian is the one who reads them. They must never be
+    empty: with no words Settings switches the admin off at once, with no
+    dialog.
+    -->
+    <string name="limo_admin_disable_warning">Switching this off lets LiMo be removed from this phone.</string>
     <!-- keep/: the two notification channels, as Android lists them in LiMo's notification settings. -->
     <string name="limo_channel_time_left">Time left</string>
     <string name="limo_channel_time_left_about">How much screen time is left today.</string>

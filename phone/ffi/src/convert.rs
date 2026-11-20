@@ -15,7 +15,8 @@ use serde::Serialize;
 
 use crate::shapes::{
     AppEntry, BlockCover, CallState, Cover, CoverKind, EngineError, Front, FrontKind, GrantOutcome, GrantTaken,
-    LinkError, LinkEvent, LinkEventKind, LoadProblem, LoadProblemKind, LockCover, LockWhy, NothingToDo, PhoneFacts,
+    GuardCover, GuardedPage, LinkError, LinkEvent, LinkEventKind, LoadProblem, LoadProblemKind, LockCover, LockWhy,
+    NothingToDo, PhoneFacts,
     PhoneOrders, PhoneView, PinAction, PinActionKind, RequestAnswer, RequestLine, RequestShown, TimeLeft,
     TimeRequest, TryAnswer, TryKind, WarningCause, WarningShown, Way, WayRow,
 };
@@ -107,7 +108,24 @@ pub(crate) fn facts_in(facts: PhoneFacts) -> Result<engine::PhoneFacts, EngineEr
             battery: facts.permissions.battery,
             protection: facts.permissions.protection,
         },
+        guarded: facts.guarded.map(guarded_in),
     })
+}
+
+/// A guarded page, as the engine takes it.
+pub(crate) fn guarded_in(page: GuardedPage) -> engine::GuardedPage {
+    match page {
+        GuardedPage::DeviceAdmin => engine::GuardedPage::DeviceAdmin,
+        GuardedPage::Accessibility => engine::GuardedPage::Accessibility,
+    }
+}
+
+/// A guarded page, as it crosses.
+fn guarded_out(page: engine::GuardedPage) -> GuardedPage {
+    match page {
+        engine::GuardedPage::DeviceAdmin => GuardedPage::DeviceAdmin,
+        engine::GuardedPage::Accessibility => GuardedPage::Accessibility,
+    }
 }
 
 /// What is in front, as the engine takes it. An app needs its package; the
@@ -166,13 +184,35 @@ pub(crate) fn orders_out(orders: engine::PhoneOrders) -> Result<PhoneOrders, Eng
 
 fn cover_out(cover: engine::Cover) -> Cover {
     match cover {
-        engine::Cover::Nothing => Cover { kind: CoverKind::Nothing, block: None, lock: None },
+        engine::Cover::Nothing => Cover { kind: CoverKind::Nothing, block: None, lock: None, guard: None },
         engine::Cover::Block { package, title, message, go_home, call_on, back_to_call } => Cover {
             kind: CoverKind::Block,
             block: Some(BlockCover { package_name: package, title, message, go_home, call_on, back_to_call }),
             lock: None,
+            guard: None,
         },
-        engine::Cover::Lock(screen) => Cover { kind: CoverKind::Lock, block: None, lock: Some(lock_out(*screen)) },
+        engine::Cover::Lock(screen) => {
+            Cover { kind: CoverKind::Lock, block: None, lock: Some(lock_out(*screen)), guard: None }
+        }
+        engine::Cover::Guard(screen) => {
+            Cover { kind: CoverKind::Guard, block: None, lock: None, guard: Some(guard_out(*screen)) }
+        }
+    }
+}
+
+fn guard_out(screen: engine::GuardScreen) -> GuardCover {
+    GuardCover {
+        page: guarded_out(screen.page),
+        stamp: screen.stamp,
+        title: screen.title,
+        message: screen.message,
+        can_use_pin: screen.can_use_pin,
+        try_wait_until: screen.try_wait_until,
+        wait_words: screen.wait_words,
+        ways: screen.ways.into_iter().map(way_row_out).collect(),
+        nothing_to_do: screen.nothing_to_do.map(|(bold, line)| NothingToDo { bold, line }),
+        call_on: screen.call_on,
+        back_to_call: screen.back_to_call,
     }
 }
 
@@ -477,6 +517,7 @@ mod tests {
                 battery: false,
                 protection: true,
             },
+            guarded: Some(GuardedPage::DeviceAdmin),
         }
     }
 
@@ -510,8 +551,21 @@ mod tests {
                     battery: false,
                     protection: true,
                 },
+                guarded: Some(engine::GuardedPage::DeviceAdmin),
             }
         );
+        // Each guarded page crosses to its own, and none to none.
+        for page in engine::GuardedPage::ALL {
+            let mut f = facts(front(FrontKind::Home, None, None));
+            f.guarded = Some(match page {
+                engine::GuardedPage::DeviceAdmin => GuardedPage::DeviceAdmin,
+                engine::GuardedPage::Accessibility => GuardedPage::Accessibility,
+            });
+            assert_eq!(facts_in(f).unwrap().guarded, Some(page));
+        }
+        let mut none = facts(front(FrontKind::Home, None, None));
+        none.guarded = None;
+        assert_eq!(facts_in(none).unwrap().guarded, None);
         // Each permission crosses to its own field, and only to it.
         for permission in engine::Permission::ALL {
             let mut f = facts(front(FrontKind::Home, None, None));

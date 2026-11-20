@@ -3,6 +3,7 @@ package ai.lucidloom.limo.child.watch
 import ai.lucidloom.limo.child.ffi.CallState
 import ai.lucidloom.limo.child.ffi.Front
 import ai.lucidloom.limo.child.ffi.FrontKind
+import ai.lucidloom.limo.child.ffi.GuardedPage
 import ai.lucidloom.limo.child.ffi.PhoneFacts
 import ai.lucidloom.limo.child.ffi.PhonePermissions
 
@@ -40,6 +41,7 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
   }
 
   private val front = FrontWatch(phone.ownPackage, log)
+  private val guard = GuardWatch(log)
   private val labels = LabelCache()
   private val failedAt = HashMap<String, Long>()
 
@@ -73,6 +75,7 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
   private var permissionsAtMs: Long? = null
   private var serviceRunning = false
   private var lastPick: Pick? = null
+  private var lastGuarded: GuardedPage? = null
 
   /**
    * **The facts now: the one place they are assembled.** Reads every fact,
@@ -90,6 +93,8 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
     val pick = front.pick(roles)
     if (pick != lastPick) logFront(pick)
     lastPick = pick
+    val guarded = guardedNow(pick, now)
+    lastGuarded = guarded
     val facts = PhoneFacts(
       wallSecs = wallMs.floorDiv(1_000L),
       elapsedMs = now,
@@ -104,6 +109,7 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
       inReach = inReach,
       prodded = prodded,
       permissions = enginePermissions(permissions, now),
+      guarded = guarded,
     )
     val beside = front.alsoVisible(roles, phone.stopsReported).map(::toFront)
     return WatchLook(facts, beside, permissions, pick.unknownBecause)
@@ -141,14 +147,38 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
     return WatchLook(facts, emptyList(), permissions, UnknownBecause.USAGE_UNREADABLE)
   }
 
-  /** A window event from the accessibility service. True when what is in front changed. */
-  fun windowEvent(packageName: String?): Boolean {
+  /**
+   * A window event from the accessibility service: its package, and [page],
+   * what its class name matched in [Guarded.PAGES] (only ever for Settings
+   * and the installer, null for anything else). True when what is in front,
+   * or the guarded page in front, changed.
+   */
+  fun windowEvent(packageName: String?, page: GuardedPage? = null): Boolean {
     val now = elapsedNow()
     refreshRoles(now)
-    if (front.proposal(packageName, now, roles)) {
+    val wallMs = remembered(wall, now) { phone.wallMs() }
+    // A page held by the guard may have been left: usage says at once.
+    val held = guard.holdsFor(packageName)
+    guard.windowEvent(packageName, page, wallMs, now)
+    if (front.proposal(packageName, now, roles) || page != null || held) {
       callNow(now)
-      readUsage(now, remembered(wall, now) { phone.wallMs() })
+      readUsage(now, wallMs)
     }
+    return pickChanged()
+  }
+
+  /**
+   * Android asked LiMo's device admin receiver whether it may be switched
+   * off: the guard is raised at once for what is in front (Settings), read
+   * from usage now. True when the guarded page in front changed.
+   */
+  fun adminOffAsked(): Boolean {
+    val now = elapsedNow()
+    refreshRoles(now)
+    val wallMs = remembered(wall, now) { phone.wallMs() }
+    readUsage(now, wallMs)
+    val pick = front.pick(roles)
+    guard.adminOffAsked(pick.packageName ?: front.lastWindow, wallMs, now)
     return pickChanged()
   }
 
@@ -247,8 +277,15 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
     val changed = pick != lastPick
     if (changed) logFront(pick)
     lastPick = pick
-    return changed
+    val guarded = guardedNow(pick, elapsedNow())
+    val guardChanged = guarded != lastGuarded
+    lastGuarded = guarded
+    return changed || guardChanged
   }
+
+  /** The guarded page in front now, as [GuardWatch] says from what the front watch knows. */
+  private fun guardedNow(pick: Pick, nowMs: Long): GuardedPage? =
+    guard.now(pick, front.track.frontSinceWallMs, front.lastWindow, front.usage == UsageState.ON, nowMs)
 
   private fun logFront(pick: Pick) {
     val kind = pick.kind.name.lowercase()

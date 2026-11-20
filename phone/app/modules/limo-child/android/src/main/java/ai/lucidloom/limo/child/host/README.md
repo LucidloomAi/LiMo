@@ -53,6 +53,7 @@ Every answer comes back on the main thread. Nothing throws.
 | `askForTime(minutes, reason) { answer -> }` | The child asks for more time, with the reason typed (or empty). `WayOut.Done(TimeRequest)`, or `WayOut.Refused(e)` with the core's own words in `e.message`, such as "A request from this device is still waiting for an answer.". |
 | `tryCode(bytes) { answer -> }` | A one time code typed on the lock, as UTF-8 bytes. `WayOut.Done(TryAnswer)` with the engine's words (`message`, `opensNow`), whatever the kind. |
 | `tryPin(bytes, PinAction(...)) { answer -> }` | A guardian's PIN, the same way; the action (`ADD_MINUTES` with minutes, `UNLOCK_UNTIL`, `CONFIRM_RELEASE`) is the activity's to know. |
+| `tryGuardPin(bytes) { answer -> }` | A guardian's PIN typed on the guard, the same way: a right one opens the pages that could switch LiMo off or remove it for five minutes (`RELEASE_CONFIRMED`, with the engine's words for until when); wrong ones count with the lock's. |
 
 A way out's answer is one of `Done`, `Refused` (the core said no, in its
 words), `NotPaired`, or `Failed` (something failed inside LiMo and is in the
@@ -201,9 +202,9 @@ a code, a PIN, nor an error's own words.
 | `host failed what=<what> error=<kind>` | Anything else that failed; at most once a minute for each. |
 | `host report_ordered no_link` | Never expected before the link. |
 | `note <the engine's JSON>` | Each of the engine's notes for the guardian. |
-| `way_out <ask, code, pin> answer=<done, added, unlocked, wrong, must_wait, ...>` | Each way out, by the kind of its answer. |
+| `way_out <ask, code, pin, guard_pin> answer=<done, added, unlocked, release_confirmed, wrong, must_wait, ...>` | Each way out, the guard's PIN among them, by the kind of its answer. |
 | `host setup <finished, already, refused error=CannotCheck, not_paired, failed>` | Setup finished on the phone, or asked for again. |
-| `cover now nothing`, `cover now block package=<package>`, `cover now lock why=<the engine's reason, such as time_used_up>`, `warning now cause=<time_runs_out, blocked_hours_start, unlock_ends> minutes=<minutes>` | The stand in shower: each cover as it changes, and each warning, while show/'s shower is not installed in the process. |
+| `cover now nothing`, `cover now block package=<package>`, `cover now lock why=<the engine's reason, such as time_used_up>`, `cover now guard page=<device_admin, accessibility>`, `warning now cause=<time_runs_out, blocked_hours_start, unlock_ends> minutes=<minutes>` | The stand in shower: each cover as it changes, and each warning, while show/'s shower is not installed in the process. |
 
 Once `keep/Keeper.start` has installed show/'s shower, the covers and the
 warnings are show/'s to log, in its own lines (show/README.md, "What it
@@ -244,6 +245,7 @@ its orders and to fail on purpose.
 | `HostTroubleTest.aPairingWhoseStateCannotBeKeptChangesNothing` | A pairing that cannot be written: refused, the secret wiped, the engine made for it closed, still not paired, nothing ticking, nothing told |
 | `HostTroubleTest.withTheScreenOffNothingTicksEverySecondAndTheAlarmWakesTheHost` | The screen off: one tick at once, the time left paused, at most one tick in ten minutes, the alarm at most fifteen minutes away and firing, set again; the screen on: a tick at once and every second again |
 | `HostTroubleTest.forgettingThePairingStopsEverything` | The state deleted, no tick, no alarm, no watching, nothing covered, the keeper cleared, told; a way out answered `NotPaired` |
+| `HostGuardTest` (2) | The watch saying the device admin's page is in front: the guard to the shower at once, noted by its page; a wrong PIN on it wiped, kept before the answer, still guarded; the right one wiped, the guard gone by the time the answer comes and for five minutes, then back; logged by kind, never the PIN; the stand in shower's line for the guard, by its page only |
 | `HostNameTest` (6) | The name from a pairing cleaned and kept beside the state, read by a new process, removed by forgetting, told, never logged; a pairing with no name keeping none and removing an older one; a name file lost or damaged is no name, and a name that cannot be written leaves the phone paired; not paired, no name whatever the file holds; cleaning (direction marks, control characters, cut at 40 without splitting a character); the file read back exactly, anything else refused |
 | `HostHouseRulesTest` (2) | No log line in host/, keep/ or dev/ interpolates a label, the child's name, a reason, a message, words, a title, a welcome, a secret, a code or a PIN; no dash punctuation in their files, READMEs, the module's words and manifests |
 

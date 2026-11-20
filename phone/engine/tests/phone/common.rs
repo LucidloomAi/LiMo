@@ -22,8 +22,8 @@ use std::collections::BTreeMap;
 use limo_core::{CivilDate, DeviceKind, DeviceState, GrantOutcome, RuleSet};
 use limo_hub::{AgeBand, Hub};
 use limo_phone::{
-    CallState, Cover, Front, LockScreen, PhoneEngine, PhoneFacts, PhoneNote, PhoneOrders, PhonePermissions,
-    PhoneView, WarningShown, app_in_use, may_cover,
+    CallState, Cover, Front, GuardScreen, GuardedPage, LockScreen, PhoneEngine, PhoneFacts, PhoneNote, PhoneOrders,
+    PhonePermissions, PhoneView, WarningShown, app_in_use, may_cover,
 };
 use tempfile::TempDir;
 
@@ -127,6 +127,8 @@ pub struct Family {
     /// False while the link is up but the master does not answer.
     pub master_answers: bool,
     pub permissions: PhonePermissions,
+    /// The page in front that the host says could switch LiMo off, if any.
+    pub guarded: Option<GuardedPage>,
     /// The orders of the last call.
     pub orders: PhoneOrders,
     /// Every warning shown, with when, in order.
@@ -196,6 +198,7 @@ impl Family {
             in_reach: false,
             master_answers: true,
             permissions: PhonePermissions::ALL,
+            guarded: None,
             orders: PhoneOrders {
                 cover: Cover::Nothing,
                 time_left: limo_phone::TimeLeft {
@@ -327,6 +330,7 @@ impl Family {
             in_reach: self.in_reach,
             prodded,
             permissions: self.permissions,
+            guarded: self.guarded,
         }
     }
 
@@ -433,6 +437,14 @@ impl Family {
         }
     }
 
+    /// The guard covering the phone.
+    pub fn guard(&self) -> GuardScreen {
+        match &self.orders.cover {
+            Cover::Guard(screen) => (**screen).clone(),
+            other => panic!("not guarded: {other:?}"),
+        }
+    }
+
     /// The engine's view of the phone.
     pub fn view(&self) -> PhoneView {
         self.engine.as_ref().unwrap().view().unwrap()
@@ -497,6 +509,24 @@ impl Family {
                 assert_eq!((*on, back_to_call), (call_on, &back));
             }
             _ => {}
+        }
+        // The guard covers a guarded page exactly when nothing else does, a
+        // right PIN does not keep such pages open, and the page is one to
+        // guard (the device admin's only while the protection is on); it
+        // offers the PIN only.
+        let open = self.engine.as_ref().unwrap().guard_open_until().is_some();
+        let to_guard = facts.guarded.is_some_and(|page| {
+            page != GuardedPage::DeviceAdmin || facts.permissions.protection
+        });
+        let guard_due = to_guard && may_cover(facts) && decision.allowed && !open;
+        match &orders.cover {
+            Cover::Guard(screen) => {
+                assert!(guard_due, "a guard where none is due: {facts:?}, open {open}");
+                assert_eq!(facts.guarded, Some(screen.page));
+                assert_eq!((screen.call_on, &screen.back_to_call), (call_on, &back));
+                assert!(screen.ways.iter().all(|w| w.way == limo_phone::Way::Pin), "the guard offers the PIN only");
+            }
+            other => assert!(!guard_due, "a guarded page not guarded: {facts:?}, covered by {other:?}"),
         }
         if orders.time_left.counting {
             assert!(app_in_use(facts).is_some(), "counting with nothing in use");

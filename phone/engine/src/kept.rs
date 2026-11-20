@@ -1,8 +1,8 @@
 //! What the phone keeps: the core's device state and the engine's own notes
 //! (the stretch of use not yet recorded, the last look at which the child's
 //! time was being counted, LiMo's clock, the notes for the guardian, each
-//! app's use today, whether setup is finished), as one versioned blob the
-//! host writes.
+//! app's use today, whether setup is finished, the guard kept open by a
+//! guardian's PIN), as one versioned blob the host writes.
 //!
 //! **Each app's use today**, for the child's Today screen, is added up where
 //! the device state records use, from the slices it makes, so the two always
@@ -33,9 +33,12 @@ use limo_core::{Decision, DeviceState, LockReason, Slice};
 use serde::{Deserialize, Serialize};
 
 use crate::error::LoadProblem;
-use crate::facts::{Permission, PhoneFacts, PhonePermissions};
+use crate::facts::{GuardedPage, Permission, PhoneFacts, PhonePermissions};
 use crate::orders::PhoneNote;
-use crate::{CLOCK_JUMP_MS, MAX_APPS_A_DAY, MAX_COUNTED_STEP_MS, MAX_NOTES_KEPT, NOT_WATCHED_NOTE_MS, STATE_FORMAT};
+use crate::{
+    CLOCK_JUMP_MS, GUARD_OPEN_SECS, MAX_APPS_A_DAY, MAX_COUNTED_STEP_MS, MAX_NOTES_KEPT, NOT_WATCHED_NOTE_MS,
+    STATE_FORMAT,
+};
 
 /// The first line of every kept state.
 const MAGIC: &str = "limo-phone-state";
@@ -100,6 +103,26 @@ pub(crate) struct ClockSeen {
 pub(crate) struct BlockedNoted {
     day: i64,
     package: String,
+}
+
+/// A guarded page noted for a day.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct GuardNoted {
+    day: i64,
+    page: GuardedPage,
+}
+
+/// The guarded pages kept open by a right guardian PIN. Measured by the
+/// elapsed count on one start of the phone, so that no clock set by hand
+/// can make it last longer, and a restart of the phone closes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct GuardOpen {
+    /// The start of the phone and the elapsed count it opened at; None when
+    /// the PIN came before any call in this process, and then it opens at
+    /// the next call.
+    from: Option<(u32, u64)>,
+    /// Until when, by LiMo's clock, for the words.
+    until: i64,
 }
 
 /// One app's recorded use on one day, whether its time counts or not.
@@ -209,6 +232,12 @@ pub(crate) struct Kept {
     /// [`Setup::KeptBefore`]).
     #[serde(default = "Setup::kept_before")]
     setup: Setup,
+    /// While a right guardian PIN keeps the guarded pages open.
+    #[serde(default)]
+    guard_open: Option<GuardOpen>,
+    /// The guarded pages noted, once a day for each.
+    #[serde(default)]
+    guard_noted: Vec<GuardNoted>,
 }
 
 /// How a kept state differs from the one last saved.
@@ -248,7 +277,51 @@ impl Kept {
             blocked_noted: Vec::new(),
             apps_day: None,
             setup: Setup::NotFinished,
+            guard_open: None,
+            guard_noted: Vec::new(),
         }
+    }
+
+    /// True while a right guardian PIN keeps the guarded pages open, at the
+    /// call made at `boot` and `elapsed_ms`. It closes for good, and is no
+    /// longer kept, when [`GUARD_OPEN_SECS`] have passed by the elapsed
+    /// count, when the phone has started again, and when the phone is put
+    /// down: its screen off or Android's lock screen up (`in_use` false). A
+    /// guardian who hands the phone back with its screen off has handed it
+    /// back guarded.
+    pub(crate) fn guard_open_now(&mut self, boot: u32, elapsed_ms: u64, in_use: bool) -> bool {
+        let Some(open) = &mut self.guard_open else { return false };
+        let (from_boot, from_ms) = *open.from.get_or_insert((boot, elapsed_ms));
+        let lasts_ms = GUARD_OPEN_SECS.saturating_mul(1_000);
+        let still = in_use
+            && from_boot == boot
+            && elapsed_ms.checked_sub(from_ms).is_some_and(|gone| gone < lasts_ms);
+        if !still {
+            self.guard_open = None;
+        }
+        still
+    }
+
+    /// A right guardian PIN opened the guarded pages, from the call made at
+    /// `from` (its start of the phone and elapsed count), until `until` by
+    /// LiMo's clock.
+    pub(crate) fn open_guard(&mut self, from: Option<(u32, u64)>, until: i64) {
+        self.guard_open = Some(GuardOpen { from, until });
+    }
+
+    /// Until when the guarded pages are open, by LiMo's clock, if they are.
+    pub(crate) fn guard_until(&self) -> Option<i64> {
+        self.guard_open.map(|o| o.until)
+    }
+
+    /// Notes a guarded page covered, once a day for each page.
+    pub(crate) fn note_guarded(&mut self, page: GuardedPage, day: i64, at: i64, notes: &mut Vec<PhoneNote>) {
+        self.guard_noted.retain(|g| g.day >= day);
+        if self.guard_noted.iter().any(|g| g.day == day && g.page == page) {
+            return;
+        }
+        self.guard_noted.push(GuardNoted { day, page });
+        notes.push(PhoneNote::GuardedPageOpened { page, day, at });
     }
 
     /// True once setup is finished on this phone.
@@ -331,6 +404,8 @@ impl Kept {
             || self.blocked_noted != saved.blocked_noted
             || self.apps_day != saved.apps_day
             || self.setup != saved.setup
+            || self.guard_open != saved.guard_open
+            || self.guard_noted != saved.guard_noted
             || clock(self) != clock(saved)
         {
             return Change::Other;

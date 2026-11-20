@@ -3,6 +3,8 @@ package ai.lucidloom.limo.child.show
 import ai.lucidloom.limo.child.ffi.BlockCover
 import ai.lucidloom.limo.child.ffi.Cover
 import ai.lucidloom.limo.child.ffi.CoverKind
+import ai.lucidloom.limo.child.ffi.GuardCover
+import ai.lucidloom.limo.child.ffi.GuardedPage
 import ai.lucidloom.limo.child.ffi.LockCover
 import ai.lucidloom.limo.child.ffi.LockWhy
 import ai.lucidloom.limo.child.ffi.RequestAnswer
@@ -23,6 +25,12 @@ internal enum class Picture(val icon: String) {
   CODE("code"),
   PIN("pin"),
   BELL("bell"),
+
+  /** The guard over the device admin's page: setup's own mark for its Protection step. */
+  KEY("key"),
+
+  /** The guard over the accessibility settings: setup's own mark for its Accessibility step. */
+  SHIELD("shield"),
 }
 
 /** The colour of a small stamp, by what it says: ink while waiting, teal for given, coral for not this time. */
@@ -85,6 +93,26 @@ internal sealed class CoverPlan {
     val backToCall: String?,
     val pinned: List<Pinned>,
   ) : CoverPlan()
+
+  /**
+   * The guard over a page that could switch LiMo off or remove it: laid out
+   * as the lock, with the PIN as its one row, nothing about time and no apps.
+   */
+  data class Guard(
+    val page: GuardedPage,
+    val picture: Picture,
+    val eyebrow: String,
+    val stamp: String,
+    val title: String,
+    val message: String,
+    /** "Too many wrong tries. The next try is at 9:47 pm." */
+    val waitWords: String?,
+    val rows: List<RowPlan>,
+    /** Only when no row is offered (no PIN set up on the phone). */
+    val nothing: NothingPlan?,
+    val backToCall: String?,
+    val pinned: List<Pinned>,
+  ) : CoverPlan()
 }
 
 /** The apps of the phone, as far as the lock needs them: Android's on a phone, made up in tests. */
@@ -105,6 +133,7 @@ internal object Plans {
     CoverKind.NOTHING -> CoverPlan.None
     CoverKind.BLOCK -> cover.block?.let { block(it, childName) } ?: CoverPlan.None
     CoverKind.LOCK -> cover.lock?.let { lock(it, childName, apps) } ?: CoverPlan.None
+    CoverKind.GUARD -> cover.guard?.let { guard(it, childName) } ?: CoverPlan.None
   }
 
   fun block(b: BlockCover, childName: String?): CoverPlan.Block {
@@ -140,6 +169,30 @@ internal object Plans {
       backToCall = back,
       pinned = pinned(back),
     )
+  }
+
+  fun guard(g: GuardCover, childName: String?): CoverPlan.Guard {
+    val back = g.backToCall?.takeIf { g.callOn && it.isNotBlank() }?.let(Typo::quotes)
+    val rows = g.ways.map { RowPlan(it.way, picture(it.way), Typo.quotes(it.title), Typo.quotes(it.sub), it.off) }
+    return CoverPlan.Guard(
+      page = g.page,
+      picture = picture(g.page),
+      eyebrow = Drawn.eyebrow(childName),
+      stamp = Typo.quotes(g.stamp),
+      title = Typo.quotes(g.title),
+      message = Typo.quotes(g.message),
+      waitWords = g.waitWords?.takeIf { it.isNotBlank() }?.let(Typo::quotes),
+      rows = rows,
+      nothing = if (rows.isEmpty()) g.nothingToDo?.let { NothingPlan(Typo.quotes(it.bold), Typo.quotes(it.line)) } else null,
+      backToCall = back,
+      pinned = pinned(back),
+    )
+  }
+
+  /** The guard's picture: the mark setup gives the same thing (a key for protection, a shield for accessibility). */
+  fun picture(page: GuardedPage): Picture = when (page) {
+    GuardedPage.DEVICE_ADMIN -> Picture.KEY
+    GuardedPage.ACCESSIBILITY -> Picture.SHIELD
   }
 
   /** Back to the call above Emergency call while a call is on; Emergency call always. */

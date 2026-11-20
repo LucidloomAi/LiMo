@@ -67,6 +67,7 @@ fn kind(cover: &Cover) -> String {
         Cover::Nothing => "nothing".to_string(),
         Cover::Block { package, .. } => format!("block {package}"),
         Cover::Lock(lock) => format!("lock {:?}", lock.why),
+        Cover::Guard(guard) => format!("guard {:?}", guard.page),
     }
 }
 

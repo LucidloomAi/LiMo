@@ -38,6 +38,10 @@
 //! - **Setup is the guardian's time, not the child's.** From pairing until a
 //!   guardian finishes setup on the phone ([`PhoneEngine::finish_setup`]),
 //!   nothing is counted or covered, and the time left says so.
+//! - **What could switch LiMo off is guarded.** A page the host recognises
+//!   as one ([`GuardedPage`]) is covered by the guard, which offers the
+//!   guardian PIN only; a right PIN opens such pages for a few minutes
+//!   ([`PhoneEngine::try_guard_pin`]).
 //!
 //! It has no clock, no threads, no network and no files of its own, and no
 //! unsafe code.
@@ -57,11 +61,11 @@ mod words;
 pub use counts::{app_in_use, may_cover};
 pub use engine::{PhoneEngine, PhoneView, SetupView};
 pub use error::{LoadProblem, PhoneError};
-pub use facts::{CallState, Front, Permission, PhoneFacts, PhonePermissions};
+pub use facts::{CallState, Front, GuardedPage, Permission, PhoneFacts, PhonePermissions};
 pub use words::MAX_LABEL_CHARS;
 pub use orders::{
-    Cover, GrantTaken, LockScreen, LockWhy, PhoneNote, PhoneOrders, RequestLine, TimeLeft, TryAnswer, WarningShown,
-    Way, WayRow,
+    Cover, GrantTaken, GuardScreen, LockScreen, LockWhy, PhoneNote, PhoneOrders, RequestLine, TimeLeft, TryAnswer,
+    WarningShown, Way, WayRow,
 };
 pub use today::{GuardianNeeded, LeftKind, RulesWords, SwitchedOff, TodayApp, TodayLeft, TodayView};
 
@@ -109,6 +113,15 @@ pub const MAX_APPS_A_DAY: usize = 200;
 
 /// The form of the kept state this engine writes, and the newest it reads.
 pub const STATE_FORMAT: u32 = 1;
+
+/// How long a right guardian PIN on the guard keeps the guarded pages open,
+/// in seconds: five minutes, by the elapsed count. Long enough for a
+/// guardian to switch the protection off and remove LiMo, or to change an
+/// accessibility setting for the child, across a few pages; short enough
+/// that a phone handed back still on is guarded again within minutes. It
+/// closes at once when the screen goes off or the phone starts again
+/// ([`PhoneEngine::try_guard_pin`]).
+pub const GUARD_OPEN_SECS: u64 = 300;
 
 /// The version of this crate, for example "0.1.0".
 pub fn phone_engine_version() -> String {

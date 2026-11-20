@@ -9,20 +9,26 @@ LiMo out of battery optimisation. Kotlin, package
 **What it is.** `Keeper.start`, called whenever LiMo's process may have
 just started; `KeepService`, a foreground service of type `specialUse`;
 the two notifications, in the engine's words; `RestartReceiver` and
-`AlarmReceiver`; `Battery`.
+`AlarmReceiver`; `Battery`; and `AdminReceiver`, the device admin of the
+base protection.
 
 **What it is not.** It does no work of its own: the engine's host (host/)
 runs on its own thread whether the service runs or not, and the service
 only keeps the process alive. It decides nothing and makes no sentence about
-time. `AdminReceiver` (the device admin) is still a stub: it is the base
-protection's, a later piece; setup's Protection step asks to turn it on
-(seam/README.md). Nothing here has run on a phone yet.
+time. `AdminReceiver` holds no policy: while it is active, Android refuses
+what the table in [What Android refuses an active device
+admin](#what-android-refuses-an-active-device-admin) says, and when
+someone asks to switch it off it raises LiMo's guard over that page.
+Setup's Protection step asks to turn it on (seam/README.md). Nothing here
+has run on a phone yet.
 
 ## Contents
 
 - [When the keeper starts](#when-the-keeper-starts)
 - [The notifications](#the-notifications)
 - [What Android allows a specialUse service](#what-android-allows-a-specialuse-service)
+- [The device admin](#the-device-admin)
+- [What Android refuses an active device admin](#what-android-refuses-an-active-device-admin)
 - [The alarm](#the-alarm)
 - [Battery](#battery)
 - [Tests](#tests)
@@ -134,6 +140,74 @@ Not read anywhere, so not relied on: the time Android gives a service
 between `startForegroundService` and `startForeground` (the service calls
 it first thing in `onStartCommand`).
 
+## The device admin
+
+`AdminReceiver`, declared in the module's manifest, guarded by
+`BIND_DEVICE_ADMIN`, with an empty list of policies
+(`res/xml/limo_admin.xml`): it cannot wipe the phone, lock it, change its
+screen lock or switch off its camera. Setup's Protection step makes it
+active; Android remembers it by its class name, which must never change.
+
+**When someone asks to switch it off.** On Settings' device admin page,
+Deactivate makes Android ask the admin's receiver first
+(`onDisableRequested`). Android sends that question to the receiver by its
+component (`DevicePolicyManagerService.getRemoveWarning`, Android 13), so
+the manifest's intent filter need not name it. `AdminReceiver` then, on the main thread and at
+once:
+
+1. tells the watch (`PhoneWatch.deviceAdminOffAsked`), which raises the
+   guard for what is in front (watch/README.md, "The guard"), so the host
+   ticks and show/ draws the guard over the page;
+2. starts the keeper, in case Android started LiMo's process for this
+   broadcast;
+3. answers with LiMo's warning, `limo_admin_disable_warning` in
+   `res/values/limo_strings.xml`: "Switching this off lets LiMo be removed
+   from this phone.". Settings shows it in its own dialog, with OK and
+   Cancel, before it switches the admin off; that dialog opens under the
+   guard, so a guardian who typed the PIN is the one who reads it.
+
+**The answer must be quick and never empty.** Android's source
+(packages/apps/Settings, `DeviceAdminAdd`, `continueRemoveAction`, the same
+from Android 8.0 to 15) waits two seconds at most for it; with no answer in
+time, or an empty one, it switches the admin off at once, with no dialog
+for the guard to cover. So the receiver never waits for the guard to be
+drawn, and `AdminReceiver.warning` falls back to "LiMo" if its words
+cannot be read (`AdminWarningTest`). The words are Android's to show, like
+the admin's own description, so they live with it in
+`limo_strings.xml`, not in the engine.
+
+**What it cannot see.** App info's Uninstall, for an active admin, opens
+the same page in a mode that switches the admin off and removes LiMo in one
+tap, and Android's source does not ask the receiver first on that way
+(`DeviceAdminAdd`, `mUninstalling`, then
+`uninstallPackageWithActiveAdmins`). Only the watch's guard by the page's
+name covers that way.
+
+## What Android refuses an active device admin
+
+Read in Android's own source on 20 Nov 2026 (android.googlesource.com,
+tags `android-8.0.0_r1` and `android-9.0.0_r1`, branches
+`android13-release` and `android15-release`). This is what Android itself
+does for LiMo while its device admin is active, and so what the guard need
+not cover; what Android does not do is what the guard is for.
+
+| What | What Android does | Where it says so |
+| --- | --- | --- |
+| Uninstall, from any app or adb | **Refused** by the package manager itself (`DELETE_FAILED_DEVICE_POLICY_MANAGER`) while the app is an active admin | `services/core/java/com/android/server/pm/DeletePackageHelper.java` (Android 13, `isPackageDeviceAdmin`); `PackageManagerService.java` `deletePackageX` (Android 8.0) |
+| Uninstall from the home screen | The installer asks, Android refuses, and the installer's notification offers "Manage device admin apps", which opens Settings' list of device admin apps (`Settings$DeviceAdminSettingsActivity`) | `packages/PackageInstaller/.../UninstallFinish.java` (Android 13), `addDeviceManagerButton` |
+| Uninstall from App info | Settings opens the device admin's page instead, with the package (`EXTRA_DEVICE_ADMIN_PACKAGE_NAME`), whose button switches the admin off and uninstalls in one call, **without asking the admin first** | Settings `AppButtonsPreferenceController.java` (Android 13) and `InstalledAppDetails.java` (Android 8.0); `DeviceAdminAdd.java`, `mUninstalling` |
+| Deactivate on the device admin's page | Settings asks the admin (`getRemoveWarning`), stops other apps' activities coming to the front meanwhile (`stopAppSwitches`), waits two seconds at most, then shows the admin's words in a dialog; with no words, removes the admin at once | `DeviceAdminAdd.java`, `continueRemoveAction` (Android 8.0 to 15) |
+| Force stop in App info | **Greyed out** by Settings ("User can't force stop device admin") | `AppButtonsPreferenceController.java` `updateForceStopButton` (Android 13); `InstalledAppDetails.java` `checkForceStop` (Android 8.0) |
+| Force stop by any other way (adb, developer options) | **Not refused**: the framework refuses it only for a device or profile owner or a protected package, never a plain device admin | `ActivityManagerService.java` `forceStopPackage`, and `ProtectedPackages.java` `isPackageStateProtected` (Android 13) |
+| Clear storage in App info | **Greyed out** by Settings, unless the app has its own page for managing its space (LiMo has none) | `AppStorageSettings.java` `initDataButtons`, `appHasActiveAdmins` (Android 8.0 and 13) |
+| Clearing data by any other way | **Not refused** for a plain device admin: the framework refuses it for a device or profile owner and protected packages only | `ActivityManagerService.java` `clearApplicationUserData`, `isPackageDataProtected` (Android 13) |
+| A force stop and the accessibility service | Android switches the stopped app's accessibility services off for good (removes them from `ENABLED_ACCESSIBILITY_SERVICES`) | `AccessibilityManagerService.java`, `onHandleForceStop` (Android 13) |
+| Stop in the list of running apps (Android 13 and later) | Ends the whole app, with no callback; alarms and jobs still run. The page lists no exemption for a device admin | developer.android.com, "Foreground services task manager" |
+
+**One UI** (Samsung's Settings, which is not open source) is to be seen on
+the phone: phone/TESTING.md's part O asks whether Force stop is greyed out,
+and the probe walk (dev/README.md) whether Clear storage is.
+
 ## The alarm
 
 Set by the host (`host/AlarmWakeups`), received here (`AlarmReceiver`,
@@ -161,7 +235,9 @@ from its alarm after it was stopped (Android 12 and later).
 
 ## Tests
 
-`npm run test:child` runs `KeeperLookTest`: the time left as the engine's
+`npm run test:child` runs `AdminWarningTest` (the device admin's answer:
+LiMo's words, and never empty when they cannot be read; the words in
+`limo_strings.xml`, plain) and `KeeperLookTest`: the time left as the engine's
 words with Android's countdown while time is counted, and none while
 paused, locked, under an unlock or with no limit; posted again only when the
 words change, the countdown starts or stops, or its end moves more than two
@@ -206,12 +282,26 @@ LiMo`:
 7. **One UI's own battery rules**: whether "Never sleeping apps" (the
    Samsung note on the Battery step) is needed for the alarm to come on time
    with the screen off.
+8. **The device admin asked to switch off.** Settings, Device admin apps,
+   LiMo, Deactivate: the log says `keep admin_off asked` and the watch's
+   `guard now device_admin`, the guard is over Android's question at once,
+   and Android's question, once the PIN opened it, holds LiMo's words.
+   Whether a quick tap can reach OK before the guard is drawn.
+9. **What One UI refuses** an active device admin: Force stop and Clear
+   storage greyed out, as Android's own Settings does, or not; and
+   Uninstall from App info going to the device admin's page.
 
 ## Left open
 
-- **The device admin** (`AdminReceiver`) is still a stub, for the base
-  protection. Its words in Settings (`limo_admin_description`) say exactly
-  what it does now: nothing but stop LiMo being removed while it is on.
+- **The device admin's description** in Settings
+  (`limo_admin_description`) still says only what the admin itself does:
+  it stops LiMo being removed while it is on, and must be switched off to
+  remove LiMo. That LiMo's guard covers switching it off is the guard's,
+  not the admin's, so it is not said there.
+- **Safe mode.** A restart into Android's safe mode runs no app a person
+  installed, LiMo among them: no guard, no cover, and there the admin can
+  be switched off and LiMo removed. Base protection cannot stop it; strict
+  mode (a device owner) can.
 - **Google Play.** `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` and a `specialUse`
   service are both reviewed by Google Play; LiMo is not on it.
 - **`systemExempted`**, a foreground service type for device admin and
@@ -229,8 +319,8 @@ keep/
   RestartReceiver.kt boot and update
   AlarmReceiver.kt   LiMo's alarm
   Battery.kt         Android's question for leaving LiMo out of battery optimisation, and its list
-  AdminReceiver.kt   the device admin, a stub (base protection, later)
-res/values/limo_strings.xml    the channels' names
+  AdminReceiver.kt   the device admin: raises the guard when asked to switch off, and answers with LiMo's warning
+res/values/limo_strings.xml    the channels' names, and the device admin's warning
 res/drawable/limo_notify.xml   the small icon
-src/test/java/ai/lucidloom/limo/child/keep/KeeperLookTest.kt
+src/test/java/ai/lucidloom/limo/child/keep/KeeperLookTest.kt, AdminWarningTest.kt
 ```

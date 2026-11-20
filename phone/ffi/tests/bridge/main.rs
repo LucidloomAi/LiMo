@@ -3,6 +3,7 @@
 
 mod common;
 mod day;
+mod guard;
 mod kept;
 mod link;
 mod setup;

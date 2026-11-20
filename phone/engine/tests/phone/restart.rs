@@ -46,6 +46,13 @@ fn summary(o: &PhoneOrders) -> String {
             l.wait_words,
             l.request_line.as_ref().map(|r| (r.text.clone(), r.stamp.clone()))
         ),
+        Cover::Guard(g) => format!(
+            "guard {:?} call {} ways {:?} wait {:?}",
+            g.page,
+            g.call_on,
+            g.ways.iter().map(|w| (w.way, w.off)).collect::<Vec<_>>(),
+            g.wait_words
+        ),
     };
     format!(
         "{cover} | left {:?} counting {} {:?} | warning {:?}",

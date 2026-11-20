@@ -90,6 +90,10 @@ engine.ask_for_time(20, "For the school project", wall_secs)?;
 engine.try_code("1342 0715", wall_secs)?;
 engine.try_pin(&pin, PinAction::AddMinutes { minutes: 20 }, wall_secs)?;
 write_state(&engine.save());              // after each, right or wrong
+
+// From the guard, in LiMo's own activity:
+engine.try_guard_pin(&pin, wall_secs)?;   // a right PIN opens guarded pages for five minutes
+write_state(&engine.save());              // right or wrong, then tick
 ```
 
 Rules for callers:
@@ -140,6 +144,7 @@ Rules for callers:
 | `in_reach` | The master can be reached: the link has a session. False until the link is built. |
 | `prodded` | The master asked for a report since the last call. |
 | `permissions` | The six things LiMo needs, in the order setup asks for them: `notifications`, `phone` (Android's Phone permission, only to know that a call rings or is on), `usage_access`, `accessibility` (the service on), `battery` (left out of battery optimisation), `protection` (its device admin). Each is true only when Android says so. See rule 10. |
+| `guarded` | A page in front that could switch LiMo off or remove it, as the host recognised it: `device_admin` (Android's page for LiMo's device admin) or `accessibility` (Android's accessibility settings); none for every other screen. See rule 12. |
 
 **The engine holds no list of makers' package names.** Which app is the home
 screen, the dialler or the emergency dialler differs from maker to maker, so
@@ -160,6 +165,14 @@ engine's code names no package.
     with no label, "This app is not allowed."), and send the child to the
     home screen. During a call in progress `call_on` is true, with the words
     "Back to the call".
+  - **`Guard(GuardScreen)`**: a page that could switch LiMo off or remove
+    it is in front (rule 12). Cover it, laid out as the lock, with the
+    page, the stamp "Protected", the title "A guardian's PIN is needed
+    here.", the message "These settings can switch LiMo off or remove it
+    from this phone.", one way out (the guardian PIN, "Opens these settings
+    for 5 minutes", or the wait after wrong tries), what to say when no PIN
+    is set up, and, during a call in progress, "Back to the call". Nothing
+    about time, and no apps: it is no lock.
   - **`Lock(LockScreen)`**: the phone is locked. Cover whatever is in front.
     The `LockScreen` says why (`LockWhy`), with a stamp ("Locked", or "One
     moment" while more time comes), a short title and plain words; until
@@ -420,6 +433,30 @@ not finished. A state kept before setup was kept counts as finished: see
 [A kept state that cannot be read](#a-kept-state-that-cannot-be-read).
 Tests: every test in `setup`.
 
+**12. The guard.** The owner's order of 20 Nov 2026: a child must not be
+able to switch LiMo off or remove it through Android's settings. **A page
+the host says could do that (`guarded`) is covered by the guard** while a
+cover may be drawn (rule 2) and setup is finished (rule 11), after the lock
+and the block screen: a lock that covers the same moment, or a block of the
+same app, comes first. The device admin's page is guarded only while the
+protection is on: with it off, LiMo can be removed anyway, and that page is
+where a guardian switches it on again. What is covered is not in use, so
+nothing counts under the guard. **The guardian PIN is its one way out**
+(`try_guard_pin`): a right PIN opens every guarded page for five minutes
+(`GUARD_OPEN_SECS`), counted by the elapsed count from the call before it,
+so no clock set by hand stretches it; it closes at once when the screen
+goes off or Android's lock screen shows (the phone put down or handed
+back) and when the phone starts again; LiMo's process stopped and started
+again keeps it, from the kept state. It changes nothing else: no time is
+added, nothing is unlocked. **Wrong PINs count as on a lock**: the core's
+own wrong tries, shared with the lock's codes and PIN, with the same wait
+after five. The guardian is told of each guarded page once a day
+(`PhoneNote::GuardedPageOpened`, by its kind) and of each right PIN
+(`PhoneNote::GuardOpened`, with until when). The engine names no page and
+no package: which pages are guarded, and how they are recognised, is the
+host's (the watch's README, "The guard"). Tests: every test in `guard`, and
+the check in every test.
+
 ## The words
 
 Every sentence the phone shows comes from the engine, in `src/words.rs`.
@@ -529,6 +566,15 @@ more in a row (across the week's end too), else "on Saturday and Sunday",
 Until a guardian finishes setup on the phone, in place of the time left and
 in the view: "Setup is not finished on this phone.".
 
+The guard (rule 12), proposed by this piece for the lead to settle: the
+stamp "Protected"; the title "A guardian's PIN is needed here."; the
+message "These settings can switch LiMo off or remove it from this
+phone."; the PIN's row "Guardian PIN" / "Opens these settings for 5
+minutes" (or "Wait until 9:47 pm"); with no PIN set up, "A guardian PIN is
+not set up yet." / "A guardian sets one in LiMo on the family PC."; a right
+PIN, "These settings are open until 9:52 pm."; a wrong one, the lock's
+own answers ("That PIN is not right. 4 more tries before a wait.").
+
 What is switched off, one sentence each, settled by the lead, in the order
 setup asks for them:
 
@@ -602,7 +648,9 @@ count and the correction it keeps), the notes for the guardian not yet
 taken, the permissions last seen, the blocked apps noted today, each app's
 use today (see [The child's own screens](#the-childs-own-screens)), and
 whether setup is finished, and when (`"setup":"not_finished"`, or
-`"setup":{"finished":{"at":...}}`).
+`"setup":{"finished":{"at":...}}`), the guard kept open by a right PIN
+(`"guard_open":{"from":[boot, elapsed ms],"until":...}`, or none) and the
+guarded pages noted today.
 The check is against damage, not against anyone who can write the file.
 
 **When the host must write it.** Always the same way: after a call, when
@@ -616,7 +664,8 @@ true:
 | `take_grant`, before acting on the grant | the core's rule: a device keeps a grant before it spends it |
 | `ask_for_time`, `try_code`, `try_pin`, right or wrong, before showing the answer | the request, the time added, the code used and the wrong guesses must survive a restart |
 | `finish_setup`, the first time | setup finished must survive a restart; called again, nothing changes and nothing is asked |
-| a `tick` that recorded a slice, gave a warning, changed what the core holds, started or stopped counting, noted something for the guardian, or saw a permission or the clock's correction change | all of these are kept at once (`save_state`) |
+| `try_guard_pin`, right or wrong, before showing the answer | the guard kept open, and the wrong guesses, must survive a restart |
+| a `tick` that recorded a slice, gave a warning, changed what the core holds, started or stopped counting, noted something for the guardian, saw a permission or the clock's correction change, or closed the guard | all of these are kept at once (`save_state`) |
 | a `tick` while counting just goes on | every five seconds (`SAVE_PROGRESS_EVERY_MS`), not more often |
 
 While nothing is counted and nothing changes, it is not written at all.
@@ -757,6 +806,14 @@ What this piece worked around, inside the engine:
 - **Core: which locks a code can open.** `Decision.can_use_code` is true
   whenever the device holds a code secret; the engine offers a code only
   for a lack of time. The core could say so itself.
+- **Core: a PIN checked and nothing else.** The guard's PIN
+  (`try_guard_pin`) is checked with `PinAction::ConfirmRelease`, the one
+  action that only says whether the PIN was right (and clears the wrong
+  tries when it was); its outcome is `ReleaseConfirmed`, which reads as a
+  release. A `PinAction::Check`, or `OpenGuard`, would say what it is.
+- **Hub: note events** for `GuardedPageOpened` and `GuardOpened`, so a
+  guardian sees on the PC that the device admin's page or the
+  accessibility settings were opened, and when the PIN opened them.
 - **Core: the master's clock.** A grant carrying `master_now` (or the link's
   `Pong`) would let LiMo's clock be set right in reach and across restarts.
 - **Core: the other devices' use in the grant.** The master knows each
@@ -792,7 +849,7 @@ extra time, less use beyond what a device held under an unlock.
 | Where | What | Count |
 | --- | --- | --- |
 | `src/counts.rs` | The rule of what counts, a call in progress no way around it, and what is never covered | 5 |
-| `src/words.rs` | Times on the phone's clock; spans and the time left; every lock's short title beside its message; warnings with the time actually left, away or not, with hints and when; the answers to a code or a PIN; a request and its answer; the block screen naming the app by its label, cleaned and cut; Today's time left, the time used and its part, where it went in its three forms; the hours screens are off today, on the phone's clock and zone, joined, several, all day; the rules in words, by days, across the week's end; the six sentences for what is switched off | 11 |
+| `src/words.rs` | Times on the phone's clock; spans and the time left; every lock's short title beside its message; warnings with the time actually left, away or not, with hints and when; the answers to a code or a PIN; the guard's words, its row and until when a right PIN opens it; a request and its answer; the block screen naming the app by its label, cleaned and cut; Today's time left, the time used and its part, where it went in its three forms; the hours screens are off today, on the phone's clock and zone, joined, several, all day; the rules in words, by days, across the week's end; the six sentences for what is switched off | 12 |
 | `src/kept.rs` | The check catching a change anywhere in the kept state; notes kept up to the limit; counting going on told from any other change; each app's use added up for one day, the nameless left out, a later day starting afresh, bounded | 4 |
 | `tests/phone/day.rs` | The core README's worked day with the PC beside the phone; the away time used up, warned of as away, opening again at home; a plain day at home to zero with each warning once, the home screen covered, the 24 hour clock and when to call again; a warning that waits for the screen and says the time actually left; a prod from the master, only in reach; a master that does not answer asked again every ten seconds | 6 |
 | `tests/phone/covers.rs` | Allowed apps usable under the lock and recorded without counting; never a cover over a ringing call, the diallers, LiMo, the keyguard or a dark screen, and during a call in progress the same cover as with no call, through every mix of those facts; with the time used up and a call on, the game and the home screen covered with the way back to the call, the dialler not; a call left open not stopping the count in a game, nor a block, nor the lock; a blocked app covered, named by its label, sent home, never counted, noted once a day and across a restart; what counts, case by case | 6 |
@@ -800,9 +857,15 @@ extra time, less use beyond what a device held under an unlock.
 | `tests/phone/clock.rs` | A clock set by hand not followed, bedtime on time, no new day, kept through a crash, followed again with automatic time; a clock set by the network followed; a time zone change; a restart of the phone in the middle of a step, and a clock set back while it was off; LiMo's process restarted in the middle of a step, and held up for a minute; a permission switched off | 6 |
 | `tests/phone/restart.rs` | One script for a whole day played uninterrupted, with a crash after every single call (over 4,000), and with crashes here and there: every call orders and counts the same (a call while locked among them), and each day's total is the same; a crash losing at most five seconds; a lock on again at the first call | 3 |
 | `tests/phone/kept.rs` | A kept state read back the same; an app's label shown but never kept, reported or in the view; a save that could not be written asked for again; empty, foreign, newer, cut short and changed states failing safe; a state with only the fields the first form needs; a state kept with two permissions and no count of each app loading and noting nothing new | 6 |
+| `tests/phone/guard.rs` | A guarded page covered in the engine's words with the PIN as its one row, no lock and nothing counted under it, noted once a day for each page; a wrong PIN changing nothing but the tries, the right one opening every guarded page for five minutes by the elapsed count (a clock set by hand buys nothing) and nothing else (no time added, no unlock), closing kept; closed by the screen off, Android's lock screen and a restart of the phone, kept through LiMo stopped and started again; wrong PINs on the guard counting with the lock's wrong codes, the fifth starting the wait shown on the guard and the lock alike, the right PIN made to wait, and after it opening the guard but not the lock; never over a ringing call, Android's lock screen, a dark screen, LiMo or the diallers, during a call in progress with the way back, the device admin's page only while the protection is on, the block screen and the lock first; no PIN set up said in words; nothing guarded before setup is finished | 7 |
 | `tests/phone/setup.rs` | Twenty minutes of setup on Android's settings, LiMo and a game counting nothing, listing nothing, warning of nothing, the time left saying setup is not finished, a permission switched on and off not noted; finished, noted once, counting from the next call, a permission switched off noted after; a blocked app and the hours screens are off neither covering nor warning before, the lock and the block screen at the first call after; not finished kept through a crash, finished kept through a crash and a restart, finishing again changing nothing; a state kept before setup was kept counting as finished; a state that cannot be read refusing it | 5 |
 | `tests/phone/today.rs` | Today through a day: the time left, the time used and its part, where it went, bedtime, each app longest first with the short and the nameless left out, the same after a crash, at bedtime, and starting again the next morning; a day with no limit and a guardian's unlock; How it works by days, on a 24 hour phone, and with no blocked hours; all six permissions switched off, noted in setup order, sent for a guardian with six sentences, while a phone with all on is told the same at every call through a game, a blocked app, the lock, a call and the dialler | 4 |
 | `tests/house_rules.rs` | No unsafe code; no allow attributes; no makers' package names in the engine; no dash punctuation in anything a person reads, nor in any sentence the phone shows | 5 |
+
+At every call of every story the fake phone also checks that the guard
+covers a guarded page exactly when nothing else covers it, no right PIN
+keeps such pages open, and the page is one to guard, with the PIN as its
+only way out and the way back to a call during a call.
 
 The whole suite takes under a minute on the development PC, most of it the
 hub writing to its file as the product does.
@@ -834,21 +897,21 @@ phone/engine/
   Cargo.toml, Cargo.lock, README.md, .gitignore
   src/
     lib.rs        crate notes, the public names and the limits
-    facts.rs      PhoneFacts, Front, CallState, PhonePermissions, Permission
+    facts.rs      PhoneFacts, Front, CallState, PhonePermissions, Permission, GuardedPage
     counts.rs     what counts on a phone, and what is never covered
-    orders.rs     PhoneOrders, Cover, LockScreen, LockWhy, the ways out,
+    orders.rs     PhoneOrders, Cover, LockScreen, GuardScreen, LockWhy, the ways out,
                   TimeLeft, WarningShown, TryAnswer, GrantTaken, PhoneNote
     words.rs      every sentence the phone shows
     today.rs      the child's own screens: Today and the rules in words
     kept.rs       the kept state: the stretch, the look, LiMo's clock, the
                   notes, each app's use today, setup, and the blob's form
     engine.rs     PhoneEngine: the call, the report and the grant, the ways
-                  out, setup, keeping, the view
+                  out, the guard's PIN, setup, keeping, the view
     error.rs      PhoneError, LoadProblem, in plain words
   tests/
     house_rules.rs
     phone/
       main.rs     the one story program
       common.rs   the fake phone, the PC beside it, and its checks
-      day.rs, covers.rs, ways_out.rs, clock.rs, restart.rs, kept.rs, today.rs, setup.rs
+      day.rs, covers.rs, ways_out.rs, clock.rs, restart.rs, kept.rs, today.rs, setup.rs, guard.rs
 ```

@@ -94,11 +94,14 @@ internal interface CoverActions {
   /** A way out, as a screen of its own. */
   fun openWay(way: Way, lock: CoverPlan.Lock)
 
+  /** The guard's one way out, the guardian PIN, as a screen of its own. */
+  fun openGuard(guard: CoverPlan.Guard)
+
   /** An app's own icon, from Android. */
   fun appIcon(packageName: String): Drawable?
 }
 
-/** Builds the lock (A, A2, C) and the block screen (D) from their plans. */
+/** Builds the lock (A, A2, C), the block screen (D) and the guard (laid out as the lock) from their plans. */
 internal class CoverPage(private val parts: Parts, private val act: CoverActions) {
   /** The top row of the screen built last, so its clock can be moved on. */
   var top: Parts.Top? = null
@@ -107,12 +110,14 @@ internal class CoverPage(private val parts: Parts, private val act: CoverActions
   fun build(plan: CoverPlan, time: String, date: String): Screen = when (plan) {
     is CoverPlan.Lock -> lock(plan, time, date)
     is CoverPlan.Block -> block(plan, time, date)
+    is CoverPlan.Guard -> guard(plan, time, date)
     CoverPlan.None -> Screen(parts.context, parts.dp)
   }.also { s ->
     // A screen reader says the cover's title when it comes up.
     val title = when (plan) {
       is CoverPlan.Lock -> plan.title
       is CoverPlan.Block -> plan.title
+      is CoverPlan.Guard -> plan.title
       CoverPlan.None -> null
     }
     if (title != null && Build.VERSION.SDK_INT >= 28) s.accessibilityPaneTitle = title
@@ -151,21 +156,32 @@ internal class CoverPage(private val parts: Parts, private val act: CoverActions
    * after wrong tries, and a row for each way out (or the words when none is
    * offered).
    */
-  fun ways(p: CoverPlan.Lock): LinearLayout = parts.column().also { box ->
+  fun ways(p: CoverPlan.Lock): LinearLayout = ways(p.request, p.waitWords, p.rows, p.nothing) { r -> act.openWay(r.way, p) }
+
+  /** The same, for the guard: the wait after wrong tries, and its one row, the PIN (or the words when no PIN is set up). */
+  fun ways(p: CoverPlan.Guard): LinearLayout = ways(null, p.waitWords, p.rows, p.nothing) { act.openGuard(p) }
+
+  private fun ways(
+    request: RequestPlan?,
+    waitWords: String?,
+    rows: List<RowPlan>,
+    nothing: NothingPlan?,
+    open: (RowPlan) -> Unit,
+  ): LinearLayout = parts.column().also { box ->
     box.addView(parts.text(Look.LABEL, Drawn.WHAT_YOU_CAN_DO), parts.section())
-    p.request?.let { r ->
+    request?.let { r ->
       val stamp = parts.smallStamp(r.stamp, r.tone)
       box.addView(parts.note(Picture.HAND, parts.text(Look.NOTE_TEXT, r.text), stamp), parts.at(bottom = Look.NOTE_BOTTOM))
     }
-    p.waitWords?.let { w ->
+    waitWords?.let { w ->
       box.addView(parts.note(Picture.ALERT, parts.text(Look.NOTE_TEXT, w), wait = true), parts.at(bottom = Look.NOTE_BOTTOM))
     }
-    if (p.rows.isNotEmpty()) {
-      p.rows.forEachIndexed { i, r ->
-        box.addView(parts.wayRow(r) { act.openWay(r.way, p) }, parts.at(top = if (i == 0) 0f else Look.ROW_GAP))
+    if (rows.isNotEmpty()) {
+      rows.forEachIndexed { i, r ->
+        box.addView(parts.wayRow(r) { open(r) }, parts.at(top = if (i == 0) 0f else Look.ROW_GAP))
       }
     } else {
-      p.nothing?.let { n ->
+      nothing?.let { n ->
         val words = parts.column().also { c ->
           c.addView(parts.text(Look.ROW_TITLE, n.bold))
           c.addView(parts.text(Look.ROW_SUB, n.line), parts.at(top = Look.ROW_SUB_TOP))
@@ -173,6 +189,31 @@ internal class CoverPage(private val parts: Parts, private val act: CoverActions
         box.addView(parts.note(null, words))
       }
     }
+  }
+
+  /**
+   * The guard, laid out as the lock: the top, the reason card (its picture,
+   * the stamp, the label, the engine's title and message), what you can do
+   * with its one row, the plain line and the maker's mark, Emergency call
+   * pinned. Nothing about time, and no apps: the guard is no lock.
+   */
+  private fun guard(p: CoverPlan.Guard, time: String, date: String): Screen {
+    val s = Screen(parts.context, parts.dp)
+    val page = s.page
+    val top = parts.Top(time, date).also { this.top = it }
+    page.addView(top.view)
+
+    val card = parts.card()
+    card.addView(parts.whyTop(p.picture, p.stamp))
+    card.addView(parts.text(Look.LABEL, p.eyebrow), parts.at(top = Look.EYEBROW_TOP))
+    card.addView(parts.heading(Look.TITLE, p.title, balance = true), parts.at(top = Look.TITLE_TOP))
+    card.addView(parts.text(Look.DETAIL, p.message), parts.at(top = Look.DETAIL_TOP))
+    page.addView(card, parts.at(top = Look.TOP_TO_CARD))
+    page.addView(ways(p))
+    page.addView(parts.spring(), parts.at(height = 0, weight = 1f))
+    page.addView(parts.tail(Drawn.NOTHING_CLOSED))
+    s.pin(pinned(p.pinned, p.backToCall))
+    return s
   }
 
   private fun block(p: CoverPlan.Block, time: String, date: String): Screen {

@@ -54,6 +54,9 @@ internal sealed class WayCall {
   class Code(val typed: ByteArray) : WayCall()
 
   class Pin(val typed: ByteArray, val action: PinAction) : WayCall()
+
+  /** The PIN typed on the guard, to open the pages that could switch LiMo off. */
+  class GuardPin(val typed: ByteArray) : WayCall()
 }
 
 /** What the screen does after an answer. */
@@ -69,7 +72,9 @@ internal sealed class After {
 }
 
 /**
- * One way out's screen, with no Android in it. Main thread only.
+ * One way out's screen, with no Android in it. Main thread only. With
+ * [guard], the PIN's screen is the guard's: no choice of what to give, and
+ * the PIN goes to the guard ([WayCall.GuardPin]).
  *
  * **Secrets.** The digits of a code or a PIN live in one char array, never
  * in a string. [submit] turns them into the bytes the host takes and fills
@@ -77,7 +82,7 @@ internal sealed class After {
  * them, so a screen rebuilt after a turn of the phone starts with an empty
  * field. Nothing here logs.
  */
-internal class WaysOutModel(val panel: Panel) {
+internal class WaysOutModel(val panel: Panel, val guard: Boolean = false) {
   var ask: AskChoice = AskChoice.MIN30
     private set
 
@@ -130,7 +135,7 @@ internal class WaysOutModel(val panel: Panel) {
     val call = when (panel) {
       Panel.ASK -> WayCall.Ask(ask.minutes, reason)
       Panel.CODE -> WayCall.Code(bytes())
-      Panel.PIN -> WayCall.Pin(bytes(), pin.action(nowSecs, zone))
+      Panel.PIN -> if (guard) WayCall.GuardPin(bytes()) else WayCall.Pin(bytes(), pin.action(nowSecs, zone))
     }
     wipe()
     busy = true

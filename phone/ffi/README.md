@@ -109,6 +109,7 @@ be (the elapsed count, the boot count, minutes) is refused with
 | `askForTime` | minutes, a reason, the wall clock | `TimeRequest`, the core's record field by field |
 | `tryCode` | the typed code as UTF-8 bytes, the wall clock | `TryAnswer` |
 | `tryPin` | the typed PIN as UTF-8 bytes, a `PinAction`, the wall clock | `TryAnswer` |
+| `tryGuardPin` | the PIN typed on the guard as UTF-8 bytes, the wall clock | `TryAnswer`: `RELEASE_CONFIRMED` for a right PIN (the core's way of saying only that it was right), with the engine's words for until when the guarded pages are open; wrong PINs count with the lock's |
 | `finishSetup` | the wall clock | true when this call finished setup on the phone, false when it was finished already (nothing changes). Until it is, the engine counts and covers nothing. Keep the state at once, then tick |
 | `shouldSave`, `save`, `saveFailed` | | a flag; the bytes to keep; |
 | `view` | | `PhoneView?`: the ids, the day, counted, beyond and open seconds, how many slices and notes wait, the clock correction, whether setup is finished (`setupFinished`), and the engine's whole view as JSON, the child's Today, the rules in words and setup among it (below) |
@@ -117,7 +118,11 @@ be (the elapsed count, the boot count, minutes) is refused with
 **`PhoneFacts`** (in), field for field the engine's: `wallSecs`,
 `elapsedMs`, `bootCount`, `utcOffsetSecs`, `hours24`, `autoTime`,
 `interactive`, `keyguardLocked`, `call` (`IDLE`, `RINGING`, `ONGOING`),
-`front`, `inReach`, `prodded`, `permissions`. `front` is a `Front`: a
+`front`, `inReach`, `prodded`, `permissions`, and `guarded` (last, with a
+default of null, so Kotlin that does not name it still builds). `guarded`
+is a `GuardedPage?`: `DEVICE_ADMIN` or `ACCESSIBILITY`, a page in front that
+could switch LiMo off or remove it, as the watch recognised it (the
+engine's README, rule 12). `front` is a `Front`: a
 `kind` (`UNKNOWN`, `HOME`, `LIMO`, `DIALLER`, `EMERGENCY_DIALLER`, `APP`)
 with `packageName` and `label`, both optional and needed (the package) only
 for `APP`. `permissions` is a `PhonePermissions` of six, in the order setup
@@ -172,8 +177,12 @@ before the screens show it.
 **`PhoneOrders`** (out): `cover`, `timeLeft`, `warning`, `sendReport`,
 `saveState`, `notes`, `nextCheckInSecs`.
 
-- `cover` is a `Cover`: a `kind` (`NOTHING`, `BLOCK`, `LOCK`), with `block`
-  set for a block and `lock` for the lock.
+- `cover` is a `Cover`: a `kind` (`NOTHING`, `BLOCK`, `LOCK`, `GUARD`), with
+  `block` set for a block, `lock` for the lock and `guard` for the guard
+  (the last field, with a default of null).
+- `GuardCover`: `page` (`GuardedPage`), `stamp`, `title`, `message`,
+  `canUsePin`, `tryWaitUntil`, `waitWords`, `ways` (the PIN's one `WayRow`,
+  or none with no PIN set up), `nothingToDo`, `callOn`, `backToCall`.
 - `BlockCover`: `packageName`, `title`, `message`, `goHome`, `callOn`,
   `backToCall`.
 - `LockCover`: `why` (`LockWhy`, the engine's nine reasons), `stamp`,
@@ -448,8 +457,8 @@ proof three measured.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/convert.rs`, `src/engine.rs` | The facts field by field, each of the six permissions to its own field; every kind in front, and an app without its package refused; numbers below zero refused, big ones held; a PIN's action with what its kind needs; every refusal of the core and every error of the link to a variant of its own with the same words; JSON that is not a grant or a report; typed bytes that are not text; an engine whose lock was poisoned saying `Broken` | 9 |
-| `tests/bridge/` | Through this layer's API only, against the testkit (its phone set up at once, but in the setup story): a phone just paired counting and covering nothing, its words and its view saying setup is not finished, then finished, noted, covering and counting, kept, finishing again changing nothing, a state that cannot be read refusing it; a report out and a grant in as bytes, a stale grant, bytes that are not a grant; the notes as the engine's JSON and the view; the view's JSON carrying Today, the rules in words and what is switched off, by the names Kotlin reads; a ringing call never covered and a call in progress offering the way back; asking for time and the core refusing a second; codes wrong, malformed, the wait after five surviving a crash; the PIN adding, unlocking, confirming a release, refused before it is looked at; four kinds of unreadable state locking the phone and never written over; a welcome that is not one and a secret of the wrong length; crashes after any call; a whole pairing over the link making the engine, a session carrying the report and the grant, the app list and the goodbye; a report unanswered ending the session as `NoAnswerToReport`; a removed phone refused by its reason; bad offers and kept pairings refused without quoting them; the versions | 17 |
+| `src/convert.rs`, `src/engine.rs` | The facts field by field, each of the six permissions to its own field, each guarded page to its own and none to none; every kind in front, and an app without its package refused; numbers below zero refused, big ones held; a PIN's action with what its kind needs; every refusal of the core and every error of the link to a variant of its own with the same words; JSON that is not a grant or a report; typed bytes that are not text; an engine whose lock was poisoned saying `Broken` | 9 |
+| `tests/bridge/` | Through this layer's API only, against the testkit (its phone set up at once, but in the setup story): a phone just paired counting and covering nothing, its words and its view saying setup is not finished, then finished, noted, covering and counting, kept, finishing again changing nothing, a state that cannot be read refusing it; a report out and a grant in as bytes, a stale grant, bytes that are not a grant; the notes as the engine's JSON and the view; the view's JSON carrying Today, the rules in words and what is switched off, by the names Kotlin reads; a ringing call never covered and a call in progress offering the way back; asking for time and the core refusing a second; codes wrong, malformed, the wait after five surviving a crash; the PIN adding, unlocking, confirming a release, refused before it is looked at; four kinds of unreadable state locking the phone and never written over; a welcome that is not one and a secret of the wrong length; crashes after any call; a whole pairing over the link making the engine, a session carrying the report and the grant, the app list and the goodbye; a report unanswered ending the session as `NoAnswerToReport`; a removed phone refused by its reason; bad offers and kept pairings refused without quoting them; the guard crossing as its own record in the engine's words, noted, a wrong and a right PIN on it as records, open through a crash and guarded again five minutes on, bytes that are not text refused, the accessibility settings guarded and nothing before setup is finished; the versions | 19 |
 | `tests/house_rules.rs` | No line written here unsafe; the conversions forbid it and no UniFFI macro expands there; the testkit only behind its feature; nothing silences a lint; no dash punctuation; no machine paths | 6 |
 
 `npm run test:child` (in the app) runs the child module's **JVM tests**,
@@ -483,8 +492,8 @@ warnings and no allow attributes.
   Kotlin into Rust and back for one small record; a tick carries a few
   records each way and decides, and the engine expects to be called at
   most once a second.
-- How long `tryPin` takes on a phone (the PIN is hashed slowly on purpose,
-  200,000 rounds; the library is built for size).
+- How long `tryPin` and `tryGuardPin` take on a phone (the PIN is hashed
+  slowly on purpose, 200,000 rounds; the library is built for size).
 - That the cleaner frees objects on Android as on the JVM, and that a
   panic, which never happened here, reaches Kotlin as an exception.
 - That code shrinking stays off: JNA binds functions by name, so turning

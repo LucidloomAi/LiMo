@@ -6,6 +6,7 @@ import ai.lucidloom.limo.child.ffi.Cover
 import ai.lucidloom.limo.child.ffi.Front
 import ai.lucidloom.limo.child.ffi.GAME
 import ai.lucidloom.limo.child.ffi.GrantTaken
+import ai.lucidloom.limo.child.ffi.GuardedPage
 import ai.lucidloom.limo.child.ffi.IST
 import ai.lucidloom.limo.child.ffi.LoadProblem
 import ai.lucidloom.limo.child.ffi.PIN
@@ -164,6 +165,11 @@ internal class EngineSpy(val real: PhoneEngine, private val trail: Trail) : Phon
     return real.tryPin(pin, action, wallSecs)
   }
 
+  override fun tryGuardPin(pin: ByteArray, wallSecs: Long): TryAnswer {
+    wayOut()
+    return real.tryGuardPin(pin, wallSecs)
+  }
+
   override fun finishSetup(wallSecs: Long): Boolean {
     wayOut()
     return real.finishSetup(wallSecs)
@@ -206,6 +212,7 @@ internal class HostRig(folder: File, start: Long = WEDNESDAY_4_PM) : AutoCloseab
   var keyguard = false
   var call = CallState.IDLE
   var permissions = ALL_PERMISSIONS
+  var guarded: GuardedPage? = null
 
   val store = MemoryStore(trail)
   val names = MemoryNames()
@@ -240,6 +247,7 @@ internal class HostRig(folder: File, start: Long = WEDNESDAY_4_PM) : AutoCloseab
       inReach = false,
       prodded = false,
       permissions = permissions,
+      guarded = guarded,
     )
 
     override fun listen(onChange: () -> Unit): AutoCloseable {

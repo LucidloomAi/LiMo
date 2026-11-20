@@ -1,5 +1,6 @@
 package ai.lucidloom.limo.child.show
 
+import ai.lucidloom.limo.child.ffi.GuardedPage
 import ai.lucidloom.limo.child.ffi.LockWhy
 import ai.lucidloom.limo.child.ffi.NothingToDo
 import ai.lucidloom.limo.child.ffi.RequestAnswer
@@ -153,6 +154,42 @@ class CoverPlanTest {
       assertTrue("$icon is in the design's set", java.io.File(REPO, "design/icons/svg/$icon.svg").isFile)
     }
     for (p in Picture.entries) assertTrue(java.io.File(REPO, "design/icons/svg/${p.icon}.svg").isFile)
+  }
+
+  @Test
+  fun theGuardIsLaidOutAsTheLockWithThePinAsItsOneRowAndNothingAboutTime() {
+    val p = Plans.of(guard(), "Mira", apps) as CoverPlan.Guard
+    assertEquals(GuardedPage.DEVICE_ADMIN, p.page)
+    assertEquals(Picture.KEY, p.picture)
+    assertEquals("Mira · this phone", p.eyebrow)
+    assertEquals("Protected", p.stamp)
+    assertEquals("A guardian’s PIN is needed here.", p.title)
+    assertEquals("These settings can switch LiMo off or remove it from this phone.", p.message)
+    assertEquals(listOf(RowPlan(Way.PIN, Picture.PIN, "Guardian PIN", "Opens these settings for 5 minutes", false)), p.rows)
+    assertNull(p.waitWords)
+    assertNull(p.nothing)
+    assertNull(p.backToCall)
+    assertEquals(listOf(Pinned.EMERGENCY), p.pinned)
+    assertEquals("the guard asks for no app", 0, apps.asked)
+    // The accessibility settings: the shield, as setup's Accessibility step.
+    assertEquals(Picture.SHIELD, (Plans.of(guard(guardCover(page = GuardedPage.ACCESSIBILITY)), null, apps) as CoverPlan.Guard).picture)
+    assertEquals("this phone", (Plans.of(guard(), null, apps) as CoverPlan.Guard).eyebrow)
+    // The wait greys the row; with no PIN, the engine's words; during a call, the way back pinned above Emergency call.
+    val wait = Plans.of(guard(guardCover(ways = listOf(guardRow(off = true)), waitWords = "Too many wrong tries. The next try is at 9:47 pm.")), "Mira", apps) as CoverPlan.Guard
+    assertTrue(wait.rows.single().off)
+    assertEquals("Wait until 9:47 pm", wait.rows.single().sub)
+    assertEquals("Too many wrong tries. The next try is at 9:47 pm.", wait.waitWords)
+    val none = Plans.of(guard(guardCover(ways = emptyList())), "Mira", apps) as CoverPlan.Guard
+    assertTrue(none.rows.isEmpty())
+    assertEquals(NothingPlan("A guardian PIN is not set up yet.", "A guardian sets one in LiMo on the family PC."), none.nothing)
+    val call = Plans.of(guard(guardCover(callOn = true)), "Mira", apps) as CoverPlan.Guard
+    assertEquals("Back to the call", call.backToCall)
+    assertEquals(listOf(Pinned.BACK_TO_CALL, Pinned.EMERGENCY), call.pinned)
+    // A level: the same order is the same plan; another page another.
+    assertEquals(Plans.of(guard(), "Mira", apps), Plans.of(guard(), "Mira", apps))
+    assertFalse(Plans.of(guard(), "Mira", apps) == Plans.of(guard(guardCover(page = GuardedPage.ACCESSIBILITY)), "Mira", apps))
+    // An order of the guard with no guard in it draws nothing.
+    assertEquals(CoverPlan.None, Plans.of(ai.lucidloom.limo.child.ffi.Cover(ai.lucidloom.limo.child.ffi.CoverKind.GUARD, null, null, null), "Mira", apps))
   }
 
   @Test

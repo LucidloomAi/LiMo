@@ -354,5 +354,7 @@ internal class Parts(val context: Context, val assets: ShowAssets) {
     Picture.CODE -> R.drawable.limo_icon_code
     Picture.PIN -> R.drawable.limo_icon_pin
     Picture.BELL -> R.drawable.limo_icon_bell
+    Picture.KEY -> R.drawable.limo_icon_key
+    Picture.SHIELD -> R.drawable.limo_icon_shield
   }
 }

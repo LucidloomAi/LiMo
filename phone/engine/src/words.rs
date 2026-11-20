@@ -464,6 +464,37 @@ pub(crate) fn try_words(way: Way, outcome: &TryOutcome, now: i64, clock: PhoneCl
 /// Said under a right code or PIN when the phone is open after it.
 pub(crate) const OPENS_NOW: &str = "The phone opens now.";
 
+// ---------- The guard ----------
+
+/// The guard's stamp, in place of the lock's "Locked".
+pub(crate) const GUARD_STAMP: &str = "Protected";
+
+/// The guard's title: what is needed here.
+pub(crate) const GUARD_TITLE: &str = "A guardian's PIN is needed here.";
+
+/// The guard's message: why. One sentence for every guarded page: each of
+/// them can switch LiMo off, and the device admin's page can also let it be
+/// removed.
+pub(crate) const GUARD_MESSAGE: &str = "These settings can switch LiMo off or remove it from this phone.";
+
+/// The line under the guard's one way out, the guardian PIN: what it does
+/// here. "Opens these settings for 5 minutes".
+pub(crate) fn guard_row(open_secs: u64) -> String {
+    let minutes = u32::try_from(open_secs.div_ceil(60)).unwrap_or(u32::MAX);
+    format!("Opens these settings for {}", long_minutes(minutes))
+}
+
+/// What the guard says when the phone holds no PIN record, so no way out is
+/// offered: a line in bold and one under it.
+pub(crate) const GUARD_NO_PIN: (&str, &str) =
+    ("A guardian PIN is not set up yet.", "A guardian sets one in LiMo on the family PC.");
+
+/// The answer to a right PIN on the guard: "These settings are open until
+/// 9:52 pm.".
+pub(crate) fn guard_open_words(now: i64, until: i64, clock: PhoneClock) -> String {
+    format!("These settings are open until {}.", until_in_sentence(now, until, clock))
+}
+
 // ---------- Setup ----------
 
 /// Said in place of the time left until a guardian finishes setup on the
@@ -830,6 +861,22 @@ mod tests {
         assert_eq!(try_words(Way::Code, &TryOutcome::AlreadyUsed, now, H12), "That code was already used today.");
         assert_eq!(try_words(Way::Code, &TryOutcome::NotSet, now, H12), "Codes are not set up on this phone yet.");
         assert_eq!(try_words(Way::Pin, &TryOutcome::NotSet, now, H12), "A guardian PIN is not set up yet.");
+    }
+
+    #[test]
+    fn the_guards_words() {
+        let now = at(0, 21, 42);
+        assert_eq!(GUARD_STAMP, "Protected");
+        assert_eq!(GUARD_TITLE, "A guardian's PIN is needed here.");
+        assert_eq!(GUARD_MESSAGE, "These settings can switch LiMo off or remove it from this phone.");
+        assert_eq!(guard_row(300), "Opens these settings for 5 minutes");
+        assert_eq!(guard_row(60), "Opens these settings for 1 minute");
+        assert_eq!(guard_row(90), "Opens these settings for 2 minutes", "rounded up");
+        assert_eq!(GUARD_NO_PIN, ("A guardian PIN is not set up yet.", "A guardian sets one in LiMo on the family PC."));
+        assert_eq!(guard_open_words(now, at(0, 21, 47), H12), "These settings are open until 9:47 pm.");
+        assert_eq!(guard_open_words(now, at(0, 21, 47), H24), "These settings are open until 21:47.");
+        assert_eq!(guard_open_words(now, at(0, 21, 46) + 1, H12), "These settings are open until 9:47 pm.", "rounded up");
+        assert_eq!(guard_open_words(at(0, 23, 58), at(1, 0, 3), H12), "These settings are open until tomorrow, 12:03 am.");
     }
 
     #[test]

@@ -40,6 +40,8 @@ internal class WaysOutPage(
   private val reason: WayReason?,
   private val heading: String,
   private val on: WaysHandlers,
+  /** The guard's PIN only: the engine's line under its row ("Opens these settings for 5 minutes"), shown as the note. */
+  private val guardNote: String? = null,
 ) {
   val screen: Screen = Screen(parts.context, parts.dp)
 
@@ -186,11 +188,16 @@ internal class WaysOutPage(
   }
 
   private fun pin(card: LinearLayout) {
-    card.addView(parts.text(Look.NOTE, Drawn.PIN_NOTE), parts.at(top = Look.NOTE_TOP))
-    card.addView(parts.label(Drawn.ADD_TIME), parts.at(top = Look.LABEL_GAP_TOP))
-    card.addView(chips(PinChoice.entries.filter { it.adds }.map { it to it.label }, pinChips) { model.pick(it) }, parts.at(top = Look.CHIPS_TOP))
-    card.addView(parts.label(Drawn.KEEP_OPEN), parts.at(top = Look.LABEL_GAP_TOP))
-    card.addView(chips(PinChoice.entries.filter { !it.adds }.map { it to it.label }, pinChips) { model.pick(it) }, parts.at(top = Look.CHIPS_TOP))
+    if (model.guard) {
+      // The guard's PIN: nothing to choose, only what the PIN does here, in the engine's words.
+      guardNote?.let { card.addView(parts.text(Look.NOTE, it), parts.at(top = Look.NOTE_TOP)) }
+    } else {
+      card.addView(parts.text(Look.NOTE, Drawn.PIN_NOTE), parts.at(top = Look.NOTE_TOP))
+      card.addView(parts.label(Drawn.ADD_TIME), parts.at(top = Look.LABEL_GAP_TOP))
+      card.addView(chips(PinChoice.entries.filter { it.adds }.map { it to it.label }, pinChips) { model.pick(it) }, parts.at(top = Look.CHIPS_TOP))
+      card.addView(parts.label(Drawn.KEEP_OPEN), parts.at(top = Look.LABEL_GAP_TOP))
+      card.addView(chips(PinChoice.entries.filter { !it.adds }.map { it to it.label }, pinChips) { model.pick(it) }, parts.at(top = Look.CHIPS_TOP))
+    }
     val box = parts.line().also { b ->
       b.gravity = Gravity.CENTER_VERTICAL
       b.minimumHeight = parts.px(Look.PIN_BOX_HEIGHT)
@@ -266,7 +273,14 @@ internal class WaysOutPage(
       val row = parts.line()
       three.forEachIndexed { c, k ->
         val key: View = when (k) {
-          "" -> parts.spring()
+          // An empty key, never seen: measured as the keys are. A plain view
+          // here would take every spare point of a page shorter than the
+          // screen (the guard's PIN, or any way out on a tall phone), and
+          // its row with it, down to Emergency call.
+          "" -> parts.text(Look.KEY, "").also {
+            it.visibility = View.INVISIBLE
+            it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+          }
           "del" -> parts.line().also { d ->
             d.gravity = Gravity.CENTER
             d.background = parts.box()

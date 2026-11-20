@@ -20,10 +20,11 @@ import android.window.OnBackInvokedDispatcher
 import java.time.ZoneId
 
 /**
- * The ways out of a lock, each a screen of its own (B1, B2, B3): LiMo's own
- * activity, because a keyboard cannot type into an overlay. It talks to the
- * engine only through the host's three calls ([PhoneHost.askForTime],
- * [PhoneHost.tryCode], [PhoneHost.tryPin]) and shows each answer in the
+ * The ways out of a lock, each a screen of its own (B1, B2, B3), and the
+ * guard's PIN (B3 with nothing to choose): LiMo's own activity, because a
+ * keyboard cannot type into an overlay. It talks to the engine only through
+ * the host's calls ([PhoneHost.askForTime], [PhoneHost.tryCode],
+ * [PhoneHost.tryPin], [PhoneHost.tryGuardPin]) and shows each answer in the
  * engine's words ([WaysOutModel]).
  *
  * - **Secrets.** The window is secure: it cannot be captured, and Android
@@ -47,7 +48,8 @@ class WaysOutActivity : Activity() {
     window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
     if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false)
     val panel = panelOf(intent.getStringExtra(EXTRA_WAY))
-    model = WaysOutModel(panel)
+    val guard = panel == Panel.PIN && intent.getBooleanExtra(EXTRA_GUARD, false)
+    model = WaysOutModel(panel, guard)
     if (panel != Panel.ASK) window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
     savedInstanceState?.let { s ->
       restoreFrom(s)
@@ -62,7 +64,7 @@ class WaysOutActivity : Activity() {
     }
     title = heading
     val parts = Parts(this, ShowAssets.of(this))
-    val p = WaysOutPage(parts, model, reason, heading, Handlers())
+    val p = WaysOutPage(parts, model, reason, heading, Handlers(), if (guard) intent.getStringExtra(EXTRA_NOTE) else null)
     page = p
     edgeToEdge(p.screen)
     setContentView(p.screen)
@@ -156,6 +158,7 @@ class WaysOutActivity : Activity() {
         is WayCall.Ask -> host.askForTime(call.minutes, call.reason) { relay.answered(id, it) }
         is WayCall.Code -> host.tryCode(call.typed) { relay.answered(id, it) }
         is WayCall.Pin -> host.tryPin(call.typed, call.action) { relay.answered(id, it) }
+        is WayCall.GuardPin -> host.tryGuardPin(call.typed) { relay.answered(id, it) }
       }
     }
 
@@ -225,6 +228,8 @@ class WaysOutActivity : Activity() {
     private const val EXTRA_TITLE = "ai.lucidloom.limo.child.show.TITLE"
     private const val EXTRA_UNTIL = "ai.lucidloom.limo.child.show.UNTIL"
     private const val EXTRA_HEADING = "ai.lucidloom.limo.child.show.HEADING"
+    private const val EXTRA_GUARD = "ai.lucidloom.limo.child.show.GUARD"
+    private const val EXTRA_NOTE = "ai.lucidloom.limo.child.show.NOTE"
     private const val KEY_ASK = "limo.ask"
     private const val KEY_PIN = "limo.pin"
     private const val KEY_MESSAGE = "limo.message"
@@ -239,6 +244,24 @@ class WaysOutActivity : Activity() {
       i.putExtra(EXTRA_TITLE, lock.title)
       lock.untilWords?.let { i.putExtra(EXTRA_UNTIL, it) }
       lock.rows.firstOrNull { it.way == way }?.let { i.putExtra(EXTRA_HEADING, it.title) }
+      return i
+    }
+
+    /**
+     * Opens the guard's PIN: the guard's picture and title for the strip,
+     * the row's title for the heading, and the engine's line under the row
+     * as the note.
+     */
+    internal fun guardIntent(context: Context, guard: CoverPlan.Guard): Intent {
+      val i = Intent(context, WaysOutActivity::class.java)
+      i.putExtra(EXTRA_WAY, Way.PIN.name)
+      i.putExtra(EXTRA_GUARD, true)
+      i.putExtra(EXTRA_PICTURE, guard.picture.name)
+      i.putExtra(EXTRA_TITLE, guard.title)
+      guard.rows.firstOrNull { it.way == Way.PIN }?.let { row ->
+        i.putExtra(EXTRA_HEADING, row.title)
+        i.putExtra(EXTRA_NOTE, row.sub)
+      }
       return i
     }
 

@@ -1,19 +1,21 @@
 # show
 
 What a child sees from LiMo's Kotlin on the phone: the block screen, the
-lock, the warning that floats over the child's own app, and the three ways
-out of a lock. Native Android views, drawn to the approved drawings
+lock, the guard over a page that could switch LiMo off, the warning that
+floats over the child's own app, and the three ways out of a lock (and the
+guard's one, its PIN). Native Android views, drawn to the approved drawings
 (`design/screens/phone.html`, frames A to D and F), with every word the
 engine's or the drawing's. Kotlin, package `ai.lucidloom.limo.child.show`,
 in the child module.
 
 **What it is.** The engine's host hands it each order: the cover as a
 level, about once a second with the screen on and at once on any change,
-and a warning in the one tick it falls due. It draws the block screen and
-the lock in one window of the accessibility service, the warning in a small
-second one, and the ways out in an activity of LiMo's own, because a
-keyboard cannot type into an overlay. The ways out talk to the engine only
-through the host's three calls.
+and a warning in the one tick it falls due. It draws the block screen,
+the lock and the guard in one window of the accessibility service, the
+warning in a small second one, and the ways out in an activity of LiMo's
+own, because a keyboard cannot type into an overlay. The ways out talk to
+the engine only through the host's calls (three for the lock, one for the
+guard).
 
 **What it is not.** It decides nothing: whether to cover, what a lock
 offers, every sentence about time, rules and answers are the engine's
@@ -27,6 +29,7 @@ Nothing here has run on a phone yet: see
 - [How the other pieces call it](#how-the-other-pieces-call-it)
 - [The covers](#the-covers)
 - [The lock and the block screen](#the-lock-and-the-block-screen)
+- [The guard](#the-guard)
 - [The warning](#the-warning)
 - [The ways out](#the-ways-out)
 - [The look](#the-look)
@@ -160,6 +163,40 @@ screen with `TelecomManager.showInCallScreen` when the Phone permission is
 granted, and the dialler otherwise. A tile opens its app; the engine then
 finds an allowed app in front and orders nothing.
 
+## The guard
+
+The engine orders it over a page that could switch LiMo off or remove it
+(phone/engine/README.md, rule 12; watch/README.md, "The guard"). There is
+no drawing of it yet, so it is **laid out as the lock**, from the same
+parts, with no new mark: from the top, LiMo and the clock; the reason card
+with the guard's picture at 64, the engine's stamp ("PROTECTED") tilted,
+the label ("MIRA · THIS PHONE"), the engine's title ("A guardian's PIN is
+needed here.") and message; "What you can do" with the wait after wrong
+tries, when there is one, and one row, the engine's "Guardian PIN" with
+its line ("Opens these settings for 5 minutes", or "Wait until 9:47 pm",
+dashed and pale); with no PIN set up, the engine's two lines in place of
+the row; the plain line and the maker's mark. Pinned: Emergency call, and
+during a call "Back to the call" in teal above it. No "Opens again" and
+no "Still open": the guard says nothing about time and offers no apps.
+
+| The engine's order | The plan (`Plans.guard`) |
+| --- | --- |
+| `page` | The picture, each the mark setup gives the same thing: the key (setup's Protection step) for the device admin's page, the shield (setup's Accessibility step) for the accessibility settings. Both are icons of the design's set already. |
+| `ways` | The one row, the PIN; one that must wait is dashed, pale, and cannot be opened. |
+| `nothingToDo` | Only when no row is offered (no PIN set up). |
+| `waitWords` | A coral note, as on the lock. |
+| `callOn`, `backToCall` | Back to the call pinned above Emergency call. |
+
+**The tap on the row** opens LiMo's ways out activity at the PIN, as the
+guard's: the strip at the top with the guard's picture and title, the
+heading "Guardian PIN", the engine's line under the row as the note, the
+PIN as dots, the keys, and "Unlock" pinned; nothing to choose (no "Add
+time", no "Or keep it open for"). The PIN goes to the host's
+`tryGuardPin`. A right one shows the engine's "These settings are open
+until 9:52 pm." in teal for a second and a half, and the screen closes; the
+page under it is open then. A wrong one, the wait, Back and leaving
+behave as on the lock's PIN.
+
 ## The warning
 
 **The card (F)** floats at the top of the screen, 8 under the status bar
@@ -212,6 +249,7 @@ not exported, its own task, left out of the recent apps.
 | B1, asking | How long (15 min, 30 min, 45 min, 1 hour), Why with the phone's own keyboard, the counter ("28 / 200", as the rules core counts characters), and "Send request" pinned above the keyboard. |
 | B2, a code | The eight cells, the room for the engine's words, the keys, and "Use this code" pinned. |
 | B3, the PIN | In the phone's order: what to give (add 15 min, 30 min or 1 hour; or keep it open for 1 hour, 2 hours or today), then the PIN as dots, then the keys, and "Unlock" pinned. "Today" keeps it open to midnight on the phone's clock, a minute at least, as the PC's lock does. |
+| The guard's PIN | B3 with nothing to choose: the engine's line ("Opens these settings for 5 minutes") as the note, then the PIN, the keys and "Unlock" (see [The guard](#the-guard)). |
 
 The reason stays in sight as the strip at the top of the card (the lock's
 picture, its title and "Opens tomorrow, 7:00 am"); Emergency call, the
@@ -309,6 +347,7 @@ words, a reason, a code or a PIN.
 | --- | --- |
 | `show cover now block package=<package> call=<true, false>` | The block screen drawn, or changed; `call=true` while a call is on, so Back to the call shows. |
 | `show cover now lock why=<the engine's reason, such as time_used_up> rows=<ways out shown> tiles=<apps still open> call=<true, false>` | The lock drawn, or changed. |
+| `show cover now guard page=<device_admin, accessibility> rows=<1, or 0 with no PIN> call=<true, false>` | The guard drawn, or changed. |
 | `show cover drawn ms=<milliseconds>` | A new cover window's first frame, from the order (Android 10 and later). |
 | `show cover now nothing` | A cover window taken away. Not said when none was up. |
 | `show warning floated` | A warning card. |
@@ -342,7 +381,9 @@ LIMO_PICTURES=<folder> npm run test:child
 | `native-B1` (the keyboard a grey band, as drawn), `native-B2`, `native-B3` | B1, B2, B3 |
 | `native-B-wrong-code`, `native-B-wait`, `native-B-request` | the wrong code, the wait, a request that waits (the parts only) |
 | `native-C`, `native-D`, `native-F` | bedtime, the block screen, the warning |
-| `native-A2-text-1.3`, `-2`; `native-B3-text-*`; `native-D-text-*` | larger text |
+| `native-G`, `native-G-accessibility`, `native-G-wait`, `native-G-no-pin`, `native-G-call` | the guard (no drawing yet: laid out as the lock) over the device admin's page, over the accessibility settings, after wrong tries, with no PIN set up, during a call |
+| `native-G-pin`, `native-G-pin-wrong` | the guard's PIN, and a wrong one |
+| `native-A2-text-1.3`, `-2`; `native-B3-text-*`; `native-D-text-*`; `native-G-text-*` | larger text |
 
 Set beside the drawings' frames, each text stands within a point or two of
 the drawing's. What still differs, and why:
@@ -366,13 +407,13 @@ tests.
 
 | Test | What |
 | --- | --- |
-| `CoverPlanTest` (12) | The lock's and the block screen's decisions: rows, pictures and words for the time used up and bedtime; the tiles (the dialler first, each once, only those Android can open, never LiMo); no way out and the engine's words; the wait greying the code and the PIN; a request and its stamp's colour; Back to the call pinned above Emergency call on both; the label with and without a name, nothing else changing; nothing ordered; a picture of the set for every reason; the drawings' words, the counter, the clock and the end of today |
+| `CoverPlanTest` (13) | The guard as a plan: its picture for each page (the key, the shield), the label, the engine's stamp, title and message, the PIN as its one row, nothing about time and no apps asked for, the wait greying the row, the words with no PIN, the way back to a call, the same order the same plan; and the lock's and the block screen's decisions: rows, pictures and words for the time used up and bedtime; the tiles (the dialler first, each once, only those Android can open, never LiMo); no way out and the engine's words; the wait greying the code and the PIN; a request and its stamp's colour; Back to the call pinned above Emergency call on both; the label with and without a name, nothing else changing; nothing ordered; a picture of the set for every reason; the drawings' words, the counter, the clock and the end of today |
 | `ShowerCoreTest` (12) | The shower as a level: the same order every second drawing once; an order ended taking the cover down at once; a changed order changing the window; a window Android took away drawn again; stepping aside for the emergency dialler until the engine sees it, at most three seconds, an order of nothing followed and the timer then drawing nothing; LiMo's own screen never covered, even by an order of the lock, and the orders leading when it closes; a call ringing as it closes never covered; the warning's ten seconds and not before, OK, a new one with ten of its own, a cover taking it away, no service |
 | `WarningSwipeTest` (10) | The real card, built as the shower builds it and wired to a real `ShowerCore`, under real touches: gone after ten seconds and not before; OK puts it away at once, its timer with it; a swipe up pushes it away the moment it has gone 48; a swipe to the right and to the left; a quick short flick does and a slow short drag does not; a tap on its body and a resting, trembling touch do not; a swipe that first goes down does not, even if it turns up; a swipe that starts on OK pushes it away without pressing OK; a screen reader's dismiss; the card still with its one button and its words |
-| `WaysOutModelTest` (10) | Each way out through right and wrong answers: a right code (bytes sent, digits wiped, the engine's words, closing), a wrong one, a malformed one, the wait, a request and the core's refusal, each PIN choice and Today, Back wiping, a failure; the screen rebuilt in the middle of a call getting the answer and never the digits |
-| `WaysOutEngineTest` (3) | On the real engine through the host: the lock's plan, a wrong PIN and a right code in the engine's words, a request waiting on the lock with asking no longer offered, five wrong codes greying the rows, the right PIN made to wait; the shower following the real orders as a level, the dialler never covered |
+| `WaysOutModelTest` (11) | The guard's PIN sent to the guard, wiped, a wrong one staying in the engine's words, a right one shown then closing, the lock's PIN still the lock's; each way out through right and wrong answers: a right code (bytes sent, digits wiped, the engine's words, closing), a wrong one, a malformed one, the wait, a request and the core's refusal, each PIN choice and Today, Back wiping, a failure; the screen rebuilt in the middle of a call getting the answer and never the digits |
+| `WaysOutEngineTest` (4) | On the real engine through the host: the guard's plan from the engine's order, its PIN wrong and right in the engine's words, the page open after; and the lock's plan, a wrong PIN and a right code in the engine's words, a request waiting on the lock with asking no longer offered, five wrong codes greying the rows, the right PIN made to wait; the shower following the real orders as a level, the dialler never covered |
 | `LookTest` (5) | The table against the tokens and the drawings' style sheet: colours, shapes, the lock, the ways out, the warning, every kind of text, nothing under 12 |
-| `PicturesTest` (10) | The pictures above, and on them: everything to tap at least 48 high, no text cut or running out, the pinned buttons in sight, the small phone scrolling, the reading order, the label without a name moving nothing, the PIN never on the screen, the taps reaching their actions, large text at 1.3 and 2 breaking nothing |
+| `PicturesTest` (13) | The pictures above (the guard's among them: its reading order, nothing about time or apps on it, its row and Emergency call reaching their actions, a row that waits not tappable, the guard's PIN with nothing to choose and its digits never shown), and on them: everything to tap at least 48 high, no text cut or running out, the pinned buttons in sight, the small phone scrolling, the reading order, the label without a name moving nothing, the PIN never on the screen, the taps reaching their actions, large text at 1.3 and 2 breaking nothing |
 | `ShowHouseRulesTest` (4) | No log line with a name, a label, words, a reason, a code or a PIN; nothing reading another app's screen, the covers accessibility overlays; a typed code or PIN never a string, the ways out secure and never saving digits; no dash punctuation |
 
 ## What only a phone can prove
@@ -434,6 +475,17 @@ paired by the development tool and `adb logcat -s LiMo LiMoWatch`:
 11. **The fonts and the logo.** Fraunces, Instrument Sans and Spline Sans
     Mono at their weights, and the logo beside "MADE BY". If the mark shows
     only words, the logo was not found by name (see Left open).
+12. **The guard.** Settings, Device admin apps, LiMo: the guard over the
+    page (`show cover now guard page=device_admin rows=1 call=false`, then
+    `show cover drawn ms=`), the bars covered, the key, nothing of the page
+    showing. Its row opens the guard's PIN (the strip, the note, no
+    chips). A wrong PIN: coral words, Back, the guard again. The right
+    PIN: the teal words, then the page, open; five minutes on, or after
+    the screen was off, the guard again. Emergency call from the guard,
+    then Back: the guard again over the same page. On One UI, Settings,
+    Accessibility: the guard with the shield (`page=accessibility`).
+    Whether gestures (Back, Home) still reach Android under the guard, as
+    under the lock: Back leaves the page, and the guard goes with it.
 
 ## Left open
 
@@ -467,7 +519,11 @@ paired by the development tool and `adb logcat -s LiMo LiMoWatch`:
 - **Not drawn, decided here:** the lock's words when no way out is offered
   (as a dashed note, like a request); a right code's or PIN's answer in
   teal for a second and a half before the screen closes; the cover's
-  width above 600; the default dialler as the first tile.
+  width above 600; the default dialler as the first tile; the whole guard
+  (laid out as the lock, its pictures the key and the shield setup already
+  uses, the lock's plain line under it) and the guard's PIN (B3 with
+  nothing to choose, the engine's line as its note), until a drawing
+  settles them.
 
 ## Dependencies and licences
 
@@ -485,16 +541,16 @@ show/
   README.md
   Look.kt             the table of the look: colours, sizes, kinds of text
   Words.kt            the drawings' own words, the typographic apostrophe, the clock's words
-  CoverPlan.kt        the lock's and the block screen's decisions, from the engine's order (no Android)
+  CoverPlan.kt        the lock's, the block screen's and the guard's decisions, from the engine's order (no Android)
   ShowerCore.kt       the shower as a level, stepping aside, the warning's time (no Android)
   WaysOutModel.kt     the ways out's state machine and the relay of answers (no Android)
   Paper.kt            the drawing's boxes, dots, dashes and ink strokes
   Type.kt             the fonts and the logo, the line heights, PaperText
   Parts.kt            the parts a screen is made of
-  CoverPage.kt        the screen frame, the lock and the block screen
+  CoverPage.kt        the screen frame, the lock, the block screen and the guard
   WarningView.kt      the warning card, and its view that takes a swipe
   Swipe.kt            whether a touch is a swipe that pushes the warning away (no Android)
-  WaysOutPage.kt      B1, B2 and B3
+  WaysOutPage.kt      B1, B2 and B3, and B3 as the guard's PIN
   CoverShower.kt      the host's Shower: the overlay windows, the taps, the apps, the emergency dialler
   WaysOutActivity.kt  LiMo's own screen of the ways out
 src/test/java/ai/lucidloom/limo/child/show/

@@ -1,10 +1,11 @@
 # dev
 
 A test family over the USB cable, before the link exists: the app's side
-of the development tool on the PC (`phone/devtool`). **Debug builds only**:
+of the development tool on the PC (`phone/devtool`); and the probe that
+learns the real names of the pages LiMo guards. **Debug builds only**:
 everything here is in `src/debug`, which a release build never compiles,
 and `npm run inspect` checks that the release APK holds neither the
-receiver nor its class.
+receiver, nor its class, nor anything of the probe.
 
 ## How the tool pairs the phone
 
@@ -31,12 +32,14 @@ receiver nor its class.
 ```
 adb shell am broadcast -a ai.lucidloom.limo.child.dev.PAIR   -n ai.lucidloom.limo.child/ai.lucidloom.limo.child.dev.DevReceiver
 adb shell am broadcast -a ai.lucidloom.limo.child.dev.FORGET -n ai.lucidloom.limo.child/ai.lucidloom.limo.child.dev.DevReceiver
+adb shell am broadcast -a ai.lucidloom.limo.child.dev.PROBE  -n ai.lucidloom.limo.child/ai.lucidloom.limo.child.dev.DevReceiver --ez on true
 ```
 
 | Action | What the app does |
 | --- | --- |
 | `ai.lucidloom.limo.child.dev.PAIR` | Reads the pairing file and deletes it at once, whatever it held (to try again, push it again: it is never read twice). Makes the engine from it through the host (`PhoneHost.pair`, with the child's name), which keeps the new state before anything else, then the name, replacing any state and name kept before; fills the welcome and the secret with zeros; starts the keeper. |
 | `ai.lucidloom.limo.child.dev.FORGET` | Deletes the kept state (`files/limo/state`) and the child's name (`files/limo/child.json`), takes any cover away, stops the keeper. |
+| `ai.lucidloom.limo.child.dev.PROBE`, with the boolean extra `on` | Switches the page probe on (true) or off (false) (below). With no extra, off. |
 
 The receiver is exported so that adb can reach it, and guarded by
 `android.permission.DUMP`, which only the adb shell and the system hold: no
@@ -51,6 +54,75 @@ the file held:
 | `dev pair no_file` | No pairing file was there. |
 | `dev pair refused why=<word>` | `not_json`, `no_welcome`, `no_code_secret`, `no_made_at`, `old_file`, `no_child_name`, `code_secret_not_hex`, `code_secret_not_32_bytes`, `unreadable`, `not_deleted`, or `engine` (the engine refused the welcome or the secret, or the state could not be written). |
 | `dev forget done` | The state was deleted. |
+| `dev probe on`, `dev probe off` | The page probe was switched. |
+
+## The page probe
+
+The guard covers pages that could switch LiMo off or remove it
+(watch/README.md, "The guard"). Inside Android's Settings and the package
+installer, the only thing that tells such a page apart is the class name
+of its window, and the list of those names (watch/Guarded.kt) was read in
+Android's source, not on a phone. The probe is how the real names are
+learned, once, on a real phone.
+
+**What it does.** While it is on, each window event of Android's Settings
+or the installer (`com.android.settings`, `com.android.packageinstaller`,
+`com.google.android.packageinstaller`) logs one line, tag `LiMoWatch`:
+
+```
+probe window package=com.android.settings class=com.android.settings.applications.specialaccess.deviceadmin.DeviceAdminAdd
+```
+
+It sees exactly the events whose class name a release build reads and
+matches, nothing more: never another app's class name, never any text or
+anything on the screen. The watch's `WindowPage` hands the name over in a
+debug build only: `src/debug/watch` holds the debug copy, which calls
+`PageProbe.window` and then matches as a release build does, and
+`src/release/java` the release copy, which only matches (the module's
+`build.gradle` adds `src/debug/watch` to the debug source set). The class
+name is cut at 200 characters and keeps only letters, digits, dots,
+underscores and dollar signs.
+
+**Off by default**, and off again whenever LiMo's process starts: the
+switch is held in memory only. The watch's own lines (`guard now ...`,
+`front now ...`) go on as in any build; they name a page's kind and a
+package, never a class.
+
+**For the next run on the phone**, a person at the PC, with the debug
+build installed and paired (phone/TESTING.md, parts C and D), and setup
+finished on the phone:
+
+1. In one terminal, the log: `adb logcat -s LiMo:V LiMoWatch:V`.
+2. In another, the probe on; the log says `probe on` and `dev probe on`:
+
+   ```
+   adb shell am broadcast -a ai.lucidloom.limo.child.dev.PROBE -n ai.lucidloom.limo.child/ai.lucidloom.limo.child.dev.DevReceiver --ez on true
+   ```
+
+3. With the phone open (no lock on it, time left), walk each page once,
+   slowly, a few seconds on each, and say aloud which page it is, so that
+   the log can be matched to it afterwards: Settings' first page; Security
+   and privacy, Other security settings, Device admin apps; LiMo's row
+   there (the device admin's page); its Deactivate, then Cancel; Back to
+   the list; Apps, LiMo (App info); its Uninstall (on Android 10 to 15 it
+   opens the device admin's page, ready to switch it off and remove LiMo),
+   then Back; its Force stop, and Storage with Clear storage (note whether
+   each is greyed out; tap neither); Accessibility (One UI opens a package
+   of its own); from the home screen, a long press on LiMo's icon and
+   Uninstall (the installer's question), then Cancel. Where the guard
+   covers a page, that is LiMo working: type the PIN, which opens these
+   settings for five minutes, and carry on.
+4. The probe off:
+
+   ```
+   adb shell am broadcast -a ai.lucidloom.limo.child.dev.PROBE -n ai.lucidloom.limo.child/ai.lucidloom.limo.child.dev.DevReceiver --ez on false
+   ```
+
+5. Copy the log. Each `probe window` line gives a page's real package and
+   class; each `front now app package=` line the package in front, the
+   installer's among them; each `guard now` line what was guarded. A page
+   that switches LiMo off whose class is not in watch/Guarded.kt, or the
+   installer under another package than the three above, is what to add.
 
 ## The debug build
 
@@ -75,7 +147,12 @@ that are not right, each refused by its word, deleted, and never quoted,
 among them one with no name, a name that is not text, and names that are
 nothing once cleaned; strings with escapes and a nested welcome read as
 the very text they are; a name cleaned (a direction mark dropped, cut at
-40 characters).
+40 characters). `PageProbeTest`: off until switched on; then Settings' and
+the installer's windows logged, and never another app's, whatever its
+class; a name cut and kept to what a class name can hold; nothing once
+off. The debug copy of the watch's `WindowPage` is not compiled into
+those tests (only `src/debug/java` is); the watch's house rules check its
+text (watch/README.md, "Tests").
 
 ## Layout
 
@@ -84,7 +161,10 @@ src/debug/
   AndroidManifest.xml    the receiver, guarded by DUMP
   java/ai/lucidloom/limo/child/dev/
     README.md
-    DevReceiver.kt       the two broadcasts
+    DevReceiver.kt       the three broadcasts
     DevPairing.kt        the pairing file, taken once, and a small strict JSON reader for it
-src/test/java/ai/lucidloom/limo/child/dev/DevPairingTest.kt
+    PageProbe.kt         the page probe: its switch, and a line for each window of Settings and the installer
+  watch/ai/lucidloom/limo/child/watch/
+    WindowPage.kt        the watch's debug copy: hands the class name to the probe, then matches it
+src/test/java/ai/lucidloom/limo/child/dev/DevPairingTest.kt, PageProbeTest.kt
 ```

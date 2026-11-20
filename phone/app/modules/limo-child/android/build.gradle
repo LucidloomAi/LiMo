@@ -62,6 +62,14 @@ android {
     testRelease {
       java.srcDirs += 'src/debug/java'
     }
+    // The watch's WindowPage, in two copies: src/release/java (matching
+    // only) for release builds, and this one for debug builds, which also
+    // hands Settings' and the installer's class names to the development
+    // probe (dev/PageProbe). Kept out of src/debug/java so that the release
+    // unit tests above, which compile src/debug/java, see one copy only.
+    debug {
+      java.srcDirs += 'src/debug/watch'
+    }
   }
   testOptions {
     // For the JVM tests only: show/'s pictures are drawn by Robolectric,

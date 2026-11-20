@@ -1,5 +1,6 @@
 package ai.lucidloom.limo.child.show
 
+import ai.lucidloom.limo.child.ffi.GuardedPage
 import ai.lucidloom.limo.child.ffi.LockWhy
 import ai.lucidloom.limo.child.ffi.RequestAnswer
 import ai.lucidloom.limo.child.ffi.Way
@@ -23,6 +24,7 @@ import android.widget.TextView
 import java.io.File
 import java.io.FileOutputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -120,6 +122,10 @@ class PicturesTest {
       taps += "way $way"
     }
 
+    override fun openGuard(guard: CoverPlan.Guard) {
+      taps += "guard ${guard.page}"
+    }
+
     override fun appIcon(packageName: String): Drawable = LetterTile(LABELS[packageName]!!.take(1))
   }
 
@@ -178,6 +184,21 @@ class PicturesTest {
     val parts = Parts(context(), assets)
     val plan = Plans.of(lock(c), name, FakeApps()) as CoverPlan.Lock
     return CoverPage(parts, actions).build(plan, "9:42 pm", "Wed 18 Nov")
+  }
+
+  private fun guardScreen(c: ai.lucidloom.limo.child.ffi.GuardCover, name: String? = "Mira"): Screen {
+    val parts = Parts(context(), assets)
+    val plan = Plans.of(guard(c), name, FakeApps()) as CoverPlan.Guard
+    return CoverPage(parts, actions).build(plan, "9:42 pm", "Wed 18 Nov")
+  }
+
+  /** The guard's PIN: B3 with nothing to choose, the guard's strip and the engine's note. */
+  private fun guardPin(typed: String = "", message: Message? = null): WaysOutPage {
+    val model = WaysOutModel(Panel.PIN, guard = true)
+    typed.forEach { model.type(it) }
+    message?.let { model.restore(model.saved().copy(message = it), waiting = false) }
+    val reason = WayReason(Picture.KEY, "A guardian’s PIN is needed here.", null)
+    return WaysOutPage(Parts(context(), assets), model, reason, "Guardian PIN", handlers, "Opens these settings for 5 minutes")
   }
 
   private fun ways(panel: Panel, typed: String = "", message: Message? = null, setUp: (WaysOutModel) -> Unit = {}): WaysOutPage {
@@ -450,6 +471,81 @@ class PicturesTest {
   }
 
   @Test
+  fun gTheGuardOverTheDeviceAdminsPage() {
+    val s = phone(guardScreen(guardCover()))
+    save("G", s)
+    tapsAre48(s)
+    nothingCut(s)
+    inSight(button(s, Drawn.EMERGENCY_CALL), s)
+    // Laid out as the lock, with nothing about time and no apps.
+    val said = spoken(s)
+    val order = listOf("LiMo", "9:42 pm", "Protected", "Mira · this phone", "A guardian’s PIN is needed here.", "These settings can switch LiMo off or remove it from this phone.", "What you can do", "Guardian PIN", "Opens these settings for 5 minutes", Drawn.NOTHING_CLOSED, "Made by LucidLoom AI", "Emergency call")
+    var at = -1
+    for (o in order) {
+      val i = said.indexOf(o)
+      assertTrue("\"$o\" is read after what comes before it in $said", i > at)
+      at = i
+    }
+    for (absent in listOf(Drawn.OPENS_AGAIN, Drawn.STILL_OPEN, "Ask for more time", "Type a one time code")) {
+      assertFalse("the guard says $absent", said.contains(absent))
+    }
+    holding(s, "Guardian PIN").performClick()
+    button(s, Drawn.EMERGENCY_CALL).performClick()
+    assertEquals(listOf("guard DEVICE_ADMIN", "emergency"), taps)
+  }
+
+  @Test
+  fun gTheGuardOverTheAccessibilitySettingsTheWaitNoPinAndACall() {
+    val a = phone(guardScreen(guardCover(page = GuardedPage.ACCESSIBILITY)))
+    save("G-accessibility", a)
+    tapsAre48(a)
+    nothingCut(a)
+
+    val wait = phone(guardScreen(guardCover(ways = listOf(guardRow(off = true)), waitWords = "Too many wrong tries. The next try is at 9:47 pm.")))
+    save("G-wait", wait)
+    nothingCut(wait)
+    // The row waits: shown, and nothing to tap.
+    assertTrue(all(wait).none { it.isClickable && all(it).any { c -> c is PaperText && c.words.toString() == "Guardian PIN" } })
+    assertTrue(spoken(wait).contains("Wait until 9:47 pm"))
+
+    val noPin = phone(guardScreen(guardCover(ways = emptyList())))
+    save("G-no-pin", noPin)
+    nothingCut(noPin)
+    assertTrue(spoken(noPin).contains("A guardian PIN is not set up yet."))
+
+    val call = phone(guardScreen(guardCover(callOn = true)))
+    save("G-call", call)
+    tapsAre48(call)
+    val back = button(call, "Back to the call")
+    val emergency = button(call, Drawn.EMERGENCY_CALL)
+    inSight(back, call)
+    inSight(emergency, call)
+    assertTrue("Back to the call is above Emergency call", back.bottom < emergency.top + 1 && back.parent === emergency.parent)
+  }
+
+  @Test
+  fun gTheGuardsPin() {
+    val g = guardPin(typed = "2468")
+    val s = phone(g.screen)
+    save("G-pin", s)
+    tapsAre48(s)
+    nothingCut(s)
+    inSight(button(s, Drawn.UNLOCK), s)
+    val said = spoken(s)
+    // Nothing to choose: only what the PIN does here, then the PIN and the keys.
+    assertTrue(said.contains("Opens these settings for 5 minutes"))
+    for (chip in listOf("15 min", "30 min", "1 hour", "2 hours", "Today", "Add time", "Or keep it open for")) {
+      assertFalse("the guard's PIN offers $chip", said.contains(chip))
+    }
+    assertTrue(said.indexOf("Opens these settings for 5 minutes") < said.indexOf(Drawn.PIN_PLACEHOLDER))
+    assertTrue(all(s).none { it is TextView && it.text.contains("2468") })
+    assertTrue(said.none { it.contains("2468") })
+    val wrong = phone(guardPin(message = Message("That PIN is not right. 4 more tries before a wait.", right = false)).screen)
+    save("G-pin-wrong", wrong)
+    nothingCut(wrong)
+  }
+
+  @Test
   fun largeTextAtOnePointThreeAndTwoTimesBreaksNothing() {
     for (scale in listOf(1.3f, 2f)) {
       RuntimeEnvironment.setFontScale(scale)
@@ -472,6 +568,13 @@ class PicturesTest {
         val boxes = (0 until row.childCount).map { row.getChildAt(it) }.filter { it.isClickable && it.background is BoxDrawable }
         if (boxes.size >= 3) assertEquals("one height in a row at $scale", 1, boxes.map { it.height }.toSet().size)
       }
+
+      val gScreen = phone(guardScreen(guardCover(callOn = true)))
+      save("G-text-$tag", gScreen)
+      tapsAre48(gScreen)
+      nothingCut(gScreen)
+      inSight(button(gScreen, Drawn.EMERGENCY_CALL), gScreen)
+      inSight(button(gScreen, "Back to the call"), gScreen)
 
       val dScreen = phone(CoverPage(Parts(context(), assets), actions).build(Plans.of(block(), "Mira", FakeApps()), "9:42 pm", "Wed 18 Nov"))
       save("D-text-$tag", dScreen)

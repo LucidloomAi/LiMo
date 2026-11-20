@@ -11,15 +11,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::counts;
 use crate::error::{LoadProblem, PhoneError};
-use crate::facts::{CallState, PhoneFacts};
+use crate::facts::{CallState, GuardedPage, PhoneFacts};
 use crate::kept::{Change, Kept, Moment};
 use crate::orders::{
-    Cover, GrantTaken, LockScreen, LockWhy, PhoneNote, PhoneOrders, RequestLine, TimeLeft, TryAnswer, WarningShown,
-    Way, WayRow,
+    Cover, GrantTaken, GuardScreen, LockScreen, LockWhy, PhoneNote, PhoneOrders, RequestLine, TimeLeft, TryAnswer,
+    WarningShown, Way, WayRow,
 };
 use crate::today::{self, RulesWords, TodayView};
 use crate::words::{self, PhoneClock};
-use crate::{ANSWER_WAIT_MS, REPORT_EVERY_SECS, REPORT_IDLE_SECS, SAVE_PROGRESS_EVERY_MS};
+use crate::{ANSWER_WAIT_MS, GUARD_OPEN_SECS, REPORT_EVERY_SECS, REPORT_IDLE_SECS, SAVE_PROGRESS_EVERY_MS};
 
 /// A moment by the elapsed count, on one start of the phone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,12 +253,19 @@ impl PhoneEngine {
         let rules = kept.state.rules();
         let why = decision.device_lock.filter(|_| !setting_up).map(|lock| LockWhy::from_core(lock.reason, facts.in_reach));
         let app_blocked = !setting_up && decision.lock.is_some_and(|lock| lock.reason == LockReason::AppBlocked);
+        // A page that could switch LiMo off or remove it is guarded, unless
+        // a right PIN keeps such pages open (until the phone is put down, the
+        // phone starts again, or the time is up), or setup is not finished.
+        let guard_open = kept.guard_open_now(facts.boot_count, facts.elapsed_ms, screen);
+        let guarding =
+            facts.guarded.filter(|page| !setting_up && !guard_open && page.needs_guard(facts.permissions));
 
         // What to draw. The lock covers whatever is in front but the apps it
-        // names; a blocked app is covered on its own; nothing is ever drawn
-        // over a ringing call, the diallers, LiMo or Android's own lock
-        // screen. During a call in progress any other app is covered as with
-        // no call, and the cover offers a way back to the call.
+        // names; a blocked app is covered on its own; a guarded page is
+        // covered by the guard; nothing is ever drawn over a ringing call,
+        // the diallers, LiMo or Android's own lock screen. During a call in
+        // progress any other app is covered as with no call, and the cover
+        // offers a way back to the call.
         let call_on = facts.call == CallState::Ongoing;
         let back_to_call = call_on.then(|| words::BACK_TO_THE_CALL.to_string());
         let cover = match (may_cover, why, decision.device_lock) {
@@ -286,7 +293,15 @@ impl PhoneEngine {
                 call_on,
                 back_to_call,
             },
-            _ => Cover::Nothing,
+            (true, _, _) => match guarding {
+                Some(page) => {
+                    let mut screen = guard_screen(page, &decision, now, clock);
+                    screen.call_on = call_on;
+                    screen.back_to_call = back_to_call;
+                    Cover::Guard(Box::new(screen))
+                }
+                None => Cover::Nothing,
+            },
         };
 
         // Whether time is counted now, and the look the next step counts
@@ -296,8 +311,10 @@ impl PhoneEngine {
         kept.set_look(at, using.as_deref(), &decision);
         let counting = using.is_some() && decision.counts;
 
-        if let Cover::Block { package, .. } = &cover {
-            kept.note_blocked(package, decision.day, now, &mut notes);
+        match &cover {
+            Cover::Block { package, .. } => kept.note_blocked(package, decision.day, now, &mut notes),
+            Cover::Guard(screen) => kept.note_guarded(screen.page, decision.day, now, &mut notes),
+            Cover::Nothing | Cover::Lock(_) => {}
         }
         kept.keep_notes(&notes);
 
@@ -452,6 +469,45 @@ impl PhoneEngine {
         kept.flush();
         let outcome = kept.state.try_pin(pin, action, now).map_err(|problem| PhoneError::Refused { problem })?;
         Ok(self.answer(Way::Pin, outcome, now))
+    }
+
+    /// A guardian types the PIN on the guard, at `now` (the wall clock), to
+    /// open the pages that could switch LiMo off or remove it
+    /// ([`crate::GuardedPage`]). A right PIN keeps them open for
+    /// [`crate::GUARD_OPEN_SECS`], counted by the elapsed count from the last
+    /// call, or until the screen goes off, Android's lock screen shows or the
+    /// phone starts again, whichever comes first; the guardian is told by a
+    /// note ([`PhoneNote::GuardOpened`]). It changes nothing else: no time is
+    /// added and nothing is unlocked. Wrong PINs count with wrong codes and
+    /// PINs on the lock, with the same wait after five. Keep the state at
+    /// once, right or wrong, before showing the answer, then tick.
+    ///
+    /// The core has no action that only checks the PIN, so the check is its
+    /// `PinAction::ConfirmRelease`, which does nothing but say whether the
+    /// PIN was right and clear the wrong tries when it was; the answer's
+    /// outcome is then `ReleaseConfirmed`.
+    pub fn try_guard_pin(&mut self, pin: &str, now: i64) -> Result<TryAnswer, PhoneError> {
+        let from = self.seen.map(|s| (s.stamp.boot, s.stamp.ms));
+        let clock = self.clock();
+        let kept = self.kept.as_mut().ok_or(PhoneError::CannotCheck)?;
+        let now = kept.limo_time(now);
+        kept.flush();
+        let outcome =
+            kept.state.try_pin(pin, PinAction::ConfirmRelease, now).map_err(|problem| PhoneError::Refused { problem })?;
+        if outcome != TryOutcome::ReleaseConfirmed {
+            return Ok(self.answer(Way::Pin, outcome, now));
+        }
+        let until = now.saturating_add(i64::try_from(GUARD_OPEN_SECS).unwrap_or(i64::MAX));
+        kept.open_guard(from, until);
+        kept.keep_notes(&[PhoneNote::GuardOpened { until, at: now }]);
+        self.talk.way_out = true;
+        Ok(TryAnswer { message: words::guard_open_words(now, until, clock), opens_now: None, outcome })
+    }
+
+    /// Until when a right guardian PIN keeps the guarded pages open, by
+    /// LiMo's clock; None while they are guarded. As at the last call.
+    pub fn guard_open_until(&self) -> Option<i64> {
+        self.kept.as_ref().and_then(|k| k.guard_until())
     }
 
     /// A guardian finished setup on this phone, at `now` (the wall clock):
@@ -636,6 +692,42 @@ fn lock_screen(
         wait_words: try_wait_until.map(|until| words::wait_words(now, until, clock)),
         latest_request,
         request_line,
+        ways,
+        nothing_to_do,
+        call_on: false,
+        back_to_call: None,
+    }
+}
+
+/// The guard, with its words and its one way out, the guardian PIN: offered
+/// when the phone holds a PIN record, greyed with the lock's wait after
+/// wrong tries.
+fn guard_screen(page: GuardedPage, decision: &Decision, now: i64, clock: PhoneClock) -> GuardScreen {
+    let can_use_pin = decision.can_use_pin;
+    let try_wait_until = decision.try_wait_until.filter(|w| *w > now);
+    let ways: Vec<WayRow> = can_use_pin
+        .then(|| {
+            let (title, _) = Way::Pin.words();
+            let sub = match try_wait_until {
+                Some(until) => words::wait_row(now, until, clock),
+                None => words::guard_row(GUARD_OPEN_SECS),
+            };
+            WayRow { way: Way::Pin, title: title.to_string(), sub, off: try_wait_until.is_some() }
+        })
+        .into_iter()
+        .collect();
+    let nothing_to_do = ways.is_empty().then(|| {
+        let (bold, line) = words::GUARD_NO_PIN;
+        (bold.to_string(), line.to_string())
+    });
+    GuardScreen {
+        page,
+        stamp: words::GUARD_STAMP.to_string(),
+        title: words::GUARD_TITLE.to_string(),
+        message: words::GUARD_MESSAGE.to_string(),
+        can_use_pin,
+        try_wait_until,
+        wait_words: try_wait_until.map(|until| words::wait_words(now, until, clock)),
         ways,
         nothing_to_do,
         call_on: false,

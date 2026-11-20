@@ -9,7 +9,7 @@
 use limo_core::{RequestView, TryOutcome, WarningCause};
 use serde::{Deserialize, Serialize};
 
-use crate::facts::Permission;
+use crate::facts::{GuardedPage, Permission};
 
 /// Everything to be done after one call.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,7 +31,8 @@ pub struct PhoneOrders {
     /// anything else.
     pub save_state: bool,
     /// Things the guardian should know, noted in this call: a clock moved, a
-    /// restart, a permission switched off, a blocked app opened. The engine
+    /// restart, a permission switched off, a blocked app opened, a guarded
+    /// page opened. The engine
     /// keeps them too, until the master can take them. (Setup finished is
     /// noted by [`crate::PhoneEngine::finish_setup`], not in a call.)
     pub notes: Vec<PhoneNote>,
@@ -73,6 +74,47 @@ pub enum Cover {
     /// apps the lock names stay usable: the child opens them from it, and
     /// while one is in front the cover is [`Cover::Nothing`].
     Lock(Box<LockScreen>),
+    /// A page that could switch LiMo off or remove it is in front: cover it
+    /// with the guard, which offers the guardian PIN only. A right PIN opens
+    /// the guarded pages for [`crate::GUARD_OPEN_SECS`]
+    /// ([`crate::PhoneEngine::try_guard_pin`]). A lock or a block screen that
+    /// covers the same moment comes first.
+    Guard(Box<GuardScreen>),
+}
+
+/// What the guard shows: laid out as the lock is, with one way out, the
+/// guardian PIN, and nothing about time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuardScreen {
+    /// The page it covers.
+    pub page: GuardedPage,
+    /// The small stamp: "Protected".
+    pub stamp: String,
+    /// Why, in a few words: "A guardian's PIN is needed here.".
+    pub title: String,
+    /// Why, in plain words: "These settings can switch LiMo off or remove
+    /// it from this phone.".
+    pub message: String,
+    /// True when a guardian can type the PIN: the phone holds a PIN record.
+    pub can_use_pin: bool,
+    /// When wrong guesses have set a wait before the next code or PIN try:
+    /// the moment it ends. The same wait as the lock's.
+    pub try_wait_until: Option<i64>,
+    /// The wait in words: "Too many wrong tries. The next try is at 9:47
+    /// pm.".
+    pub wait_words: Option<String>,
+    /// The PIN as the one row: "Guardian PIN" / "Opens these settings for
+    /// 5 minutes", or "Wait until 9:47 pm" while it must wait. Empty with no
+    /// PIN record; then `nothing_to_do` says why.
+    pub ways: Vec<WayRow>,
+    /// What the guard says when it offers no way out: a line in bold and one
+    /// under it.
+    pub nothing_to_do: Option<(String, String)>,
+    /// True while a call is in progress: offer a way back to it.
+    pub call_on: bool,
+    /// The words for that way back, "Back to the call", while a call is in
+    /// progress; None otherwise.
+    pub back_to_call: Option<String>,
 }
 
 /// What the lock shows, and the ways out it offers.
@@ -336,6 +378,23 @@ pub enum PhoneNote {
     /// master paired the phone, so until this note comes it knows that
     /// setup is not finished.
     SetupFinished {
+        /// When, by LiMo's clock.
+        at: i64,
+    },
+    /// A page that could switch LiMo off or remove it came to the front and
+    /// was covered by the guard. Noted once a day for each page.
+    GuardedPageOpened {
+        /// Which page.
+        page: GuardedPage,
+        /// The home day.
+        day: i64,
+        /// When, by LiMo's clock.
+        at: i64,
+    },
+    /// A right guardian PIN on the guard opened the guarded pages.
+    GuardOpened {
+        /// Until when, by LiMo's clock.
+        until: i64,
         /// When, by LiMo's clock.
         at: i64,
     },

@@ -199,6 +199,8 @@ pub fn status_lines(bytes: &[u8], family: Option<&Family>, clock: Option<(i64, i
         in_reach: false,
         prodded: false,
         permissions: permissions_of(&kept),
+        // No page is in front for this look: the screen is off.
+        guarded: None,
     };
     let orders = engine.tick(&facts);
     let wrong_tries = engine.outgoing_report(now).map(|r| r.wrong_guesses);

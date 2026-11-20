@@ -1,5 +1,6 @@
 package ai.lucidloom.limo.child.watch
 
+import ai.lucidloom.limo.child.ffi.GuardedPage
 import ai.lucidloom.limo.child.ffi.PhoneFacts
 import android.content.Context
 import android.os.Handler
@@ -87,11 +88,18 @@ class Watch private constructor(context: Context) : PhoneWatch {
     guard("emergency_opening") { synchronized(lock) { core.emergencyOpening() } }
   }
 
+  override fun deviceAdminOffAsked() {
+    guard("admin_off") {
+      val changed = synchronized(lock) { core.adminOffAsked() }
+      if (changed) announce(WatchChange.FRONT)
+    }
+  }
+
   // From the service, the receivers and the signals. Each is guarded, so no
   // failure here can stop the service or a receiver.
 
-  internal fun windowEvent(packageName: String?) = guard("window_event") {
-    val changed = synchronized(lock) { core.windowEvent(packageName) }
+  internal fun windowEvent(packageName: String?, page: GuardedPage?) = guard("window_event") {
+    val changed = synchronized(lock) { core.windowEvent(packageName, page) }
     scheduleRecheck()
     if (changed) announce(WatchChange.FRONT)
   }

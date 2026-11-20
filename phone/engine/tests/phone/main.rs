@@ -10,6 +10,7 @@ mod common;
 mod clock;
 mod covers;
 mod day;
+mod guard;
 mod kept;
 mod restart;
 mod setup;

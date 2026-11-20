@@ -44,6 +44,21 @@ pub struct PhoneFacts {
     pub prodded: bool,
     /// What LiMo has been allowed to do on the phone.
     pub permissions: PhonePermissions,
+    /// A page in front that could switch LiMo off or remove it, as the watch
+    /// recognised it; None for every other screen. The engine covers it with
+    /// the guard.
+    #[uniffi(default = None)]
+    pub guarded: Option<GuardedPage>,
+}
+
+/// A page that could switch LiMo off or remove it: the engine's
+/// `GuardedPage`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum GuardedPage {
+    /// Android's page for LiMo's device admin (its protection).
+    DeviceAdmin,
+    /// Android's accessibility settings.
+    Accessibility,
 }
 
 /// Whether a call is ringing or on: Android's call state. Never who, never
@@ -162,12 +177,15 @@ pub struct PhoneOrders {
 /// as a kind with one optional record for each kind that has one.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Cover {
-    /// Nothing, a block or the lock.
+    /// Nothing, a block, the lock or the guard.
     pub kind: CoverKind,
     /// For [`CoverKind::Block`].
     pub block: Option<BlockCover>,
     /// For [`CoverKind::Lock`].
     pub lock: Option<LockCover>,
+    /// For [`CoverKind::Guard`].
+    #[uniffi(default = None)]
+    pub guard: Option<GuardCover>,
 }
 
 /// Which cover.
@@ -179,6 +197,9 @@ pub enum CoverKind {
     Block,
     /// The phone is locked: cover whatever is in front.
     Lock,
+    /// A page that could switch LiMo off or remove it: cover it with the
+    /// guard, which offers the guardian PIN only.
+    Guard,
 }
 
 /// The block cover.
@@ -230,6 +251,34 @@ pub struct LockCover {
     /// The same in words.
     pub request_line: Option<RequestLine>,
     /// The ways out offered, in order, with their words.
+    pub ways: Vec<WayRow>,
+    /// What to say when no way out is offered.
+    pub nothing_to_do: Option<NothingToDo>,
+    /// A call is in progress: offer a way back to it.
+    pub call_on: bool,
+    /// "Back to the call", while a call is in progress.
+    pub back_to_call: Option<String>,
+}
+
+/// The guard, laid out as the lock with the PIN as its one way out: the
+/// engine's `GuardScreen`.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct GuardCover {
+    /// The page it covers.
+    pub page: GuardedPage,
+    /// "Protected".
+    pub stamp: String,
+    /// "A guardian's PIN is needed here.".
+    pub title: String,
+    /// "These settings can switch LiMo off or remove it from this phone.".
+    pub message: String,
+    /// A guardian may type the PIN.
+    pub can_use_pin: bool,
+    /// When the wait after wrong tries ends: the lock's own wait.
+    pub try_wait_until: Option<i64>,
+    /// The wait in words.
+    pub wait_words: Option<String>,
+    /// The PIN as the one row, or none with no PIN record.
     pub ways: Vec<WayRow>,
     /// What to say when no way out is offered.
     pub nothing_to_do: Option<NothingToDo>,

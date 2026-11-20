@@ -3,6 +3,7 @@ package ai.lucidloom.limo.child.show
 import ai.lucidloom.limo.child.ffi.CoverKind
 import ai.lucidloom.limo.child.ffi.FrontKind
 import ai.lucidloom.limo.child.ffi.GAME
+import ai.lucidloom.limo.child.ffi.GuardedPage
 import ai.lucidloom.limo.child.ffi.LockWhy
 import ai.lucidloom.limo.child.ffi.PIN
 import ai.lucidloom.limo.child.ffi.Way
@@ -34,6 +35,7 @@ class WaysOutEngineTest {
     is WayCall.Ask -> rig.core.askForTime(call.minutes, call.reason)
     is WayCall.Code -> rig.core.tryCode(call.typed).also { assertTrue("the host wiped the code", call.typed.all { it.toInt() == 0 }) }
     is WayCall.Pin -> rig.core.tryPin(call.typed, call.action).also { assertTrue("the host wiped the PIN", call.typed.all { it.toInt() == 0 }) }
+    is WayCall.GuardPin -> rig.core.tryGuardPin(call.typed).also { assertTrue("the host wiped the PIN", call.typed.all { it.toInt() == 0 }) }
     null -> error("no call")
   } as WayOut<Any>
 
@@ -135,6 +137,40 @@ class WaysOutEngineTest {
       val right = WaysOutModel(Panel.PIN)
       PIN.forEach { right.type(it) }
       assertEquals(After.Close, right.answered(send(rig, right.submit(rig.wall, ist))))
+    }
+  }
+
+  @Test
+  fun theGuardsPinOnTheRealEngineOpensTheGuardedPagesInTheEnginesWords() {
+    HostRig(folder.newFolder()).use { rig ->
+      rig.core.start()
+      rig.pair()
+      rig.front = app("com.android.settings", "Settings")
+      rig.guarded = GuardedPage.ACCESSIBILITY
+      rig.changed()
+      assertEquals(CoverKind.GUARD, rig.shower.last.kind)
+      val plan = Plans.of(rig.shower.last, "Mira", FakeApps(dialler = null)) as CoverPlan.Guard
+      assertEquals(Picture.SHIELD, plan.picture)
+      assertEquals("A guardian’s PIN is needed here.", plan.title)
+      assertEquals(listOf(Way.PIN), plan.rows.map { it.way })
+      assertEquals("Opens these settings for 5 minutes", plan.rows.single().sub)
+
+      // On LiMo's own screen, a wrong PIN, then the right one.
+      rig.front = screen(FrontKind.LIMO)
+      rig.changed()
+      val wrong = WaysOutModel(Panel.PIN, guard = true)
+      "000000".forEach { wrong.type(it) }
+      assertEquals(After.Stay, wrong.answered(send(rig, wrong.submit(rig.wall, ist))))
+      assertEquals(Message("That PIN is not right. 4 more tries before a wait.", right = false), wrong.message)
+      val right = WaysOutModel(Panel.PIN, guard = true)
+      PIN.forEach { right.type(it) }
+      assertEquals(After.CloseSoon, right.answered(send(rig, right.submit(rig.wall, ist))))
+      assertTrue(right.message!!.right)
+      assertTrue(right.message!!.text.startsWith("These settings are open until "))
+      // Back on the page: open.
+      rig.front = app("com.android.settings", "Settings")
+      rig.changed()
+      assertEquals(CoverKind.NOTHING, rig.shower.last.kind)
     }
   }
 

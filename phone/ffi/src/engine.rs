@@ -157,6 +157,23 @@ impl PhoneEngine {
         Ok(convert::try_out(answer))
     }
 
+    /// A guardian types the PIN on the guard, as UTF-8 bytes, to open the
+    /// pages that could switch LiMo off or remove it for a few minutes
+    /// (`GUARD_OPEN_SECS` in the engine). Wrong PINs count with the lock's.
+    /// Keep the state at once, right or wrong, before showing the answer,
+    /// then tick. A right PIN answers `RELEASE_CONFIRMED`: the core's own
+    /// way of saying only that the PIN was right.
+    ///
+    /// This layer wipes its copy of the PIN when the call ends; Kotlin
+    /// should fill its own array with zeros and clear the field it was
+    /// typed in.
+    pub fn try_guard_pin(&self, pin: Vec<u8>, wall_secs: i64) -> Result<TryAnswer, EngineError> {
+        let pin = Zeroizing::new(pin);
+        let typed = convert::typed(&pin, "the PIN is not text")?;
+        let answer = self.engine()?.try_guard_pin(typed, wall_secs)?;
+        Ok(convert::try_out(answer))
+    }
+
     /// A guardian finished setup on this phone (left setup's last screen).
     /// Until then the engine counts nothing and covers nothing. True when
     /// this call finished it, false when it was finished already, which

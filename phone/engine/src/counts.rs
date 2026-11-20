@@ -80,6 +80,7 @@ mod tests {
             in_reach: false,
             prodded: false,
             permissions: PhonePermissions::ALL,
+            guarded: None,
         }
     }
 

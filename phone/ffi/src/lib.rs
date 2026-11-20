@@ -15,7 +15,8 @@
 //!   out, and the answers to the ways out;
 //! - **records with a kind and optional fields** for every Rust enum that
 //!   carries data (what is in front, the cover, a code's outcome, a link
-//!   event, a PIN's action), with Kotlin enums for the kinds;
+//!   event, a PIN's action), with Kotlin enums for the kinds (a guarded
+//!   page among them);
 //! - **bytes Kotlin never reads**: the core's report and grant, as JSON,
 //!   carried between the engine and the link; the kept state; the kept
 //!   pairing;
@@ -54,7 +55,8 @@ pub use engine::PhoneEngine;
 pub use link::{Offer, PairedMaster, PhonePairing, PhoneSession};
 pub use shapes::{
     AppEntry, BlockCover, CallState, Cover, CoverKind, EngineError, Front, FrontKind, GrantOutcome, GrantTaken,
-    LinkError, LinkEvent, LinkEventKind, LoadProblem, LoadProblemKind, LockCover, LockWhy, NothingToDo, PairRequest,
+    GuardCover, GuardedPage, LinkError, LinkEvent, LinkEventKind, LoadProblem, LoadProblemKind, LockCover, LockWhy,
+    NothingToDo, PairRequest,
     PhoneFacts, PhoneOrders, PhonePermissions, PhoneView, PinAction, PinActionKind, RequestAnswer, RequestLine,
     RequestShown, TimeLeft, TimeRequest, TryAnswer, TryKind, Versions, WarningCause, WarningShown, Way, WayRow,
 };

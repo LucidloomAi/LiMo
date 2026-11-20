@@ -66,6 +66,17 @@ interface PhoneWatch {
    * read at once, a few milliseconds.
    */
   fun emergencyDiallerOpening()
+
+  /**
+   * Android asked LiMo's device admin receiver whether it may be switched
+   * off (keep/AdminReceiver, `onDisableRequested`): someone tapped
+   * Deactivate on its page. The watch raises the guard for what is in front
+   * at once and says the front changed, so the host ticks and the guard
+   * covers Android's question. A few milliseconds; on the main thread.
+   * [Watch] is the one that does it; the empty default is for the tests'
+   * stand ins of the watch, which are never asked.
+   */
+  fun deviceAdminOffAsked() = Unit
 }
 
 /** Told when something the facts depend on changed. Called on the main thread. */
@@ -75,7 +86,7 @@ fun interface WatchListener {
 
 /** What changed. The host calls [PhoneWatch.factsNow] for all of it. */
 enum class WatchChange {
-  /** The app in front, or the kind of screen in front. */
+  /** The app in front, the kind of screen in front, or the guarded page in front. */
   FRONT,
 
   /** The screen went on or off, or Android's lock screen went away. */

@@ -75,6 +75,15 @@ interface PhoneHost {
   fun tryPin(pin: ByteArray, action: PinAction, answer: (WayOut<TryAnswer>) -> Unit)
 
   /**
+   * A guardian's PIN typed on the guard, as UTF-8 bytes, to open the pages
+   * that could switch LiMo off or remove it for a few minutes; [pin] is
+   * filled with zeros. A right PIN answers `RELEASE_CONFIRMED` (the core's
+   * way of saying only that the PIN was right), with the engine's words for
+   * until when; wrong PINs count with the lock's.
+   */
+  fun tryGuardPin(pin: ByteArray, answer: (WayOut<TryAnswer>) -> Unit)
+
+  /**
    * A guardian finished setup on this phone: they left setup's last screen
    * (the seam calls it for the screens). Until the engine has it, it counts
    * nothing and covers nothing, and the time left says setup is not

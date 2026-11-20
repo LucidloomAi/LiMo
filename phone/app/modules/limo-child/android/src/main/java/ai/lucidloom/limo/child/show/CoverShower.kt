@@ -36,7 +36,7 @@ import java.time.ZoneId
  * The covers on a phone: the host's [Shower]. Main thread only, as the host
  * calls it.
  *
- * The block screen and the lock are one window of the accessibility service
+ * The block screen, the lock and the guard are one window of the accessibility service
  * (`TYPE_ACCESSIBILITY_OVERLAY`, added through [WatchService.current]), as
  * proof two drew it: no permission of its own, opaque, over the whole
  * screen with Android's bars, not focusable (the app under it keeps the keys
@@ -138,6 +138,7 @@ class CoverShower private constructor(private val app: Context, private val chil
       when (p) {
         is CoverPlan.Block -> Log.i(TAG, "show cover now block package=${p.packageName} call=${p.backToCall != null}")
         is CoverPlan.Lock -> Log.i(TAG, "show cover now lock why=${p.why.toString().lowercase()} rows=${p.rows.size} tiles=${p.tiles.size} call=${p.backToCall != null}")
+        is CoverPlan.Guard -> Log.i(TAG, "show cover now guard page=${p.page.toString().lowercase()} rows=${p.rows.size} call=${p.backToCall != null}")
         CoverPlan.None -> Unit
       }
     }
@@ -334,6 +335,10 @@ class CoverShower private constructor(private val app: Context, private val chil
 
     override fun openWay(way: Way, lock: CoverPlan.Lock) {
       if (start(WaysOutActivity.intent(app, way, lock))) core.stepAside()
+    }
+
+    override fun openGuard(guard: CoverPlan.Guard) {
+      if (start(WaysOutActivity.guardIntent(app, guard))) core.stepAside()
     }
 
     override fun appIcon(packageName: String): Drawable? = apps.icon(packageName)

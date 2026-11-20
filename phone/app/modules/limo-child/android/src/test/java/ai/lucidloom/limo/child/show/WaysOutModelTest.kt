@@ -183,6 +183,32 @@ class WaysOutModelTest {
   }
 
   @Test
+  fun theGuardsPinGoesToTheGuardWipedAndARightOneIsShownThenCloses() {
+    val m = WaysOutModel(Panel.PIN, guard = true)
+    typed(m, "482915")
+    val call = m.submit(now, ist) as WayCall.GuardPin
+    assertArrayEquals("482915".toByteArray(), call.typed)
+    assertTrue(m.wiped())
+    assertTrue(m.busy)
+    assertNull("one call at a time", m.submit(now, ist))
+    // Wrong: stays, in the engine's words; typing clears them.
+    assertEquals(After.Stay, m.answered(done(answer(TryKind.WRONG, "That PIN is not right. 4 more tries before a wait."))))
+    assertEquals(Message("That PIN is not right. 4 more tries before a wait.", right = false), m.message)
+    typed(m, "4")
+    assertNull(m.message)
+    m.back()
+    // Right: the engine's words in teal, then the screen closes.
+    typed(m, "482915")
+    m.submit(now, ist)
+    assertEquals(After.CloseSoon, m.answered(done(answer(TryKind.RELEASE_CONFIRMED, "These settings are open until 9:47 pm."))))
+    assertEquals(Message("These settings are open until 9:47 pm.", right = true), m.message)
+    // The lock's PIN is still the lock's: with no guard, a PIN with what to give.
+    val lockPin = WaysOutModel(Panel.PIN)
+    typed(lockPin, "482915")
+    assertTrue(lockPin.submit(now, ist) is WayCall.Pin)
+  }
+
+  @Test
   fun anAnswerForAScreenThatIsUpIsHandedOverAtOnceAndAnUnknownCallIsSaidToBeLost() {
     val relay = CallRelay()
     val id = relay.begin()

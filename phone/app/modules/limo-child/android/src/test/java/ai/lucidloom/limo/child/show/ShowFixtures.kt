@@ -3,6 +3,8 @@ package ai.lucidloom.limo.child.show
 import ai.lucidloom.limo.child.ffi.BlockCover
 import ai.lucidloom.limo.child.ffi.Cover
 import ai.lucidloom.limo.child.ffi.CoverKind
+import ai.lucidloom.limo.child.ffi.GuardCover
+import ai.lucidloom.limo.child.ffi.GuardedPage
 import ai.lucidloom.limo.child.ffi.LockCover
 import ai.lucidloom.limo.child.ffi.LockWhy
 import ai.lucidloom.limo.child.ffi.NothingToDo
@@ -121,6 +123,32 @@ internal fun block(label: String? = "Game Launcher", callOn: Boolean = false) = 
 )
 
 internal val NOTHING = Cover(CoverKind.NOTHING, null, null)
+
+/** The guard's PIN row, in the engine's words; with [off], waiting after wrong tries. */
+internal fun guardRow(off: Boolean = false): WayRow =
+  WayRow(Way.PIN, "Guardian PIN", if (off) "Wait until 9:47 pm" else "Opens these settings for 5 minutes", off)
+
+/** The guard as the engine orders it: over the device admin's page unless [page] says otherwise. */
+internal fun guardCover(
+  page: GuardedPage = GuardedPage.DEVICE_ADMIN,
+  ways: List<WayRow> = listOf(guardRow()),
+  waitWords: String? = null,
+  callOn: Boolean = false,
+): GuardCover = GuardCover(
+  page = page,
+  stamp = "Protected",
+  title = "A guardian's PIN is needed here.",
+  message = "These settings can switch LiMo off or remove it from this phone.",
+  canUsePin = ways.isNotEmpty(),
+  tryWaitUntil = if (waitWords != null) 1_795_019_820L else null,
+  waitWords = waitWords,
+  ways = ways,
+  nothingToDo = if (ways.isEmpty()) NothingToDo("A guardian PIN is not set up yet.", "A guardian sets one in LiMo on the family PC.") else null,
+  callOn = callOn,
+  backToCall = if (callOn) "Back to the call" else null,
+)
+
+internal fun guard(g: GuardCover = guardCover()) = Cover(CoverKind.GUARD, null, null, g)
 
 /** Where a cover would be drawn: every call recorded, and a refusal on demand. */
 internal class FakeCover : CoverSurface {

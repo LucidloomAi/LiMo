@@ -106,7 +106,7 @@ internal object RealEngines : Engines {
 }
 
 /** Nothing over the screen. */
-internal val NO_COVER = Cover(CoverKind.NOTHING, null, null)
+internal val NO_COVER = Cover(CoverKind.NOTHING, null, null, null)
 
 /**
  * The engine's host with no Android in it: the one owner of the one engine,
@@ -216,6 +216,13 @@ internal class HostCore(
   /** A guardian's PIN; [pin] is filled with zeros, whatever the answer. */
   fun tryPin(pin: ByteArray, action: PinAction): WayOut<TryAnswer> = try {
     wayOut<TryAnswer>("pin", { it.kind.name.lowercase() }) { it.tryPin(pin, action, clock.wallSecs()) }
+  } finally {
+    pin.fill(0)
+  }
+
+  /** A guardian's PIN on the guard; [pin] is filled with zeros, whatever the answer. */
+  fun tryGuardPin(pin: ByteArray): WayOut<TryAnswer> = try {
+    wayOut<TryAnswer>("guard_pin", { it.kind.name.lowercase() }) { it.tryGuardPin(pin, clock.wallSecs()) }
   } finally {
     pin.fill(0)
   }
@@ -523,6 +530,7 @@ internal class LoggingShower(private val log: HostLog) : Shower {
       CoverKind.NOTHING -> "cover now nothing"
       CoverKind.BLOCK -> "cover now block package=${cover.block?.packageName}"
       CoverKind.LOCK -> "cover now lock why=${cover.lock?.why?.name?.lowercase()}"
+      CoverKind.GUARD -> "cover now guard page=${cover.guard?.page?.name?.lowercase()}"
     }
     if (line == last) return
     last = line

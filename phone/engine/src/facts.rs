@@ -63,6 +63,45 @@ pub struct PhoneFacts {
     pub prodded: bool,
     /// What LiMo has been allowed to do on the phone, all six.
     pub permissions: PhonePermissions,
+    /// A page in front that could switch LiMo off or remove it, when the
+    /// host says one is: LiMo then covers it with the guard until a guardian
+    /// types the PIN ([`crate::Cover::Guard`]). None for every other screen.
+    /// The host tells it from what Android says (see [`GuardedPage`]); the
+    /// engine holds no package or page name of its own.
+    #[serde(default)]
+    pub guarded: Option<GuardedPage>,
+}
+
+/// A page that could switch LiMo off or remove it from the phone, as the host
+/// recognised it in front. The engine covers it with the guard; whether and
+/// how such a page is recognised is the host's (its README lists each, and
+/// what only a phone can show).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuardedPage {
+    /// Android's page for LiMo's device admin, which switches LiMo's
+    /// protection off (and on some paths removes LiMo with it). Guarded only
+    /// while the protection is on: with it off, LiMo can be removed anyway,
+    /// and the same page is where a guardian switches it on again.
+    DeviceAdmin,
+    /// Android's accessibility settings, where LiMo's accessibility service
+    /// can be switched off. Without that service LiMo cannot see which app is
+    /// open, nor cover anything.
+    Accessibility,
+}
+
+impl GuardedPage {
+    /// Every guarded page, for tests and the host's lists.
+    pub const ALL: [GuardedPage; 2] = [GuardedPage::DeviceAdmin, GuardedPage::Accessibility];
+
+    /// True when this page is to be guarded with these permissions: the
+    /// device admin's page only while the protection is on.
+    pub(crate) fn needs_guard(self, permissions: PhonePermissions) -> bool {
+        match self {
+            GuardedPage::DeviceAdmin => permissions.protection,
+            GuardedPage::Accessibility => true,
+        }
+    }
 }
 
 /// Whether a call is ringing or on: Android's call state.

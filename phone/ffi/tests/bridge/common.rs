@@ -8,7 +8,7 @@ use std::sync::Arc;
 use limo_core::{CivilDate, RuleSet};
 use limo_phone_ffi::testkit::{TestFamily, TestRules};
 use limo_phone_ffi::{
-    CallState, Front, FrontKind, PhoneEngine, PhoneFacts, PhoneOrders, PhonePermissions,
+    CallState, Front, FrontKind, GuardedPage, PhoneEngine, PhoneFacts, PhoneOrders, PhonePermissions,
 };
 use tempfile::TempDir;
 
@@ -68,6 +68,8 @@ pub struct Phone {
     pub in_reach: bool,
     pub auto_time: bool,
     pub permissions: PhonePermissions,
+    /// The page in front that could switch LiMo off, as the watch would say.
+    pub guarded: Option<GuardedPage>,
     pub orders: Option<PhoneOrders>,
     /// Every note given, as the host's log would have it.
     pub notes: Vec<String>,
@@ -126,6 +128,7 @@ impl Phone {
             in_reach: false,
             auto_time: true,
             permissions: all_permissions(),
+            guarded: None,
             orders: None,
             notes: Vec::new(),
             reports: 0,
@@ -148,6 +151,7 @@ impl Phone {
             in_reach: self.in_reach,
             prodded: false,
             permissions: self.permissions,
+            guarded: self.guarded,
         }
     }
 

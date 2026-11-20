@@ -55,6 +55,13 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
 
   private var pending: Pending? = null
   private var latestProposal: String? = null
+
+  /**
+   * The package that last sent a window event, LiMo's own, keyboards' and
+   * the framework's overlays left out: what is in front as far as window
+   * events tell, for the guard while usage access is off.
+   */
+  val lastWindow: String? get() = latestProposal
   private var ownScreenSince: Long? = null
   private val learnedCall = LinkedHashSet<String>()
   private val learnedEmergency = LinkedHashSet<String>()

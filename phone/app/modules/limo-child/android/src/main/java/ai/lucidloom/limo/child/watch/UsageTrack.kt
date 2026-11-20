@@ -52,6 +52,15 @@ internal class UsageTrack(
   val lastTaken: List<String> get() = taken
 
   private var frontAtWallMs = Long.MIN_VALUE
+
+  /**
+   * When the activity in front resumed, on the wall clock in milliseconds;
+   * null when none was seen. A later activity of the same app resuming moves
+   * it, so the guard can tell a new page of Settings from a dialog over the
+   * same one (which resumes nothing).
+   */
+  val frontSinceWallMs: Long? get() = frontAtWallMs.takeIf { front != null }
+
   private val latest = HashMap<String, Seen>()
   private var readTo: Long? = null
   private val nearEdge = HashSet<UsageEvent>()

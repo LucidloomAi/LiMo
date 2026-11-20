@@ -10,14 +10,17 @@ import java.io.File
 
 /**
  * Debug builds only (src/debug). The development tool on the PC talks to
- * the app here over the USB cable, before the link exists, with two
+ * the app here over the USB cable, before the link exists, with three
  * broadcasts:
  *
  * - [ACTION_PAIR]: take the test family's pairing file
  *   (`files/limo-dev/pairing.json`, see [DevPairing]) once, delete it,
  *   make the engine from it, keep its state and the child's name, and
  *   start the keeper;
- * - [ACTION_FORGET]: wipe the kept state and stop the keeper.
+ * - [ACTION_FORGET]: wipe the kept state and stop the keeper;
+ * - [ACTION_PROBE] with the boolean extra `on`: switch the probe of
+ *   Settings' and the installer's page names on or off ([PageProbe]). A
+ *   person at the PC sends it by hand (see dev/README.md).
  *
  * Only the adb shell and the system can send to it (it is guarded by
  * android.permission.DUMP, see src/debug/AndroidManifest.xml), and a release
@@ -32,6 +35,11 @@ class DevReceiver : BroadcastReceiver() {
       when (intent.action) {
         ACTION_PAIR -> pair(app) { pending.finish() }
         ACTION_FORGET -> forget(app) { pending.finish() }
+        ACTION_PROBE -> {
+          PageProbe.switch(intent.getBooleanExtra(EXTRA_ON, false))
+          Log.i(TAG, if (PageProbe.on) "dev probe on" else "dev probe off")
+          pending.finish()
+        }
         else -> pending.finish()
       }
     } catch (e: Exception) {
@@ -74,6 +82,12 @@ class DevReceiver : BroadcastReceiver() {
 
     /** Wipe the kept state. */
     const val ACTION_FORGET = "ai.lucidloom.limo.child.dev.FORGET"
+
+    /** Switch the probe on or off, by the boolean extra [EXTRA_ON]; with none, off. */
+    const val ACTION_PROBE = "ai.lucidloom.limo.child.dev.PROBE"
+
+    /** The probe's switch: true for on. */
+    const val EXTRA_ON = "on"
 
     /** Where the development tool puts the pairing file, through `run-as`. */
     internal fun pairingFile(context: Context): File = File(context.filesDir, "limo-dev/pairing.json")
