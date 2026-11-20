@@ -204,6 +204,20 @@ can differ by what it counted since it last kept its state, at most a few
 seconds while it is in use. When the phone's clock cannot be read, this
 PC's stands in, and `status` says so.
 
+What LiMo last saw switched off is said in words, in the order the phone's
+setup asks for them (notifications, phone, usage access, accessibility,
+battery, protection), never by the engine's own names:
+
+```
+Switched off on the phone when LiMo last looked: usage access, accessibility.
+```
+
+and when nothing was, or LiMo has not looked yet, `Nothing LiMo needs was
+switched off when it last looked.` The words come from one place,
+`status::permission_words`, which names every permission with no catch
+all, so a permission the engine gains does not build until it has its
+words there.
+
 ## What LiMo's debug build must do
 
 This section fixes it; the tool and its fake phone keep to it, and
@@ -264,9 +278,9 @@ a small trait, and the stories play a phone with a fake.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | The adb line as typed; a reply's parts; looking for adb where it should be; the command line, each command and each refusal; the help saying first what the tool never does; devices of every state, one picked or each problem said; `run-as` telling a debug build from a release build; the phone's clock and zone; `dumpsys` and the install and uninstall answers; only LiMo's two log tags; no command carrying anything but names; bedtimes and package names; the test family's rules with the whole day away; the folder named for testing; a log line with the time in UTC and no control characters; times on the phone's clock; zones said; a child's name trimmed, its hidden characters dropped, 1 to 40 long; LiMo's own word about a pairing file read from its log, and the advice for each; numbers read from an APK, never past the end (and one ignored test that reads a real APK, below) | 25 |
-| `tests/devtool/` | The stories, against the fake phone (below), with the real hub on a real file in a temporary folder and the real phone engine on the phone's side | 46 |
-| `tests/house_rules.rs` | No unsafe code; no allow attributes; the service's folder and file never named; nothing sent to the phone that could change anything but LiMo (every command checked: no settings, accounts, device policy, permissions, other apps or rebooting); no dash punctuation in anything a person reads or in anything printed | 6 |
+| `src/*.rs` | The adb line as typed; a reply's parts; looking for adb where it should be; the command line, each command and each refusal; the help saying first what the tool never does; devices of every state, one picked or each problem said; `run-as` telling a debug build from a release build; the phone's clock and zone; `dumpsys` and the install and uninstall answers; only LiMo's two log tags; no command carrying anything but names; bedtimes and package names; the test family's rules with the whole day away; the folder named for testing; a log line with the time in UTC and no control characters; times on the phone's clock; zones said; a child's name trimmed, its hidden characters dropped, 1 to 40 long; LiMo's own word about a pairing file read from its log, and the advice for each; permissions in words, in setup's order; numbers read from an APK, never past the end (and one ignored test that reads a real APK, below) | 26 |
+| `tests/devtool/` | The stories, against the fake phone (below), with the real hub on a real file in a temporary folder and the real phone engine on the phone's side | 47 |
+| `tests/house_rules.rs` | No unsafe code; no allow attributes; the service's folder and file never named; nothing sent to the phone that could change anything but LiMo (every command checked: no settings, accounts, device policy, permissions, other apps or rebooting); nothing in the tool's own code printed by its Debug form; no dash punctuation in anything a person reads or in anything printed | 7 |
 
 The fake phone answers exactly the calls the tool is meant to make, written
 out letter for letter, and fails a test on any other, so the stories also
@@ -306,12 +320,14 @@ log. The stories:
   both sides, and `setup` working after; a phone holding a family already;
   a zone that cannot be read; clocks two hours apart refused, ten minutes
   apart said; the rules in another zone, with no time at all.
-- `code_and_status.rs` (6): a code that needs no phone, works once on the
+- `code_and_status.rs` (7): a code that needs no phone, works once on the
   phone's own engine, is printed once and never logged; ten a day;
   `status` from a state the real engine kept, through a day of use, to the
   lock with its reason and until when; wrong tries and a request that waits,
-  with no PIN, code or reason printed; no state, another family's, a
-  damaged one; the phone's clock unreadable.
+  with no PIN, code or reason printed; what is switched off, as the real
+  engine kept it: nothing before LiMo has looked, nothing with all on, all
+  six in setup's order, and each one alone in its words; no state, another
+  family's, a damaged one; the phone's clock unreadable.
 - `forget.rs` (8): `forget` wiping the phone and this PC, and `setup` again;
   another family's state left alone, and a damaged one; `--this-pc-only`;
   LiMo gone; a pairing file never taken; a release build; LiMo not

@@ -13,7 +13,7 @@
 //! last kept its state, at most a few seconds while it is in use.
 
 use limo_core::{HomeCalendar, LockReason, RequestAnswer, Weekday};
-use limo_phone::{CallState, Front, LoadProblem, PhoneEngine, PhoneFacts, PhonePermissions, PhoneView};
+use limo_phone::{CallState, Front, LoadProblem, Permission, PhoneEngine, PhoneFacts, PhonePermissions, PhoneView};
 
 use crate::family::Family;
 
@@ -93,17 +93,43 @@ fn reason_words(reason: LockReason) -> &'static str {
     }
 }
 
+/// A permission in the words a person reads, as the phone's setup names
+/// it. Every permission is named here, with no catch all, so a permission
+/// the engine gains does not build until it has its words.
+pub fn permission_words(permission: Permission) -> &'static str {
+    match permission {
+        Permission::Notifications => "notifications",
+        Permission::Phone => "phone",
+        Permission::UsageAccess => "usage access",
+        Permission::Accessibility => "accessibility",
+        Permission::Battery => "battery",
+        Permission::Protection => "protection",
+    }
+}
+
+/// The line for what LiMo last saw switched off, in words, in the order
+/// setup asks for them: "Switched off on the phone when LiMo last looked:
+/// usage access, accessibility."; or that nothing was.
+pub fn switched_off_line(off: &[Permission]) -> String {
+    let names: Vec<&str> = Permission::ALL.into_iter().filter(|p| off.contains(p)).map(permission_words).collect();
+    if names.is_empty() {
+        "Nothing LiMo needs was switched off when it last looked.".to_string()
+    } else {
+        format!("Switched off on the phone when LiMo last looked: {}.", names.join(", "))
+    }
+}
+
 /// The permissions a view says are switched off, the others on.
 fn permissions_of(view: &PhoneView) -> PhonePermissions {
     let mut p = PhonePermissions::ALL;
     for off in view.today.guardian_needed.iter().flat_map(|g| g.off.iter()) {
         match off.permission {
-            limo_phone::Permission::Notifications => p.notifications = false,
-            limo_phone::Permission::Phone => p.phone = false,
-            limo_phone::Permission::UsageAccess => p.usage_access = false,
-            limo_phone::Permission::Accessibility => p.accessibility = false,
-            limo_phone::Permission::Battery => p.battery = false,
-            limo_phone::Permission::Protection => p.protection = false,
+            Permission::Notifications => p.notifications = false,
+            Permission::Phone => p.phone = false,
+            Permission::UsageAccess => p.usage_access = false,
+            Permission::Accessibility => p.accessibility = false,
+            Permission::Battery => p.battery = false,
+            Permission::Protection => p.protection = false,
         }
     }
     p
@@ -212,13 +238,8 @@ pub fn status_lines(bytes: &[u8], family: Option<&Family>, clock: Option<(i64, i
     if answered > 0 {
         lines.push(format!("Requests answered today: {answered}."));
     }
-    match &kept.today.guardian_needed {
-        Some(needed) => {
-            let names: Vec<String> = needed.off.iter().map(|o| format!("{:?}", o.permission).to_lowercase()).collect();
-            lines.push(format!("Switched off on the phone when LiMo last looked: {}.", names.join(", ")));
-        }
-        None => lines.push("Nothing LiMo needs was switched off when it last looked.".to_string()),
-    }
+    let off: Vec<Permission> = kept.today.guardian_needed.iter().flat_map(|g| g.off.iter().map(|o| o.permission)).collect();
+    lines.push(switched_off_line(&off));
     if !view.unreported.is_empty() {
         lines.push(format!(
             "Use not yet sent to a master: {} pieces. They stay on the phone until the link to the master PC is built.",
@@ -231,6 +252,28 @@ pub fn status_lines(bytes: &[u8], family: Option<&Family>, clock: Option<(i64, i
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permissions_are_named_in_words_in_the_order_setup_asks_for_them() {
+        let words: Vec<&str> = Permission::ALL.into_iter().map(permission_words).collect();
+        assert_eq!(words, ["notifications", "phone", "usage access", "accessibility", "battery", "protection"]);
+        assert_eq!(
+            switched_off_line(&Permission::ALL),
+            "Switched off on the phone when LiMo last looked: notifications, phone, usage access, accessibility, battery, protection."
+        );
+        // In setup's order whatever order they come in.
+        assert_eq!(
+            switched_off_line(&[Permission::Accessibility, Permission::UsageAccess]),
+            "Switched off on the phone when LiMo last looked: usage access, accessibility."
+        );
+        for one in Permission::ALL {
+            assert_eq!(
+                switched_off_line(&[one]),
+                format!("Switched off on the phone when LiMo last looked: {}.", permission_words(one))
+            );
+        }
+        assert_eq!(switched_off_line(&[]), "Nothing LiMo needs was switched off when it last looked.");
+    }
 
     #[test]
     fn times_are_said_on_the_phones_clock() {

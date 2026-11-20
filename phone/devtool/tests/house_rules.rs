@@ -1,7 +1,8 @@
 //! The crate's own rules, checked on its own files: no unsafe code, no
-//! allow attributes, no dash punctuation in anything a person reads; never
-//! the service's folder; and nothing sent to the phone that could change
-//! anything but LiMo's own app and files.
+//! allow attributes, no dash punctuation in anything a person reads, and
+//! nothing printed by its Debug form; never the service's folder; and
+//! nothing sent to the phone that could change anything but LiMo's own app
+//! and files.
 
 use std::path::{Path, PathBuf};
 
@@ -169,6 +170,20 @@ fn no_dash_punctuation_in_anything_a_person_reads() {
             if comment || prose {
                 assert!(!body.contains(" - "), "{}:{} has a hyphen used as a dash", file.display(), number + 1);
             }
+        }
+    }
+}
+
+#[test]
+fn nothing_a_person_reads_is_printed_by_its_debug_form() {
+    // A value printed with `{:?}` shows Rust's own names ("UsageAccess"),
+    // not words. Only the unit tests may use it, in their own messages.
+    let debug = [":", "?}"].concat();
+    let pretty = [":#", "?}"].concat();
+    for file in rust_files("src") {
+        let code = code_of(&file);
+        for (number, line) in code.lines().enumerate() {
+            assert!(!line.contains(&debug) && !line.contains(&pretty), "{}:{} prints a Debug form", file.display(), number + 1);
         }
     }
 }

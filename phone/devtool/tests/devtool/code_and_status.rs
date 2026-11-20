@@ -3,7 +3,7 @@
 //! use, a lock, wrong tries and a request.
 
 use limo_core::{PinAction, TryOutcome};
-use limo_phone::Front;
+use limo_phone::{Front, PhonePermissions};
 use limo_phone_dev::{DONE, FAILED, REFUSED};
 
 use crate::fake::{Bench, NOW, PIN, STATE};
@@ -165,6 +165,67 @@ fn status_of_a_phone_with_no_state_another_familys_or_a_damaged_one() {
     assert_eq!(damaged.run("status"), DONE);
     assert!(damaged.printed().contains("LiMo's state on the phone cannot be read. The phone's kept state is not LiMo's."), "{}", damaged.printed());
     assert!(damaged.phone.changed_nothing());
+}
+
+#[test]
+fn status_names_what_is_switched_off_in_words_as_the_phone_kept_it() {
+    /// The phone's engine sees these permissions at one call, and keeps it.
+    fn phone_sees(bench: &mut Bench, permissions: PhonePermissions) {
+        bench.phone.with_engine(|engine, phone| {
+            let mut facts = phone.facts(true, Front::Home);
+            facts.permissions = permissions;
+            engine.tick(&facts);
+        });
+    }
+    let switched_off = |bench: &Bench| {
+        bench.ui.lines.iter().filter(|l| l.to_lowercase().contains("switched off")).cloned().collect::<Vec<String>>()
+    };
+    let mut bench = Bench::new();
+    assert_eq!(bench.setup("setup --child Asha --minutes 20"), DONE);
+
+    // Before LiMo has looked at all, and with everything on.
+    for permissions in [None, Some(PhonePermissions::ALL)] {
+        if let Some(permissions) = permissions {
+            phone_sees(&mut bench, permissions);
+        }
+        bench.clear();
+        assert_eq!(bench.run("status"), DONE);
+        assert_eq!(switched_off(&bench), ["Nothing LiMo needs was switched off when it last looked."]);
+    }
+
+    // All six off.
+    let none = PhonePermissions {
+        notifications: false,
+        phone: false,
+        usage_access: false,
+        accessibility: false,
+        battery: false,
+        protection: false,
+    };
+    phone_sees(&mut bench, none);
+    bench.clear();
+    assert_eq!(bench.run("status"), DONE);
+    assert_eq!(
+        switched_off(&bench),
+        ["Switched off on the phone when LiMo last looked: notifications, phone, usage access, accessibility, battery, protection."]
+    );
+
+    // Each one alone, in its own words.
+    for (permissions, words) in [
+        (PhonePermissions { notifications: false, ..PhonePermissions::ALL }, "notifications"),
+        (PhonePermissions { phone: false, ..PhonePermissions::ALL }, "phone"),
+        (PhonePermissions { usage_access: false, ..PhonePermissions::ALL }, "usage access"),
+        (PhonePermissions { accessibility: false, ..PhonePermissions::ALL }, "accessibility"),
+        (PhonePermissions { battery: false, ..PhonePermissions::ALL }, "battery"),
+        (PhonePermissions { protection: false, ..PhonePermissions::ALL }, "protection"),
+    ] {
+        phone_sees(&mut bench, permissions);
+        bench.clear();
+        assert_eq!(bench.run("status"), DONE);
+        assert_eq!(switched_off(&bench), [format!("Switched off on the phone when LiMo last looked: {words}.")]);
+    }
+    // No name of the engine's own, nor anything run together, in any line.
+    assert!(!bench.printed().contains("usageaccess") && !bench.printed().contains("usage_access"));
 }
 
 #[test]
