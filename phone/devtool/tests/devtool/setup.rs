@@ -43,7 +43,7 @@ fn setup_puts_the_test_family_on_the_phone_exactly_as_section_0_fixes_it() {
     assert!(hex.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{hex}");
     assert_eq!(&text[secret_at + 20 + 64..], format!("\",\"made_at\":{NOW},\"child_name\":\"Asha\"}}"));
     let welcome: Grant = serde_json::from_str(&text["{\"welcome\":".len()..secret_at]).unwrap();
-    // The whole file, byte for byte, as section 0 and the debug receiver
+    // The whole file, byte for byte, as the README and the debug receiver
     // read it.
     assert_eq!(
         text,
