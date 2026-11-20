@@ -64,9 +64,17 @@ android {
     }
   }
   testOptions {
+    // For the JVM tests only: show/'s pictures are drawn by Robolectric,
+    // which needs the module's merged resources (the icons, the tokens).
+    // This changes nothing in what is built for a phone.
+    unitTests.includeAndroidResources = true
     unitTests.all { test ->
       // JNA loads the library for this PC from here.
       test.systemProperty 'jna.library.path', new File(generatedDir, 'test-native').absolutePath
+      // show/'s pictures: the repository (for the fonts and the logo) and
+      // where the PNG files go (LIMO_PICTURES, or the module's build folder).
+      test.systemProperty 'limo.repo', repoDir.absolutePath
+      test.systemProperty 'limo.pictures', (System.getenv('LIMO_PICTURES') ?: layout.buildDirectory.dir('limo-pictures').get().asFile.absolutePath)
     }
   }
 }
@@ -78,6 +86,11 @@ dependencies {
   // The JVM tests: the jar carries JNA's library for this PC.
   testImplementation 'net.java.dev.jna:jna:5.19.1'
   testImplementation 'junit:junit:4.13.2'
+  // show/'s pictures on this PC: Robolectric draws the native views with
+  // Android's own graphics (its native graphics mode, Windows included from
+  // 4.12), so the look can be checked against the drawings with no phone.
+  // Tests only: nothing of it reaches either built app (npm run inspect).
+  testImplementation 'org.robolectric:robolectric:4.17'
 }
 
 // Everything the Rust library is made from, so that Gradle skips the build

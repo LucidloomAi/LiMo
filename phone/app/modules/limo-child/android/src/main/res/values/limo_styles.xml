@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-The theme of show/WaysOutActivity until its screens are drawn: paper, ink
+The window theme of show/WaysOutActivity, under its own drawn screens: paper, ink
 text, light system bars. The colours come from design/tokens.json through
 src/generated/res/values/limo_tokens.xml (scripts/make-design.mjs).
 -->

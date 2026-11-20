@@ -71,7 +71,14 @@ notification: the engine's message as the title ("5 minutes of screen time
 left today."), its hint as the text ("Save what you are doing."), and its
 when as the small line at the top ("Locks about 9:47 pm"). It goes away by
 itself a minute after the lock it warns of. The host also hands each
-warning to show/, which may float it over the app in front.
+warning to show/, which floats it as a card over the app in front while
+the accessibility service is connected. So that a warning is not shown
+twice, the notification asks show/ first (`CoverShower.canFloatWarning()`):
+
+| The card can float | The notification |
+| --- | --- |
+| Yes: the accessibility service is connected | Quiet: in the shade, with no heads up, sound or vibration. It is in a group (`limo_warning_quiet`) that alerts only for its summary, and it has none; that is what Android's own `setSilent` does from Android 12, done the same way on every Android from 8.0. |
+| No | The heads up notification, as before. |
 
 Tapping either opens LiMo. The small icon is the design's hourglass as a
 plain silhouette (`res/drawable/limo_notify.xml`), since Android draws a
@@ -173,8 +180,11 @@ LiMo`:
    family's time) in the shade, the chronometer counting down while a game
    is in front, "paused" with the screen on the home screen. Tapping it opens
    LiMo.
-2. **The warnings** as heads up notifications at 15, 5 and 1 minutes, over
-   a game, with the hint and "Locks about ...". With the ringer on, a sound.
+2. **The warnings** at 15, 5 and 1 minutes, over a game, with the hint and
+   "Locks about ...": with accessibility on, show/'s card over the game and
+   the notification quietly in the shade, with no heads up and no sound;
+   with accessibility switched off, the heads up notification, and with the
+   ringer on, a sound.
 3. **Restart.** Restart the phone and unlock it: the notification is back
    without opening LiMo (`RestartReceiver`), and `keep start_refused` is not
    in the log.

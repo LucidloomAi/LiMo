@@ -5,6 +5,7 @@ import ai.lucidloom.limo.child.ffi.WarningShown
 import ai.lucidloom.limo.child.host.Host
 import ai.lucidloom.limo.child.host.KeeperDisplay
 import ai.lucidloom.limo.child.module.R
+import ai.lucidloom.limo.child.show.CoverShower
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -46,6 +47,9 @@ object Keeper {
       val app = context.applicationContext ?: context
       val host = Host.of(app)
       host.start()
+      // The covers: from here on the engine's orders are drawn, not only logged.
+      // The child's name is read at each order, and never logged.
+      CoverShower.install(app) { Host.of(app).childName }
       if (host.paired && !KeepService.running) startService(app, why)
     } catch (e: Exception) {
       Log.i(TAG, "keep failed what=start why=$why error=${e.javaClass.simpleName}")
@@ -133,7 +137,11 @@ internal class NotificationKeeper(private val app: Context) : KeeperDisplay {
 
   override fun warning(warning: WarningShown) {
     val look = KeeperLook.warning(warning, System.currentTimeMillis().floorDiv(1_000L))
-    post(ID_WARNING, warningNotification(look))
+    // show/ floats the same warning as a card over the app while the
+    // accessibility service is connected: then this one waits quietly in the
+    // shade, so the warning is not shown twice. Without the service it is the
+    // heads up notification.
+    post(ID_WARNING, warningNotification(look, quiet = CoverShower.canFloatWarning()))
   }
 
   override fun cleared() {
@@ -176,7 +184,7 @@ internal class NotificationKeeper(private val app: Context) : KeeperDisplay {
     return b.build()
   }
 
-  private fun warningNotification(look: WarningLook): Notification {
+  private fun warningNotification(look: WarningLook, quiet: Boolean): Notification {
     makeChannels()
     val b = Notification.Builder(app, CHANNEL_WARNINGS)
       .setSmallIcon(R.drawable.limo_notify)
@@ -190,6 +198,12 @@ internal class NotificationKeeper(private val app: Context) : KeeperDisplay {
       .setAutoCancel(true)
       .setShowWhen(false)
       .setTimeoutAfter(look.timeoutMs)
+    if (quiet) {
+      // In the shade, with no heads up, sound or vibration: a notification
+      // in a group that alerts only for its summary (it has none) never
+      // alerts, which is what Android's own setSilent does from Android 12.
+      b.setGroup(GROUP_QUIET_WARNING).setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY)
+    }
     openApp()?.let(b::setContentIntent)
     return b.build()
   }
@@ -238,5 +252,8 @@ internal class NotificationKeeper(private val app: Context) : KeeperDisplay {
     const val ID_WARNING = 2
     const val CHANNEL_TIME_LEFT = "limo_time_left"
     const val CHANNEL_WARNINGS = "limo_warnings"
+
+    /** The group of a warning that waits quietly while show/ floats it as a card. */
+    const val GROUP_QUIET_WARNING = "limo_warning_quiet"
   }
 }

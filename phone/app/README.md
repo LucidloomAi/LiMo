@@ -25,12 +25,11 @@ left, starts it again after a restart, and wakes it with an alarm; and a
 debug build can be paired with a test family over the USB cable (`dev/`).
 Each folder has a README.
 
-**What it is not.** It covers nothing yet: the host hands each cover to a
-stand in that only logs it, until the covers (`show/`) are built. It has no
-link to the master PC, and the child module does not answer the screens
-yet. It holds no permission to open a network socket. It has been built and
-its files inspected on the development PC only: nothing here has run on a
-phone or an emulator.
+**What it is not.** It has no link to the master PC yet, so a phone runs on
+a test family put on it over the cable (`../devtool`). It holds no
+permission to open a network socket. It has been built and its files
+inspected on the development PC only: nothing here has run on a phone or an
+emulator.
 
 ## Contents
 
@@ -207,7 +206,7 @@ clash with the app's.
 | --- | --- | --- | --- | --- |
 | `watch/` | `WatchService` | accessibility service, exported, `res/xml/limo_watch_service.xml` | `BIND_ACCESSIBILITY_SERVICE` | which app is in front, by package name only; starts the keeper when it connects; its overlay windows will carry the covers |
 | `watch/` | `ClockReceiver` | receiver, not exported: `TIME_SET`, `TIMEZONE_CHANGED` | | clock changes, as facts for the engine |
-| `show/` | `WaysOutActivity` | activity, not exported, own task, not in Recents | | (a stub) ask with a typed reason, a code, the PIN |
+| `show/` | `WaysOutActivity` | activity, not exported, own task, not in Recents | | ask with a typed reason, a code, the PIN |
 | `host/` | `Host` | none | | the engine's host: its own thread, the kept state (`files/limo/state`), a tick about once a second, the orders handed out |
 | `keep/` | `KeepService` | foreground service, not exported, type `specialUse` | | keeps the process alive while paired; the time left notification |
 | `keep/` | `RestartReceiver` | receiver, not exported: `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED` | | starts the keeper again after a restart or an update |
@@ -275,7 +274,9 @@ that ship, with the PC library loaded by JNA: a short day from a made up
 welcome to a right code and a reload, and a pairing and a session over the
 link. Nothing in the APK depends on this step. The same run has the tests of
 `watch/`, `host/` (a day through the host on the real engine), `keep/`,
-`dev/` and `seam/`, each listed in its folder's README: 90 in all. The release unit
+`dev/`, `seam/` and `show/` (the covers and the ways out, with pictures of
+every screen drawn on the PC by Robolectric, a test only dependency), each
+listed in its folder's README. The release unit
 tests also compile `src/debug/java` (source set `testRelease` in the
 module's `build.gradle`), so the debug only `dev/` code is tested too;
 tests never ship.
