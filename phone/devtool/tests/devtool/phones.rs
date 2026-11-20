@@ -155,7 +155,9 @@ fn every_call_has_a_timeout() {
     for call in &bench.phone.calls {
         assert!(call.timeout_secs > 0 && call.timeout_secs <= 180 || call.args.contains(&"logcat".to_string()), "{call:?}");
         if call.args.contains(&"logcat".to_string()) {
-            assert_eq!(call.timeout_secs, 120);
+            // Followed: the minutes asked for; read once: 30 seconds.
+            let read_once = call.args.contains(&"-d".to_string());
+            assert_eq!(call.timeout_secs, if read_once { 30 } else { 120 });
         }
     }
 }

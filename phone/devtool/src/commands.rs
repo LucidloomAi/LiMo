@@ -520,7 +520,7 @@ fn setup(tool: &mut Tool<'_>, mut plan: Plan) -> i32 {
             return FAILED;
         }
     };
-    let bytes = pairing_bytes(&made.pairing, now);
+    let bytes = pairing_bytes(&made.pairing, now, &plan.child);
     if let Err(problem) = hub.close() {
         ui.say(&format!("The test family's file did not close cleanly: {problem}"));
     }
@@ -584,11 +584,18 @@ fn setup(tool: &mut Tool<'_>, mut plan: Plan) -> i32 {
         took = taken(&mut phone, &device_id).unwrap_or(false);
     }
     if !took {
-        ui.say(&format!(
-            "LiMo did not take the test family within {} seconds: its state does not hold the test phone. Is this \
-             debug build one with the development receiver? Run log in another terminal to see what LiMo says.",
-            phone::ANSWER_WAIT.as_secs()
-        ));
+        // LiMo's own word, from its log since just before the broadcast.
+        match phone.pair_word(phone_now.saturating_sub(2)).ok().flatten() {
+            Some(word) => {
+                ui.say(&format!("LiMo did not take the test family. Its log says: dev pair {word}"));
+                ui.say(&phone::pair_advice(&word));
+            }
+            None => ui.say(&format!(
+                "LiMo did not take the test family within {} seconds, and its log says nothing of it. Is this debug \
+                 build one with the development receiver? Run log in another terminal to see what LiMo says.",
+                phone::ANSWER_WAIT.as_secs()
+            )),
+        }
         undo_setup(&tool.places, &mut phone, ui);
         return FAILED;
     }

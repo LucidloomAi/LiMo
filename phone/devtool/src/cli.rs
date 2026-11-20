@@ -3,7 +3,7 @@
 
 use limo_core::BlockedWindow;
 
-use crate::family::{is_package_name, parse_bedtime};
+use crate::family::{clean_child_name, is_package_name, parse_bedtime};
 use crate::phone::PACKAGE;
 
 /// The longest `log` follows the phone's log before it stops by itself, in
@@ -172,7 +172,8 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
                 }
                 i += 1;
             }
-            let child = child.map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).ok_or("setup needs --child NAME: the test child's name, such as Asha.")?;
+            let child = child.ok_or("setup needs --child NAME: the test child's name, such as Asha.")?;
+            let child = clean_child_name(&child)?;
             let minutes = minutes.ok_or("setup needs --minutes N: the minutes a day, such as 20.")?;
             if minutes > MAX_MINUTES {
                 return Err(format!("--minutes is {minutes}, more than a whole day. Use 0 to {MAX_MINUTES}."));
@@ -279,6 +280,8 @@ mod tests {
             ("setup --minutes 20", "--child NAME"),
             ("setup --child Asha", "--minutes N"),
             ("setup --child Asha --minutes 2000", "more than a whole day"),
+            ("setup --child AshaAshaAshaAshaAshaAshaAshaAshaAshaAsha1 --minutes 20", "41 characters long"),
+            ("setup --child=\u{7} --minutes 20", "empty"),
             ("setup --child Asha --minutes many", "whole number"),
             ("setup --child Asha --minutes 20 --block notepad", "package name"),
             ("setup --child Asha --minutes 20 --allow com.game!", "package name"),

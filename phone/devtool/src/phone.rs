@@ -465,6 +465,17 @@ impl<'a> Phone<'a> {
         Ok(parse_uninstall(&reply.text()))
     }
 
+    /// What LiMo's log says it did with a pairing file since `since_secs`
+    /// (the phone's clock), in its own words after `dev pair`: `taken`,
+    /// `no_file`, `refused why=<word>`; or `failed error=<name>` when its
+    /// receiver failed. None when it said nothing. Reads the log once, and
+    /// only the tag `LiMo`.
+    pub fn pair_word(&mut self, since_secs: i64) -> Result<Option<String>, Trouble> {
+        let since = format!("{since_secs}.000");
+        let reply = self.run(&["logcat", "-d", "-v", "time", "-t", &since, "-s", "LiMo:V"], None, T_SHORT)?;
+        Ok(parse_pair_word(&reply.out()))
+    }
+
     /// Follows the phone's log for LiMo's two tags, handing on each of
     /// their lines, until `limit` or until stopped. False when it was
     /// stopped by the limit.
@@ -588,6 +599,54 @@ pub fn is_limo_line(line: &str) -> bool {
     LOG_TAGS.contains(&tag)
 }
 
+/// The last word LiMo's debug receiver logged about a pairing file: what
+/// follows `dev pair ` (`taken`, `no_file`, `refused why=old_file`), or
+/// `failed error=<name>` for `dev failed error=<name>`.
+pub fn parse_pair_word(text: &str) -> Option<String> {
+    text.lines().rev().filter(|line| is_limo_line(line)).find_map(|line| {
+        let (_, message) = line.split_once("): ")?;
+        let message = message.trim();
+        message
+            .strip_prefix("dev pair ")
+            .map(str::to_string)
+            .or_else(|| message.strip_prefix("dev failed ").map(|rest| format!("failed {rest}")))
+    })
+}
+
+/// What to do after LiMo's word about a pairing file it did not take.
+pub fn pair_advice(word: &str) -> String {
+    let copy = "Copy what log shows, exactly.";
+    let Some(why) = word.strip_prefix("refused why=") else {
+        return match word {
+            "taken" => format!("LiMo says it took it, yet its state does not hold the test phone. Run check. {copy}"),
+            "no_file" => "LiMo found no pairing file when it was asked. Run setup again; if it says the same, copy what log shows, exactly.".to_string(),
+            other if other.starts_with("failed") => format!("LiMo's receiver failed ({other}). {copy}"),
+            other => format!("LiMo said \"dev pair {other}\", which this tool does not know. {copy}"),
+        };
+    };
+    match why {
+        "old_file" => "LiMo takes a pairing file only when it was made within an hour of the phone's own clock. Set the clock \
+             that is wrong (this tool never changes the phone's), then run setup again."
+            .to_string(),
+        "no_child_name" => "LiMo found no child's name in the pairing file. This tool writes one (child_name), so the tool and \
+             the app's debug build were built from different versions of the repository: build both from the same one, \
+             then run setup again."
+            .to_string(),
+        "not_json" | "no_welcome" | "no_code_secret" | "no_made_at" | "code_secret_not_hex" | "code_secret_not_32_bytes" => {
+            format!(
+                "LiMo found the pairing file not in the form it takes ({why}), so the tool and the app's debug build do \
+                 not agree on it: build both from the same version of the repository, then run setup again."
+            )
+        }
+        "unreadable" | "not_deleted" => format!(
+            "LiMo could not read or delete the pairing file ({why}). Run setup again; if it says the same, uninstall, \
+             install and setup again."
+        ),
+        "engine" => format!("LiMo's engine refused the welcome, or its state could not be kept (engine). {copy}"),
+        other => format!("LiMo refused the pairing file for a reason this tool does not know ({other}). {copy}"),
+    }
+}
+
 /// Words for an install Android refused, with what to do.
 pub fn install_advice(code: &str) -> &'static str {
     match code {
@@ -695,6 +754,27 @@ mod tests {
         assert!(!is_limo_line("11-20 21:42:03.123 I/LiMoOther( 1234): x"));
         assert!(!is_limo_line("--------- beginning of main"));
         assert!(!is_limo_line("11-20 21:42:03.123 I/ActivityManager( 99): LiMo/x(1)"));
+    }
+
+    #[test]
+    fn limos_own_word_about_a_pairing_file_is_read_and_explained() {
+        let log = "--------- beginning of main\n\
+                   11-20 13:29:01.000 I/LiMo    ( 4242): dev pair taken\n\
+                   11-20 13:30:02.123 I/LiMo    ( 4242): host started\n\
+                   11-20 13:30:03.456 I/LiMo    ( 4242): dev pair refused why=no_child_name\n";
+        assert_eq!(parse_pair_word(log), Some("refused why=no_child_name".to_string()));
+        assert_eq!(parse_pair_word("11-20 13:30:03.456 I/LiMo    ( 4242): dev failed error=IOException\n"), Some("failed error=IOException".to_string()));
+        assert_eq!(parse_pair_word("11-20 13:30:03.456 I/Other   ( 4242): dev pair taken\n"), None);
+        assert_eq!(parse_pair_word(""), None);
+        assert!(pair_advice("refused why=no_child_name").contains("This tool writes one (child_name)"));
+        assert!(pair_advice("refused why=old_file").contains("within an hour of the phone's own clock"));
+        assert!(pair_advice("refused why=no_welcome").contains("(no_welcome)"));
+        assert!(pair_advice("refused why=engine").contains("(engine)"));
+        assert!(pair_advice("refused why=unreadable").contains("(unreadable)"));
+        assert!(pair_advice("refused why=surprise").contains("(surprise)"));
+        assert!(pair_advice("no_file").contains("no pairing file"));
+        assert!(pair_advice("taken").contains("Run check."));
+        assert!(pair_advice("failed error=IOException").contains("(failed error=IOException)"));
     }
 
     #[test]

@@ -131,10 +131,17 @@ Undo: `.\limo-phone-dev uninstall`.
    LiMo to take it. Android: Broadcast completed: result=0`; and within 15
    seconds `LiMo took it: its state on the phone now holds Asha's test
    phone.` Exit code 0.
+   - If LiMo refused the file: `LiMo did not take the test family. Its log
+     says: dev pair refused why=WORD` and what to do (for `no_child_name`
+     or another missing field, the tool and the app were built from
+     different versions; for `old_file`, a clock is wrong). Copy both lines.
+     Then `The pairing file was removed from the phone, and the test family
+     on this PC deleted again, so setup can run again.` Exit code 1.
    - Without the receiver, after 15 seconds: `LiMo did not take the test
-     family within 15 seconds ...` and `The pairing file was removed from
-     the phone, and the test family on this PC deleted again, so setup can
-     run again.` Exit code 1. That is expected until the receiver is built.
+     family within 15 seconds, and its log says nothing of it. ...`, then
+     the same undoing. Exit code 1. If LiMo's log does hold a `dev pair`
+     line (in the log terminal) while the tool found none, note it: the
+     phone's `logcat` may not take a time given in unix seconds.
    - If it says `the pairing file arrived with N bytes of M`, or `run-as`
      or `cat` refused, copy it exactly: it is whether standard input
      reaches `run-as` on this phone, which only a real phone can show.

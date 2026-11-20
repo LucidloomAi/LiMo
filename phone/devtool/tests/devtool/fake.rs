@@ -89,6 +89,11 @@ pub struct FakePhone {
     pub elapsed_ms: u64,
     /// What the log holds.
     pub log: Vec<String>,
+    /// The child's name the receiver took, kept beside the state.
+    pub child_name: Option<String>,
+    /// The receiver refuses every pairing file with this word, as an app
+    /// built from another version might.
+    pub refuse_with: Option<String>,
     /// After this many calls to the phone, it is unplugged.
     pub gone_after: Option<usize>,
     /// This shell command never ends: it is stopped at its timeout.
@@ -116,6 +121,8 @@ impl FakePhone {
             zone: "+0530".to_string(),
             elapsed_ms: 3_600_000,
             log: Vec::new(),
+            child_name: None,
+            refuse_with: None,
             gone_after: None,
             hangs_on: None,
             calls: Vec::new(),
@@ -161,14 +168,27 @@ impl FakePhone {
         }
         if command == PAIR {
             // Deleted first, whatever it held, and never read twice.
-            let Some(bytes) = self.files.remove(PAIRING) else { return };
+            let Some(bytes) = self.files.remove(PAIRING) else {
+                self.say("dev pair no_file");
+                return;
+            };
+            if let Some(why) = self.refuse_with.clone() {
+                self.say(&format!("dev pair refused why={why}"));
+                return;
+            }
             let value: serde_json::Value = serde_json::from_slice(&bytes).expect("the pairing file is JSON");
             // A file made more than an hour from the phone's clock is left
             // over, not just pushed: refused.
             let made_at = value["made_at"].as_i64().expect("made_at is a whole number");
             if (made_at - self.wall_secs).abs() > 3_600 {
+                self.say("dev pair refused why=old_file");
                 return;
             }
+            // The child's name is required: the welcome carries none.
+            let Some(child_name) = value["child_name"].as_str().filter(|n| !n.is_empty()).map(str::to_string) else {
+                self.say("dev pair refused why=no_child_name");
+                return;
+            };
             // As the Kotlin side hands it to the bridge: the welcome as JSON
             // bytes, the secret as bytes.
             let welcome_bytes = serde_json::to_vec(&value["welcome"]).unwrap();
@@ -176,9 +196,21 @@ impl FakePhone {
             let secret = unhex(value["code_secret_hex"].as_str().expect("the secret is text"));
             let mut engine = PhoneEngine::paired(&welcome, secret, self.wall_secs).expect("the engine is made");
             self.files.insert(STATE.to_string(), engine.save());
+            // Kept beside the state, never inside the engine's.
+            self.child_name = Some(child_name);
+            self.say("dev pair taken");
         } else if command == FORGET {
             self.files.remove(STATE);
+            self.child_name = None;
+            self.say("dev forget done");
         }
+    }
+
+    /// A line in the phone's log with the tag `LiMo`, as the receiver
+    /// writes one, in logcat's `time` format.
+    fn say(&mut self, message: &str) {
+        let n = self.log.len();
+        self.log.push(format!("11-20 13:30:{:02}.000 I/LiMo    ( 4242): {message}", n % 60));
     }
 
     fn shell(&mut self, command: &str, stdin: Option<&[u8]>) -> Reply {
@@ -336,8 +368,16 @@ impl Adb for FakePhone {
                 } else {
                     self.app = None;
                     self.files.clear();
+                    self.child_name = None;
                     Reply::ok_with("Success\n")
                 }
+            }
+            // The log read once for LiMo's tag, since a moment: every line of
+            // the fake's log is taken to be that recent.
+            ["logcat", "-d", "-v", "time", "-t", since, "-s", "LiMo:V"] => {
+                assert!(since.ends_with(".000") && since[..since.len() - 4].parse::<i64>().is_ok(), "{since}");
+                let lines: Vec<&String> = self.log.iter().filter(|l| l.contains(" I/LiMo ")).collect();
+                Reply::ok_with(&lines.iter().map(|l| format!("{l}\n")).collect::<String>())
             }
             rest if rest == LOGCAT => {
                 if let Some(on_line) = call.on_line {

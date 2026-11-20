@@ -34,15 +34,24 @@ fn setup_puts_the_test_family_on_the_phone_exactly_as_section_0_fixes_it() {
     assert_eq!(with_input[0].args, vec!["-s", SERIAL, "shell", "-T", WRITE]);
     let bytes = with_input[0].stdin.clone().unwrap();
 
-    // Its bytes: one JSON object, welcome, code_secret_hex, made_at, in that
-    // order, and nothing after it.
+    // Its bytes: one JSON object, welcome, code_secret_hex, made_at and
+    // child_name, in that order, and nothing after it.
     let text = String::from_utf8(bytes.clone()).unwrap();
     assert!(text.starts_with("{\"welcome\":{"), "{text}");
     let secret_at = text.find(",\"code_secret_hex\":\"").unwrap();
     let hex = &text[secret_at + 20..secret_at + 20 + 64];
     assert!(hex.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{hex}");
-    assert_eq!(&text[secret_at + 20 + 64..], format!("\",\"made_at\":{NOW}}}"));
+    assert_eq!(&text[secret_at + 20 + 64..], format!("\",\"made_at\":{NOW},\"child_name\":\"Asha\"}}"));
     let welcome: Grant = serde_json::from_str(&text["{\"welcome\":".len()..secret_at]).unwrap();
+    // The whole file, byte for byte, as section 0 and the debug receiver
+    // read it.
+    assert_eq!(
+        text,
+        format!(
+            "{{\"welcome\":{},\"code_secret_hex\":\"{hex}\",\"made_at\":{NOW},\"child_name\":\"Asha\"}}",
+            serde_json::to_string(&welcome).unwrap()
+        )
+    );
 
     // The welcome is the test family's: its child, its phone, its rules,
     // with the whole day held away from home, and the PIN's record.
@@ -68,8 +77,12 @@ fn setup_puts_the_test_family_on_the_phone_exactly_as_section_0_fixes_it() {
     assert!(shells[write_at + 2..].iter().any(|s| s.contains("cat files/limo/state")), "read back: {shells:?}");
 
     // LiMo took it: the pairing file is gone and its kept state is the test
-    // phone's, with the whole day of 20 minutes in hand away from home.
+    // phone's, with the whole day of 20 minutes in hand away from home. The
+    // child's name is kept beside the state, never inside it.
     assert!(!bench.phone.files.contains_key(PAIRING));
+    assert_eq!(bench.phone.child_name.as_deref(), Some("Asha"));
+    let state = String::from_utf8_lossy(bench.phone.files.get(STATE).unwrap()).into_owned();
+    assert!(!state.contains("Asha"), "the name is not in the engine's state");
     let mut engine = bench.engine();
     let view = engine.view().unwrap();
     assert_eq!(Some(view.device_id.as_str()), family.device_id());
@@ -130,12 +143,68 @@ fn pins_that_differ_are_too_short_or_cannot_be_typed_change_nothing() {
 }
 
 #[test]
+fn the_childs_name_is_cleaned_once_and_the_same_on_the_pc_and_the_phone() {
+    let mut bench = Bench::new();
+    let args = |name: &str| vec!["setup".to_string(), "--child".to_string(), name.to_string(), "--minutes".to_string(), "20".to_string()];
+    bench.ui.typed.extend([PIN.to_string(), PIN.to_string()]);
+    assert_eq!(bench.run_args(&args("  Zoë \"Z\"\u{7}\u{202E} ")), DONE, "{}", bench.printed());
+    assert_eq!(bench.phone.child_name.as_deref(), Some("Zoë \"Z\""));
+    assert_eq!(family::read_places(&bench.places()).unwrap().unwrap().child, "Zoë \"Z\"");
+    let file = bench.phone.calls.iter().find_map(|c| c.stdin.clone()).unwrap();
+    assert!(String::from_utf8(file).unwrap().ends_with(",\"child_name\":\"Zoë \\\"Z\\\"\"}"));
+    bench.clear();
+    assert_eq!(bench.run("status"), DONE);
+    assert!(bench.printed().contains("Child: Zoë \"Z\" (this PC's test family), on its test phone."));
+
+    // Too long, or nothing left once cleaned: refused before anything.
+    for (name, says) in [(&*"a".repeat(41), "--child is 41 characters long; a child's name is 1 to 40 characters."), (" \u{7} ", "is empty")] {
+        let mut bench = Bench::new();
+        assert_eq!(bench.run_args(&args(name)), REFUSED, "{name:?}");
+        assert!(bench.printed().contains(says), "{}", bench.printed());
+        assert!(bench.phone.calls.is_empty() && bench.ui.prompts.is_empty());
+        assert!(!bench.places().family_file().exists());
+    }
+    // Forty characters of any script are taken.
+    let mut bench = Bench::new();
+    bench.ui.typed.extend([PIN.to_string(), PIN.to_string()]);
+    assert_eq!(bench.run_args(&args(&"आ".repeat(40))), DONE, "{}", bench.printed());
+    assert_eq!(bench.phone.child_name.as_deref(), Some("आ".repeat(40).as_str()));
+}
+
+#[test]
+fn a_pairing_file_limo_refuses_is_explained_from_its_own_log() {
+    for (why, says) in [
+        ("no_child_name", "LiMo found no child's name in the pairing file. This tool writes one (child_name)"),
+        ("old_file", "LiMo takes a pairing file only when it was made within an hour of the phone's own clock."),
+        ("no_welcome", "not in the form it takes (no_welcome)"),
+        ("engine", "LiMo's engine refused the welcome, or its state could not be kept (engine)."),
+    ] {
+        let mut bench = Bench::new();
+        bench.phone.refuse_with = Some(why.to_string());
+        assert_eq!(bench.setup("setup --child Asha --minutes 20"), FAILED, "{why}");
+        let printed = bench.printed();
+        assert!(printed.contains(&format!("LiMo did not take the test family. Its log says: dev pair refused why={why}")), "{printed}");
+        assert!(printed.contains(says), "{why}: {printed}");
+        assert!(printed.contains("the test family on this PC deleted again, so setup can run again."));
+        assert!(!bench.places().family_file().exists());
+        assert!(bench.phone.files.is_empty());
+        // The log was read once, for LiMo's tag, since just before the
+        // broadcast by the phone's clock.
+        let reads: Vec<_> = bench.phone.calls.iter().filter(|c| c.args.contains(&"logcat".to_string())).collect();
+        assert_eq!(reads.len(), 1);
+        let since = format!("{}.000", NOW - 2);
+        assert_eq!(reads[0].args, vec!["-s", SERIAL, "logcat", "-d", "-v", "time", "-t", since.as_str(), "-s", "LiMo:V"]);
+        assert_eq!(reads[0].timeout_secs, 30);
+    }
+}
+
+#[test]
 fn a_phone_that_does_not_take_it_is_undone_on_both_sides_and_setup_runs_again() {
     let mut bench = Bench::new();
     bench.phone.receiver = false;
     assert_eq!(bench.setup("setup --child Asha --minutes 20"), FAILED);
     let printed = bench.printed();
-    assert!(printed.contains("LiMo did not take the test family within 15 seconds"), "{printed}");
+    assert!(printed.contains("LiMo did not take the test family within 15 seconds, and its log says nothing of it."), "{printed}");
     assert!(printed.contains("Is this debug build one with the development receiver? Run log in another terminal"));
     assert!(printed.contains("The pairing file was removed from the phone, and the test family on this PC deleted again, so setup can run again."));
     // It waited, a second at a time, then gave up.

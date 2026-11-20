@@ -14,7 +14,8 @@
 //!   its settings.
 //! - **No secret on a command line.** The pairing file, which holds the
 //!   phone's code secret, goes to the phone through adb's standard input;
-//!   every argument of every call is fixed text, a package name or a path.
+//!   every argument of every call is fixed text, a package name, a time or a
+//!   path.
 //! - **Never the real family.** Its test family is a file of its own, in a
 //!   folder named for testing, and the Windows service's file is never
 //!   opened.

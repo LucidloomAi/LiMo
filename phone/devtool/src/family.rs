@@ -70,6 +70,36 @@ pub fn parse_bedtime(text: &str) -> Result<BlockedWindow, String> {
     Ok(BlockedWindow { days: Weekday::ALL.to_vec(), start_minute, end_minute })
 }
 
+/// The most characters a child's name has: 40, as the hub keeps it.
+pub const MAX_CHILD_NAME_CHARS: usize = 40;
+
+/// True for characters that cannot be shown or that change how the text
+/// around them is shown: control characters, and the marks that reverse or
+/// isolate the direction of writing. The hub refuses a name with any.
+fn is_hidden(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{200E}' | '\u{200F}')
+}
+
+/// The child's name as `setup` keeps it on this PC and hands it to the
+/// phone (the pairing file's `child_name`): control characters and the
+/// direction marks dropped, then spaces trimmed from both ends; 1 to 40
+/// characters, or why not. The hub takes it as it is, so the test family
+/// and the phone hold the same name.
+pub fn clean_child_name(given: &str) -> Result<String, String> {
+    let kept: String = given.chars().filter(|c| !is_hidden(*c)).collect();
+    let name = kept.trim().to_string();
+    let count = name.chars().count();
+    if count == 0 {
+        return Err("--child takes the test child's name, such as Asha, and the one given is empty once spaces and \
+             hidden characters are taken out."
+            .to_string());
+    }
+    if count > MAX_CHILD_NAME_CHARS {
+        return Err(format!("--child is {count} characters long; a child's name is 1 to {MAX_CHILD_NAME_CHARS} characters."));
+    }
+    Ok(name)
+}
+
 /// True for an Android package name: two or more parts with dots between,
 /// each a letter and then letters, digits or underscores.
 pub fn is_package_name(name: &str) -> bool {
@@ -242,6 +272,20 @@ mod tests {
         }
         assert!(parse_bedtime("21:00-21:00").unwrap_err().contains("--minutes 0"));
         assert_eq!(bedtime_text(&parse_bedtime("21:00-07:00").unwrap()), "21:00 to 07:00");
+    }
+
+    #[test]
+    fn a_childs_name_is_trimmed_its_hidden_characters_dropped_and_1_to_40_long() {
+        assert_eq!(clean_child_name("  Asha ").unwrap(), "Asha");
+        assert_eq!(clean_child_name("Mi\u{7}ra\n").unwrap(), "Mira");
+        assert_eq!(clean_child_name("\u{0} Asha\u{202E}").unwrap(), "Asha");
+        assert_eq!(clean_child_name("आशा").unwrap(), "आशा");
+        assert_eq!(clean_child_name("Zoë \"Z\"").unwrap(), "Zoë \"Z\"");
+        assert_eq!(clean_child_name(&"🙂".repeat(40)).unwrap().chars().count(), 40);
+        assert!(clean_child_name(&"a".repeat(41)).unwrap_err().contains("41 characters long"));
+        for empty in ["", "   ", "\u{7}\t\u{200F}"] {
+            assert!(clean_child_name(empty).unwrap_err().contains("empty"), "{empty:?}");
+        }
     }
 
     #[test]

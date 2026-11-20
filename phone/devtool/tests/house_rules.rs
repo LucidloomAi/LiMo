@@ -111,15 +111,20 @@ fn nothing_sent_to_the_phone_could_change_anything_but_limo() {
         assert!(command.contains(" -n ai.lucidloom.limo.child/.dev.DevReceiver "), "{command}");
     }
     // The only other calls: listing phones, installing and removing LiMo's
-    // child form, and its log.
+    // child form, and its log (followed, or read once for LiMo's tag).
     let phone = code_of(&crate_dir().join("src").join("phone.rs"));
     let runs: Vec<&str> = phone.match_indices("self.run(&[\"").map(|(at, _)| &phone[at + 12..]).collect();
     assert!(!runs.is_empty());
     for run in runs {
         let first = run.split('"').next().unwrap();
-        assert!(["shell", "install", "uninstall"].contains(&first), "self.run with {first}");
+        assert!(["shell", "install", "uninstall", "logcat"].contains(&first), "self.run with {first}");
         if first == "uninstall" {
             assert!(run.starts_with("uninstall\", PACKAGE]"), "{run}");
+        }
+        if first == "logcat" {
+            // Read once, never cleared or changed.
+            assert!(run.starts_with("logcat\", \"-d\""), "{run}");
+            assert!(!run.contains("\"-c\"") && !run.contains("\"-G\"") && !run.contains("\"-P\""), "{run}");
         }
     }
 }
