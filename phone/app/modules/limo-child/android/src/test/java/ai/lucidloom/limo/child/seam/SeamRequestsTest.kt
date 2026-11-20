@@ -5,6 +5,7 @@ import ai.lucidloom.limo.child.ffi.LoadProblemKind
 import ai.lucidloom.limo.child.ffi.WEDNESDAY_4_PM
 import ai.lucidloom.limo.child.ffi.app
 import ai.lucidloom.limo.child.host.HostView
+import ai.lucidloom.limo.child.host.WayOut
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -137,6 +138,73 @@ class SeamRequestsTest {
   }
 
   @Test
+  fun theDoneScreensButtonFinishesSetupOnTheEngineSoCountingStartsThere() {
+    SeamPhoneRig(Files.createTempDirectory("limo-seam").toFile(), WEDNESDAY_4_PM, finished = false).use { rig ->
+      val host = RigHost(rig)
+      val lines = mutableListOf<String>()
+      val seam = ChildSeam(host, RigPhone(), MemoryMarks(), log = SeamLog { lines += it })
+      seam.answer("child.agree")
+      // Two minutes of setup in a game and on Android's pages: Today lists nothing, nothing is used.
+      rig.use(app(GAME, "Game"), 60)
+      rig.use(app("com.android.settings", "Settings"), 60)
+      @Suppress("UNCHECKED_CAST")
+      val during = seam.answer("child.today") as Map<String, Any?>
+      assertEquals(emptyList<Any>(), during["apps"])
+      assertEquals("0 min used of 30 min", during["used"])
+      assertFalse(rig.engine.view()!!.setupFinished)
+
+      // "Show Mira how it works": the engine has it, once.
+      val answer = seam.answer("child.finishSetup")
+      assertEquals(null, answer)
+      SeamAnswerFiles.write("setup-finished", "child.finishSetup", answer)
+      assertTrue(rig.engine.view()!!.setupFinished)
+      assertEquals(listOf("seam setup finished"), lines)
+      rig.use(app(GAME, "Game"), 60)
+      @Suppress("UNCHECKED_CAST")
+      val after = seam.answer("child.today") as Map<String, Any?>
+      assertEquals(listOf(mapOf("name" to "Game", "minutes" to "1 min")), after["apps"])
+
+      // Tapped again, or the introduction seen after it: nothing changes, nothing more is logged.
+      assertEquals(null, seam.answer("child.finishSetup"))
+      assertEquals(null, seam.answer("child.markIntroSeen"))
+      assertEquals(3, host.finishes)
+      assertEquals(listOf("seam setup finished"), lines)
+    }
+  }
+
+  @Test
+  fun theIntroductionSeenFinishesSetupWhenTheButtonsRequestWasLost() {
+    SeamPhoneRig(Files.createTempDirectory("limo-seam").toFile(), WEDNESDAY_4_PM, finished = false).use { rig ->
+      val seam = ChildSeam(RigHost(rig), RigPhone(), MemoryMarks())
+      seam.answer("child.agree")
+      assertFalse(rig.engine.view()!!.setupFinished)
+      assertEquals(null, seam.answer("child.markIntroSeen"))
+      assertTrue(rig.engine.view()!!.setupFinished)
+      assertEquals(true, seam.answer("child.introSeen"))
+    }
+  }
+
+  @Test
+  fun setupCannotBeFinishedWhenNotPairedOrWhenTheKeptStateCannotBeRead() {
+    assertEquals(SeamProblem.NOT_PAIRED, refused(ChildSeam(RigHost(null), RigPhone(), MemoryMarks()), "child.finishSetup"))
+    rig().use { rig ->
+      val host = RigHost(rig)
+      val seam = ChildSeam(host, RigPhone(), MemoryMarks())
+      host.given = HostView(paired = true, json = null, problem = LoadProblemKind.DAMAGED)
+      assertEquals(SeamProblem.CANNOT_READ, refused(seam, "child.finishSetup"))
+      // The host's answer that never came.
+      val silent = object : SeamHost {
+        override fun view(): HostView = rig.hostView()
+
+        override fun childName(): String = "Mira"
+
+        override fun finishSetup(): WayOut<Boolean> = WayOut.Failed
+      }
+      assertEquals(SeamProblem.FAILED, refused(ChildSeam(silent, RigPhone(), MemoryMarks()), "child.finishSetup"))
+    }
+  }
+
+  @Test
   fun eachStepIsOnOnlyWhenAndroidSaysSoInThisReading() {
     val phone = RigPhone()
     val seam = ChildSeam(RigHost(null), phone, MemoryMarks())
@@ -182,6 +250,8 @@ class SeamRequestsTest {
         override fun view(): HostView = rig.hostView().also { views += 1 }
 
         override fun childName(): String = "Mira"
+
+        override fun finishSetup(): WayOut<Boolean> = WayOut.Done(false)
       }
       val phone = RigPhone()
       val seam = ChildSeam(host, phone, MemoryMarks())
@@ -199,6 +269,8 @@ class SeamRequestsTest {
         override fun view(): HostView = throw SeamProblem(SeamProblem.NO_ANSWER, "no answer")
 
         override fun childName(): String? = null
+
+        override fun finishSetup(): WayOut<Boolean> = throw SeamProblem(SeamProblem.NO_ANSWER, "no answer")
       }
       val failed = ChildSeam(failing, phone, MemoryMarks()).answersFor(listOf(SeamChange.PAIRING, SeamChange.STEPS))
       assertTrue(failed[SeamChange.PAIRING] === ChildSeam.FAILED)

@@ -9,7 +9,8 @@
 //!   Android's own lock screen or a screen that is off, and a cover during a
 //!   call in progress offers the way back to it;
 //! - the phone is covered by the lock exactly when the core says it is
-//!   locked and the app in front is not one the lock leaves usable;
+//!   locked and the app in front is not one the lock leaves usable, once
+//!   setup is finished; until then nothing is covered, counted or warned of;
 //! - time is counted only while an app is in use and not covered;
 //! - the phone's counted use never goes down within a day, and never grows
 //!   by more than the elapsed count allows;
@@ -152,8 +153,18 @@ pub struct Family {
 
 impl Family {
     /// A family with one child, Mira, and her phone paired at home at
-    /// `start`, screen on, unlocked, a game in front, out of reach.
+    /// `start` and set up (a guardian finished setup on it at once), screen
+    /// on, unlocked, a game in front, out of reach.
     pub fn new(start: i64) -> Family {
+        let mut f = Family::setting_up(start);
+        assert_eq!(f.engine().finish_setup(start), Ok(true));
+        assert!(f.engine().should_save());
+        f.kept = f.engine().save();
+        f
+    }
+
+    /// The same family with the phone just paired: setup not finished.
+    pub fn setting_up(start: i64) -> Family {
         let dir = tempfile::tempdir().unwrap();
         let mut hub = Hub::open(&dir.path().join("family.limo")).unwrap();
         hub.create_family(PASSWORD, start).unwrap();
@@ -462,6 +473,15 @@ impl Family {
         let call_on = facts.call == CallState::Ongoing;
         let back = call_on.then(|| "Back to the call".to_string());
         let view = self.view();
+        // Until setup is finished nothing is covered, counted or warned of,
+        // whatever the core says, and the time left says so.
+        if !view.setup.finished {
+            assert_eq!(orders.cover, Cover::Nothing, "covered during setup");
+            assert!(!orders.time_left.counting && !orders.time_left.locked, "counted or locked during setup");
+            assert_eq!(orders.warning, None, "a warning during setup");
+            assert_eq!(orders.time_left.words, "Setup is not finished on this phone.");
+            return;
+        }
         let decision = view.decision.expect("a decision");
         match (&orders.cover, decision.device_lock) {
             (Cover::Lock(screen), Some(_)) => {

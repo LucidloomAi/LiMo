@@ -1,6 +1,7 @@
 package ai.lucidloom.limo.child.seam
 
 import ai.lucidloom.limo.child.host.HostView
+import ai.lucidloom.limo.child.host.WayOut
 import ai.lucidloom.limo.child.watch.LimoPermissions
 
 // What the seam needs from the rest of the child form, each behind a small
@@ -14,6 +15,13 @@ internal interface SeamHost {
 
   /** The child's name the host keeps (`PhoneHost.childName`); null when none is kept. */
   fun childName(): String?
+
+  /**
+   * Tells the engine that a guardian finished setup on this phone
+   * (`PhoneHost.finishSetup`), and waits for its answer. Never on the main
+   * thread.
+   */
+  fun finishSetup(): WayOut<Boolean>
 }
 
 /** The phone, as the seam asks it (the watch, and Android itself). */
@@ -87,6 +95,18 @@ internal class ChildSeam(
     "child.markIntroSeen" -> {
       mark { it.copy(introSeen = true) }
       changed(SeamChange.INTRO)
+      // A second chance: the introduction comes after setup's last screen,
+      // so setup is finished by now. Already finished, nothing changes; a
+      // failure here is logged and the introduction stays seen.
+      try {
+        finishSetup()
+      } catch (e: SeamProblem) {
+        log.line("seam failed what=finish_setup error=${e.code}")
+      }
+      null
+    }
+    "child.finishSetup" -> {
+      finishSetup()
       null
     }
     "child.steps" -> SeamAnswers.steps(phone.permissions())
@@ -150,6 +170,22 @@ internal class ChildSeam(
     if (name == null && !namelessLogged) log.line("seam pairing no_child_name fallback")
     namelessLogged = name == null
     return SeamAnswers.paired(name)
+  }
+
+  /**
+   * `child.finishSetup`: the guardian left setup's last screen ("Show the
+   * child how it works"), with every step on or one passed. Until the
+   * engine has it, LiMo counts nothing and covers nothing. Finished again,
+   * nothing changes. Refused as the other requests are when the phone is
+   * not paired or its kept state cannot be read.
+   */
+  private fun finishSetup() {
+    when (val answer = host.finishSetup()) {
+      is WayOut.Done -> if (answer.value) log.line("seam setup finished")
+      is WayOut.Refused -> throw SeamProblem(SeamProblem.CANNOT_READ, "The kept state cannot be read.")
+      WayOut.NotPaired -> throw SeamProblem(SeamProblem.NOT_PAIRED, "The phone is not paired.")
+      WayOut.Failed -> throw SeamProblem(SeamProblem.FAILED, "The engine could not take it.")
+    }
   }
 
   private fun viewOf(now: Now?): Map<String, Any?> {

@@ -157,6 +157,15 @@ impl PhoneEngine {
         Ok(convert::try_out(answer))
     }
 
+    /// A guardian finished setup on this phone (left setup's last screen).
+    /// Until then the engine counts nothing and covers nothing. True when
+    /// this call finished it, false when it was finished already, which
+    /// changes nothing. Keep the state at once, then tick again.
+    /// [`EngineError::CannotCheck`] when the kept state could not be loaded.
+    pub fn finish_setup(&self, wall_secs: i64) -> Result<bool, EngineError> {
+        Ok(self.engine()?.finish_setup(wall_secs)?)
+    }
+
     /// True when the host should keep the state now.
     pub fn should_save(&self) -> Result<bool, EngineError> {
         Ok(self.engine()?.should_save())

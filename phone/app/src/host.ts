@@ -75,6 +75,7 @@ export type Requests = {
   'child.agree': { args: None; answer: null };
   'child.steps': { args: None; answer: StepStates }; // readSteps
   'child.openStep': { args: { step: StepId }; answer: null };
+  'child.finishSetup': { args: None; answer: null };
   'child.introSeen': { args: None; answer: boolean }; // readBoolean
   'child.markIntroSeen': { args: None; answer: null };
   'child.today': { args: None; answer: TodayView }; // readToday
@@ -137,6 +138,7 @@ const READ: { [N in RequestName]: (answer: unknown) => Requests[N]['answer'] } =
   'child.agree': () => null,
   'child.steps': readSteps,
   'child.openStep': () => null,
+  'child.finishSetup': () => null,
   'child.introSeen': (a) => readBoolean(a, 'introSeen'),
   'child.markIntroSeen': () => null,
   'child.today': readToday,
@@ -199,6 +201,9 @@ export const childHost: ChildHost = {
   steps: () => request('child.steps', none),
   openStep: async (step) => {
     await request('child.openStep', { step });
+  },
+  finishSetup: async () => {
+    await request('child.finishSetup', none);
   },
   introSeen: () => request('child.introSeen', none),
   markIntroSeen: async () => {

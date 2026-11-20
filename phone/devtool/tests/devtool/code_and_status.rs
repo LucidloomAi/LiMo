@@ -72,13 +72,15 @@ fn status_reads_what_the_real_engine_kept_through_a_day() {
     let mut bench = Bench::new();
     assert_eq!(bench.setup("setup --child Asha --minutes 20 --block com.example.game"), DONE);
 
-    // Kept at pairing, before any use.
+    // Kept at pairing, before any use: setup is not finished on the phone,
+    // and status says so before anything else of the day.
     bench.clear();
     assert_eq!(bench.run("status"), DONE, "{}", bench.printed());
     let printed = bench.printed();
     for line in [
         "status reads only; it changes nothing on the phone.",
         "Child: Asha (this PC's test family), on its test phone.",
+        "Setup is not finished on this phone. LiMo counts nothing and covers nothing until a guardian finishes setup on the phone.",
         "Time left today: 20 min (held on the phone: there is no master to reach).",
         "Used today: 0 min used of 20 min. On this phone 0 min.",
         "Apps today: none used for a minute or more.",
@@ -87,9 +89,24 @@ fn status_reads_what_the_real_engine_kept_through_a_day() {
     ] {
         assert!(bench.ui.lines.iter().any(|l| l == line), "missing \"{line}\" in:\n{printed}");
     }
+    let setup_at = bench.ui.lines.iter().position(|l| l.starts_with("Setup is not finished")).unwrap();
+    let time_at = bench.ui.lines.iter().position(|l| l.starts_with("Time left today")).unwrap();
+    assert!(setup_at < time_at, "{printed}");
     assert!(bench.phone.changed_nothing());
 
-    // Six minutes of reading and two of drawing.
+    // Two minutes on the phone during setup count nothing.
+    bench.phone.use_app("org.example.settings", 2 * 60);
+    bench.clear();
+    assert_eq!(bench.run("status"), DONE);
+    assert!(bench.ui.lines.iter().any(|l| l == "Used today: 0 min used of 20 min. On this phone 0 min."), "{}", bench.printed());
+
+    // The guardian finishes setup on the phone; then six minutes of reading
+    // and two of drawing.
+    bench.phone.finish_setup();
+    bench.clear();
+    assert_eq!(bench.run("status"), DONE);
+    assert!(bench.ui.lines.iter().any(|l| l.starts_with("Setup was finished on the phone today at ")), "{}", bench.printed());
+    assert!(!bench.printed().contains("Setup is not finished"), "{}", bench.printed());
     bench.phone.use_app("org.example.reader", 6 * 60);
     bench.phone.use_app("org.example.drawing", 2 * 60);
     bench.clear();
@@ -124,6 +141,7 @@ fn status_reads_what_the_real_engine_kept_through_a_day() {
 fn status_says_wrong_tries_a_request_that_waits_and_never_a_pin_a_code_or_a_reason() {
     let mut bench = Bench::new();
     assert_eq!(bench.setup("setup --child Asha --minutes 20"), DONE);
+    bench.phone.finish_setup();
     bench.phone.use_app("org.example.reader", 20 * 60 + 5);
     bench.run("code");
     let code = printed_code(&bench);

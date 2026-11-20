@@ -49,10 +49,12 @@ class HostDayTest {
       assertEquals(WayOut.NotPaired, rig.core.tryCode("1234 5678".toByteArray()))
       assertEquals(HostView(paired = false, json = null, problem = null), rig.core.view())
 
-      // Paired: kept at once (and again at the first tick, as the engine asks), told, watching the facts, ticking.
+      // Paired and set up: kept at once and again when setup was finished (and at the ticks the engine asks), told,
+      // watching the facts, ticking.
       rig.pair()
       assertTrue(rig.core.paired)
-      assertEquals(1 + rig.engines.current.orders.count { it.saveState }, rig.store.writes)
+      assertEquals(rig.pairWrites + rig.engines.current.orders.count { it.saveState }, rig.store.writes)
+      assertTrue(rig.log.contains("host setup finished"))
       assertEquals(listOf(HostChange.PAIRING), rig.events.take(1))
       assertEquals(1, rig.listening)
       assertEquals(CoverKind.NOTHING, rig.shower.last.kind)
@@ -161,8 +163,9 @@ class HostDayTest {
       val orders = rig.engines.made.flatMap { it.orders }
       val toKeep = orders.count { it.saveState }
       assertTrue("the engine asked to keep the state now and then, not at every tick", toKeep in 1 until orders.size)
-      // One write for the pairing, then exactly one for each tick that said so: no more, no fewer.
-      assertEquals(1 + toKeep, rig.store.writes)
+      // One write for the pairing and one for setup finished, then exactly one for each tick that said so: no more,
+      // no fewer.
+      assertEquals(rig.pairWrites + toKeep, rig.store.writes)
 
       // And in each tick, the state was kept before the cover was handed out.
       var i = rig.trail.indexOf("tick")

@@ -306,9 +306,12 @@ describe('done, and the child’s introduction (S8, C1 to C3)', () => {
     expect(await screen.findByText(W.done.heading)).toBeOnTheScreen();
     for (const id of STEP_IDS) expect(screen.getByLabelText(`${W.steps[id].title}, On`)).toBeOnTheScreen();
     expect(screen.getByText('Hand the phone to Mira. The next three screens are Mira’s.')).toBeOnTheScreen();
+    // Setup is not finished on the phone until the guardian leaves this screen.
+    expect(host.calls).not.toContain('finishSetup');
     fireEvent.press(screen.getByRole('button', { name: 'Show Mira how it works' }));
 
     expect(await screen.findByText('What LiMo counts')).toBeOnTheScreen();
+    expect(host.calls.filter((c) => c === 'finishSetup')).toHaveLength(1);
     expect(screen.getByText('For Mira')).toBeOnTheScreen();
     expect(screen.getByLabelText('1 of 3')).toBeOnTheScreen();
     fireEvent.press(screen.getByRole('button', { name: 'Next' }));
@@ -319,7 +322,19 @@ describe('done, and the child’s introduction (S8, C1 to C3)', () => {
 
     expect(await screen.findByText('1 h 12 min')).toBeOnTheScreen();
     expect(host.calls).toContain('markIntroSeen');
+    expect(host.calls.indexOf('finishSetup')).toBeLessThan(host.calls.indexOf('markIntroSeen'));
     expect(host.state.introSeen).toBe(true);
+  });
+
+  it('finishes setup when a step was passed too, and shows the introduction if the phone does not answer', async () => {
+    const { host } = renderChild(
+      { ...states.agreed, steps: { ...ALL_ON, battery: 'off' } },
+      { route: { at: 'done' }, mock: { finishFails: true } },
+    );
+    await screen.findByText(W.done.heading);
+    fireEvent.press(screen.getByRole('button', { name: 'Show Mira how it works' }));
+    expect(await screen.findByText('What LiMo counts')).toBeOnTheScreen();
+    expect(host.calls).toContain('finishSetup');
   });
 
   it('ticks only the steps Android says are on now', async () => {

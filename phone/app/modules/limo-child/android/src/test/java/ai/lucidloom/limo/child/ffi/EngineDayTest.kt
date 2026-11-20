@@ -248,6 +248,41 @@ class EngineDayTest {
   }
 
   @Test
+  fun setupCountsAndCoversNothingUntilAGuardianFinishesIt() {
+    FakePhone(folder.newFolder(), WEDNESDAY_4_PM, finished = false).use { phone ->
+      // A game and the blocked casino while the guardian sets the phone up.
+      var orders = phone.run(60)
+      assertEquals(CoverKind.NOTHING, orders.cover.kind)
+      assertFalse(orders.timeLeft.counting)
+      assertEquals("Setup is not finished on this phone.", orders.timeLeft.words)
+      phone.front = app(CASINO, "Casino")
+      assertEquals(CoverKind.NOTHING, phone.run(5).cover.kind)
+      assertEquals(0L, phone.counted())
+      val view = phone.engine.view()!!
+      assertFalse(view.setupFinished)
+      assertTrue(view.json, view.json.contains(""""setup":{"finished":false,"finished_at":null,"words":"Setup is not finished on this phone."}"""))
+
+      // Finished, from Kotlin: kept at once, covering and counting from the next call.
+      assertTrue(phone.engine.finishSetup(phone.wall))
+      assertTrue(phone.engine.shouldSave())
+      phone.kept = phone.engine.save()
+      assertTrue(phone.engine.view()!!.setupFinished)
+      assertEquals(CoverKind.BLOCK, phone.run(1).cover.kind)
+      phone.front = app(GAME, "Game")
+      phone.tick()
+      orders = phone.run(30)
+      assertTrue(orders.timeLeft.counting)
+      assertEquals(30L, phone.counted())
+
+      // Again: nothing changes, nothing to keep; and it stays finished in the kept bytes.
+      phone.kept = phone.engine.save()
+      assertFalse(phone.engine.finishSetup(phone.wall))
+      assertFalse(phone.engine.shouldSave())
+      PhoneEngine.load(phone.kept.copyOf()).use { assertTrue(it.view()!!.setupFinished) }
+    }
+  }
+
+  @Test
   fun theLibraryNamesItsVersions() {
     val v = versions()
     assertEquals("0.1.0", v.ffi)

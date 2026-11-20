@@ -54,9 +54,10 @@ fun screen(kind: FrontKind) = Front(kind)
  * A phone as the host will drive it: its own clocks and facts, and a state
  * file that holds only what the engine asked to keep. Paired from a made up
  * welcome: the welcome and the code secret the master PC makes, played here
- * by the testkit's family.
+ * by the testkit's family. Set up at once ([finished]: a guardian finishes
+ * setup as soon as it is paired), unless a test wants to see setup itself.
  */
-class FakePhone(folder: File, start: Long) : AutoCloseable {
+class FakePhone(folder: File, start: Long, finished: Boolean = true) : AutoCloseable {
   val family = TestFamily(folder.absolutePath, start)
   val child: String = family.addChild("Mira", miraRules(), start)
   val deviceId: String
@@ -78,6 +79,10 @@ class FakePhone(folder: File, start: Long) : AutoCloseable {
     welcome.codeSecret.fill(0)
     check(engine.shouldSave())
     kept = engine.save()
+    if (finished) {
+      check(engine.finishSetup(start))
+      kept = engine.save()
+    }
   }
 
   fun facts() = PhoneFacts(

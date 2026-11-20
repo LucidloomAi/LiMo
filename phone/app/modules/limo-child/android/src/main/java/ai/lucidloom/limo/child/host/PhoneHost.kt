@@ -74,6 +74,17 @@ interface PhoneHost {
   /** A guardian's PIN typed on the lock, as UTF-8 bytes, to do what [action] says; [pin] is filled with zeros. */
   fun tryPin(pin: ByteArray, action: PinAction, answer: (WayOut<TryAnswer>) -> Unit)
 
+  /**
+   * A guardian finished setup on this phone: they left setup's last screen
+   * (the seam calls it for the screens). Until the engine has it, it counts
+   * nothing and covers nothing, and the time left says setup is not
+   * finished. `Done(true)` when this finished it, `Done(false)` when it was
+   * finished already, which changes nothing; `Refused` when the kept state
+   * cannot be read; `NotPaired`; `Failed`. Kept before the answer, and
+   * ticked at once, so covers and counting start then.
+   */
+  fun finishSetup(answer: (WayOut<Boolean>) -> Unit)
+
   /** The phone as the engine holds it now, for the child's own screens. */
   fun view(answer: (HostView) -> Unit)
 

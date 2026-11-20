@@ -321,6 +321,14 @@ impl FakePhone {
         Reply { code: Some(0), stdout, stderr: String::new(), timed_out: false }
     }
 
+    /// A guardian finishes setup on the phone, as its last setup screen does:
+    /// until then LiMo counts nothing and covers nothing.
+    pub fn finish_setup(&mut self) {
+        self.with_engine(|engine, phone| {
+            assert_eq!(engine.finish_setup(phone.wall_secs), Ok(true));
+        });
+    }
+
     /// LiMo's engine as the phone keeps it, used for `secs` seconds with
     /// this app in front, a call a second, then kept again: what LiMo's
     /// host would do.

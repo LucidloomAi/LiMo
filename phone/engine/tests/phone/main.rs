@@ -12,5 +12,6 @@ mod covers;
 mod day;
 mod kept;
 mod restart;
+mod setup;
 mod today;
 mod ways_out;

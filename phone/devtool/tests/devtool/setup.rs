@@ -280,7 +280,12 @@ fn the_child_and_the_rules_reach_the_phones_engine_in_any_zone() {
     assert_eq!(engine.view().unwrap().rules.utc_offset_secs, -28_800);
     let mut facts = bench.phone.facts(true, limo_phone::Front::app("org.example.reader"));
     facts.utc_offset_secs = -28_800;
+    // Setup is not finished on the phone yet: nothing is locked.
     let orders = engine.tick(&facts);
-    // No screen time today: locked at once.
+    assert!(!orders.time_left.locked, "{orders:?}");
+    assert_eq!(orders.time_left.words, "Setup is not finished on this phone.");
+    // Once a guardian finishes it, no screen time today: locked at once.
+    assert_eq!(engine.finish_setup(facts.wall_secs), Ok(true));
+    let orders = engine.tick(&facts);
     assert!(orders.time_left.locked, "{orders:?}");
 }

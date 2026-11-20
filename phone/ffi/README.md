@@ -98,7 +98,7 @@ be (the elapsed count, the boot count, minutes) is refused with
 
 | Call | In | Out |
 | --- | --- | --- |
-| `PhoneEngine.paired` | the welcome `Grant` as JSON bytes, the code secret as bytes, the wall clock | a new engine. For a welcome that came by another way than the link (the development tool over the cable) |
+| `PhoneEngine.paired` | the welcome `Grant` as JSON bytes, the code secret as bytes, the wall clock | a new engine, setup not finished on it yet. For a welcome that came by another way than the link (the development tool over the cable) |
 | `PhonePairing.makeEngine` | the wall clock | a new engine from the link's welcome; the code secret never leaves Rust |
 | `PhoneEngine.load` | the kept bytes | an engine; never fails (a state that cannot be read gives one that locks the phone) |
 | `loadProblem` | | `LoadProblem?`: a kind (`EMPTY`, `NOT_LIMO`, `NEWER`, `DAMAGED`), the form for `NEWER`, the words |
@@ -109,8 +109,9 @@ be (the elapsed count, the boot count, minutes) is refused with
 | `askForTime` | minutes, a reason, the wall clock | `TimeRequest`, the core's record field by field |
 | `tryCode` | the typed code as UTF-8 bytes, the wall clock | `TryAnswer` |
 | `tryPin` | the typed PIN as UTF-8 bytes, a `PinAction`, the wall clock | `TryAnswer` |
+| `finishSetup` | the wall clock | true when this call finished setup on the phone, false when it was finished already (nothing changes). Until it is, the engine counts and covers nothing. Keep the state at once, then tick |
 | `shouldSave`, `save`, `saveFailed` | | a flag; the bytes to keep; |
-| `view` | | `PhoneView?`: the ids, the day, counted, beyond and open seconds, how many slices and notes wait, the clock correction, and the engine's whole view as JSON, the child's Today and the rules in words among it (below) |
+| `view` | | `PhoneView?`: the ids, the day, counted, beyond and open seconds, how many slices and notes wait, the clock correction, whether setup is finished (`setupFinished`), and the engine's whole view as JSON, the child's Today, the rules in words and setup among it (below) |
 | `versions()` (a function) | | this layer's, the engine's, the core's and the link crate's versions, and the link version it speaks |
 
 **`PhoneFacts`** (in), field for field the engine's: `wallSecs`,
@@ -151,9 +152,15 @@ read two parts of it, every word in them the engine's (the engine's README,
     "screens_off": "9:00 pm to 7:00 am",
     "always_open": ["org.example.clock"],
     "not_allowed": ["org.example.casino"]
-  }
+  },
+  "setup": { "finished": false, "finished_at": null, "words": "Setup is not finished on this phone." }
 }
 ```
+
+`setup` says whether a guardian has finished setup on the phone; until
+then nothing is counted or covered, and `words` is the engine's sentence
+for it (null once finished; `finished_at` is when, by LiMo's clock, null for
+a state kept before setup was kept).
 
 `left.kind` is `left`, `no_limit` or `open`; `used_part` is null on a day
 with no limit; `bedtime` and `screens_off` are null when no hours are off;
@@ -442,7 +449,7 @@ proof three measured.
 | Where | What | Count |
 | --- | --- | --- |
 | `src/convert.rs`, `src/engine.rs` | The facts field by field, each of the six permissions to its own field; every kind in front, and an app without its package refused; numbers below zero refused, big ones held; a PIN's action with what its kind needs; every refusal of the core and every error of the link to a variant of its own with the same words; JSON that is not a grant or a report; typed bytes that are not text; an engine whose lock was poisoned saying `Broken` | 9 |
-| `tests/bridge/` | Through this layer's API only, against the testkit: the short day below; a report out and a grant in as bytes, a stale grant, bytes that are not a grant; the notes as the engine's JSON and the view; the view's JSON carrying Today, the rules in words and what is switched off, by the names Kotlin reads; a ringing call never covered and a call in progress offering the way back; asking for time and the core refusing a second; codes wrong, malformed, the wait after five surviving a crash; the PIN adding, unlocking, confirming a release, refused before it is looked at; four kinds of unreadable state locking the phone and never written over; a welcome that is not one and a secret of the wrong length; crashes after any call; a whole pairing over the link making the engine, a session carrying the report and the grant, the app list and the goodbye; a report unanswered ending the session as `NoAnswerToReport`; a removed phone refused by its reason; bad offers and kept pairings refused without quoting them; the versions | 16 |
+| `tests/bridge/` | Through this layer's API only, against the testkit (its phone set up at once, but in the setup story): a phone just paired counting and covering nothing, its words and its view saying setup is not finished, then finished, noted, covering and counting, kept, finishing again changing nothing, a state that cannot be read refusing it; a report out and a grant in as bytes, a stale grant, bytes that are not a grant; the notes as the engine's JSON and the view; the view's JSON carrying Today, the rules in words and what is switched off, by the names Kotlin reads; a ringing call never covered and a call in progress offering the way back; asking for time and the core refusing a second; codes wrong, malformed, the wait after five surviving a crash; the PIN adding, unlocking, confirming a release, refused before it is looked at; four kinds of unreadable state locking the phone and never written over; a welcome that is not one and a secret of the wrong length; crashes after any call; a whole pairing over the link making the engine, a session carrying the report and the grant, the app list and the goodbye; a report unanswered ending the session as `NoAnswerToReport`; a removed phone refused by its reason; bad offers and kept pairings refused without quoting them; the versions | 17 |
 | `tests/house_rules.rs` | No line written here unsafe; the conversions forbid it and no UniFFI macro expands there; the testkit only behind its feature; nothing silences a lint; no dash punctuation; no machine paths | 6 |
 
 `npm run test:child` (in the app) runs the child module's **JVM tests**,
@@ -457,10 +464,11 @@ bindings that ship, with the PC library loaded by JNA:
 | `EngineDayTest.aKeptStateThatCannotBeReadLocksThePhoneAndIsNeverWrittenOver` | empty bytes: `EMPTY`, the lock `CANNOT_CHECK`, nothing to keep |
 | `EngineDayTest.theViewCarriesTodayTheRulesAndWhatIsSwitchedOffAsTheEnginesJson` | the view's JSON with Today's time left, used line and part, where it went, the app list, the Phone permission switched off with its sentence, and the rules in words; the note of it switched off; none needed once it is on again |
 | `EngineDayTest.theLibraryNamesItsVersions` | `versions()` |
+| `EngineDayTest.setupCountsAndCoversNothingUntilAGuardianFinishesIt` | a phone just paired: a game and the blocked casino neither counted nor covered, the time left and the view saying setup is not finished; `finishSetup` true and kept, the casino covered and the game counted from the next call; again false with nothing to keep; finished after a reload |
 | `LinkTest.aPairingMakesTheEngineAndASessionCarriesTheReportAndTheGrant` | an offer read, a pairing through the testkit's master, the engine made from it, the kept pairing read back, a session opened, a report and its grant, the goodbye, `LinkException.Closed` |
 | `LinkTest.aBadOfferIsRefusedWithoutQuotingIt` | `LinkException.BadOffer` |
 
-All 8 pass, in under a second of test time. `cargo build`, `cargo test`,
+All 9 pass, in under a second of test time. `cargo build`, `cargo test`,
 `cargo clippy --all-targets` and `cargo doc --no-deps` pass with no
 warnings and no allow attributes.
 

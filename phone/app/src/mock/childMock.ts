@@ -70,6 +70,8 @@ export type MockOptions = {
   openFails?: boolean;
   /** How long Android takes before the step is on, in milliseconds. Default 0. */
   delayMs?: number;
+  /** Finishing setup fails, as a request that gets no answer would. */
+  finishFails?: boolean;
 };
 
 export type MockHost = ChildHost & {
@@ -86,7 +88,7 @@ export function mockHost(start: MockState, options: MockOptions = {}): MockHost 
   let state: MockState = { ...start };
   const calls: string[] = [];
   const listeners = new Set<(change: ChildChange) => void>();
-  const { openTurnsOn = true, openFails = false, delayMs = 0 } = options;
+  const { openTurnsOn = true, openFails = false, delayMs = 0, finishFails = false } = options;
 
   const tell = (what: readonly ChildChange[]) => {
     for (const w of what) for (const l of [...listeners]) l(w);
@@ -120,6 +122,10 @@ export function mockHost(start: MockState, options: MockOptions = {}): MockHost 
         else turnOn();
       }
       return Promise.resolve();
+    },
+    finishSetup: () => {
+      calls.push('finishSetup');
+      return finishFails ? Promise.reject(new Error('no answer')) : Promise.resolve();
     },
     introSeen: () => answer('introSeen', () => state.introSeen),
     markIntroSeen: () => answer('markIntroSeen', () => set({ introSeen: true }, ['intro'])),

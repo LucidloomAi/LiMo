@@ -4,6 +4,7 @@ import ai.lucidloom.limo.child.host.Host
 import ai.lucidloom.limo.child.host.HostChange
 import ai.lucidloom.limo.child.host.HostView
 import ai.lucidloom.limo.child.host.PhoneHost
+import ai.lucidloom.limo.child.host.WayOut
 import ai.lucidloom.limo.child.watch.LimoPermissions
 import ai.lucidloom.limo.child.watch.PhoneWatch
 import ai.lucidloom.limo.child.watch.Watch
@@ -65,7 +66,7 @@ internal class Seam private constructor(context: Context) {
   }
 }
 
-/** The host, as the seam asks it: its view, waited for on the seam's thread. */
+/** The host, as the seam asks it: its view, and setup finished, each waited for on the seam's own threads. */
 internal class HostSeamHost(private val host: PhoneHost) : SeamHost {
   override fun view(): HostView {
     if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -78,6 +79,16 @@ internal class HostSeamHost(private val host: PhoneHost) : SeamHost {
   }
 
   override fun childName(): String? = host.childName
+
+  override fun finishSetup(): WayOut<Boolean> {
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      throw SeamProblem(SeamProblem.NO_ANSWER, "The host's answer is never waited for on the main thread.")
+    }
+    val answer = ArrayBlockingQueue<WayOut<Boolean>>(1)
+    host.finishSetup { answer.offer(it) }
+    return answer.poll(VIEW_WAIT_MS, TimeUnit.MILLISECONDS)
+      ?: throw SeamProblem(SeamProblem.NO_ANSWER, "The host did not answer in time.")
+  }
 
   companion object {
     /** The host answers within a tick; this is far more. */

@@ -464,6 +464,13 @@ pub(crate) fn try_words(way: Way, outcome: &TryOutcome, now: i64, clock: PhoneCl
 /// Said under a right code or PIN when the phone is open after it.
 pub(crate) const OPENS_NOW: &str = "The phone opens now.";
 
+// ---------- Setup ----------
+
+/// Said in place of the time left until a guardian finishes setup on the
+/// phone: in LiMo's notification and in the view. Nothing is counted or
+/// covered meanwhile.
+pub(crate) const SETUP_NOT_FINISHED: &str = "Setup is not finished on this phone.";
+
 // ---------- Today and the rules ----------
 
 /// A span of time used, in whole minutes rounded down, so that it never

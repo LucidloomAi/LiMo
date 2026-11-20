@@ -357,6 +357,7 @@ pub(crate) fn view_out(view: engine::PhoneView) -> Result<PhoneView, EngineError
         unreported_slices: i32::try_from(view.unreported.len()).unwrap_or(i32::MAX),
         notes_kept: i32::try_from(view.notes.len()).unwrap_or(i32::MAX),
         clock_correction_secs: view.clock_correction_secs,
+        setup_finished: view.setup.finished,
         json,
     })
 }

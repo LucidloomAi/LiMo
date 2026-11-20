@@ -35,6 +35,9 @@
 //!   state when the engine says so: nothing is counted twice, no time handed
 //!   out is handed out again, and a lock that was on is on again at the
 //!   first call.
+//! - **Setup is the guardian's time, not the child's.** From pairing until a
+//!   guardian finishes setup on the phone ([`PhoneEngine::finish_setup`]),
+//!   nothing is counted or covered, and the time left says so.
 //!
 //! It has no clock, no threads, no network and no files of its own, and no
 //! unsafe code.
@@ -52,7 +55,7 @@ mod today;
 mod words;
 
 pub use counts::{app_in_use, may_cover};
-pub use engine::{PhoneEngine, PhoneView};
+pub use engine::{PhoneEngine, PhoneView, SetupView};
 pub use error::{LoadProblem, PhoneError};
 pub use facts::{CallState, Front, Permission, PhoneFacts, PhonePermissions};
 pub use words::MAX_LABEL_CHARS;

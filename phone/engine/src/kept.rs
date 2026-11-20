@@ -1,7 +1,8 @@
 //! What the phone keeps: the core's device state and the engine's own notes
 //! (the stretch of use not yet recorded, the last look at which the child's
 //! time was being counted, LiMo's clock, the notes for the guardian, each
-//! app's use today), as one versioned blob the host writes.
+//! app's use today, whether setup is finished), as one versioned blob the
+//! host writes.
 //!
 //! **Each app's use today**, for the child's Today screen, is added up where
 //! the device state records use, from the slices it makes, so the two always
@@ -153,6 +154,32 @@ impl AppsDay {
     }
 }
 
+/// Whether a guardian has finished setup on this phone. Until then the
+/// engine counts nothing and covers nothing: the guardian is holding the
+/// phone, on Android's own pages, and that is not the child's time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Setup {
+    /// Paired, and setup not finished yet.
+    NotFinished,
+    /// A guardian finished it, at this moment by LiMo's clock.
+    Finished {
+        /// When.
+        at: i64,
+    },
+    /// Kept by an engine that did not know of setup: its phone was paired
+    /// and in use already, so it counts as finished. Taking it as not
+    /// finished would stop a phone in use from keeping its limits.
+    KeptBefore,
+}
+
+impl Setup {
+    /// What a kept state with no word of setup holds.
+    fn kept_before() -> Setup {
+        Setup::KeptBefore
+    }
+}
+
 /// Everything the phone keeps, in one blob. Every field added after the
 /// first form is filled in when missing, so a state kept by an earlier
 /// version loads.
@@ -177,6 +204,11 @@ pub(crate) struct Kept {
     /// Each app's use on the phone's day, for Today.
     #[serde(default)]
     apps_day: Option<AppsDay>,
+    /// Whether setup is finished. A new pairing starts not finished; a state
+    /// kept before this field was there is taken as finished (see
+    /// [`Setup::KeptBefore`]).
+    #[serde(default = "Setup::kept_before")]
+    setup: Setup,
 }
 
 /// How a kept state differs from the one last saved.
@@ -203,7 +235,8 @@ fn check(bytes: &[u8]) -> u64 {
 }
 
 impl Kept {
-    /// A new kept state, from the device state made at pairing.
+    /// A new kept state, from the device state made at pairing: setup is
+    /// not finished yet.
     pub(crate) fn new(state: DeviceState) -> Kept {
         Kept {
             state,
@@ -214,7 +247,34 @@ impl Kept {
             permissions: None,
             blocked_noted: Vec::new(),
             apps_day: None,
+            setup: Setup::NotFinished,
         }
+    }
+
+    /// True once setup is finished on this phone.
+    pub(crate) fn setup_finished(&self) -> bool {
+        self.setup != Setup::NotFinished
+    }
+
+    /// When setup was finished, by LiMo's clock; None while it is not, and
+    /// for a state kept before setup was kept.
+    pub(crate) fn setup_finished_at(&self) -> Option<i64> {
+        match self.setup {
+            Setup::Finished { at } => Some(at),
+            Setup::NotFinished | Setup::KeptBefore => None,
+        }
+    }
+
+    /// A guardian finished setup at `at` (LiMo's clock): noted for the
+    /// guardian, once. True when this finished it, false when it was
+    /// finished already, which changes nothing.
+    pub(crate) fn finish_setup(&mut self, at: i64) -> bool {
+        if self.setup_finished() {
+            return false;
+        }
+        self.setup = Setup::Finished { at };
+        self.keep_notes(&[PhoneNote::SetupFinished { at }]);
+        true
     }
 
     /// The blob the host writes.
@@ -270,6 +330,7 @@ impl Kept {
             || self.permissions != saved.permissions
             || self.blocked_noted != saved.blocked_noted
             || self.apps_day != saved.apps_day
+            || self.setup != saved.setup
             || clock(self) != clock(saved)
         {
             return Change::Other;
@@ -362,9 +423,12 @@ impl Kept {
     }
 
     /// Notes each permission that was on and is now off, in the order setup
-    /// asks for them.
+    /// asks for them. Not while setup is not finished: the guardian is
+    /// switching them on then, and Android may say one is on a moment
+    /// before it is; what is seen is kept all the same, so that a
+    /// permission switched off after setup is noted.
     pub(crate) fn watch_permissions(&mut self, now: PhonePermissions, at: i64, notes: &mut Vec<PhoneNote>) {
-        if let Some(before) = self.permissions {
+        if let Some(before) = self.permissions.filter(|_| self.setup_finished()) {
             for permission in Permission::ALL {
                 if before.has(permission) && !now.has(permission) {
                     notes.push(PhoneNote::PermissionOff { permission, at });

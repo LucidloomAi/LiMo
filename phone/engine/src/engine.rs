@@ -129,6 +129,23 @@ pub struct PhoneView {
     pub today: TodayView,
     /// The rules in words, for How it works.
     pub rules_words: RulesWords,
+    /// Whether setup is finished on this phone.
+    pub setup: SetupView,
+}
+
+/// Whether a guardian has finished setup on the phone. Until then the engine
+/// counts nothing and covers nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetupView {
+    /// True once setup is finished (or the state was kept by a LiMo that
+    /// did not know of setup, whose phone was in use already).
+    pub finished: bool,
+    /// When it was finished, by LiMo's clock; None while it is not, and for
+    /// a state kept before setup was kept.
+    pub finished_at: Option<i64>,
+    /// "Setup is not finished on this phone." while it is not; None once it
+    /// is.
+    pub words: Option<String>,
 }
 
 /// The engine of LiMo on a child's phone. It holds the core's device state
@@ -162,7 +179,8 @@ impl PhoneEngine {
 
     /// A new phone, from what the master made at pairing: the welcome grant
     /// and the phone's 32 byte code secret, at `now` (the wall clock). Keep
-    /// it at once ([`PhoneEngine::save`]).
+    /// it at once ([`PhoneEngine::save`]). Setup is not finished on it yet:
+    /// it counts and covers nothing until [`PhoneEngine::finish_setup`].
     pub fn paired(welcome: &Grant, code_secret: Vec<u8>, now: i64) -> Result<PhoneEngine, PhoneError> {
         let mut state = DeviceState::from_pairing(welcome, now);
         state.set_code_secret(code_secret).map_err(|problem| PhoneError::Refused { problem })?;
@@ -196,6 +214,11 @@ impl PhoneEngine {
     pub fn tick(&mut self, facts: &PhoneFacts) -> PhoneOrders {
         let clock = PhoneClock { utc_offset_secs: facts.utc_offset_secs, hours_24: facts.hours_24 };
         let Some(kept) = self.kept.as_mut() else { return cannot_check(facts, clock) };
+        // Until a guardian finishes setup on this phone, nothing is counted,
+        // covered or warned of, the master is not asked for time, and no
+        // permission switched off is noted: the guardian is holding the
+        // phone, on Android's own pages, and that is not the child's time.
+        let setting_up = !kept.setup_finished();
         let mut notes = Vec::new();
         let now = kept.watch_clock(facts, &mut notes);
         kept.watch_permissions(facts.permissions, now, &mut notes);
@@ -218,17 +241,18 @@ impl PhoneEngine {
         let screen = counts::screen_in_use(facts);
         let front_app = facts.front.rules_app();
         let probe = kept.probe(now, front_app.as_deref());
-        let asking = probe.ask_master && screen;
+        let asking = probe.ask_master && screen && !setting_up;
         let unreported = kept.has_unreported();
         let send_report = facts.in_reach && self.talk.due(stamp, facts.prodded, asking, probe.day, unreported);
-        let decision = if counts::may_cover(facts) && !(send_report && asking) {
+        let may_cover = counts::may_cover(facts) && !setting_up;
+        let decision = if may_cover && !(send_report && asking) {
             kept.keep_warnings(now, front_app.as_deref(), probe)
         } else {
             Decision { warning: None, ..probe }
         };
         let rules = kept.state.rules();
-        let why = decision.device_lock.map(|lock| LockWhy::from_core(lock.reason, facts.in_reach));
-        let app_blocked = decision.lock.is_some_and(|lock| lock.reason == LockReason::AppBlocked);
+        let why = decision.device_lock.filter(|_| !setting_up).map(|lock| LockWhy::from_core(lock.reason, facts.in_reach));
+        let app_blocked = !setting_up && decision.lock.is_some_and(|lock| lock.reason == LockReason::AppBlocked);
 
         // What to draw. The lock covers whatever is in front but the apps it
         // names; a blocked app is covered on its own; nothing is ever drawn
@@ -237,7 +261,7 @@ impl PhoneEngine {
         // no call, and the cover offers a way back to the call.
         let call_on = facts.call == CallState::Ongoing;
         let back_to_call = call_on.then(|| words::BACK_TO_THE_CALL.to_string());
-        let cover = match (counts::may_cover(facts), why, decision.device_lock) {
+        let cover = match (may_cover, why, decision.device_lock) {
             (false, _, _) => Cover::Nothing,
             (true, Some(why), Some(lock)) if !decision.allowed => {
                 let latest = kept.state.requests_today(now).pop();
@@ -267,7 +291,8 @@ impl PhoneEngine {
 
         // Whether time is counted now, and the look the next step counts
         // from: an app in use that is not covered.
-        let using = counts::app_in_use(facts).filter(|_| decision.allowed && cover == Cover::Nothing);
+        let using =
+            counts::app_in_use(facts).filter(|_| !setting_up && decision.allowed && cover == Cover::Nothing);
         kept.set_look(at, using.as_deref(), &decision);
         let counting = using.is_some() && decision.counts;
 
@@ -300,6 +325,7 @@ impl PhoneEngine {
             away: !facts.in_reach,
             locked: why.is_some(),
             words: match why {
+                _ if setting_up => words::SETUP_NOT_FINISHED.to_string(),
                 Some(why) => why.title().to_string(),
                 None => words::time_left_words(decision.seconds_left, counting, decision.unlocked_until, now, clock),
             },
@@ -428,6 +454,26 @@ impl PhoneEngine {
         Ok(self.answer(Way::Pin, outcome, now))
     }
 
+    /// A guardian finished setup on this phone, at `now` (the wall clock):
+    /// the moment they leave the setup's last screen, whether every step is
+    /// on or one was passed. Until then the engine counts nothing and covers
+    /// nothing; from the next call on it does both, as it does for any
+    /// phone. Once finished it stays finished, in the kept state: only a new
+    /// pairing (a new state) starts setup again. The guardian is told by a
+    /// note ([`PhoneNote::SetupFinished`]), once.
+    ///
+    /// True when this call finished it, false when it was finished already,
+    /// which changes nothing. Keep the state at once. Refused with
+    /// [`PhoneError::CannotCheck`] when the kept state could not be loaded.
+    pub fn finish_setup(&mut self, now: i64) -> Result<bool, PhoneError> {
+        let kept = self.kept.as_mut().ok_or(PhoneError::CannotCheck)?;
+        if kept.setup_finished() {
+            return Ok(false);
+        }
+        let now = kept.limo_time(now);
+        Ok(kept.finish_setup(now))
+    }
+
     /// The answer to a code or a PIN, in words, and the master to hear of it.
     fn answer(&mut self, way: Way, outcome: TryOutcome, now: i64) -> TryAnswer {
         self.talk.way_out = true;
@@ -514,6 +560,11 @@ impl PhoneEngine {
             notes: kept.notes.clone(),
             clock_correction_secs: kept.correction_secs(),
             today,
+            setup: SetupView {
+                finished: kept.setup_finished(),
+                finished_at: kept.setup_finished_at(),
+                words: (!kept.setup_finished()).then(|| words::SETUP_NOT_FINISHED.to_string()),
+            },
         })
     }
 }

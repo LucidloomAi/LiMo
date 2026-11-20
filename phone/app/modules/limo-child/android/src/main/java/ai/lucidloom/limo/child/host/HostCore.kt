@@ -220,6 +220,17 @@ internal class HostCore(
     pin.fill(0)
   }
 
+  /**
+   * A guardian finished setup on this phone: they left setup's last screen.
+   * Until the engine has it, it counts nothing and covers nothing. Done(true)
+   * when this finished it, Done(false) when it was finished already (nothing
+   * changes); kept before the answer, and ticked at once, as a way out is.
+   */
+  fun finishSetup(): WayOut<Boolean> =
+    wayOut<Boolean>("setup", { if (it) "finished" else "already" }, line = { said -> "host setup $said" }) {
+      it.finishSetup(clock.wallSecs())
+    }
+
   /** The engine's view, for the child's own screens. */
   fun view(): HostView {
     val engine = ensureEngine() ?: return HostView(paired = false, json = null, problem = null)
@@ -398,7 +409,12 @@ internal class HostCore(
     }
   }
 
-  private fun <T> wayOut(what: String, kind: (T) -> String, call: (PhoneEngineInterface) -> T): WayOut<T> {
+  private fun <T> wayOut(
+    what: String,
+    kind: (T) -> String,
+    line: (String) -> String = { said -> "way_out $what answer=$said" },
+    call: (PhoneEngineInterface) -> T,
+  ): WayOut<T> {
     val engine = ensureEngine() ?: return WayOut.NotPaired
     val answer: WayOut<T> = try {
       WayOut.Done(call(engine))
@@ -426,7 +442,7 @@ internal class HostCore(
       WayOut.Failed -> "failed"
     }
     // Never the reason, the code or the PIN: only what kind of answer it was.
-    log.line("way_out $what answer=$said")
+    log.line(line(said))
     events.changed(HostChange.VIEW)
     tick()
     return answer

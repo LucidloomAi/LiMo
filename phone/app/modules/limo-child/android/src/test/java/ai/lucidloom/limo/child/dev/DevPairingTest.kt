@@ -50,6 +50,11 @@ class DevPairingTest {
       assertEquals(1 + rig.engines.current.orders.count { it.saveState }, rig.store.writes)
       assertTrue(rig.events.contains(HostChange.PAIRING))
       assertEquals(CoverKind.NOTHING, rig.shower.last.kind)
+      // Setup is the guardian's, on the phone's own screens: until it is finished nothing counts.
+      rig.pass(10)
+      assertFalse(rig.keeper.last.counting)
+      assertEquals("Setup is not finished on this phone.", rig.keeper.last.words)
+      rig.core.finishSetup()
       rig.pass(10)
       assertTrue(rig.keeper.last.counting)
 

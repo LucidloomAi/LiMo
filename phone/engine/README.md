@@ -48,9 +48,13 @@ and passes its tests on any system.
 
 ```rust
 // Once, at pairing, with what the master made: the welcome grant and the
-// phone's 32 byte code secret.
+// phone's 32 byte code secret. Setup is not finished yet: nothing counts.
 let mut engine = PhoneEngine::paired(&welcome, code_secret, wall_secs)?;
 write_state(&engine.save());
+
+// Once, when the guardian leaves setup's last screen on the phone:
+engine.finish_setup(wall_secs)?;          // true the first time, then false
+write_state(&engine.save());              // and tick again at once
 
 // After a restart of the process or the phone:
 let mut engine = PhoneEngine::load(&read_state());   // never fails; see below
@@ -175,7 +179,8 @@ engine's code names no package.
   time is counted now; when a guardian's unlock ends; whether the phone is
   away (out of reach, holding only its own time); whether it is locked; and
   the words for LiMo's notification ("1 h 12 min left", "1 h 12 min
-  paused", "No limit today", "Open until 9:30 pm", or the lock's title).
+  paused", "No limit today", "Open until 9:30 pm", or the lock's title;
+  "Setup is not finished on this phone." until a guardian finishes setup).
 - `warning`: in the one call it falls due, and only where it can be read
   (where a cover may be drawn): what for, the point reached, when the lock
   comes, whether it is this phone's away time running out, and three lines
@@ -205,6 +210,11 @@ here: the Android side puts in each app's name.
 | `bedtime` | "Screens are off from 9:00 pm to 7:00 am.", or none when no hours are off today. |
 | `apps` | Today on this phone: each app's `package`, its `secs` and its `minutes` in words ("12 min", "1 h 5 min"), longest first; apps under a minute, and use the host could not name, left out. Every app's use is listed, also of an app whose time does not count (an always allowed one). |
 | `guardian_needed` | None while all six permissions are on; otherwise `off`, the permissions that are off in setup order, each with its one sentence (see [The words](#the-words)). |
+
+**`setup`**: whether a guardian has finished setup on the phone
+(`finished`), when (`finished_at`, by LiMo's clock; none for a state kept
+before setup was kept), and, while it is not, its `words`: "Setup is not
+finished on this phone.". See rule 11.
 
 **`rules_words`**, for How it works: `time_a_day` ("2 h", "No limit",
 "No screen time", or each day's time when the days differ),
@@ -259,7 +269,8 @@ are not use of an app. What reaches the master is what the core's slices
 hold: the app's package name, the day, the start and the end, and whether it
 counted. Each app's use today, kept for the child's own Today screen, is a
 package name and seconds, and stays on the phone. The notes hold no
-sentence and no name: a permission switched off is noted by which it is.
+sentence and no name: a permission switched off is noted by which it is,
+and setup finished by when.
 Tests: `kept::an_apps_label_is_shown_but_never_kept_nor_reported`,
 `today::today_says_the_time_left_the_time_used_and_each_apps_minutes_and_starts_again_the_next_day`.
 
@@ -384,6 +395,31 @@ protection LiMo can be removed. Tests:
 `today::a_guardian_is_needed_while_anything_is_switched_off_and_nothing_counted_or_covered_changes`,
 `clock::a_permission_switched_off_is_noted`.
 
+**11. Setup is the guardian's time, not the child's.** The lead's rule,
+from the first run on a real phone (20 Nov 2026), where a guardian setting
+up the phone used six of the child's thirty minutes on Android's own
+pages, and those pages stood in the child's Today. **From pairing until a
+guardian finishes setup on the phone, the engine counts nothing and covers
+nothing**: no lock, no block screen (the guardian is holding the phone),
+no warning, no request for more time to the master, and no note of a
+permission switched off (the guardian is switching them on, and Android
+may say one is on a moment before it is). The time left says so in place
+of itself, "Setup is not finished on this phone.", and so does the view
+(`setup`), so a phone never sits unfinished unnoticed: LiMo's notification
+shows those words. What the core decides goes on underneath (the day, the
+rules, reports in reach), and Today still says what is switched off.
+`finish_setup(now)` finishes it: the host calls it when the guardian leaves
+setup's last screen on the phone, whether every step is on or one was
+passed. From the next call the phone counts and covers as any phone does.
+**Once finished it stays finished**: it is in the kept state, so nothing
+short of wiping LiMo's data (which wipes the pairing too) brings it back;
+calling it again changes nothing and asks for nothing to be kept. The
+guardian is told once, by a note (`PhoneNote::SetupFinished`, with when);
+the master paired the phone, so until that note comes it knows setup is
+not finished. A state kept before setup was kept counts as finished: see
+[A kept state that cannot be read](#a-kept-state-that-cannot-be-read).
+Tests: every test in `setup`.
+
 ## The words
 
 Every sentence the phone shows comes from the engine, in `src/words.rs`.
@@ -490,6 +526,9 @@ am on Friday and Saturday". Days are "from Monday to Friday" for three or
 more in a row (across the week's end too), else "on Saturday and Sunday",
 "on Tuesday, Saturday and Sunday", "on Friday", and nothing for every day.
 
+Until a guardian finishes setup on the phone, in place of the time left and
+in the view: "Setup is not finished on this phone.".
+
 What is switched off, one sentence each, settled by the lead, in the order
 setup asks for them:
 
@@ -560,8 +599,10 @@ core's `DeviceState` (with the code secret and the PIN record), and the
 engine's own notes: the stretch not yet recorded, the last look at which the
 child's time was being counted, LiMo's clock (the last reading, the start
 count and the correction it keeps), the notes for the guardian not yet
-taken, the permissions last seen, the blocked apps noted today, and each
-app's use today (see [The child's own screens](#the-childs-own-screens)).
+taken, the permissions last seen, the blocked apps noted today, each app's
+use today (see [The child's own screens](#the-childs-own-screens)), and
+whether setup is finished, and when (`"setup":"not_finished"`, or
+`"setup":{"finished":{"at":...}}`).
 The check is against damage, not against anyone who can write the file.
 
 **When the host must write it.** Always the same way: after a call, when
@@ -574,6 +615,7 @@ true:
 | `outgoing_report`, before sending the report | the report's number and the slices it carries are in the state |
 | `take_grant`, before acting on the grant | the core's rule: a device keeps a grant before it spends it |
 | `ask_for_time`, `try_code`, `try_pin`, right or wrong, before showing the answer | the request, the time added, the code used and the wrong guesses must survive a restart |
+| `finish_setup`, the first time | setup finished must survive a restart; called again, nothing changes and nothing is asked |
 | a `tick` that recorded a slice, gave a warning, changed what the core holds, started or stopped counting, noted something for the guardian, or saw a permission or the clock's correction change | all of these are kept at once (`save_state`) |
 | a `tick` while counting just goes on | every five seconds (`SAVE_PROGRESS_EVERY_MS`), not more often |
 
@@ -622,7 +664,12 @@ the device state is filled in when missing, and the form number says which
 form it is (this is the first). A state kept before the six permissions
 holds two: the other four read as off, and since only a permission going
 from on to off is noted, nothing is noted for them; one kept before each
-app's use was counted shows no apps on Today until there is use again. A state restored from an old copy cannot be
+app's use was counted shows no apps on Today until there is use again.
+**A state kept before setup was kept counts as finished**: its phone was
+paired and in use already, and taking it as not finished would stop it
+keeping its limits until someone found it and finished a setup it had
+done. A new pairing keeps "not finished" in so many words, so the two are
+never mixed up. A state restored from an old copy cannot be
 told from a fresh one here; the core's README says what that costs (its new
 slices on a day the master already took higher numbers from it do not
 count), and the host keeps the file out of Android's backups.
@@ -728,10 +775,14 @@ phone (`tests/phone/common.rs`): its own wall clock, elapsed count, start
 count, time zone and screen, a state file that holds only what the engine
 asked to keep, the master reached or not, and, when a story wants it, the
 child's device on the master PC driven with its own device state, all
-against a real hub on a real file in a temporary folder. At every call the
+against a real hub on a real file in a temporary folder. Its phone is set
+up at once (a guardian finishes setup as soon as it is paired), but in the
+setup stories, which start from a phone just paired. At every call the
 fake phone checks that nothing is covered over a ringing call, the diallers, LiMo,
 Android's lock screen or a dark screen; that the lock covers exactly when
-the core says the phone is locked and the app in front is not allowed; that
+the core says the phone is locked and the app in front is not allowed, once
+setup is finished, and that before it nothing is covered, counted or warned
+of and the time left says setup is not finished; that
 time is counted only while an app is in use and uncovered; that the
 phone's counted use never goes down within a day nor grows by more than the
 elapsed count allows; and that the time counted on all of the child's
@@ -749,6 +800,7 @@ extra time, less use beyond what a device held under an unlock.
 | `tests/phone/clock.rs` | A clock set by hand not followed, bedtime on time, no new day, kept through a crash, followed again with automatic time; a clock set by the network followed; a time zone change; a restart of the phone in the middle of a step, and a clock set back while it was off; LiMo's process restarted in the middle of a step, and held up for a minute; a permission switched off | 6 |
 | `tests/phone/restart.rs` | One script for a whole day played uninterrupted, with a crash after every single call (over 4,000), and with crashes here and there: every call orders and counts the same (a call while locked among them), and each day's total is the same; a crash losing at most five seconds; a lock on again at the first call | 3 |
 | `tests/phone/kept.rs` | A kept state read back the same; an app's label shown but never kept, reported or in the view; a save that could not be written asked for again; empty, foreign, newer, cut short and changed states failing safe; a state with only the fields the first form needs; a state kept with two permissions and no count of each app loading and noting nothing new | 6 |
+| `tests/phone/setup.rs` | Twenty minutes of setup on Android's settings, LiMo and a game counting nothing, listing nothing, warning of nothing, the time left saying setup is not finished, a permission switched on and off not noted; finished, noted once, counting from the next call, a permission switched off noted after; a blocked app and the hours screens are off neither covering nor warning before, the lock and the block screen at the first call after; not finished kept through a crash, finished kept through a crash and a restart, finishing again changing nothing; a state kept before setup was kept counting as finished; a state that cannot be read refusing it | 5 |
 | `tests/phone/today.rs` | Today through a day: the time left, the time used and its part, where it went, bedtime, each app longest first with the short and the nameless left out, the same after a crash, at bedtime, and starting again the next morning; a day with no limit and a guardian's unlock; How it works by days, on a 24 hour phone, and with no blocked hours; all six permissions switched off, noted in setup order, sent for a guardian with six sentences, while a phone with all on is told the same at every call through a game, a blocked app, the lock, a call and the dialler | 4 |
 | `tests/house_rules.rs` | No unsafe code; no allow attributes; no makers' package names in the engine; no dash punctuation in anything a person reads, nor in any sentence the phone shows | 5 |
 
@@ -789,14 +841,14 @@ phone/engine/
     words.rs      every sentence the phone shows
     today.rs      the child's own screens: Today and the rules in words
     kept.rs       the kept state: the stretch, the look, LiMo's clock, the
-                  notes, each app's use today, and the blob's form
+                  notes, each app's use today, setup, and the blob's form
     engine.rs     PhoneEngine: the call, the report and the grant, the ways
-                  out, keeping, the view
+                  out, setup, keeping, the view
     error.rs      PhoneError, LoadProblem, in plain words
   tests/
     house_rules.rs
     phone/
       main.rs     the one story program
       common.rs   the fake phone, the PC beside it, and its checks
-      day.rs, covers.rs, ways_out.rs, clock.rs, restart.rs, kept.rs, today.rs
+      day.rs, covers.rs, ways_out.rs, clock.rs, restart.rs, kept.rs, today.rs, setup.rs
 ```

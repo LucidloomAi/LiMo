@@ -37,6 +37,7 @@ internal class SeamProblem(val code: String, message: String) : Exception(messag
     const val BAD_ARGS = "BadArgs"
     const val NOT_OPENED = "NotOpened"
     const val NO_ANSWER = "NoAnswer"
+    const val FAILED = "Failed"
   }
 }
 

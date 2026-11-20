@@ -5,6 +5,9 @@
 //   agreed, introduction not seen   the first of the six steps not on, or done
 //   introduction seen               Today and How it works, under the tab bar
 //
+// Leaving done (S9) finishes setup on the phone: until then LiMo counts and
+// covers nothing.
+//
 // Where to start is worked out once, from what the host says when the app
 // opens, and again only when the pairing changes; after that the person
 // moves through the screens and Android's back button goes back. A step is
@@ -269,9 +272,22 @@ function StepRoute({
   );
 }
 
+// Leaving this screen finishes setup on the phone: until then LiMo counts
+// nothing and covers nothing (the time the guardian spends on Android's own
+// pages is not the child's). The introduction comes either way; the phone is
+// told again when the child has seen it, in case this request was lost.
 function DoneRoute({ name, onShow }: { name: string; onShow: () => void }) {
+  const host = useChildHost();
   const steps = useHostValue((h) => h.steps(), ['steps'], { whenBackInFront: true });
-  return <Done name={name} steps={steps.state === 'ready' ? steps.value : null} onShow={onShow} />;
+  return (
+    <Done
+      name={name}
+      steps={steps.state === 'ready' ? steps.value : null}
+      onShow={() => {
+        host.finishSetup().then(onShow, onShow);
+      }}
+    />
+  );
 }
 
 function AppRoute({

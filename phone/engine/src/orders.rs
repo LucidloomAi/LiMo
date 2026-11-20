@@ -32,7 +32,8 @@ pub struct PhoneOrders {
     pub save_state: bool,
     /// Things the guardian should know, noted in this call: a clock moved, a
     /// restart, a permission switched off, a blocked app opened. The engine
-    /// keeps them too, until the master can take them.
+    /// keeps them too, until the master can take them. (Setup finished is
+    /// noted by [`crate::PhoneEngine::finish_setup`], not in a call.)
     pub notes: Vec<PhoneNote>,
     /// Call again within this many seconds if nothing happens (at least 1):
     /// until the next warning point, the lock, blocked hours starting or
@@ -223,7 +224,8 @@ pub struct TimeLeft {
     /// front).
     pub locked: bool,
     /// In words: "1 h 12 min left", "1 h 12 min paused", "No limit today",
-    /// "Open until 9:30 pm", or the lock's title while locked.
+    /// "Open until 9:30 pm", or the lock's title while locked; "Setup is
+    /// not finished on this phone." until a guardian finishes setup.
     pub words: String,
 }
 
@@ -326,6 +328,14 @@ pub enum PhoneNote {
         package: String,
         /// The home day.
         day: i64,
+        /// When, by LiMo's clock.
+        at: i64,
+    },
+    /// A guardian finished setup on the phone: from then on its time is
+    /// counted and covers are drawn. Noted once, when it is finished. The
+    /// master paired the phone, so until this note comes it knows that
+    /// setup is not finished.
+    SetupFinished {
         /// When, by LiMo's clock.
         at: i64,
     },

@@ -98,6 +98,13 @@ export interface ChildHost {
    * app comes back to the front.
    */
   openStep(step: StepId): Promise<void>;
+  /**
+   * A guardian finished setup: they left the last setup screen (S9, "Show
+   * <child> how it works"), with every step on or one passed. Until the phone
+   * has it, LiMo counts nothing and covers nothing, and its notification says
+   * setup is not finished. Asked again changes nothing.
+   */
+  finishSetup(): Promise<void>;
   /** Whether the child has seen the introduction (C1 to C3). */
   introSeen(): Promise<boolean>;
   /** The child has seen it: keep it. */

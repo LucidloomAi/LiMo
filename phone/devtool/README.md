@@ -52,7 +52,7 @@ it.
 | `install --apk PATH` | installs | Reads the APK first, on the PC: its package must be the child form, `ai.lucidloom.limo.child`, and it must be a debug build (`android:debuggable` in its manifest). Anything else is refused before `adb` is touched: the guardian form, any other app, a release build of the child form, a file that is not an APK. Then `adb install -r -t PATH`: LiMo already there is replaced and keeps its files, so a test family on it stays. Android's refusals are said with what to do (signed with another key, a newer version on the phone, an Android older than 8.0, no room, an install over USB the phone does not allow). |
 | `setup --child NAME --minutes N [--block PACKAGE]... [--allow PACKAGE]... [--bedtime HH:MM-HH:MM]` | writes LiMo's files | Takes the child's name with control characters and the marks that turn the direction of writing dropped, and spaces trimmed: 1 to 40 characters, or refused before anything is made. Asks for a guardian PIN twice at a prompt that does not show it (6 to 8 digits); makes the test family on this PC: the child, `N` minutes every day (0 to 1440), the blocked and always allowed apps by package name, a bedtime every day, the away share at 100 percent (so that a phone with no master has its whole day), and the PIN; pairs one phone; writes the pairing file into LiMo's own files through `run-as`, and sends the pairing broadcast, both exactly as "What LiMo's debug build must do" below fixes them; then reads back, for up to 15 seconds, that LiMo took it; when it did not, LiMo's own word for why, read once from its log, with what to do. The test family on this PC is deleted again only when LiMo did not take it: never when LiMo's word is `taken`, nor while LiMo keeps a state on the phone, even when that state cannot be read back. The child's home zone is the phone's own, read from it (`date +%z`), so the days and the bedtime are what the phone's clock shows. Refused, changing nothing, when this PC has a test family already (it says what there is and what `forget` does), when LiMo on the phone holds any family already, or when the phone's clock and this PC's are 50 minutes or more apart (LiMo's debug build takes a pairing file only when it was made within an hour of its own clock); 5 minutes or more apart is said. |
 | `code [--minutes 15\|30\|60]` | none | A one time code for the test phone, worth 15 minutes unless told, for the child's day today, printed once in the terminal and nowhere else. Each run makes a new one, and the test family's file records it; a phone takes ten a day. No phone is needed: the phone checks a code with the secret it shares with this PC. |
-| `status` | reads only | What LiMo on the phone holds, as its own engine reads its kept state: the child, the time left, the time used today, each app's minutes, whether it is locked and why and until when, a guardian's unlock, wrong tries of a code or the PIN and the wait they set, a request that waits for an answer, what LiMo last saw switched off, and the use not yet sent to a master. Never a PIN, a code or the reason a child typed. See [How status reads the phone](#how-status-reads-the-phone). |
+| `status` | reads only | What LiMo on the phone holds, as its own engine reads its kept state: the child, whether setup is finished on the phone, the time left, the time used today, each app's minutes, whether it is locked and why and until when, a guardian's unlock, wrong tries of a code or the PIN and the wait they set, a request that waits for an answer, what LiMo last saw switched off, and the use not yet sent to a master. Never a PIN, a code or the reason a child typed. See [How status reads the phone](#how-status-reads-the-phone). |
 | `log [--minutes N]` | reads only | Follows the phone's log for LiMo's two tags, `LiMo` and `LiMoWatch` (`adb logcat -v time -s LiMo:V LiMoWatch:V`, and only lines of those tags are shown), until Ctrl+C, or N minutes (60 unless told, at most 720). |
 | `forget [--this-pc-only \| --phone-only]` | wipes LiMo's state | Reads LiMo's state first. When it is this PC's test family, sends the forget broadcast and checks, for up to 15 seconds, that the state is gone; removes a pairing file LiMo never took; then deletes the test family on this PC, so that `setup` can make a new one. A state of another family, or one that cannot be read, is left alone, nothing is deleted, and it says that `--phone-only` wipes it. With LiMo gone from the phone, only this PC's side is left to delete. `--this-pc-only` asks nothing of any phone: for a phone that is gone. `--phone-only` is for a phone that holds a family this PC does not have: it says what LiMo holds, sends the forget broadcast whoever's state it is, checks that it is gone, removes a pairing file LiMo never took, and leaves this PC's test family as it is. It wipes nothing but LiMo's own state, and only through LiMo's own debug receiver. |
 | `uninstall` | removes LiMo | `adb uninstall ai.lucidloom.limo.child`: LiMo and everything it kept. Refused by Android while LiMo is a device admin (its protection), which this tool never switches off; it says where a person does. The test family on this PC stays until `forget`. |
@@ -318,6 +318,19 @@ can differ by what it counted since it last kept its state, at most a few
 seconds while it is in use. When the phone's clock cannot be read, this
 PC's stands in, and `status` says so.
 
+**Setup.** Until a guardian finishes setup on the phone (leaves its last
+setup screen), LiMo counts nothing and covers nothing, so `status` says so
+first, after the child, with the engine's own sentence:
+
+```
+Setup is not finished on this phone. LiMo counts nothing and covers nothing until a guardian finishes setup on the phone.
+```
+
+and once it is, `Setup was finished on the phone today at 16:20.` (or with
+no time, for a state kept by a LiMo that did not keep when). A test family
+that `setup` has just put on the phone is not finished until then: its use
+is not counted.
+
 What LiMo last saw switched off is said in words, in the order the phone's
 setup asks for them (notifications, phone, usage access, accessibility,
 battery, protection), never by the engine's own names:
@@ -479,11 +492,13 @@ of the stories. The stories:
   cannot be typed; a phone without the receiver, its log silent, undone on
   both sides, and `setup` working after; a phone holding a family already;
   a zone that cannot be read; clocks two hours apart refused, ten minutes
-  apart said; the rules in another zone, with no time at all.
+  apart said; the rules in another zone, with no time at all (no lock
+  until setup is finished on the phone, locked at once after).
 - `code_and_status.rs` (7): a code that needs no phone, works once on the
   phone's own engine, is printed once and never logged; ten a day;
-  `status` from a state the real engine kept, through a day of use, to the
-  lock with its reason and until when; wrong tries and a request that waits,
+  `status` from a state the real engine kept: setup not finished said
+  first and two minutes of use not counted, then finished and when, then a
+  day of use to the lock with its reason and until when; wrong tries and a request that waits,
   with no PIN, code or reason printed; what is switched off, as the real
   engine kept it: nothing before LiMo has looked, nothing with all on, all
   six in setup's order, and each one alone in its words; no state, another

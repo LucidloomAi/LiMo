@@ -5,6 +5,7 @@ mod common;
 mod day;
 mod kept;
 mod link;
+mod setup;
 mod ways_out;
 
 #[test]

@@ -3,6 +3,7 @@ package ai.lucidloom.limo.child.seam
 import ai.lucidloom.limo.child.ffi.ALL_PERMISSIONS
 import ai.lucidloom.limo.child.ffi.CLOCK
 import ai.lucidloom.limo.child.ffi.CallState
+import ai.lucidloom.limo.child.ffi.EngineException
 import ai.lucidloom.limo.child.ffi.Front
 import ai.lucidloom.limo.child.ffi.GAME
 import ai.lucidloom.limo.child.ffi.IST
@@ -16,6 +17,7 @@ import ai.lucidloom.limo.child.ffi.miraRules
 import ai.lucidloom.limo.child.ffi.testkit.TestFamily
 import ai.lucidloom.limo.child.ffi.testkit.TestRules
 import ai.lucidloom.limo.child.host.HostView
+import ai.lucidloom.limo.child.host.WayOut
 import ai.lucidloom.limo.child.watch.LimoPermissions
 import java.io.File
 
@@ -49,9 +51,17 @@ val DAYS = listOf("monday", "tuesday", "wednesday", "thursday", "friday", "satur
 /**
  * A paired phone driven as the host drives it, with Mira's rules (30
  * minutes, the casino blocked, the clock always allowed) unless [edit]
- * changes them, and its engine's view as the seam gets it.
+ * changes them, and its engine's view as the seam gets it. Set up at once
+ * ([finished]: a guardian finishes setup as soon as it is paired), unless a
+ * test wants to see setup itself.
  */
-class SeamPhoneRig(folder: File, start: Long, rules: TestRules = miraRules(), edit: RulesEdit? = null) : AutoCloseable {
+class SeamPhoneRig(
+  folder: File,
+  start: Long,
+  rules: TestRules = miraRules(),
+  edit: RulesEdit? = null,
+  finished: Boolean = true,
+) : AutoCloseable {
   val family = TestFamily(folder.absolutePath, start)
   val child: String = family.addChild("Mira", rules, start)
   val deviceId: String
@@ -69,6 +79,7 @@ class SeamPhoneRig(folder: File, start: Long, rules: TestRules = miraRules(), ed
     val welcome = if (edit == null) made.welcome else editedWelcome(made.welcome, edit)
     engine = PhoneEngine.paired(welcome, made.codeSecret, start)
     made.codeSecret.fill(0)
+    if (finished) check(engine.finishSetup(start))
   }
 
   fun facts() = PhoneFacts(
@@ -132,6 +143,22 @@ internal class RigHost(var rig: SeamPhoneRig?, var name: String? = "Mira") : Sea
   override fun view(): HostView = given ?: rig?.hostView() ?: HostView(paired = false, json = null, problem = null)
 
   override fun childName(): String? = if (view().paired) name else null
+
+  /** How often the seam told the engine setup was finished. */
+  var finishes = 0
+
+  /** As the host does it: the rig's engine is told, or the answer it gives without one. */
+  override fun finishSetup(): WayOut<Boolean> {
+    finishes += 1
+    val v = view()
+    val rig = rig
+    return when {
+      !v.paired -> WayOut.NotPaired
+      given != null && v.json == null -> WayOut.Refused(EngineException.CannotCheck("The phone's kept state cannot be read."))
+      rig == null -> WayOut.Failed
+      else -> WayOut.Done(rig.engine.finishSetup(rig.wall))
+    }
+  }
 }
 
 /** The phone as the seam sees it. */

@@ -67,7 +67,7 @@ class HostTroubleTest {
 
       // A guardian pairs the phone again, which replaces it.
       rig.pair()
-      assertEquals(1 + rig.engines.current.orders.count { it.saveState }, rig.store.writes)
+      assertEquals(rig.pairWrites + rig.engines.current.orders.count { it.saveState }, rig.store.writes)
       assertFalse(rig.store.bytes!!.contentEquals(damaged))
       assertEquals(CoverKind.NOTHING, rig.shower.last.kind)
     }

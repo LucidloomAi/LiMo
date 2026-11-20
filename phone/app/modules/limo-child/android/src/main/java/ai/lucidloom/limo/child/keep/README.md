@@ -57,6 +57,9 @@ stops it and takes the notifications away.
 one the foreground service shows. Its title is the engine's words for the
 time left ("1 h 12 min left", "1 h 12 min paused", "No limit today", "Open
 until 9:30 pm", or the lock's title, such as "Today's time is used up.").
+From pairing until a guardian finishes setup on the phone it says "Setup is
+not finished on this phone." in their place, with no countdown: nothing is
+counted or covered meanwhile, and a phone left half set up shows it.
 While time is counted (and the phone is not locked, open under an unlock,
 or without a limit), Android's own chronometer counts down to the moment
 the time runs out (`setUsesChronometer`, `setChronometerCountDown`), so the

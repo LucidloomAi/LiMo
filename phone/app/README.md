@@ -441,7 +441,7 @@ per point they match the drawings to within the smoothing of the letters
 | S1 | Welcome, for a guardian, naming the child: six short steps | Start pinned |
 | S2, S2b | What LiMo does here, and the guardian agrees | Continue switched off until the box is ticked |
 | S3 to S8 | One step each: notifications, phone, usage access, accessibility, battery, protection ("Step 2 of 6" and six dots) | NOT ON YET (coral) with the step's own button, or ON (teal), "Android says it is on." and Next; still off after two tries: a line and "Go on without it" |
-| S9 | This phone is set up | six rows, a teal tick for each step Android says is on |
+| S9 | This phone is set up | six rows, a teal tick for each step Android says is on; leaving it finishes setup on the phone, after which LiMo counts and covers |
 | C1 to C3 | For the child: what LiMo counts, what it never looks at, how to ask for more time | Next, Next, Got it |
 | E | Today, under the floating tab bar | the time left, the bar, where the time went, the hours off, Ask for more time, the apps |
 | T | Today with the banner | steps switched off: Needs a guardian, the engine's sentence for the first, "And 2 more" when there are more, and a button that shows a guardian each step |
@@ -534,6 +534,7 @@ pass another.
 | `agree()` | `child.agree` | nothing: keep that a guardian agreed |
 | `steps()` | `child.steps` | `{ notifications, phone, usage, accessibility, battery, protection }`, each `"on"` or `"off"`, as Android says now, never remembered; a missing one is off |
 | `openStep(step)` | `child.openStep` with `{ step }` | nothing, once Android's screen is open or its question answered; for `phone`, Android's own question for the Phone permission |
+| `finishSetup()` | `child.finishSetup` | nothing, once the phone has it: a guardian left S9 ("Show <child> how it works"), with every step on or one passed. Until then LiMo counts nothing and covers nothing, and its notification says "Setup is not finished on this phone." Asked again changes nothing; the introduction seen asks it again, in case this was lost |
 | `introSeen()` | `child.introSeen` | whether the child has seen C1 to C3 |
 | `markIntroSeen()` | `child.markIntroSeen` | nothing: keep it |
 | `today()` | `child.today` | `TodayView`, below |

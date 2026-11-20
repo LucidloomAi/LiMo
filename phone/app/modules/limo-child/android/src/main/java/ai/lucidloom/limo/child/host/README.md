@@ -74,6 +74,7 @@ The reason a child types is not a secret, but it is never logged.
 | `paired` | A state is kept on this phone, read from the file itself, right at once on any thread. True also while that state cannot be read (the phone is then locked). |
 | `childName` | The child's name the pairing gave, for the child's screens and the lock; null when not paired, or when no name is kept (see [The child's name](#the-childs-name)). Read from its file, right at once on any thread. |
 | `view { v -> }` | `HostView(paired, json, problem)`: the engine's whole view as JSON (snake case), with `today` and `rules_words` for Today and How it works, as the engine's README says; null when not paired or when the kept state cannot be read, and then `problem` says why. Apps in it are packages: the seam puts each app's name in, from the watch. |
+| `finishSetup { answer -> }` | A guardian finished setup on the phone: they left setup's last screen (the seam calls it for `child.finishSetup`, and again for `child.markIntroSeen` in case that request was lost). Until the engine has it, it counts nothing and covers nothing, and the time left it hands the keeper says "Setup is not finished on this phone.". `WayOut.Done(true)` when this finished it, `Done(false)` when it was finished already (nothing changes, nothing is written), `Refused` (`CannotCheck`) when the kept state cannot be read, `NotPaired`, `Failed`. As with a way out, the state is kept before the answer and the engine ticked at once, so a blocked app in front is covered there and then. |
 | `listen { what -> }` | Told on the main thread: `PAIRING` when the phone was paired or forgotten (and so its name changed), `VIEW` when the time left's words, the cover, the permissions or the engine's notes changed, or after a way out. Ask again then. Close the handle to stop. |
 
 **For pairing (dev/ now, the link later):**
@@ -201,6 +202,7 @@ a code, a PIN, nor an error's own words.
 | `host report_ordered no_link` | Never expected before the link. |
 | `note <the engine's JSON>` | Each of the engine's notes for the guardian. |
 | `way_out <ask, code, pin> answer=<done, added, unlocked, wrong, must_wait, ...>` | Each way out, by the kind of its answer. |
+| `host setup <finished, already, refused error=CannotCheck, not_paired, failed>` | Setup finished on the phone, or asked for again. |
 | `cover now nothing`, `cover now block package=<package>`, `cover now lock why=<the engine's reason, such as time_used_up>`, `warning now cause=<time_runs_out, blocked_hours_start, unlock_ends> minutes=<minutes>` | The stand in shower: each cover as it changes, and each warning, while show/'s shower is not installed in the process. |
 
 Once `keep/Keeper.start` has installed show/'s shower, the covers and the
@@ -224,8 +226,9 @@ engine through the bindings that ship (the PC library, loaded by JNA), with
 the testkit's family playing the master PC for the welcome and the codes.
 The phone is made up (`HostRig`): facts the test sets, the state file in
 memory, a clock the test moves, and the host's tick and alarm run when they
-fall due. `EngineSpy` wraps each engine to record its orders and to fail on
-purpose.
+fall due. It is set up at once (a guardian finishes setup as soon as it is
+paired), but in `HostSetupTest`. `EngineSpy` wraps each engine to record
+its orders and to fail on purpose.
 
 | Test | What |
 | --- | --- |
@@ -236,6 +239,8 @@ purpose.
 | `HostTroubleTest.aKeptStateAndroidCannotReadLocksThePhoneToo` | An I/O error reading it: locked, logged without the error's words, the file as it was |
 | `HostTroubleTest.anEngineThatReportsItselfBrokenIsMadeAgainFromTheKeptState` | `Broken` at a tick, a panic at a tick, and `Broken` during a way out (answered `Failed`, the code wiped): each time the engine closed, loaded again from the kept state, counting on; another failure only logged, by its kind |
 | `HostTroubleTest.aStateThatCannotBeWrittenIsAskedForAgain` | Writes refused: logged once, and written at the next tick once there is room |
+| `HostSetupTest.untilSetupIsFinishedNothingIsCountedOrCoveredAndTheNotificationSaysSo` | Paired, not set up: a minute in a game and the blocked casino neither counted nor covered, no warning, the keeper given "Setup is not finished on this phone.", the view saying so; finished: kept before the answer, the view told, the casino covered at once, logged; counting from then on; finished again changing nothing and writing nothing; a new process on what was kept still finished |
+| `HostSetupTest.setupCannotBeFinishedWhenNotPairedOrWhenTheKeptStateCannotBeRead` | Not paired; a state that cannot be read refused as `CannotCheck`, nothing written, logged by its kind |
 | `HostTroubleTest.aPairingWhoseStateCannotBeKeptChangesNothing` | A pairing that cannot be written: refused, the secret wiped, the engine made for it closed, still not paired, nothing ticking, nothing told |
 | `HostTroubleTest.withTheScreenOffNothingTicksEverySecondAndTheAlarmWakesTheHost` | The screen off: one tick at once, the time left paused, at most one tick in ten minutes, the alarm at most fifteen minutes away and firing, set again; the screen on: a tick at once and every second again |
 | `HostTroubleTest.forgettingThePairingStopsEverything` | The state deleted, no tick, no alarm, no watching, nothing covered, the keeper cleared, told; a way out answered `NotPaired` |
@@ -316,5 +321,5 @@ host/
   LimoChildModule.kt  the Expo module: starts the keeper when the app opens; hands the screens' requests and the change event to seam/
 src/test/java/ai/lucidloom/limo/child/host/
   HostRig.kt          the made up phone, the state in memory, the engine watched
-  HostDayTest.kt, HostTroubleTest.kt, HostNameTest.kt, HostHouseRulesTest.kt
+  HostDayTest.kt, HostTroubleTest.kt, HostNameTest.kt, HostSetupTest.kt, HostHouseRulesTest.kt
 ```

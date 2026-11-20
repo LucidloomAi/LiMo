@@ -106,6 +106,11 @@ class Host private constructor(context: Context) : PhoneHost {
     if (!posted) answerOnMain { answer(WayOut.Failed) }
   }
 
+  override fun finishSetup(answer: (WayOut<Boolean>) -> Unit) {
+    val posted = onEngine("setup") { core.finishSetup().also { a -> answerOnMain { answer(a) } } }
+    if (!posted) answerOnMain { answer(WayOut.Failed) }
+  }
+
   override fun view(answer: (HostView) -> Unit) {
     val posted = onEngine("view") { core.view().also { v -> answerOnMain { answer(v) } } }
     if (!posted) answerOnMain { answer(HostView(paired = paired, json = null, problem = null)) }

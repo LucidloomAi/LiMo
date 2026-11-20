@@ -121,6 +121,19 @@ pub fn switched_off_line(off: &[Permission]) -> String {
     }
 }
 
+/// Whether a guardian has finished setup on the phone, in words. Until then
+/// LiMo counts and covers nothing, so a phone left unfinished is said first:
+/// the engine's own sentence, and what it means.
+pub fn setup_line(view: &PhoneView, now: i64, utc_offset_secs: i32) -> String {
+    match (&view.setup.words, view.setup.finished_at) {
+        (Some(words), _) if !view.setup.finished => {
+            format!("{words} LiMo counts nothing and covers nothing until a guardian finishes setup on the phone.")
+        }
+        (_, Some(at)) => format!("Setup was finished on the phone {}.", when_text(now, at, utc_offset_secs)),
+        _ => "Setup was finished on the phone.".to_string(),
+    }
+}
+
 /// The permissions a view says are switched off, the others on.
 fn permissions_of(view: &PhoneView) -> PhonePermissions {
     let mut p = PhonePermissions::ALL;
@@ -167,6 +180,7 @@ pub fn status_lines(bytes: &[u8], family: Option<&Family>, clock: Option<(i64, i
     if clock.is_none() {
         lines.push("The phone's clock could not be read, so this PC's clock stands in for it.".to_string());
     }
+    lines.push(setup_line(&kept, now, offset));
     let facts = PhoneFacts {
         wall_secs: now,
         elapsed_ms: 0,

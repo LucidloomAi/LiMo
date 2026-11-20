@@ -88,8 +88,18 @@ pub fn rules() -> TestRules {
 
 impl Phone {
     /// A family with Mira, whose phone is paired from a made up welcome at
-    /// `start`, kept at once; screen on, the game in front, out of reach.
+    /// `start` and set up (a guardian finished setup at once), kept at once;
+    /// screen on, the game in front, out of reach.
     pub fn new(start: i64) -> Phone {
+        let mut phone = Phone::setting_up(start);
+        assert!(phone.engine.finish_setup(start).unwrap());
+        assert!(phone.engine.should_save().unwrap());
+        phone.kept = phone.engine.save().unwrap();
+        phone
+    }
+
+    /// The same, with the phone just paired: setup not finished.
+    pub fn setting_up(start: i64) -> Phone {
         let dir = tempfile::tempdir().unwrap();
         let family = TestFamily::new(dir.path().to_str().unwrap().to_string(), start).unwrap();
         family.set_pin(PIN.into(), start).unwrap();

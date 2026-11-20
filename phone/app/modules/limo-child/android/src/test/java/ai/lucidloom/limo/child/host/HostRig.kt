@@ -163,6 +163,12 @@ internal class EngineSpy(val real: PhoneEngine, private val trail: Trail) : Phon
     wayOut()
     return real.tryPin(pin, action, wallSecs)
   }
+
+  override fun finishSetup(wallSecs: Long): Boolean {
+    wayOut()
+    return real.finishSetup(wallSecs)
+  }
+
   override fun view(): PhoneView? = real.view()
 
   override fun close() {
@@ -279,14 +285,23 @@ internal class HostRig(folder: File, start: Long = WEDNESDAY_4_PM) : AutoCloseab
     it.shower = shower
   }
 
-  /** Pairs the phone from a welcome the family's master made, for the child called [name]; returns the phone's device id. */
-  fun pair(name: String? = "Mira"): String {
+  /**
+   * Pairs the phone from a welcome the family's master made, for the child
+   * called [name]; returns the phone's device id. A guardian then finishes
+   * setup at once ([finished]), which keeps the state once more and ticks,
+   * unless a test wants to see setup itself.
+   */
+  fun pair(name: String? = "Mira", finished: Boolean = true): String {
     val welcome = family.welcome(child, "Phone", wall)
     check(core.pair(welcome.welcome, welcome.codeSecret, name)) { "the pairing was refused" }
     // The host filled both with zeros.
     check(welcome.codeSecret.all { it.toInt() == 0 } && welcome.welcome.all { it.toInt() == 0 })
+    if (finished) check(core.finishSetup() == WayOut.Done(true)) { "setup could not be finished" }
     return welcome.deviceId
   }
+
+  /** The writes made outside the ticks by [pair]: the pairing, and setup finished. */
+  val pairWrites = 2
 
   /** A fact changed: the watch tells the host, which ticks at once. */
   fun changed() {

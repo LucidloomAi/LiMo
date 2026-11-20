@@ -28,6 +28,8 @@ const READERS: Record<string, (answer: unknown) => unknown> = {
   'child.today': readToday,
   'child.rules': readRules,
   'child.maker': readMaker,
+  // Answered with nothing: the file shows the request is one both sides know.
+  'child.finishSetup': () => null,
 };
 
 // Every answer the JVM tests write. A file gone missing fails, as does one this list does not know.
@@ -43,6 +45,7 @@ const EXPECTED = [
   'rules-limit',
   'rules-limit-named',
   'rules-no-limit',
+  'setup-finished',
   'steps-all',
   'steps-none',
   'steps-some',

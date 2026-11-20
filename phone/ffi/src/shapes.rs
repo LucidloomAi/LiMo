@@ -509,6 +509,9 @@ pub struct PhoneView {
     pub notes_kept: i32,
     /// How far the wall clock is ahead of LiMo's clock, in seconds.
     pub clock_correction_secs: i64,
+    /// True once a guardian has finished setup on this phone; until then
+    /// nothing is counted or covered. The words are in the JSON (`setup`).
+    pub setup_finished: bool,
     /// The engine's whole `PhoneView`, as JSON.
     pub json: String,
 }
