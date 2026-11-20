@@ -34,6 +34,23 @@ internal class UsageTrack(
   var resumes: Long = 0
     private set
 
+  /**
+   * Grows by one each time the record is forgotten and read again from the
+   * start (the first read, the clock set), so a caller can tell that what
+   * the next read takes may be from long before.
+   */
+  var forgets: Long = 0
+    private set
+
+  private val taken = ArrayList<String>()
+
+  /**
+   * The packages the last [take] took as the front, oldest first: one entry
+   * for every activity that resumed, the same package again when it resumed
+   * again. Empty when that read moved nothing.
+   */
+  val lastTaken: List<String> get() = taken
+
   private var frontAtWallMs = Long.MIN_VALUE
   private val latest = HashMap<String, Seen>()
   private var readTo: Long? = null
@@ -61,6 +78,7 @@ internal class UsageTrack(
    */
   fun take(events: List<UsageEvent>, window: Window, isOverlay: (String) -> Boolean): Boolean {
     val before = front
+    taken.clear()
     // A stable sort keeps Android's own order for events with the same time.
     val fresh = events.filter { it.atWallMs >= window.fromWallMs && it !in nearEdge }.sortedBy { it.atWallMs }
     for (event in fresh) apply(event, isOverlay)
@@ -87,6 +105,8 @@ internal class UsageTrack(
     latest.clear()
     readTo = null
     nearEdge.clear()
+    taken.clear()
+    forgets += 1
   }
 
   private fun apply(event: UsageEvent, isOverlay: (String) -> Boolean) {
@@ -105,6 +125,7 @@ internal class UsageTrack(
       front = event.packageName
       frontAtWallMs = event.atWallMs
       resumes += 1
+      taken.add(event.packageName)
     }
   }
 }

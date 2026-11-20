@@ -15,8 +15,9 @@ engine's `PhoneFacts`.
 **What it is not.** It decides nothing about limits (the engine does),
 draws nothing (show/ draws the covers, as this service's overlay windows),
 calls no engine (host/ and keep/ do), keeps no file and opens no socket. It
-has no thread of its own. Nothing here has run on a phone yet: see
-[What only a phone can prove](#what-only-a-phone-can-prove).
+has no thread of its own. It first ran on a phone on 20 November 2026: see
+[The first run](#the-first-run), and [What only a phone can
+prove](#what-only-a-phone-can-prove) for what is still to see.
 
 ## Contents
 
@@ -30,6 +31,7 @@ has no thread of its own. Nothing here has run on a phone yet: see
 - [Signals](#signals)
 - [What the manifest gives it](#what-the-manifest-gives-it)
 - [Tests](#tests)
+- [The first run](#the-first-run)
 - [What only a phone can prove](#what-only-a-phone-can-prove)
 - [Left open](#left-open)
 - [Layout](#layout)
@@ -59,7 +61,7 @@ handle.close()                                        // when the host stops
 | `launchableApps()` | The apps a child can open, each with its label, sorted by label, LiMo left out, each saying whether its time never counts (the home app, a dialler): the list a guardian picks blocked and allowed apps from. |
 | `permissions()` | Every permission LiMo needs, read now. |
 | `limoScreenShown(shown)` | From LiMo's own screens: `true` when one comes to the front, `false` when it leaves. The ways out screen says so in its `onResume` and `onPause`; the main activity through the seam (`seam/OwnScreen`), which also says `false` while LiMo shares the screen in split screen or a floating window. The watch keeps one word for all of them, the last given. |
-| `emergencyDiallerOpening()` | From show/, just before the lock's emergency call opens the emergency dialler. |
+| `emergencyDiallerOpening()` | From show/, just before the lock's emergency call opens the emergency dialler. It reads usage at once (a few milliseconds), so the next screen to come up is the first after the tap (rule 9). |
 | `WatchService.current` | The connected accessibility service, for show/ to add its covers as its overlay windows; null while Android has not connected it. |
 
 **Threads.** Any call from any thread; they run one at a time. `factsNow`,
@@ -157,9 +159,28 @@ Kotlin, tested on the PC.
    package with no icon that comes to the front within five seconds of a
    call starting or being answered is the dialler from then on, call or no
    call, so a call that later rings silently is never covered.
-9. **The emergency dialler is learned the same way**: the first package with
-   no icon to come to the front within ten seconds of
-   `emergencyDiallerOpening()`. An app with an icon is never learned.
+9. **The emergency dialler is learned from the first screen after Emergency
+   call, and from nothing else.** `emergencyDiallerOpening()` reads usage at
+   once, so what was in front before the tap is taken first (LiMo's own
+   screen among it, whose window events propose nothing); then the watch
+   waits for the first activity to come to the front in Android's record,
+   overlays aside. That first one decides and ends the wait, whatever it is:
+   it is learned as the emergency dialler only when it comes within ten
+   seconds and is unexplained (none of the known kinds, and no icon to open
+   it); the emergency dialler Android names, the dialler, the home screen,
+   LiMo or an app with an icon end the wait with nothing learned, since the
+   person went somewhere else, and nothing after them can be learned. Ten
+   seconds with nothing new in front end it too, and so do the record read
+   again from the start (the clock was set) and a read of usage that fails.
+   The wait never starts while usage cannot be read, nor where Android names
+   no dialler and no emergency dialler (a tablet with no calls, where
+   Emergency call opens nothing, so the first screen after it would be the
+   child's choice). This still learns what the rule is for, an emergency
+   dialler drawn by a package Android does not name, because that is the
+   screen Emergency call brings up; one already in front under a cover is
+   learned when Emergency call brings it up again. What is learned is held
+   in memory only, for the life of LiMo's process, at most eight packages:
+   no file keeps it, so LiMo or the phone starting again forgets it.
 10. **Usage access off: unknown, never a guess.** With one exception,
     because a lock must never stand between a child and a call: a window
     event from the dialler or the emergency dialler still says so. That can
@@ -282,7 +303,10 @@ the code writes it:
 | `front now unknown because=<usage_access_off, usage_unreadable, nothing_seen_yet>` | What is in front cannot be told, and why. |
 | `front window_event package=<package> not_confirmed front=<package, or none>` | A window event that usage did not confirm within a second, dropped; `front=` is what usage shows in front then. |
 | `front learned call_screen package=<package>` | A call's own screen learned (rule 8). |
-| `front learned emergency_dialler package=<package>` | The emergency dialler learned (rule 9). |
+| `front learned emergency_dialler package=<package>` | The emergency dialler learned: the first screen after Emergency call, with no icon (rule 9). |
+| `front emergency_wait ended first=<package>` | The first screen after Emergency call was one of the known kinds or has an icon: nothing learned (rule 9). |
+| `front emergency_wait ended because=<ten_seconds, clock_set, no_usage>` | The wait after Emergency call ended with nothing learned: nothing new in front within ten seconds, the clock set, or a read of usage that failed. |
+| `front emergency_wait not_started because=<no_usage, no_dialler>` | Emergency call while usage cannot be read, or where Android names no dialler and no emergency dialler: nothing will be learned. |
 | `call now <idle, ringing, ongoing>` | The call state changed. |
 | `fact <fact> unreadable error=<kind> fallback_used` | A reading Android refused, its fallback used; at most once a minute for each fact. |
 | `fact launchable_apps unreadable error=<kind>` | The list of apps a child can open could not be read. |
@@ -353,12 +377,26 @@ back to write them late.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `FrontTest` | An app in front once its activity resumed and its window said so; proof two's late event after "Go home", fourteen tries, the home screen in front throughout, the event dropped after three rechecks; the home screen's resume written late with the late event first; an event usage has not written yet, confirmed by a recheck; a floating window never in front; the shade, system dialogs, keyboards and LiMo's cover proposing nothing, older phones' recent apps and a permission dialog leaving the app in front; LiMo's activity and its cover; LiMo's word for its screen with usage access off, and a missed word put right; the dialler, a call's own screen learned and still the dialler after the call, a game during a call still a game; a screen with no icon the call's only during a call and learned only as it starts; an in call screen Android names; the emergency dialler named, learned, never learned for an app with an icon or after ten seconds; usage access off: unknown, a dialler still saying so, LiMo's covers changing nothing, back on at once; split screen; picture in picture, and Android 9 and older; an app with no label, a blank one, an unseen one, one that cannot be read; the clock set back, told or not; a restart of the phone in the record; events read twice near the edge, written late, the clock gone back | 19 |
+| `FrontTest` | An app in front once its activity resumed and its window said so; proof two's late event after "Go home", fourteen tries, the home screen in front throughout, the event dropped after three rechecks; the home screen's resume written late with the late event first; an event usage has not written yet, confirmed by a recheck; a floating window never in front; the shade, system dialogs, keyboards and LiMo's cover proposing nothing, older phones' recent apps and a permission dialog leaving the app in front; LiMo's activity and its cover; LiMo's word for its screen with usage access off, and a missed word put right; the dialler, a call's own screen learned and still the dialler after the call, a game during a call still a game; a screen with no icon the call's only during a call and learned only as it starts; an in call screen Android names; the emergency dialler named, learned, never learned for an app with an icon or after ten seconds; the first run's sequence (the named emergency dialler, the home screen, Settings, then a package with no icon 8.7 seconds after the tap) learning nothing; an emergency dialler Android does not name learned as the first screen after the tap, from LiMo's own screen, when left before the watch read the record, and when brought up again while already in front, and a second package with no icon after it never learned; the dialler, the home screen, LiMo or an app with an icon coming first and ending the wait; no wait where Android names no dialler or with usage off; the wait ended by ten seconds, the clock set and a refused read; usage access off: unknown, a dialler still saying so, LiMo's covers changing nothing, back on at once; split screen; picture in picture, and Android 9 and older; an app with no label, a blank one, an unseen one, one that cannot be read; the clock set back, told or not; a restart of the phone in the record; events read twice near the edge, written late, the clock gone back | 24 |
 | `FactsTest` | Every fact from its reading in one place; each fact's fallback, its last good reading and then its default; every reading refused at once, logged once each, and the facts back when Android answers; a refusal logged once a minute without its message or a label; the call state from the audio mode and the telephony state, against Android's own numbers, a silent ring on Android 8 to 11 with or without the Phone permission; on Android 12 and later a silent ring read with the Phone permission, and without it the telephony state never asked for and the audio mode alone the fallback, a permission granted while LiMo runs taken within five seconds, a refused reading falling back to the audio mode, logged once; usage event kinds against Android's numbers; the accessibility permission switched on, connected, starting; the permissions read again after five seconds or when told; the accessibility setting in both forms; the launchable apps sorted, LiMo left out, the dialler never counted; labels kept and forgotten; the roles asked again and kept when refused; usage that cannot be read; the Phone permission as Android grants it, each of the six reaching the engine's own field, off when it cannot be read | 15 |
 | `HouseRulesTest` | No source here reads a window's content, its text, a class name or changes the service's settings at run time, and a caller's number is never used; no dash punctuation in a comment or this README | 2 |
 
-All 36 pass, with the module's other tests (the engine and the link from
+All 41 pass, with the module's other tests (the engine and the link from
 Kotlin, host/, keep/ and dev/), in well under a second of test time each.
+
+## The first run
+
+**20 November 2026, the Galaxy (Android 13).** Emergency call on LiMo's
+cover opened Samsung's emergency dialler, and the watch knew it at once from
+Android's roles: `front now emergency_dialler` 61 ms after the tap, with no
+`front learned` line. The person then went to the home screen, opened
+Settings and tapped its search, a package with no icon, 8.7 seconds after
+the tap. Rule 9 as it stood then (any unexplained package within ten
+seconds, the window open whatever came first) learned that search as the
+emergency dialler, so until LiMo's process ended it would never have been
+covered or counted; a child could have done the same with any package that
+has no icon. Rule 9 now learns only the first screen after the tap, and
+`FrontTest` plays that sequence at those times.
 
 ## What only a phone can prove
 
@@ -391,11 +429,15 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
    the permission from setup while LiMo runs, and call within ten seconds:
    `call now ringing` should still come. On a phone with two SIMs, a call
    to the second one too.
-5. **The emergency dialler.** Which package opens for an emergency call
-   from LiMo's lock, and whether it is found from the emergency dial actions
-   (with the manifest's queries: `front now emergency_dialler
-   package=<package>`, with no `front learned` line) or learned (`front
-   learned emergency_dialler package=<package>`).
+5. **The emergency dialler.** On the Galaxy the first run answered which
+   package opens and how it is found (from the emergency dial actions, see
+   [The first run](#the-first-run)). With rule 9 as built the same tap
+   should also log `front emergency_wait ended first=<that package>`, and
+   nothing opened after it (the home screen, Settings, its search) should
+   ever log `front learned`. On another maker: which package opens, and
+   whether it is found (`front now emergency_dialler package=<package>`,
+   with no `front learned` line) or learned (`front learned
+   emergency_dialler package=<package>`).
 6. **One UI's recent apps, pop up view and split screen.** Recents should
    read as `front now home package=<the launcher's package>`. A pop up
    window and split screen should give the last resumed app as the front
@@ -434,6 +476,16 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
   while `READ_PHONE_STATE` is granted, and the dialler otherwise, which
   shows the call on most phones (show/README.md). Whether it does on a
   given phone without the permission is for that phone to show.
+- **Emergency call that opens a chooser, or nothing.** Where two apps answer
+  the emergency dial action (one of them not preinstalled, which the roles
+  do not believe), Android shows its chooser, an overlay; dismissed, the app
+  under the cover comes back first, and is learned if it has no icon. The
+  same holds where every way of Emergency call is refused on a phone that
+  names a dialler. Leaving out the package that was in front at the tap
+  would close both, but would also stop Emergency call learning an
+  emergency dialler already in front under a cover, the way one is learned
+  again after LiMo starts anew. show/ telling the watch when nothing opened
+  would close the second.
 - **The labels** are the app's own, cleaned by the engine before it shows
   them; the list for the guardian is passed as Android gives it.
 

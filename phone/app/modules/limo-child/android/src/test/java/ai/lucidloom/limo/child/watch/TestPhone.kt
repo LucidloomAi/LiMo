@@ -19,6 +19,8 @@ internal const val VIDEO = "org.example.video"
 internal const val CLOCK = "org.example.clock"
 internal const val CHAT = "org.example.chat"
 internal const val HELPER = "org.example.helper"
+internal const val SETTINGS = "org.example.settings"
+internal const val SEARCH = "org.example.settings.search"
 internal const val SYSTEM_UI = "com.android.systemui"
 
 /** Wednesday 18 November 2026, 16:00 in India, in milliseconds. */

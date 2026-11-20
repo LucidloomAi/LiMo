@@ -58,10 +58,12 @@ interface PhoneWatch {
   fun limoScreenShown(shown: Boolean)
 
   /**
-   * LiMo is about to open the emergency dialler (the lock's emergency call).
-   * Where Android did not name the emergency dialler, the first screen with
-   * no icon to come up in the next ten seconds is learned as it, so it is
-   * never covered.
+   * LiMo is about to open the emergency dialler (the lock's emergency call):
+   * call it just before. Where Android did not name the emergency dialler,
+   * the first screen to come to the front after it, if it has no icon and
+   * comes within ten seconds, is learned as it, so it is never covered.
+   * Only that first screen: whatever comes first ends the wait. Usage is
+   * read at once, a few milliseconds.
    */
   fun emergencyDiallerOpening()
 }

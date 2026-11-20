@@ -187,9 +187,19 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
     return pickChanged()
   }
 
-  /** LiMo is about to open the emergency dialler. */
+  /**
+   * LiMo is about to open the emergency dialler. Usage is read first, so
+   * that whatever came to the front before the tap (LiMo's own screen, whose
+   * window events propose nothing, among them) is taken before the wait for
+   * the first screen after it starts. A few milliseconds, before the
+   * emergency dialler opens.
+   */
   fun emergencyOpening() {
-    front.expectEmergency(elapsedNow())
+    val now = elapsedNow()
+    refreshRoles(now)
+    callNow(now)
+    readUsage(now, remembered(wall, now) { phone.wallMs() })
+    front.expectEmergency(now, roles)
   }
 
   /** The accessibility service connected (true) or stopped (false). */

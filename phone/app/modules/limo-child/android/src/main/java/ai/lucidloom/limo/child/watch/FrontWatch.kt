@@ -42,6 +42,9 @@ internal enum class UsageState { NOT_READ, ON, OFF, UNREADABLE }
 internal class FrontWatch(private val ownPackage: String, private val log: WatchLog) {
   private class Pending(val packageName: String, val sinceMs: Long)
 
+  /** LiMo opened the emergency dialler at [sinceMs]; [forgets] is the record's count of fresh starts then. */
+  private class EmergencyWait(val sinceMs: Long, val forgets: Long)
+
   val track = UsageTrack()
 
   var usage = UsageState.NOT_READ
@@ -55,7 +58,7 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
   private var call = CallState.IDLE
   private var callChangedAtMs: Long? = null
   private var frontChangedAtMs: Long? = null
-  private var emergencyFromMs: Long? = null
+  private var emergencyWait: EmergencyWait? = null
 
   /**
    * A window event from [packageName] at [nowMs] (elapsed). True when usage
@@ -78,29 +81,30 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
   fun usageTaken(events: List<UsageEvent>, window: UsageTrack.Window, nowMs: Long, roles: PhoneRoles) {
     usage = UsageState.ON
     val moved = track.take(events, window, Overlays::isOverlay)
+    awaitEmergency(nowMs, roles)
     if (moved) {
       frontChangedAtMs = nowMs
-      learn(roles)
+      learnCallScreen(roles)
     }
     settle(nowMs)
     val since = ownScreenSince
     // LiMo said its screen was shown, and another app resumed since: its
     // word that the screen left was missed.
     if (since != null && track.resumes > since && track.front != ownPackage) ownScreenSince = null
-    val from = emergencyFromMs
-    if (from != null && nowMs - from > WatchTimes.EMERGENCY_WINDOW_MS) emergencyFromMs = null
   }
 
   /** Usage access is off: Android gives LiMo no usage events. */
   fun usageOff() {
     usage = UsageState.OFF
     pending = null
+    endEmergencyWait("no_usage")
   }
 
   /** Usage could not be read: the call failed. */
   fun usageUnreadable() {
     usage = UsageState.UNREADABLE
     pending = null
+    endEmergencyWait("no_usage")
   }
 
   /** LiMo's own activity came to the front (true) or left it (false). */
@@ -108,9 +112,27 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
     ownScreenSince = if (shown) track.resumes else null
   }
 
-  /** LiMo is about to open the emergency dialler, at [nowMs]. */
-  fun expectEmergency(nowMs: Long) {
-    emergencyFromMs = nowMs
+  /**
+   * LiMo is about to open the emergency dialler, at [nowMs], and usage was
+   * read just now, so whatever came to the front before the tap is taken.
+   * The wait for the first screen after it starts here ([awaitEmergency]),
+   * unless usage could not be read (the next read could not tell what came
+   * first), or Android names no dialler and no emergency dialler (a phone
+   * or tablet with no calls, where Emergency call opens nothing, so the
+   * first screen after it would be whatever the child brings up).
+   */
+  fun expectEmergency(nowMs: Long, roles: PhoneRoles) {
+    emergencyWait = null
+    val why = when {
+      usage != UsageState.ON -> "no_usage"
+      roles.diallers.isEmpty() && roles.emergency.isEmpty() -> "no_dialler"
+      else -> null
+    }
+    if (why != null) {
+      log.line("front emergency_wait not_started because=$why")
+      return
+    }
+    emergencyWait = EmergencyWait(nowMs, track.forgets)
   }
 
   /** The call state now, at [nowMs]. */
@@ -119,7 +141,7 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
     call = state
     callChangedAtMs = nowMs
     log.line("call now ${state.name.lowercase()}")
-    learn(roles)
+    learnCallScreen(roles)
   }
 
   /** In how many milliseconds usage should be read again to settle a window event; null when none waits. */
@@ -199,24 +221,47 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
       hasNoIcon(packageName, roles)
 
   /**
-   * Learns the screen of a call, and the emergency dialler, when Android
-   * named neither: a package with no icon that came to the front within
-   * five seconds of a call starting or being answered is that call's screen
-   * from then on, so it stays the dialler when a call rings silently; and
-   * the first one within ten seconds of LiMo opening the emergency dialler is
-   * the emergency dialler. An app with an icon is never learned.
+   * **The emergency dialler, learned where Android does not name it**: the
+   * first activity to come to the front after LiMo opened it, and nothing
+   * after. Whatever comes first ends the wait: it is learned only when it is
+   * none of the known kinds and has no icon; the emergency dialler Android
+   * names, the dialler, the home screen, LiMo or an app with an icon end it
+   * with nothing learned (the child went somewhere else). So do ten seconds
+   * with nothing come up, the record read again from the start (the clock
+   * was set, and times before and after it cannot be compared) and a read
+   * of usage that failed ([usageOff], [usageUnreadable]).
    */
-  private fun learn(roles: PhoneRoles) {
+  private fun awaitEmergency(nowMs: Long, roles: PhoneRoles) {
+    val wait = emergencyWait ?: return
+    if (track.forgets != wait.forgets) return endEmergencyWait("clock_set")
+    if (nowMs - wait.sinceMs > WatchTimes.EMERGENCY_WINDOW_MS) return endEmergencyWait("ten_seconds")
+    val first = track.lastTaken.firstOrNull() ?: return
+    emergencyWait = null
+    if (unexplained(first, roles)) {
+      remember(learnedEmergency, first)
+      log.line("front learned emergency_dialler package=$first")
+    } else {
+      log.line("front emergency_wait ended first=$first")
+    }
+  }
+
+  private fun endEmergencyWait(because: String) {
+    if (emergencyWait == null) return
+    emergencyWait = null
+    log.line("front emergency_wait ended because=$because")
+  }
+
+  /**
+   * Learns the screen of a call when Android did not name it: a package
+   * with no icon that came to the front within five seconds of a call
+   * starting or being answered is that call's screen from then on, so it
+   * stays the dialler when a call rings silently. An app with an icon is
+   * never learned.
+   */
+  private fun learnCallScreen(roles: PhoneRoles) {
     val pkg = track.front ?: return
     val changedAt = frontChangedAtMs ?: return
     if (!unexplained(pkg, roles)) return
-    val from = emergencyFromMs
-    if (from != null && changedAt >= from && changedAt - from <= WatchTimes.EMERGENCY_WINDOW_MS) {
-      remember(learnedEmergency, pkg)
-      emergencyFromMs = null
-      log.line("front learned emergency_dialler package=$pkg")
-      return
-    }
     val callAt = callChangedAtMs ?: return
     if (call != CallState.IDLE && abs(changedAt - callAt) <= WatchTimes.CALL_SCREEN_WINDOW_MS) {
       remember(learnedCall, pkg)

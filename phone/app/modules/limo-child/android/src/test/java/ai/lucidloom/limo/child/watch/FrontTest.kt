@@ -296,6 +296,196 @@ class FrontTest {
   }
 
   @Test
+  fun theFirstRunsEmergencyCallThenSettingsSearchLearnsNothing() {
+    // The first run on a phone, 20 Nov 2026, a Galaxy on Android 13, in the
+    // order and at the times its log showed. Android's roles name the
+    // emergency dialler. A game is locked; Emergency call on the cover.
+    val rig = Rig(TestPhone().apply {
+      emergency = setOf(SOS)
+      apps = apps + (SETTINGS to "Settings")
+      labels[SETTINGS] = "Settings"
+    })
+    rig.open(LAUNCHER)
+    rig.open(GAME)
+    rig.core.emergencyOpening()
+    // About 60 ms later the emergency dialler is in front, known from the roles.
+    rig.open(SOS)
+    assertEquals(FrontKind.EMERGENCY_DIALLER, rig.front().kind)
+    assertTrue(rig.log.lines.contains("front now emergency_dialler package=$SOS"))
+    assertTrue(rig.log.lines.contains("front emergency_wait ended first=$SOS"))
+    // Under a second later the home screen; three seconds on, Settings.
+    rig.phone.pass(800)
+    rig.open(LAUNCHER)
+    assertEquals(FrontKind.HOME, rig.front().kind)
+    rig.phone.pass(3_070)
+    rig.open(SETTINGS)
+    assertEquals(FrontKind.APP, rig.front().kind)
+    // Then Settings' search, a package with no icon, 8.7 seconds after the
+    // tap: an app, never the emergency dialler.
+    rig.phone.pass(4_600)
+    rig.open(SEARCH)
+    val front = rig.front()
+    assertEquals(FrontKind.APP, front.kind)
+    assertEquals(SEARCH, front.packageName)
+    assertFalse(rig.log.lines.any { it.startsWith("front learned") })
+    rig.open(LAUNCHER)
+    rig.open(SEARCH)
+    assertEquals(FrontKind.APP, rig.front().kind)
+  }
+
+  @Test
+  fun anEmergencyDiallerTheRolesDoNotNameIsLearnedWhenItIsTheFirstScreenAfterTheTap() {
+    // From LiMo's own screen of the ways out, tapped at once. LiMo's window
+    // events propose nothing, so usage has not been read since its screen
+    // resumed; the read at the tap takes it, and the emergency dialler is
+    // still the first screen after the tap.
+    val rig = Rig()
+    rig.open(LAUNCHER)
+    rig.open(GAME)
+    rig.open(LIMO)
+    rig.core.emergencyOpening()
+    rig.open(SOS)
+    assertEquals(FrontKind.EMERGENCY_DIALLER, rig.front().kind)
+    assertTrue(rig.log.lines.contains("front learned emergency_dialler package=$SOS"))
+    // A second package with no icon, well inside the ten seconds: an app.
+    rig.phone.pass(2_000)
+    rig.open(HELPER)
+    assertEquals(FrontKind.APP, rig.front().kind)
+    assertEquals(1, rig.log.lines.count { it.startsWith("front learned") })
+    rig.open(SOS)
+    assertEquals(FrontKind.EMERGENCY_DIALLER, rig.front().kind)
+
+    // Left before the watch read the record: the emergency dialler's window
+    // event missed, its resume read together with the home screen's. It was
+    // still the first screen after the tap.
+    val quick = Rig()
+    quick.open(LAUNCHER)
+    quick.open(GAME)
+    quick.core.emergencyOpening()
+    quick.phone.pass(10)
+    quick.phone.paused(GAME)
+    quick.phone.stopped(GAME)
+    quick.phone.pass(30)
+    quick.phone.resumed(SOS)
+    quick.phone.pass(400)
+    quick.phone.paused(SOS)
+    quick.phone.resumed(LAUNCHER)
+    quick.phone.pass(20)
+    assertTrue(quick.core.windowEvent(LAUNCHER))
+    assertEquals(FrontKind.HOME, quick.front().kind)
+    assertTrue(quick.log.lines.contains("front learned emergency_dialler package=$SOS"))
+
+    // LiMo started again (what it learned is kept in memory only) with the
+    // emergency dialler still in front, so covered. Emergency call on the
+    // cover brings it up again: the same package, the first screen after
+    // the tap, learned.
+    val again = Rig()
+    again.open(LAUNCHER)
+    again.open(SOS)
+    assertEquals(FrontKind.APP, again.front().kind)
+    again.core.emergencyOpening()
+    again.phone.pass(10)
+    again.phone.paused(SOS)
+    again.phone.pass(30)
+    again.phone.resumed(SOS)
+    again.phone.pass(500)
+    assertEquals(FrontKind.EMERGENCY_DIALLER, again.front().kind)
+    assertTrue(again.log.lines.contains("front learned emergency_dialler package=$SOS"))
+  }
+
+  @Test
+  fun onlyTheFirstScreenAfterTheTapMayBeLearned() {
+    // Whatever comes up first ends the wait: the dialler (Emergency call's
+    // last way), the home screen, LiMo, an app with an icon. A package with
+    // no icon after it, well inside the ten seconds, is an app.
+    for (first in listOf(PHONE_APP, LAUNCHER, LIMO, GAME)) {
+      val rig = Rig()
+      rig.open(LAUNCHER)
+      rig.open(VIDEO)
+      rig.core.emergencyOpening()
+      rig.open(first)
+      // LiMo's own window events propose nothing: its resume is read with the facts.
+      rig.phone.pass(600)
+      rig.look()
+      assertTrue(first, rig.log.lines.contains("front emergency_wait ended first=$first"))
+      rig.open(HELPER)
+      assertEquals(first, FrontKind.APP, rig.front().kind)
+      assertFalse(first, rig.log.lines.any { it.startsWith("front learned") })
+    }
+  }
+
+  @Test
+  fun nothingIsLearnedWhereAndroidNamesNoDiallerOrUsageIsOffAtTheTap() {
+    // A tablet with no calls: Android names no dialler and no emergency
+    // dialler, Emergency call opens nothing and the cover stays, so the
+    // first screen after it would be one the child chose.
+    val tablet = Rig(TestPhone().apply { diallers = emptySet() })
+    tablet.open(LAUNCHER)
+    tablet.open(GAME)
+    tablet.core.emergencyOpening()
+    assertTrue(tablet.log.lines.contains("front emergency_wait not_started because=no_dialler"))
+    tablet.open(HELPER)
+    assertEquals(FrontKind.APP, tablet.front().kind)
+
+    // Usage access off at the tap: once it is back, the record cannot say
+    // what came first after the tap.
+    val off = Rig()
+    off.open(LAUNCHER)
+    off.open(GAME)
+    off.phone.usageOn = false
+    off.core.emergencyOpening()
+    assertTrue(off.log.lines.contains("front emergency_wait not_started because=no_usage"))
+    off.phone.usageOn = true
+    off.open(HELPER)
+    assertEquals(FrontKind.APP, off.front().kind)
+
+    for (rig in listOf(tablet, off)) assertFalse(rig.log.lines.any { it.startsWith("front learned") })
+  }
+
+  @Test
+  fun theWaitEndsAfterTenSecondsWhenTheClockIsSetOrWhenUsageIsRefused() {
+    // Ten seconds with nothing new in front.
+    val late = Rig()
+    late.open(LAUNCHER)
+    late.open(GAME)
+    late.core.emergencyOpening()
+    late.phone.pass(11_000)
+    late.open(HELPER)
+    assertEquals(FrontKind.APP, late.front().kind)
+    assertTrue(late.log.lines.contains("front emergency_wait ended because=ten_seconds"))
+
+    // The clock set an hour on: Android moves its record with it and the
+    // record is read again from the start, so a time before the tap and one
+    // after it can no longer be told apart.
+    val clock = Rig()
+    clock.open(LAUNCHER)
+    clock.open(GAME)
+    clock.core.emergencyOpening()
+    clock.phone.pass(1_000)
+    clock.phone.wall += 3_600_000L
+    clock.phone.record.replaceAll { it.copy(atWallMs = it.atWallMs + 3_600_000L) }
+    clock.core.clockSet()
+    assertTrue(clock.log.lines.contains("front emergency_wait ended because=clock_set"))
+    clock.open(HELPER)
+    assertEquals(FrontKind.APP, clock.front().kind)
+
+    // A read of usage refused while the watch waits.
+    val refused = Rig()
+    refused.open(LAUNCHER)
+    refused.open(GAME)
+    refused.core.emergencyOpening()
+    refused.phone.failing += "usage_events"
+    refused.phone.pass(600)
+    refused.look()
+    assertTrue(refused.log.lines.contains("front emergency_wait ended because=no_usage"))
+    refused.phone.failing -= "usage_events"
+    refused.open(HELPER)
+    assertEquals(FrontKind.APP, refused.front().kind)
+
+    for (rig in listOf(late, clock, refused)) assertFalse(rig.log.lines.any { it.startsWith("front learned") })
+  }
+
+  @Test
   fun withUsageAccessOffTheFrontIsUnknownNeverAGuessButADiallerStillSaysSo() {
     val rig = Rig(TestPhone().apply { emergency = setOf(SOS) })
     rig.open(LAUNCHER)

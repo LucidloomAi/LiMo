@@ -71,7 +71,10 @@ internal object WatchTimes {
   /** A screen with no icon that comes up this close to a call starting or being answered is that call's screen. */
   const val CALL_SCREEN_WINDOW_MS = 5_000L
 
-  /** After LiMo opens the emergency dialler, the first screen with no icon to come up within this is the emergency dialler. */
+  /**
+   * After LiMo opens the emergency dialler, the first screen to come up decides, if it comes within
+   * this: it is learned as the emergency dialler only when it has no icon and is none of the known kinds.
+   */
   const val EMERGENCY_WINDOW_MS = 10_000L
 
   /** A reading that keeps failing is logged at most this often. */
