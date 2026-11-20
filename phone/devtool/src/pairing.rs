@@ -19,6 +19,8 @@
 //! to the phone only through adb's standard input, into LiMo's own files,
 //! which LiMo deletes once it has taken them.
 
+#![forbid(unsafe_code)]
+
 use limo_core::Grant;
 use limo_hub::Pairing;
 use serde::Serialize;

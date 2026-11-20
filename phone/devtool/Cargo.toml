@@ -37,6 +37,12 @@ miniz_oxide = "0.8.9"
 # kept: the hub needs one, and nothing in this tool asks for it.
 getrandom = "0.4.3"
 
+[target.'cfg(windows)'.dependencies]
+# Windows' own list of USB devices (SetupAPI and the configuration manager),
+# read only, when adb sees no phone. Already in the lock file through
+# console and tempfile; only the two features are new.
+windows-sys = { version = "0.61.2", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_Foundation"] }
+
 [dev-dependencies]
 # The test family's file in a temporary folder.
 tempfile = "3.27.0"

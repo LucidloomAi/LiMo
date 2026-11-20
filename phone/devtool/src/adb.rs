@@ -7,6 +7,8 @@
 //! time is stopped, never left hanging. Standard input is given only to the
 //! one call that carries the pairing file; every other call has none.
 
+#![forbid(unsafe_code)]
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

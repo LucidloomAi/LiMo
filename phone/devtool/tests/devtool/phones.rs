@@ -26,11 +26,21 @@ fn every_command_refuses(bench_with: impl Fn(&mut Bench), says: &str) {
 
 #[test]
 fn no_phone_attached() {
+    // Windows sees nothing either: the cable.
+    every_command_refuses(|b| b.phone.devices.clear(), "This PC sees no phone on its USB ports.");
+    every_command_refuses(|b| b.phone.devices.clear(), "The cable probably only charges: many cables carry no data.");
+    // Windows' list cannot be read (or this is not Windows): adb's answer
+    // alone, as before.
+    let unread = |b: &mut Bench| {
+        b.phone.devices.clear();
+        b.usb.seen = Err("this tool reads the list of USB devices on Windows only".to_string());
+    };
     every_command_refuses(
-        |b| b.phone.devices.clear(),
+        unread,
         "No phone is attached. Plug the phone in with a USB cable, unlock it, and check that USB debugging is on",
     );
-    every_command_refuses(|b| b.phone.devices.clear(), "This tool never turns it on by itself.");
+    every_command_refuses(unread, "This tool never turns it on by itself.");
+    every_command_refuses(unread, "This PC's list of USB devices could not be read: this tool reads the list of USB devices on Windows only.");
 }
 
 #[test]

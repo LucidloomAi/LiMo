@@ -15,6 +15,7 @@ use limo_phone::{CallState, Front, PhoneEngine, PhoneFacts, PhonePermissions};
 use limo_phone_dev::adb::{ADB_NOT_FOUND, Adb, Call, Reply};
 use limo_phone_dev::places::Places;
 use limo_phone_dev::ui::{Hidden, Ui};
+use limo_phone_dev::usb::{UsbDevice, UsbLook};
 use limo_phone_dev::{Tool, run};
 use zeroize::Zeroizing;
 
@@ -475,6 +476,27 @@ fn unhex(text: &str) -> Vec<u8> {
     (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect()
 }
 
+/// The PC's USB ports as Windows lists them: a list given by the test, or
+/// a list that cannot be read; and how many times it was looked at.
+pub struct FakeUsb {
+    pub seen: Result<Vec<UsbDevice>, String>,
+    pub looked: u32,
+}
+
+impl Default for FakeUsb {
+    /// Windows sees nothing that looks like a phone.
+    fn default() -> FakeUsb {
+        FakeUsb { seen: Ok(Vec::new()), looked: 0 }
+    }
+}
+
+impl UsbLook for FakeUsb {
+    fn phones_seen(&mut self) -> Result<Vec<UsbDevice>, String> {
+        self.looked += 1;
+        self.seen.clone()
+    }
+}
+
 /// A terminal that keeps every line, and types what the test gives it.
 #[derive(Default)]
 pub struct FakeUi {
@@ -504,6 +526,7 @@ impl Ui for FakeUi {
 /// The phone, the terminal and the tool's folder, for one story.
 pub struct Bench {
     pub phone: FakePhone,
+    pub usb: FakeUsb,
     pub ui: FakeUi,
     pub dir: tempfile::TempDir,
     /// This PC's clock.
@@ -513,7 +536,13 @@ pub struct Bench {
 impl Bench {
     /// A ready phone and an empty folder.
     pub fn new() -> Bench {
-        Bench { phone: FakePhone::ready(), ui: FakeUi::default(), dir: tempfile::tempdir().unwrap(), now: NOW }
+        Bench {
+            phone: FakePhone::ready(),
+            usb: FakeUsb::default(),
+            ui: FakeUi::default(),
+            dir: tempfile::tempdir().unwrap(),
+            now: NOW,
+        }
     }
 
     pub fn places(&self) -> Places {
@@ -535,7 +564,7 @@ impl Bench {
         let now = self.now;
         let clock = move || now;
         let places = self.places();
-        let mut tool = Tool { adb: &mut self.phone, ui: &mut self.ui, places, clock: &clock };
+        let mut tool = Tool { adb: &mut self.phone, usb: &mut self.usb, ui: &mut self.ui, places, clock: &clock };
         run(&mut tool, argv)
     }
 

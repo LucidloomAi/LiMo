@@ -9,6 +9,8 @@
 //! through adb's standard input ([`Phone::write_pairing`]). The broadcasts
 //! carry an action's name and LiMo's receiver, nothing more.
 
+#![forbid(unsafe_code)]
+
 use std::fmt;
 use std::time::Duration;
 

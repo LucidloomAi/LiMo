@@ -4,6 +4,7 @@
 //! a temporary folder.
 
 mod apk;
+mod cable;
 mod check;
 mod code_and_status;
 mod fake;

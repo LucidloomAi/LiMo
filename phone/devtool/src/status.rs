@@ -12,6 +12,8 @@
 //! phone. The phone's own answer can differ by what it counted since it
 //! last kept its state, at most a few seconds while it is in use.
 
+#![forbid(unsafe_code)]
+
 use limo_core::{HomeCalendar, LockReason, RequestAnswer, Weekday};
 use limo_phone::{CallState, Front, LoadProblem, Permission, PhoneEngine, PhoneFacts, PhonePermissions, PhoneView};
 

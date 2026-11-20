@@ -1,6 +1,8 @@
 //! The command line, and the help. Everything that needs no phone and no
 //! file is checked here, before adb is touched.
 
+#![forbid(unsafe_code)]
+
 use limo_core::BlockedWindow;
 
 use crate::family::{clean_child_name, is_package_name, parse_bedtime};

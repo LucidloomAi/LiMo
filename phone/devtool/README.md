@@ -30,6 +30,7 @@ phone's accounts, its Device Owner or its settings. The help says so first.
 - [Where the test family lives](#where-the-test-family-lives)
 - [What crosses the cable](#what-crosses-the-cable)
 - [When something is not right](#when-something-is-not-right)
+- [When adb sees no phone: the cable check](#when-adb-sees-no-phone-the-cable-check)
 - [How status reads the phone](#how-status-reads-the-phone)
 - [What LiMo's debug build must do](#what-limos-debug-build-must-do)
 - [What a real phone showed](#what-a-real-phone-showed)
@@ -185,7 +186,7 @@ Each has its own plain message, and none changes anything:
 | What | Message, in short |
 | --- | --- |
 | `adb` not found | Not on the PATH, nor in `platform-tools` under `ANDROID_HOME` or `ANDROID_SDK_ROOT`, nor in `%LOCALAPPDATA%\Android\Sdk\platform-tools`: install the SDK platform tools, or set `ANDROID_HOME`. |
-| No phone | Plug it in with a USB cable, unlock it, and check that USB debugging is on (Settings, Developer options). This tool never turns it on by itself. |
+| No phone | On Windows, what Windows itself sees on the USB ports says why: see [When adb sees no phone: the cable check](#when-adb-sees-no-phone-the-cable-check). Where that list cannot be read: plug it in with a USB cable, unlock it, and check that USB debugging is on (Settings, Developer options). This tool never turns it on by itself. |
 | Two phones, or a phone and an emulator | Lists them all: unplug the others or close the emulator, so that the tool cannot pick the wrong one. |
 | A phone that has not allowed this PC | Unlock it and tap Allow on the "Allow USB debugging?" prompt; if none shows, plug it in again. |
 | Offline, no permissions, or another state | Each said, with what to do. |
@@ -200,6 +201,96 @@ Each has its own plain message, and none changes anything:
 | LiMo did not take the pairing file | LiMo's word from its log, and what to do: `old_file`, set the clock that is wrong; `no_child_name`, `not_json`, `no_welcome`, `no_code_secret`, `no_made_at`, `code_secret_not_hex` or `code_secret_not_32_bytes`, the tool and the app's debug build were built from different versions, so build both from the same one; `unreadable` or `not_deleted`, run setup again; `engine`, copy what `log` shows. Nothing in the log: is the receiver in this debug build? Both sides are undone, but only when LiMo keeps no state on the phone. |
 | LiMo says it took the test family, but its state cannot be read back | "LiMo says it took the test family (its log says: dev pair taken), but this tool could not read its state back to check that it holds the test phone." The test family on this PC is kept: run `check`, then `status`; `forget` to start again. |
 | The phone holds a family this PC does not have | `check`, `status`, `forget` and `setup` say so and change nothing; each points at `forget --phone-only`, which wipes LiMo's state on the phone and nothing else. |
+
+## When adb sees no phone: the cable check
+
+With a cable that is not the phone maker's own, a phone often connects for
+charging only, or for files and not for adb, or not at all; adb then lists
+nothing, whatever the reason. So when `adb devices` lists no phone at all,
+the step every command runs first (`check` and all the others) reads what
+Windows itself sees on its USB ports and says which case it is, in one line,
+then what to do. Windows only, for now; elsewhere the old sentence stays.
+When adb lists any phone, in any state (ready, not allowed yet, offline, or
+more than one), Windows' list is not read at all, and adb's own answer is
+said as before.
+
+**What is read from Windows**, read only, in one pass and nothing more:
+Windows' own list of the devices present now, of every class (SetupAPI,
+`SetupDiGetClassDevsW` with the flags for present devices of all classes).
+For each device: its class and its compatible ids; and for a portable
+device or a debugging interface only, its friendly name and its
+description, the name of the bus Windows says it hangs on (its enumerator,
+`SPDRP_ENUMERATOR_NAME`), and its status from the configuration manager
+(`CM_Get_DevNode_Status`: started, and whether it has a problem). A device
+counts only when it looks like a phone, by what it is and never by a
+maker's list (`usb::looks_like_a_phone`):
+
+- a **portable device on the USB bus itself**: Windows' WPD class
+  (`{EEC5AD98-8080-425F-922A-DABF3DE3F69A}`), which a phone joins when it
+  offers files (MTP) or pictures (PTP), with the enumerator `USB`. A USB
+  stick or a memory card joins the same class too, but as a volume Windows
+  makes on its own software bus (enumerator `SWD`), so it does not count;
+  or
+- the phone's **debugging interface**: a USB interface whose compatible id
+  is `USB\Class_FF&SubClass_42&Prot_01`, the one adb talks to.
+
+Why the bus and not the compatible ids: a phone running its maker's own
+driver can show vendor ids in place of `USB\MS_COMP_MTP` or the still
+image class, and missing a real phone would send the person back to the
+cable, which is the wrong advice. A device on the USB bus in the portable
+device class offers files or pictures over USB, which is what is wanted.
+
+No serial number and no instance id is read, nothing is written, no driver
+is installed, no device is started, stopped or restarted, and no other
+program (no PowerShell) is run. A house rule checks that the Windows calls
+are only these reads.
+
+**The cases**, decided by one pure function (`usb::decide`) from what adb
+listed and what Windows listed, apart from the printing, so that LiMo on
+the PC can take it over for "Add a phone":
+
+| Windows sees | This PC sees | Then |
+| --- | --- | --- |
+| nothing that looks like a phone | "This PC sees no phone on its USB ports." | "The cable probably only charges: many cables carry no data. Use the cable that came with the phone, or one known to move files; plug it into a port on the PC itself, not a hub; and unlock the phone." |
+| a portable device on the USB bus, no debugging interface | "This PC sees what looks like a phone on its USB ports (Galaxy S20 Ultra 5G), but adb does not." | "If that is the phone, its cable carries data, but USB debugging is off. Switch it on, on the phone (Settings, Developer options); this tool never turns it on by itself. If it is on already, unplug the phone and plug it in again, unlocked. If it is something else that offers pictures or files, such as a camera, the phone's own cable probably only charges: use the one that came with the phone." |
+| a debugging interface with no working driver | "This PC sees the debugging interface of a phone (Galaxy S20 Ultra 5G), but has no working driver for it." | "The phone maker's USB driver has to be installed on this PC before adb can reach the phone. Install it, then unplug the phone and plug it in again. This tool installs nothing." |
+| a debugging interface, working | "This PC sees the debugging interface of a phone (Galaxy S20 Ultra 5G), with its driver working, but adb does not list it." | "Unplug the phone and plug it in again, unlocked; if adb still lists nothing, run adb kill-server, then this again." |
+| its list cannot be read | "This PC's list of USB devices could not be read: ..." | the old sentence: plug it in, unlock it, check that USB debugging is on |
+
+The name is the one Windows shows for the portable device (the phone's own
+model name, as the phone gives it), else the debugging interface's; with
+no name, none is said. A missing driver is told first, then a working
+debugging interface, then a portable device. A device counts as working
+when Windows says it is started and has no problem.
+
+**What it cannot tell apart**, honestly:
+
+- A cable that carries no data, and a phone set to charge only with USB
+  debugging off: both show nothing to Windows, so both are the first case,
+  and its advice names the cable first. Unlocking the phone and choosing
+  File transfer in its USB notice tells them apart.
+- A phone set to charge only with USB debugging on still shows its
+  debugging interface on most phones, so adb sees it and none of this is
+  needed; a phone that shows nothing at all in that mode is the first case.
+- A dead port, a hub that gives no data, or a phone that shows its files
+  only once unlocked: all look like the first case.
+- A camera in PTP mode cannot be told from a phone in PTP mode, nor a
+  media player offering files from a phone doing so: each is a portable
+  device on the USB bus, and is named like a phone. So the second case says
+  "what looks like a phone", and its advice says what to do if it is not
+  the phone.
+- A USB stick or a memory card is left out, by its bus. Should Windows ever
+  list one on another bus than its software bus, it would count as the
+  second case.
+- A phone in the second case may still give no data for adb for a reason
+  of its maker's own; the advice is about USB debugging, the usual reason.
+
+Measured on the development PC on 20 November 2026, with the test phone
+attached and adb seeing it: Windows' list held one portable device, on the
+USB bus, and one debugging interface, both named and working; so the
+reading finds both kinds on a real PC, and the phone's portable device
+passes the bus rule. No stick was plugged in, so a stick on the software
+bus was seen through the fake list only, as were the cases themselves.
 
 ## How status reads the phone
 
@@ -332,9 +423,9 @@ a small trait, and the stories play a phone with a fake.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | The adb line as typed; a reply's parts; looking for adb where it should be; the command line, each command and each refusal; the help saying first what the tool never does; devices of every state, one picked or each problem said; `run-as` telling a debug build from a release build; the phone's clock and zone; `dumpsys` and the install and uninstall answers; only LiMo's two log tags; no command carrying anything but names; bedtimes and package names; the test family's rules with the whole day away; the folder named for testing; a log line with the time in UTC and no control characters; times on the phone's clock; zones said; a child's name trimmed, its hidden characters dropped, 1 to 40 long; LiMo's own word about a pairing file read from its log, and the advice for each; permissions in words, in setup's order; the state's answer read exactly, with or without a state, and one whose line ends were changed said so, never taken as the state; every text answer read the same with carriage returns; numbers read from an APK, never past the end (and one ignored test that reads a real APK, below) | 28 |
-| `tests/devtool/` | The stories, against the fake phone (below), with the real hub on a real file in a temporary folder and the real phone engine on the phone's side | 53 |
-| `tests/house_rules.rs` | No unsafe code; no allow attributes; the service's folder and file never named; nothing sent to the phone that could change anything but LiMo (every command checked: no settings, accounts, device policy, permissions, other apps or rebooting); nothing in the tool's own code printed by its Debug form; no dash punctuation in anything a person reads or in anything printed | 7 |
+| `src/*.rs` | The cable check: the debugging interface by its compatible id in any case, each case from what adb and Windows list, adb listing a phone meaning no case, and each case's two lines; a portable device a phone only on the USB bus, a stick on the software bus never one, alone or beside a phone; the portable device class as Windows names it; the adb line as typed; a reply's parts; looking for adb where it should be; the command line, each command and each refusal; the help saying first what the tool never does; devices of every state, one picked or each problem said; `run-as` telling a debug build from a release build; the phone's clock and zone; `dumpsys` and the install and uninstall answers; only LiMo's two log tags; no command carrying anything but names; bedtimes and package names; the test family's rules with the whole day away; the folder named for testing; a log line with the time in UTC and no control characters; times on the phone's clock; zones said; a child's name trimmed, its hidden characters dropped, 1 to 40 long; LiMo's own word about a pairing file read from its log, and the advice for each; permissions in words, in setup's order; the state's answer read exactly, with or without a state, and one whose line ends were changed said so, never taken as the state; every text answer read the same with carriage returns; numbers read from an APK, never past the end (and two ignored tests: one reads a real APK, below; one reads this PC's own list of USB devices and says only the case) | 34 |
+| `tests/devtool/` | The stories, against the fake phone (below), with the real hub on a real file in a temporary folder and the real phone engine on the phone's side | 61 |
+| `tests/house_rules.rs` | Unsafe code only in `src/win/`, every other module forbidding it and each unsafe block saying why it is sound; Windows only read there, never changed (only the six calls that read); no allow attributes; the service's folder and file never named; nothing sent to the phone that could change anything but LiMo (every command checked: no settings, accounts, device policy, permissions, other apps or rebooting); nothing in the tool's own code printed by its Debug form; no dash punctuation in anything a person reads or in anything printed | 8 |
 
 The fake phone answers exactly the calls the tool is meant to make, written
 out letter for letter, and fails a test on any other, so the stories also
@@ -352,7 +443,17 @@ with the command's errors on the same stream and an exit code of 0
 whatever happened. Read through `shell` instead, the state would fail 30
 of the stories. The stories:
 
-- `phones.rs` (12): each phone it cannot work with (none, two, not
+- `cable.rs` (8): adb seeing no phone, and Windows' fake list showing
+  nothing, a USB stick alone (no phone), a stick beside a phone (only the
+  phone named), a portable device (named, or with no name), a debugging
+  interface with no working driver (named by the portable device, or by
+  itself), or one working: each case's two lines, exactly, the list read
+  once and nothing sent to any phone; every command saying the same, and
+  `forget` still pointing at `--this-pc-only`; and Windows' list never
+  read when adb lists a phone, ready, not allowed, offline or two, for
+  every command, with adb's own words kept.
+- `phones.rs` (12): each phone it cannot work with (none, as the cable
+  check says it and as before where Windows' list cannot be read; two, not
   allowed, offline), and `adb` missing, for every command, each with its
   message, nothing sent to the phone, no file made, no PIN asked for;
   `forget` with no phone pointing at `--this-pc-only`; a release build,
@@ -435,9 +536,9 @@ as in the hub and the engine, so the slow PIN hash stays quick.
 | limo-core, limo-hub, limo-phone | 0.1.0 (path) | Apache-2.0 | the rules and the welcome grant; the test family's file; the phone's engine, reading what the phone kept |
 | serde, serde_json | 1.0.229, 1.0.154 | MIT or Apache-2.0 | the pairing file |
 | zeroize | 1.9.2 | Apache-2.0 or MIT | wiping the typed PIN, the pairing file's bytes and the state read back |
-| console | 0.16.6 | MIT | the PIN typed at a prompt that does not show it, with no unsafe code here; without its default features |
+| console | 0.16.6 | MIT | the PIN typed at a prompt that does not show it, with no unsafe code of the tool's own for it; without its default features |
 | encode_unicode | 1.0.0 | Apache-2.0 or MIT | used by console on Windows |
-| windows-sys, windows-link | 0.61.2, 0.2.1 | MIT or Apache-2.0 | used by console on Windows (and already under the hub's tests) |
+| windows-sys, windows-link | 0.61.2, 0.2.1 | MIT or Apache-2.0 | on Windows: the cable check reads Windows' list of USB devices through it (its `Win32_Devices_DeviceAndDriverInstallation` and `Win32_Foundation` parts); also used by console, and already under the hub's tests |
 | libc | 0.2.191 | MIT or Apache-2.0 | used by console on Linux and macOS |
 | miniz_oxide | 0.8.9 | MIT or Zlib or Apache-2.0 | inflating the manifest inside an APK |
 | adler2 | 2.0.1 | 0BSD or MIT or Apache-2.0 | used by miniz_oxide |
@@ -470,9 +571,14 @@ phone/devtool/
     apk.rs        what an APK says it is: its package, version and debug flag
     places.rs     where the test family lives, and the tool's log
     ui.rs         the terminal, and the PIN typed without it showing
+    usb.rs        the cable check: what Windows sees, the cases, their words
+    win/          on Windows only, and the only unsafe code here
+      mod.rs
+      usb.rs      Windows' list of USB devices, read only
   tests/
     house_rules.rs
-    devtool/      main.rs, fake.rs (the fake phone and terminal), phones.rs,
-                  check.rs, setup.rs, code_and_status.rs, forget.rs,
-                  line_ends.rs, orphans.rs, secrets.rs, apk.rs
+    devtool/      main.rs, fake.rs (the fake phone, USB list and terminal),
+                  phones.rs, cable.rs, check.rs, setup.rs,
+                  code_and_status.rs, forget.rs, line_ends.rs, orphans.rs,
+                  secrets.rs, apk.rs
 ```

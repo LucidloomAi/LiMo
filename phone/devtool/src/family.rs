@@ -7,6 +7,8 @@
 //! never shown and never kept: nothing in this tool asks for it. The PIN is
 //! the one typed at `setup`, kept only as the core's salted slow hash.
 
+#![forbid(unsafe_code)]
+
 use limo_core::{BlockedWindow, DailyBudget, DeviceKind, RuleSet, Weekday, WeekBudgets};
 use limo_hub::{AgeBand, DeviceInfo, Hub, Pairing};
 use zeroize::Zeroizing;

@@ -41,17 +41,77 @@ fn code_of(file: &Path) -> String {
 }
 
 #[test]
-fn there_is_no_unsafe_code() {
-    for root in ["lib.rs", "main.rs"] {
-        let text = std::fs::read_to_string(crate_dir().join("src").join(root)).unwrap();
-        assert!(text.contains("#![forbid(unsafe_code)]"), "{root} does not forbid unsafe code");
-    }
-    let unsafe_word = ["unsafe", " {"].concat();
-    let unsafe_fn = ["unsafe", " fn"].concat();
+fn unsafe_code_only_in_win_each_block_saying_why() {
+    let win = crate_dir().join("src").join("win");
+    let unsafe_block = ["unsafe", " {"].concat();
+    let unsafe_word = ["unsafe", " "].concat();
     for file in sources() {
         let text = std::fs::read_to_string(&file).unwrap();
-        assert!(!text.contains(&unsafe_word) && !text.contains(&unsafe_fn), "{} has unsafe code", file.display());
+        let name = file.file_name().unwrap().to_string_lossy().to_string();
+        if name == "house_rules.rs" {
+            // This file names the word in order to look for it.
+            continue;
+        }
+        if file.starts_with(&win) {
+            // Blocks only, each with its reason in the comment just above.
+            let lines: Vec<&str> = text.lines().collect();
+            for (number, line) in lines.iter().enumerate() {
+                for word in ["fn", "impl", "trait", "extern"] {
+                    assert!(!line.contains(&format!("{unsafe_word}{word}")), "{}:{} has unsafe {word}", file.display(), number + 1);
+                }
+                if line.contains(&unsafe_block) {
+                    let above = &lines[number.saturating_sub(4)..number];
+                    assert!(above.iter().any(|l| l.trim_start().starts_with("// SAFETY:")), "{}:{} says not why it is sound", file.display(), number + 1);
+                }
+            }
+            continue;
+        }
+        let code: Vec<&str> = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
+        assert!(!code.iter().any(|l| l.contains(&unsafe_word)), "{} has unsafe code", file.display());
+        // The crate root holds the modules, so it cannot forbid unsafe code
+        // for all of them; every other file forbids it for itself.
+        if file.parent() == Some(crate_dir().join("src").as_path()) && name != "lib.rs" {
+            assert!(text.contains("#![forbid(unsafe_code)]"), "{} does not forbid unsafe code", file.display());
+        }
     }
+    let lib = std::fs::read_to_string(crate_dir().join("src").join("lib.rs")).unwrap();
+    assert!(lib.contains("#[cfg(windows)]\npub mod win;"), "win is built on Windows only");
+}
+
+#[test]
+fn windows_is_only_read_never_changed() {
+    // The only Windows calls: listing the present devices, reading three
+    // properties and a status, and letting go of the list.
+    let allowed = [
+        "SetupDiGetClassDevsW",
+        "SetupDiEnumDeviceInfo",
+        "SetupDiGetDeviceRegistryPropertyW",
+        "SetupDiDestroyDeviceInfoList",
+        "CM_Get_DevNode_Status",
+        "GetLastError",
+    ];
+    let mut files = Vec::new();
+    files_under(&crate_dir().join("src").join("win"), &mut files);
+    let mut called = 0;
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        for (number, line) in text.lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            for word in line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+                let windows_call = word.starts_with("SetupDi") || word.starts_with("CM_") || word.starts_with("Get") && word.ends_with("Error");
+                if windows_call && word.chars().any(|c| c.is_ascii_lowercase()) {
+                    assert!(allowed.contains(&word), "{}:{} calls {word}", file.display(), number + 1);
+                    called += 1;
+                }
+            }
+        }
+        for change in ["SetupDiSet", "SetupDiCall", "SetupDiChange", "SetupDiInstall", "SetupDiRemove", "CM_Set", "CM_Disable", "CM_Enable", "CM_Reenumerate", "CM_Query_And_Remove", "CreateProcess", "Command::new"] {
+            assert!(!text.contains(change), "{} has {change}", file.display());
+        }
+    }
+    assert!(called >= allowed.len(), "every allowed call is there");
 }
 
 #[test]

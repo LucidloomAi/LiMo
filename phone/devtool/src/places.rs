@@ -7,6 +7,8 @@
 //! folder of the user's local application data whose name says what it is:
 //! `LiMo-phone-dev-TEST-ONLY`.
 
+#![forbid(unsafe_code)]
+
 use std::io::Write;
 use std::path::PathBuf;
 

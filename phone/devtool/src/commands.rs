@@ -2,6 +2,8 @@
 //! that the tests run each one against a fake phone and read every line it
 //! prints. Each says plainly what it did and what to do next.
 
+#![forbid(unsafe_code)]
+
 use std::path::Path;
 use std::time::Duration;
 
@@ -13,11 +15,13 @@ use crate::cli::{self, Command};
 use crate::family::{self, Family, Plan};
 use crate::pairing::pairing_bytes;
 use crate::phone::{
-    self, FORGET_ACTION, GUARDIAN_PACKAGE, Installed, OLDEST_SDK, PACKAGE, PAIR_ACTION, Phone, Removed, RunAs, Trouble,
+    self, FORGET_ACTION, GUARDIAN_PACKAGE, Installed, OLDEST_SDK, PACKAGE, PAIR_ACTION, Phone, PickProblem, Removed, RunAs,
+    Trouble,
 };
 use crate::places::{self, Places};
 use crate::status::{self, Whose};
 use crate::ui::{Hidden, Ui};
+use crate::usb::{self, UsbLook};
 
 /// Exit code: done.
 pub const DONE: i32 = 0;
@@ -37,6 +41,9 @@ pub const CLOCKS_APART_NOTED_MINUTES: u64 = 5;
 pub struct Tool<'a> {
     /// adb, real or fake.
     pub adb: &'a mut dyn Adb,
+    /// Windows' list of USB devices, real or fake, read when adb sees no
+    /// phone.
+    pub usb: &'a mut dyn UsbLook,
     /// The terminal, real or fake.
     pub ui: &'a mut dyn Ui,
     /// Where the test family lives.
@@ -84,7 +91,7 @@ const RELEASE: &str = "LiMo on this phone is a release build. Android refuses ru
 
 /// adb made ready and the one phone picked; what went wrong said, and the
 /// exit code, when not.
-fn pick_phone<'p>(adb: &'p mut dyn Adb, ui: &mut dyn Ui, hint: Option<&str>) -> Result<Phone<'p>, i32> {
+fn pick_phone<'p>(adb: &'p mut dyn Adb, usb: &mut dyn UsbLook, ui: &mut dyn Ui, hint: Option<&str>) -> Result<Phone<'p>, i32> {
     match adb.ready() {
         Ok(about) => ui.say(&format!("adb: {about}")),
         Err(problem) => {
@@ -96,6 +103,19 @@ fn pick_phone<'p>(adb: &'p mut dyn Adb, ui: &mut dyn Ui, hint: Option<&str>) -> 
         Ok(phone) => {
             ui.say(&format!("Phone: {}", phone.serial));
             Ok(phone)
+        }
+        Err(PickProblem::NoPhone) => {
+            // adb lists nothing: what Windows sees on its USB ports says why.
+            let seen = usb.phones_seen();
+            if let Some(case) = usb::decide(&[], seen.as_deref().map_err(String::as_str)) {
+                ui.say(&case.sees_line());
+                ui.say(&case.advice());
+            }
+            if let Some(hint) = hint {
+                ui.say(hint);
+            }
+            ui.say(NOTHING_CHANGED);
+            Err(REFUSED)
         }
         Err(problem) => {
             ui.say(&problem.to_string());
@@ -181,7 +201,7 @@ fn check(tool: &mut Tool<'_>) -> i32 {
             None
         }
     };
-    let mut phone = match pick_phone(&mut *tool.adb, ui, None) {
+    let mut phone = match pick_phone(&mut *tool.adb, &mut *tool.usb, ui, None) {
         Ok(phone) => phone,
         Err(code) => return code,
     };
@@ -302,7 +322,7 @@ fn install(tool: &mut Tool<'_>, apk: &str) -> i32 {
         return REFUSED;
     }
     ui.say(&format!("The APK is LiMo's child form{version}, a debug build."));
-    let mut phone = match pick_phone(&mut *tool.adb, ui, None) {
+    let mut phone = match pick_phone(&mut *tool.adb, &mut *tool.usb, ui, None) {
         Ok(phone) => phone,
         Err(code) => return code,
     };
@@ -461,7 +481,7 @@ fn setup(tool: &mut Tool<'_>, mut plan: Plan) -> i32 {
             return FAILED;
         }
     }
-    let mut phone = match pick_phone(&mut *tool.adb, ui, None) {
+    let mut phone = match pick_phone(&mut *tool.adb, &mut *tool.usb, ui, None) {
         Ok(phone) => phone,
         Err(code) => return code,
     };
@@ -714,7 +734,7 @@ fn status(tool: &mut Tool<'_>) -> i32 {
             None
         }
     };
-    let mut phone = match pick_phone(&mut *tool.adb, ui, None) {
+    let mut phone = match pick_phone(&mut *tool.adb, &mut *tool.usb, ui, None) {
         Ok(phone) => phone,
         Err(code) => return code,
     };
@@ -745,7 +765,7 @@ fn status(tool: &mut Tool<'_>) -> i32 {
 /// `log`: follows the phone's log.
 fn log(tool: &mut Tool<'_>, minutes: u32) -> i32 {
     let ui = &mut *tool.ui;
-    let mut phone = match pick_phone(&mut *tool.adb, ui, None) {
+    let mut phone = match pick_phone(&mut *tool.adb, &mut *tool.usb, ui, None) {
         Ok(phone) => phone,
         Err(code) => return code,
     };
@@ -821,7 +841,7 @@ fn forget(tool: &mut Tool<'_>, this_pc_only: bool) -> i32 {
         return DONE;
     }
     let hint = "If that phone is gone for good, forget --this-pc-only deletes the test family on this PC alone.";
-    let mut phone = match pick_phone(&mut *tool.adb, ui, Some(hint)) {
+    let mut phone = match pick_phone(&mut *tool.adb, &mut *tool.usb, ui, Some(hint)) {
         Ok(phone) => phone,
         Err(code) => return code,
     };
@@ -934,7 +954,7 @@ fn forget_phone_only(tool: &mut Tool<'_>) -> i32 {
          and leaves the test family on this PC as it is.",
     );
     let family = family::read_places(&tool.places).ok().flatten();
-    let mut phone = match pick_phone(&mut *tool.adb, ui, None) {
+    let mut phone = match pick_phone(&mut *tool.adb, &mut *tool.usb, ui, None) {
         Ok(phone) => phone,
         Err(code) => return code,
     };
@@ -1021,7 +1041,7 @@ fn forget_phone_only(tool: &mut Tool<'_>) -> i32 {
 fn uninstall(tool: &mut Tool<'_>) -> i32 {
     let ui = &mut *tool.ui;
     ui.say("uninstall removes LiMo from the phone, with everything it kept there.");
-    let mut phone = match pick_phone(&mut *tool.adb, ui, None) {
+    let mut phone = match pick_phone(&mut *tool.adb, &mut *tool.usb, ui, None) {
         Ok(phone) => phone,
         Err(code) => return code,
     };

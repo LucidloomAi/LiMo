@@ -2,6 +2,8 @@
 //! not show it. Behind the [`Ui`] trait, so that the tests can read every
 //! line the tool prints and type a PIN for it.
 
+#![forbid(unsafe_code)]
+
 use std::io::IsTerminal;
 
 use zeroize::Zeroizing;

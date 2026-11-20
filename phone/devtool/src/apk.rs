@@ -8,6 +8,8 @@
 //! directory, that one entry, and in it the `manifest` element's `package`
 //! and `versionName` and the `application` element's `debuggable`.
 
+#![forbid(unsafe_code)]
+
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
