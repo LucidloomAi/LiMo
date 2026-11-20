@@ -58,7 +58,7 @@ handle.close()                                        // when the host stops
 | `listen(listener)` | Told when something changed: the front, the screen, a call, the clock, the zone, a permission, the apps. Close the handle to stop. Android's signals are registered only while someone listens. |
 | `launchableApps()` | The apps a child can open, each with its label, sorted by label, LiMo left out, each saying whether its time never counts (the home app, a dialler): the list a guardian picks blocked and allowed apps from. |
 | `permissions()` | Every permission LiMo needs, read now. |
-| `limoScreenShown(shown)` | From LiMo's own activities: `true` in `onResume`, `false` in `onPause`. |
+| `limoScreenShown(shown)` | From LiMo's own screens: `true` when one comes to the front, `false` when it leaves. The ways out screen says so in its `onResume` and `onPause`; the main activity through the seam (`seam/OwnScreen`), which also says `false` while LiMo shares the screen in split screen or a floating window. The watch keeps one word for all of them, the last given. |
 | `emergencyDiallerOpening()` | From show/, just before the lock's emergency call opens the emergency dialler. |
 | `WatchService.current` | The connected accessibility service, for show/ to add its covers as its overlay windows; null while Android has not connected it. |
 
