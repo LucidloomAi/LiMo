@@ -145,8 +145,8 @@ pub fn status_lines(bytes: &[u8], family: Option<&Family>, clock: Option<(i64, i
     if let Some(problem) = engine.load_problem() {
         lines.push(format!(
             "LiMo's state on the phone cannot be read. {} LiMo then shows a lock that says it cannot check the time \
-             left, with no way out on the phone, until it is paired again. forget cannot tell whose it is; uninstall \
-             removes it with LiMo.",
+             left, with no way out on the phone, until it is paired again. forget cannot tell whose it is; forget \
+             --phone-only wipes it.",
             problem_words(problem)
         ));
         return lines;
@@ -155,7 +155,8 @@ pub fn status_lines(bytes: &[u8], family: Option<&Family>, clock: Option<(i64, i
     match family.filter(|f| f.device_id() == Some(kept.device_id.as_str())) {
         Some(family) => lines.push(format!("Child: {} (this PC's test family), on its {}.", family.child, crate::family::PHONE_NAME.to_lowercase())),
         None => lines.push(format!(
-            "This phone holds a family this PC did not make: child {}, device {}. Only what its state says is shown.",
+            "This phone holds a family this PC did not make: child {}, device {}. Only what its state says is shown; \
+             forget --phone-only wipes it.",
             kept.child_id, kept.device_id
         )),
     }

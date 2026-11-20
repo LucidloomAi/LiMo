@@ -67,12 +67,15 @@ pub fn run(tool: &mut Tool<'_>, argv: &[String]) -> i32 {
         Command::Code { minutes } => code(tool, minutes),
         Command::Status => status(tool),
         Command::Log { minutes } => log(tool, minutes),
-        Command::Forget { this_pc_only } => forget(tool, this_pc_only),
+        Command::Forget { phone_only: true, .. } => forget_phone_only(tool),
+        Command::Forget { this_pc_only, .. } => forget(tool, this_pc_only),
         Command::Uninstall => uninstall(tool),
     }
 }
 
 const NOTHING_CHANGED: &str = "Nothing was changed on the phone.";
+const PHONE_ONLY_NEXT: &str =
+    "forget --phone-only, which wipes the family LiMo keeps on this phone and nothing else; then setup.";
 const NOT_INSTALLED: &str =
     "LiMo's child form is not installed on this phone. Run install --apk PATH with the debug child form first.";
 const RELEASE: &str = "LiMo on this phone is a release build. Android refuses run-as for a release build, so this tool \
@@ -243,11 +246,11 @@ fn check(tool: &mut Tool<'_>) -> i32 {
                     }
                     Some(Whose::Other { device_id }) => {
                         ui.say(&format!("LiMo's state on the phone: it holds a family this PC did not make (device {device_id})."));
-                        "uninstall, then install, to start afresh on this phone.".to_string()
+                        PHONE_ONLY_NEXT.to_string()
                     }
                     Some(Whose::Unreadable(problem)) => {
                         ui.say(&format!("LiMo's state on the phone cannot be read. {problem}"));
-                        "uninstall, then install, to start afresh on this phone.".to_string()
+                        PHONE_ONLY_NEXT.to_string()
                     }
                 };
                 if look.pairing {
@@ -389,24 +392,49 @@ fn wait_until_taken(phone: &mut Phone<'_>, device_id: &str) -> Result<bool, Trou
 }
 
 /// True when the pairing file is gone and LiMo keeps a state of this
-/// device.
+/// device. A state that cannot be read back is not confirmed: false, and
+/// LiMo's own word decides what happens then.
 fn taken(phone: &mut Phone<'_>, device_id: &str) -> Result<bool, Trouble> {
     let look = phone.look()?;
     if look.pairing || !look.state {
         return Ok(false);
     }
-    let Some(bytes) = phone.read_state()?.map(Zeroizing::new) else { return Ok(false) };
+    let Some(bytes) = phone.read_state().ok().flatten().map(Zeroizing::new) else { return Ok(false) };
     let engine = limo_phone::PhoneEngine::load(&bytes);
     Ok(engine.view().is_some_and(|v| v.device_id == device_id))
 }
 
-/// Undoes this PC's side of a setup the phone did not take.
-fn undo_setup(tool_places: &Places, phone: &mut Phone<'_>, ui: &mut dyn Ui) {
+/// What `setup` says when the phone may hold the test family but the tool
+/// could not confirm it: the family on this PC is kept.
+const KEPT_UNCONFIRMED: &str = "The test family on this PC is kept, so that this PC and the phone still match. Run \
+     check, then status, to see what the phone holds. To start again, run forget: it wipes the test family from the \
+     phone and from this PC.";
+
+/// Undoes this PC's side of a setup the phone did not take, but only when
+/// the phone keeps no state: setup pairs only a phone that keeps none, so a
+/// state there now came from this pairing, and deleting the family on this
+/// PC would leave the phone holding a family this PC no longer has. True
+/// when it was undone.
+fn undo_setup(tool_places: &Places, phone: &mut Phone<'_>, ui: &mut dyn Ui) -> bool {
     let _ = phone.remove_pairing();
+    match phone.look() {
+        Ok(look) if !look.state => {}
+        Ok(_) => {
+            ui.say("LiMo keeps a state on the phone now, which can only have come from this pairing.");
+            ui.say(KEPT_UNCONFIRMED);
+            return false;
+        }
+        Err(t) => {
+            ui.say(&format!("Whether LiMo keeps a state on the phone now could not be read: {t}"));
+            ui.say(KEPT_UNCONFIRMED);
+            return false;
+        }
+    }
     match family::delete(tool_places) {
         Ok(()) => ui.say("The pairing file was removed from the phone, and the test family on this PC deleted again, so setup can run again."),
         Err(problem) => ui.say(&format!("The test family on this PC could not be deleted again: {problem}. Run forget --this-pc-only.")),
     }
+    true
 }
 
 /// `setup`.
@@ -453,11 +481,12 @@ fn setup(tool: &mut Tool<'_>, mut plan: Plan) -> i32 {
                     Whose::Ours => "a family".to_string(),
                 },
                 Ok(None) => "a state".to_string(),
-                Err(t) => return trouble(ui, "LiMo's state could not be read", t),
+                Err(t) => format!("a state this tool could not read back ({t})"),
             };
             ui.say(&format!(
                 "LiMo on this phone already holds {held}. setup pairs only a phone that holds none. To start afresh, run \
-                 uninstall (it removes LiMo with everything it kept), then install."
+                 forget --phone-only (it asks LiMo to wipe the state it keeps on the phone, and nothing else), then \
+                 setup again."
             ));
             ui.say(NOTHING_CHANGED);
             return REFUSED;
@@ -585,7 +614,23 @@ fn setup(tool: &mut Tool<'_>, mut plan: Plan) -> i32 {
     }
     if !took {
         // LiMo's own word, from its log since just before the broadcast.
-        match phone.pair_word(phone_now.saturating_sub(2)).ok().flatten() {
+        let word = phone.pair_word(phone_now.saturating_sub(2)).ok().flatten();
+        if word.as_deref() == Some("taken") {
+            // LiMo says it took it: this PC's side must stay, whatever this
+            // tool could not read.
+            ui.say(
+                "LiMo says it took the test family (its log says: dev pair taken), but this tool could not read its \
+                 state back to check that it holds the test phone.",
+            );
+            ui.say(KEPT_UNCONFIRMED);
+            let _ = places::append(
+                &tool.places,
+                (tool.clock)(),
+                "setup made a test family and paired one phone; LiMo said it took it, and its state could not be read back.",
+            );
+            return FAILED;
+        }
+        match word {
             Some(word) => {
                 ui.say(&format!("LiMo did not take the test family. Its log says: dev pair {word}"));
                 ui.say(&phone::pair_advice(&word));
@@ -771,7 +816,7 @@ fn forget(tool: &mut Tool<'_>, this_pc_only: bool) -> i32 {
         if let Err(code) = forget_here(&tool.places, &family, ui) {
             return code;
         }
-        ui.say("The phone was not asked. If LiMo there still holds the test family, uninstall removes it with LiMo.");
+        ui.say("The phone was not asked. If LiMo there still holds the test family, forget --phone-only wipes it.");
         let _ = places::append(&tool.places, (tool.clock)(), "forget deleted the test family on this PC alone.");
         return DONE;
     }
@@ -811,7 +856,11 @@ fn forget(tool: &mut Tool<'_>, this_pc_only: bool) -> i32 {
             let whose = match phone.read_state() {
                 Ok(Some(bytes)) => Some(status::whose(&Zeroizing::new(bytes), family.as_ref())),
                 Ok(None) => None,
-                Err(t) => return trouble(ui, "LiMo's state could not be read", t),
+                Err(t) => {
+                    let code = trouble(ui, "LiMo's state could not be read", t);
+                    ui.say("Nothing was changed. forget --phone-only wipes the state LiMo keeps on the phone without reading it.");
+                    return code;
+                }
             };
             match whose {
                 Some(Whose::Ours) => {
@@ -836,16 +885,18 @@ fn forget(tool: &mut Tool<'_>, this_pc_only: bool) -> i32 {
                 Some(Whose::Other { device_id }) => {
                     ui.say(&format!(
                         "LiMo on this phone holds a family this PC did not make (device {device_id}). forget leaves it \
-                         alone; uninstall removes it with LiMo. The test family on this PC was kept: forget \
-                         --this-pc-only deletes it alone."
+                         alone: forget --phone-only wipes it, and nothing else."
                     ));
+                    if family.is_some() {
+                        ui.say("The test family on this PC was kept: forget --this-pc-only deletes it alone.");
+                    }
                     ui.say("Nothing was changed.");
                     return REFUSED;
                 }
                 Some(Whose::Unreadable(problem)) => {
                     ui.say(&format!(
                         "LiMo's state on this phone cannot be read, so this PC cannot tell whose it is. {problem} \
-                         uninstall removes it with LiMo; then forget again."
+                         forget --phone-only wipes it, and nothing else; then forget again."
                     ));
                     ui.say("Nothing was changed.");
                     return REFUSED;
@@ -869,6 +920,100 @@ fn forget(tool: &mut Tool<'_>, this_pc_only: bool) -> i32 {
     }
     let _ = places::append(&tool.places, (tool.clock)(), "forget wiped the test family on the phone and deleted it on this PC.");
     ui.say("Next: setup, to make a new test family.");
+    DONE
+}
+
+/// `forget --phone-only`: LiMo's state on the phone wiped, whoever's it is,
+/// and this PC's test family left as it is. The one way to clean a phone
+/// that holds a family this PC does not have, with nothing touched but
+/// LiMo's own state.
+fn forget_phone_only(tool: &mut Tool<'_>) -> i32 {
+    let ui = &mut *tool.ui;
+    ui.say(
+        "forget --phone-only asks LiMo on the phone to wipe the family it keeps, whoever's it is, checks that it did, \
+         and leaves the test family on this PC as it is.",
+    );
+    let family = family::read_places(&tool.places).ok().flatten();
+    let mut phone = match pick_phone(&mut *tool.adb, ui, None) {
+        Ok(phone) => phone,
+        Err(code) => return code,
+    };
+    match phone.installed() {
+        Ok(true) => {}
+        Ok(false) => {
+            ui.say("LiMo is not on this phone, so there is nothing of LiMo's to wipe. Nothing was changed.");
+            return DONE;
+        }
+        Err(t) => return trouble(ui, "Whether LiMo is installed could not be read", t),
+    }
+    match phone.probe() {
+        Err(t) => return trouble(ui, "run-as could not be tried", t),
+        Ok(RunAs::Works) | Ok(RunAs::NotInstalled) => {}
+        Ok(RunAs::Release) => {
+            ui.say(
+                "LiMo on this phone is a release build, so this PC cannot reach its files, and the debug receiver that \
+                 wipes the state is not in it. uninstall removes LiMo with everything it kept.",
+            );
+            ui.say(NOTHING_CHANGED);
+            return REFUSED;
+        }
+        Ok(RunAs::Broken(said)) => {
+            ui.say(&broken(&said));
+            ui.say("uninstall removes LiMo with everything it kept.");
+            ui.say(NOTHING_CHANGED);
+            return REFUSED;
+        }
+    }
+    let look = match phone.look() {
+        Ok(look) => look,
+        Err(t) => return trouble(ui, "LiMo's files could not be looked at", t),
+    };
+    if look.state {
+        // What it holds is said before it goes; it goes whatever this says.
+        let held = match phone.read_state() {
+            Ok(Some(bytes)) => match status::whose(&Zeroizing::new(bytes), family.as_ref()) {
+                Whose::Ours => {
+                    let child = family.as_ref().map_or("", |f| f.child.as_str());
+                    format!("this PC's test family, {child}'s test phone")
+                }
+                Whose::Other { device_id } => format!("a family this PC did not make (device {device_id})"),
+                Whose::Unreadable(problem) => format!("a state it cannot read ({problem})"),
+            },
+            Ok(None) => "no state any more".to_string(),
+            Err(t) => format!("a state this tool could not read back ({t})"),
+        };
+        ui.say(&format!("LiMo on the phone holds {held}."));
+        match phone.broadcast(FORGET_ACTION) {
+            Ok(answer) => ui.say(&format!("Asked LiMo to wipe it. Android: {answer}")),
+            Err(t) => return trouble(ui, "LiMo could not be asked to wipe it", t),
+        }
+        match wait_until_wiped(&mut phone) {
+            Ok(true) => ui.say("LiMo wiped it: its kept state is gone from the phone."),
+            Ok(false) => {
+                ui.say(&format!(
+                    "LiMo did not wipe its state within {} seconds. Run log in another terminal to see what LiMo says; \
+                     uninstall removes the state with LiMo.",
+                    phone::ANSWER_WAIT.as_secs()
+                ));
+                return FAILED;
+            }
+            Err(t) => return trouble(ui, "Whether LiMo wiped it could not be read", t),
+        }
+    } else {
+        ui.say("LiMo on the phone keeps no state: there is nothing to wipe.");
+    }
+    if look.pairing {
+        match phone.remove_pairing() {
+            Ok(()) => ui.say("Removed a pairing file LiMo had not taken."),
+            Err(t) => return trouble(ui, "A pairing file LiMo had not taken could not be removed", t),
+        }
+    }
+    if family.is_some() {
+        ui.say("The test family on this PC is still there: forget --this-pc-only deletes it, and setup needs it gone.");
+    } else {
+        ui.say("Next: setup, to make a new test family.");
+    }
+    let _ = places::append(&tool.places, (tool.clock)(), "forget --phone-only wiped LiMo's state on the phone.");
     DONE
 }
 

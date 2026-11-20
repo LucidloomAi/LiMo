@@ -137,7 +137,7 @@ fn a_phone_unplugged_part_way_or_not_answering_is_said_plainly() {
     bench.phone.hangs_on = Some(crate::fake::READ.to_string());
     assert_eq!(bench.run("status"), FAILED);
     assert!(bench.printed().contains("The phone did not answer within 30 seconds, so the call was stopped."), "{}", bench.printed());
-    let read = bench.phone.calls.iter().find(|c| c.shell() == Some(crate::fake::READ)).unwrap();
+    let read = bench.phone.calls.iter().find(|c| c.exec_out() == Some(crate::fake::READ)).unwrap();
     assert_eq!(read.timeout_secs, 30);
 }
 

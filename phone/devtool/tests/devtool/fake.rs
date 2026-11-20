@@ -32,7 +32,8 @@ pub const LISTED: &str = "pm list packages ai.lucidloom.limo.child";
 pub const DUMP: &str = "dumpsys package ai.lucidloom.limo.child";
 pub const PROBE: &str = "run-as ai.lucidloom.limo.child id -u";
 pub const LOOK: &str = "run-as ai.lucidloom.limo.child sh -c 'test -e files/limo/state && echo state; test -e files/limo-dev/pairing.json && echo pairing; true'";
-pub const READ: &str = "run-as ai.lucidloom.limo.child sh -c 'test -e files/limo/state || exit 3; cat files/limo/state'";
+/// Sent through `exec-out`, never `shell`.
+pub const READ: &str = "run-as ai.lucidloom.limo.child sh -c 'if test -e files/limo/state; then echo limo-dev-state; cat files/limo/state; else echo limo-dev-none; fi'";
 pub const WRITE: &str = "run-as ai.lucidloom.limo.child sh -c 'umask 077 && mkdir -p files/limo-dev && cat > files/limo-dev/pairing.json.part && mv -f files/limo-dev/pairing.json.part files/limo-dev/pairing.json && wc -c < files/limo-dev/pairing.json'";
 pub const REMOVE: &str = "run-as ai.lucidloom.limo.child rm -f files/limo-dev/pairing.json files/limo-dev/pairing.json.part";
 pub const PAIR: &str = "am broadcast -a ai.lucidloom.limo.child.dev.PAIR -n ai.lucidloom.limo.child/.dev.DevReceiver --include-stopped-packages --receiver-foreground";
@@ -60,6 +61,14 @@ impl Recorded {
     pub fn shell(&self) -> Option<&str> {
         match self.args.as_slice() {
             [_, _, shell, t, command] if shell == "shell" && t == "-T" => Some(command.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The command of an `exec-out` call, if it is one.
+    pub fn exec_out(&self) -> Option<&str> {
+        match self.args.as_slice() {
+            [_, _, exec, command] if exec == "exec-out" => Some(command.as_str()),
             _ => None,
         }
     }
@@ -94,6 +103,12 @@ pub struct FakePhone {
     /// The receiver refuses every pairing file with this word, as an app
     /// built from another version might.
     pub refuse_with: Option<String>,
+    /// `exec-out` changes the bytes too, as `shell` does: the state cannot
+    /// be read back, whatever LiMo did.
+    pub mangles_exec_out: bool,
+    /// LiMo's log, read once, gives nothing (a `logcat` that does not take
+    /// the time it is given, say).
+    pub log_silent: bool,
     /// After this many calls to the phone, it is unplugged.
     pub gone_after: Option<usize>,
     /// This shell command never ends: it is stopped at its timeout.
@@ -123,6 +138,8 @@ impl FakePhone {
             log: Vec::new(),
             child_name: None,
             refuse_with: None,
+            mangles_exec_out: false,
+            log_silent: false,
             gone_after: None,
             hangs_on: None,
             calls: Vec::new(),
@@ -239,12 +256,9 @@ impl FakePhone {
                     Reply::ok_with(&out)
                 })
                 .unwrap_or_else(|r| r),
-            READ => limo(self)
-                .map(|()| match self.files.get(STATE) {
-                    Some(bytes) => Reply { code: Some(0), stdout: bytes.clone(), ..Reply::default() },
-                    None => Reply::failed_with(3, ""),
-                })
-                .unwrap_or_else(|r| r),
+            // Answered through shell too, as the phone would: then its line
+            // ends come back changed, as the first real run saw.
+            READ => self.state_answer(),
             WRITE => match limo(self) {
                 Ok(()) => {
                     let bytes = stdin.expect("the pairing file comes on standard input").to_vec();
@@ -271,6 +285,39 @@ impl FakePhone {
             CLOCK => Reply::ok_with(&format!("{}\n{}\n", self.wall_secs, self.zone)),
             other => panic!("the fake phone was sent a shell command it does not know: {other}"),
         }
+    }
+
+    /// What the phone's shell prints for [`READ`]: a first line saying
+    /// whether the state follows, then its bytes as kept; or run-as's
+    /// refusal.
+    fn state_answer(&self) -> Reply {
+        match self.run_as() {
+            Err(refused) => refused,
+            Ok(()) => match self.files.get(STATE) {
+                Some(bytes) => {
+                    let mut out = b"limo-dev-state\n".to_vec();
+                    out.extend_from_slice(bytes);
+                    Reply { code: Some(0), stdout: out, ..Reply::default() }
+                }
+                None => Reply::ok_with("limo-dev-none\n"),
+            },
+        }
+    }
+
+    /// `adb exec-out`, as the real one on Windows: one stream with the
+    /// command's errors on it too, its bytes as they are, and an exit code
+    /// of 0 whatever happened.
+    fn exec_out(&mut self, command: &str) -> Reply {
+        let answer = match command {
+            READ => self.state_answer(),
+            other => panic!("the fake phone was sent an exec-out command it does not know: {other}"),
+        };
+        let mut stdout = answer.stdout;
+        stdout.extend_from_slice(answer.stderr.as_bytes());
+        if self.mangles_exec_out {
+            stdout = crlf_bytes(&stdout);
+        }
+        Reply { code: Some(0), stdout, stderr: String::new(), timed_out: false }
     }
 
     /// LiMo's engine as the phone keeps it, used for `secs` seconds with
@@ -334,20 +381,24 @@ impl Adb for FakePhone {
             for (serial, state) in &self.devices {
                 out.push_str(&format!("{serial}\t{state}\n"));
             }
-            return Ok(Reply::ok_with(&out));
+            return Ok(crlf(Reply::ok_with(&out)));
         }
         let ["-s", serial, rest @ ..] = args.as_slice() else { panic!("a call without -s: {args:?}") };
         let gone = self.gone_after.is_some_and(|n| self.phone_calls().len() > n);
-        if let ["shell", "-T", command] = rest
+        if let ["shell", "-T", command] | ["exec-out", command] = rest
             && !gone
             && self.hangs_on.as_deref() == Some(*command)
         {
             return Ok(Reply { timed_out: true, ..Reply::default() });
         }
         if gone || !self.devices.iter().any(|(s, st)| s == serial && st == "device") {
-            return Ok(Reply::failed_with(1, &format!("adb: error: device '{serial}' not found\n")));
+            return Ok(crlf(Reply::failed_with(1, &format!("adb: error: device '{serial}' not found\n"))));
         }
-        Ok(match rest {
+        // Every answer but exec-out's comes back with each line feed made
+        // a carriage return and a line feed, as adb on Windows gave them in
+        // the first real run.
+        let reply = match rest {
+            ["exec-out", command] => return Ok(self.exec_out(command)),
             ["shell", "-T", command] => self.shell(command, call.stdin),
             ["install", "-r", "-t", _path] => match &self.install_refusal {
                 Some(refusal) => Reply::failed_with(1, refusal),
@@ -376,7 +427,8 @@ impl Adb for FakePhone {
             // the fake's log is taken to be that recent.
             ["logcat", "-d", "-v", "time", "-t", since, "-s", "LiMo:V"] => {
                 assert!(since.ends_with(".000") && since[..since.len() - 4].parse::<i64>().is_ok(), "{since}");
-                let lines: Vec<&String> = self.log.iter().filter(|l| l.contains(" I/LiMo ")).collect();
+                let lines: Vec<&String> =
+                    self.log.iter().filter(|l| l.contains(" I/LiMo ") && !self.log_silent).collect();
                 Reply::ok_with(&lines.iter().map(|l| format!("{l}\n")).collect::<String>())
             }
             rest if rest == LOGCAT => {
@@ -389,12 +441,33 @@ impl Adb for FakePhone {
                 Reply { timed_out: true, ..Reply::default() }
             }
             other => panic!("the fake phone was sent a call it does not know: {other:?}"),
-        })
+        };
+        Ok(crlf(reply))
     }
 
     fn pause(&mut self, _d: Duration) {
         self.pauses += 1;
     }
+}
+
+/// Each line feed made a carriage return and a line feed; one already
+/// after a carriage return is left.
+pub fn crlf_bytes(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len() + bytes.len() / 8);
+    for (i, b) in bytes.iter().enumerate() {
+        if *b == b'\n' && (i == 0 || bytes[i - 1] != b'\r') {
+            out.push(b'\r');
+        }
+        out.push(*b);
+    }
+    out
+}
+
+/// A reply as adb on Windows gives it through `shell` and its other
+/// commands but `exec-out`.
+fn crlf(reply: Reply) -> Reply {
+    let stderr = String::from_utf8(crlf_bytes(reply.stderr.as_bytes())).unwrap();
+    Reply { stdout: crlf_bytes(&reply.stdout), stderr, ..reply }
 }
 
 fn unhex(text: &str) -> Vec<u8> {

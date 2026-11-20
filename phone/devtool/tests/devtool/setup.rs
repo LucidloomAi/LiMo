@@ -5,7 +5,7 @@ use limo_core::{DailyBudget, Grant, TryOutcome, WeekBudgets};
 use limo_phone_dev::family;
 use limo_phone_dev::{DONE, FAILED, REFUSED};
 
-use crate::fake::{Bench, NOW, PAIR, PAIRING, PIN, SERIAL, STATE, WRITE, ZONE};
+use crate::fake::{Bench, NOW, PAIR, PAIRING, PIN, READ, SERIAL, STATE, WRITE, ZONE};
 
 const SETUP: &str = "setup --child Asha --minutes 20 --block com.example.game --allow com.example.clock --bedtime 21:00-07:00";
 
@@ -74,7 +74,10 @@ fn setup_puts_the_test_family_on_the_phone_exactly_as_section_0_fixes_it() {
     let shells = bench.phone.shell_commands();
     let write_at = shells.iter().position(|s| s == WRITE).unwrap();
     assert_eq!(shells[write_at + 1], PAIR);
-    assert!(shells[write_at + 2..].iter().any(|s| s.contains("cat files/limo/state")), "read back: {shells:?}");
+    // Read back through exec-out, so that its bytes arrive as they are.
+    let broadcast_at = bench.phone.calls.iter().position(|c| c.shell() == Some(PAIR)).unwrap();
+    assert!(bench.phone.calls[broadcast_at..].iter().any(|c| c.exec_out() == Some(READ)), "read back");
+    assert!(!shells.iter().any(|s| s.contains("cat files/limo/state")), "the state is never read through shell");
 
     // LiMo took it: the pairing file is gone and its kept state is the test
     // phone's, with the whole day of 20 minutes in hand away from home. The
@@ -227,7 +230,7 @@ fn setup_refuses_a_phone_that_already_holds_a_family() {
     bench.phone.files = first.phone.files.clone();
     assert_eq!(bench.setup("setup --child Mira --minutes 30"), REFUSED);
     assert!(bench.printed().contains("LiMo on this phone already holds a family, device device-"), "{}", bench.printed());
-    assert!(bench.printed().contains("To start afresh, run uninstall (it removes LiMo with everything it kept), then install."));
+    assert!(bench.printed().contains("To start afresh, run forget --phone-only (it asks LiMo to wipe the state it keeps on the phone, and nothing else), then setup again."));
     assert!(bench.phone.changed_nothing());
     assert!(!bench.places().family_file().exists());
     assert!(bench.ui.prompts.is_empty(), "no PIN asked for");

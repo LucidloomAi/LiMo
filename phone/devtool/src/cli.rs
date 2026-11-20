@@ -51,10 +51,13 @@ pub enum Command {
         /// How long to follow.
         minutes: u32,
     },
-    /// `forget [--this-pc-only]`.
+    /// `forget [--this-pc-only | --phone-only]`.
     Forget {
         /// Only this PC's side: for a phone that is gone.
         this_pc_only: bool,
+        /// Only the phone's side: LiMo's state on the phone, whoever's it
+        /// is, for a phone that holds a family this PC does not have.
+        phone_only: bool,
     },
     /// `uninstall`.
     Uninstall,
@@ -94,9 +97,11 @@ Commands:
   log [--minutes N]
       Follows the phone's log for LiMo's tags (LiMo and LiMoWatch) until Ctrl+C, or N minutes
       ({DEFAULT_LOG_MINUTES} unless told, at most {MAX_LOG_MINUTES}).
-  forget [--this-pc-only]
+  forget [--this-pc-only | --phone-only]
       Asks LiMo on the phone to wipe the test family, checks that it did, and deletes the test
       family on this PC. With --this-pc-only, for a phone that is gone: this PC's side alone.
+      With --phone-only, for a phone that holds a family this PC does not have: LiMo's state on
+      the phone alone, whoever's it is, wiped by LiMo itself and checked.
   uninstall
       Removes LiMo from the phone, with everything it kept. The test family on this PC stays until
       forget.
@@ -229,14 +234,18 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
             Ok(Command::Log { minutes })
         }
         "forget" => {
-            let mut this_pc_only = false;
+            let (mut this_pc_only, mut phone_only) = (false, false);
             for arg in rest {
                 match arg.as_str() {
                     "--this-pc-only" => this_pc_only = true,
+                    "--phone-only" => phone_only = true,
                     other => return Err(unknown(other)),
                 }
             }
-            Ok(Command::Forget { this_pc_only })
+            if this_pc_only && phone_only {
+                return Err("forget takes --this-pc-only or --phone-only, not both. forget alone does both sides.".to_string());
+            }
+            Ok(Command::Forget { this_pc_only, phone_only })
         }
         other => Err(format!("There is no command \"{other}\". See limo-phone-dev help.")),
     }
@@ -263,8 +272,10 @@ mod tests {
         assert_eq!(parse(&args("code --minutes 60")), Ok(Command::Code { minutes: 60 }));
         assert_eq!(parse(&args("log")), Ok(Command::Log { minutes: 60 }));
         assert_eq!(parse(&args("log --minutes 5")), Ok(Command::Log { minutes: 5 }));
-        assert_eq!(parse(&args("forget")), Ok(Command::Forget { this_pc_only: false }));
-        assert_eq!(parse(&args("forget --this-pc-only")), Ok(Command::Forget { this_pc_only: true }));
+        assert_eq!(parse(&args("forget")), Ok(Command::Forget { this_pc_only: false, phone_only: false }));
+        assert_eq!(parse(&args("forget --this-pc-only")), Ok(Command::Forget { this_pc_only: true, phone_only: false }));
+        assert_eq!(parse(&args("forget --phone-only")), Ok(Command::Forget { this_pc_only: false, phone_only: true }));
+        assert!(parse(&args("forget --phone-only --this-pc-only")).unwrap_err().contains("not both"));
         let setup = parse(&args("setup --child Asha --minutes 20 --block com.example.game --allow com.example.clock --bedtime 21:00-07:00")).unwrap();
         let Command::Setup { child, minutes, block, allow, bedtime } = setup else { panic!("not setup") };
         assert_eq!((child.as_str(), minutes), ("Asha", 20));

@@ -32,6 +32,7 @@ phone's accounts, its Device Owner or its settings. The help says so first.
 - [When something is not right](#when-something-is-not-right)
 - [How status reads the phone](#how-status-reads-the-phone)
 - [What LiMo's debug build must do](#what-limos-debug-build-must-do)
+- [What a real phone showed](#what-a-real-phone-showed)
 - [What only a real phone can prove](#what-only-a-real-phone-can-prove)
 - [Tests](#tests)
 - [Dependencies and licences](#dependencies-and-licences)
@@ -48,11 +49,11 @@ it.
 | --- | --- | --- |
 | `check` | reads only | Is `adb` there; is exactly one phone attached and allowed; which Android; is LiMo's child form installed, which version, and is it a debug build (`run-as` works: only those can take a test family); does LiMo keep a state, and is it this PC's test family, another family, or one it cannot read; is a pairing file waiting that LiMo has not taken. Then the test family on this PC, and what to do next. |
 | `install --apk PATH` | installs | Reads the APK first, on the PC: its package must be the child form, `ai.lucidloom.limo.child`, and it must be a debug build (`android:debuggable` in its manifest). Anything else is refused before `adb` is touched: the guardian form, any other app, a release build of the child form, a file that is not an APK. Then `adb install -r -t PATH`: LiMo already there is replaced and keeps its files, so a test family on it stays. Android's refusals are said with what to do (signed with another key, a newer version on the phone, an Android older than 8.0, no room, an install over USB the phone does not allow). |
-| `setup --child NAME --minutes N [--block PACKAGE]... [--allow PACKAGE]... [--bedtime HH:MM-HH:MM]` | writes LiMo's files | Takes the child's name with control characters and the marks that turn the direction of writing dropped, and spaces trimmed: 1 to 40 characters, or refused before anything is made. Asks for a guardian PIN twice at a prompt that does not show it (6 to 8 digits); makes the test family on this PC: the child, `N` minutes every day (0 to 1440), the blocked and always allowed apps by package name, a bedtime every day, the away share at 100 percent (so that a phone with no master has its whole day), and the PIN; pairs one phone; writes the pairing file into LiMo's own files through `run-as`, and sends the pairing broadcast, both exactly as "What LiMo's debug build must do" below fixes them; then reads back, for up to 15 seconds, that LiMo took it; when it did not, LiMo's own word for why, read once from its log, with what to do. The child's home zone is the phone's own, read from it (`date +%z`), so the days and the bedtime are what the phone's clock shows. Refused, changing nothing, when this PC has a test family already (it says what there is and what `forget` does), when LiMo on the phone holds any family already, or when the phone's clock and this PC's are 50 minutes or more apart (LiMo's debug build takes a pairing file only when it was made within an hour of its own clock); 5 minutes or more apart is said. |
+| `setup --child NAME --minutes N [--block PACKAGE]... [--allow PACKAGE]... [--bedtime HH:MM-HH:MM]` | writes LiMo's files | Takes the child's name with control characters and the marks that turn the direction of writing dropped, and spaces trimmed: 1 to 40 characters, or refused before anything is made. Asks for a guardian PIN twice at a prompt that does not show it (6 to 8 digits); makes the test family on this PC: the child, `N` minutes every day (0 to 1440), the blocked and always allowed apps by package name, a bedtime every day, the away share at 100 percent (so that a phone with no master has its whole day), and the PIN; pairs one phone; writes the pairing file into LiMo's own files through `run-as`, and sends the pairing broadcast, both exactly as "What LiMo's debug build must do" below fixes them; then reads back, for up to 15 seconds, that LiMo took it; when it did not, LiMo's own word for why, read once from its log, with what to do. The test family on this PC is deleted again only when LiMo did not take it: never when LiMo's word is `taken`, nor while LiMo keeps a state on the phone, even when that state cannot be read back. The child's home zone is the phone's own, read from it (`date +%z`), so the days and the bedtime are what the phone's clock shows. Refused, changing nothing, when this PC has a test family already (it says what there is and what `forget` does), when LiMo on the phone holds any family already, or when the phone's clock and this PC's are 50 minutes or more apart (LiMo's debug build takes a pairing file only when it was made within an hour of its own clock); 5 minutes or more apart is said. |
 | `code [--minutes 15\|30\|60]` | none | A one time code for the test phone, worth 15 minutes unless told, for the child's day today, printed once in the terminal and nowhere else. Each run makes a new one, and the test family's file records it; a phone takes ten a day. No phone is needed: the phone checks a code with the secret it shares with this PC. |
 | `status` | reads only | What LiMo on the phone holds, as its own engine reads its kept state: the child, the time left, the time used today, each app's minutes, whether it is locked and why and until when, a guardian's unlock, wrong tries of a code or the PIN and the wait they set, a request that waits for an answer, what LiMo last saw switched off, and the use not yet sent to a master. Never a PIN, a code or the reason a child typed. See [How status reads the phone](#how-status-reads-the-phone). |
 | `log [--minutes N]` | reads only | Follows the phone's log for LiMo's two tags, `LiMo` and `LiMoWatch` (`adb logcat -v time -s LiMo:V LiMoWatch:V`, and only lines of those tags are shown), until Ctrl+C, or N minutes (60 unless told, at most 720). |
-| `forget [--this-pc-only]` | wipes LiMo's state | Reads LiMo's state first. When it is this PC's test family, sends the forget broadcast and checks, for up to 15 seconds, that the state is gone; removes a pairing file LiMo never took; then deletes the test family on this PC, so that `setup` can make a new one. A state of another family, or one that cannot be read, is left alone, and nothing is deleted. With LiMo gone from the phone, only this PC's side is left to delete. `--this-pc-only` asks nothing of any phone: for a phone that is gone. |
+| `forget [--this-pc-only \| --phone-only]` | wipes LiMo's state | Reads LiMo's state first. When it is this PC's test family, sends the forget broadcast and checks, for up to 15 seconds, that the state is gone; removes a pairing file LiMo never took; then deletes the test family on this PC, so that `setup` can make a new one. A state of another family, or one that cannot be read, is left alone, nothing is deleted, and it says that `--phone-only` wipes it. With LiMo gone from the phone, only this PC's side is left to delete. `--this-pc-only` asks nothing of any phone: for a phone that is gone. `--phone-only` is for a phone that holds a family this PC does not have: it says what LiMo holds, sends the forget broadcast whoever's state it is, checks that it is gone, removes a pairing file LiMo never took, and leaves this PC's test family as it is. It wipes nothing but LiMo's own state, and only through LiMo's own debug receiver. |
 | `uninstall` | removes LiMo | `adb uninstall ai.lucidloom.limo.child`: LiMo and everything it kept. Refused by Android while LiMo is a device admin (its protection), which this tool never switches off; it says where a person does. The test family on this PC stays until `forget`. |
 | `help` | none | What it never does, the commands, and where the test family lives. |
 
@@ -129,24 +130,44 @@ the pairing file.
    receiver is guarded by `android.permission.DUMP`, which only adb's shell
    and the system hold, so no app on the phone can send it.
 4. Reading back, once a second for up to 15 seconds: is the pairing file
-   gone and is a state kept, then the state itself,
-   `run-as ai.lucidloom.limo.child sh -c 'test -e files/limo/state || exit 3; cat files/limo/state'`,
+   gone and is a state kept, then the state itself, **through `adb exec-out`,
+   never `adb shell`**, so that its bytes arrive as they are (see
+   [What a real phone showed](#what-a-real-phone-showed)):
+   `run-as ai.lucidloom.limo.child sh -c 'if test -e files/limo/state; then echo limo-dev-state; cat files/limo/state; else echo limo-dev-none; fi'`.
+   The exit code of `exec-out` is always 0, so the answer's first line says
+   which it is: `limo-dev-state` and then the state's bytes, exactly, or
+   `limo-dev-none`. Anything else (`run-as` refusing, whose words come on the
+   same stream) is said as it is, and an answer whose line ends were changed
+   on the way is said to be so, never handed on as the state. The state is
    read here by the phone's own engine to check that it is the test phone's.
    **The state comes back over the cable**: it holds the same code secret
    and the PIN's record the pairing file held, and is dropped from memory
-   once read. `check`, `status` and `forget` read it the same way.
+   once read. `check`, `status`, `forget` and `forget --phone-only` read it
+   the same way.
+
+Every other answer from the phone is text (`getprop`, `pm list`, `dumpsys`,
+`run-as ... id -u`, the look at LiMo's files, `wc -c`, `date`, the
+broadcast's answer, `adb install` and `adb uninstall`, the log, `adb
+devices`), read line by line with each line trimmed, so a carriage return
+before a line feed changes nothing in it.
 
 If LiMo does not take the file in time, the tool reads LiMo's log once,
 for its tag only and only since just before the broadcast by the phone's
 clock (`adb logcat -d -v time -t <secs>.000 -s LiMo:V`, which reads and
 ends), and says LiMo's own word for why (`dev pair refused
 why=no_child_name`, for example) with what to do; or, when LiMo said
-nothing, that the debug build may lack the receiver. Then it removes the
-file from the phone (`run-as ... rm -f`) and deletes the test family on
-this PC again, so that `setup` can simply run again.
+nothing, that the debug build may lack the receiver. It removes the file
+from the phone (`run-as ... rm -f`). Then it deletes the test family on
+this PC again, so that `setup` can simply run again, **only when LiMo did
+not take it**: when LiMo's word is `taken`, or when LiMo keeps a state on
+the phone now (which can only have come from this pairing, since `setup`
+pairs only a phone that keeps none), the test family on this PC is kept,
+even if the state cannot be read back, and `setup` says so and what to do:
+`check`, then `status`; `forget` to start again. Deleting it then would
+leave the phone holding a family this PC no longer has.
 
-`forget` sends `ai.lucidloom.limo.child.dev.FORGET` the same way, and reads
-back that the state is gone. `install` is `adb install -r -t PATH`,
+`forget` and `forget --phone-only` send `ai.lucidloom.limo.child.dev.FORGET`
+the same way, and read back that the state is gone. `install` is `adb install -r -t PATH`,
 `uninstall` is `adb uninstall ai.lucidloom.limo.child`, `log` is
 `adb logcat -v time -s LiMo:V LiMoWatch:V`. `code` sends nothing at all.
 
@@ -176,7 +197,9 @@ Each has its own plain message, and none changes anything:
 | A call that does not answer | Stopped after its timeout, and said. |
 | A PIN that is not 6 to 8 digits, two that differ, or no terminal to type it in | Said, with nothing made. |
 | A child's name longer than 40 characters, or empty once cleaned | Said, before anything is asked or made. |
-| LiMo did not take the pairing file | LiMo's word from its log, and what to do: `old_file`, set the clock that is wrong; `no_child_name`, `not_json`, `no_welcome`, `no_code_secret`, `no_made_at`, `code_secret_not_hex` or `code_secret_not_32_bytes`, the tool and the app's debug build were built from different versions, so build both from the same one; `unreadable` or `not_deleted`, run setup again; `engine`, copy what `log` shows. Nothing in the log: is the receiver in this debug build? Both sides are undone. |
+| LiMo did not take the pairing file | LiMo's word from its log, and what to do: `old_file`, set the clock that is wrong; `no_child_name`, `not_json`, `no_welcome`, `no_code_secret`, `no_made_at`, `code_secret_not_hex` or `code_secret_not_32_bytes`, the tool and the app's debug build were built from different versions, so build both from the same one; `unreadable` or `not_deleted`, run setup again; `engine`, copy what `log` shows. Nothing in the log: is the receiver in this debug build? Both sides are undone, but only when LiMo keeps no state on the phone. |
+| LiMo says it took the test family, but its state cannot be read back | "LiMo says it took the test family (its log says: dev pair taken), but this tool could not read its state back to check that it holds the test phone." The test family on this PC is kept: run `check`, then `status`; `forget` to start again. |
+| The phone holds a family this PC does not have | `check`, `status`, `forget` and `setup` say so and change nothing; each points at `forget --phone-only`, which wipes LiMo's state on the phone and nothing else. |
 
 ## How status reads the phone
 
@@ -250,11 +273,42 @@ module's `src/debug`, the host's piece, read when this was written):
 - The broadcast names the receiver, so it reaches it whatever its intent
   filter says.
 
+## What a real phone showed
+
+The first run on a real phone, on 20 November 2026 (a Galaxy on Android 13,
+a Windows PC, adb 1.0.41):
+
+- **Writing through standard input works.** `setup` wrote the pairing file
+  (1385 bytes) through `adb shell -T ... cat > ...`; the size check passed,
+  and LiMo read the file: its log said `host paired` and `dev pair taken`,
+  the pairing file was gone, and `files/limo/state` was there (1984 bytes).
+- **Reading through `adb shell` changes the bytes.** `adb shell -T` gave the
+  1984 byte state back as 1987 bytes: every line feed came back as a
+  carriage return and a line feed (the state has three line feeds; turning
+  each carriage return and line feed back into a line feed gives the exact
+  file). The engine then took the state for damaged, so the tool could not
+  see that LiMo held the test phone.
+- **`adb exec-out` does not**: the same command through `exec-out` gave the
+  exact 1984 bytes. But its exit code was 0 both when the state was there
+  and when the command ran `exit 3` for a missing state (then it printed
+  nothing).
+- **What the tool then did wrong**: after 15 seconds it read LiMo's log,
+  found `dev pair taken`, said LiMo had not taken it, and deleted the test
+  family on this PC, leaving the phone holding a family this PC no longer
+  had.
+
+What changed for it: the state is read through `exec-out`, with a first
+line that says whether a state follows; every text answer is read so that a
+carriage return changes nothing; `setup` keeps the test family on this PC
+whenever LiMo says `taken` or keeps a state; and `forget --phone-only`
+cleans a phone left holding a family this PC does not have. The fake phone
+the tests use now answers as this adb did, so every story runs against it,
+and the failure itself is a story (`tests/devtool/line_ends.rs`).
+
 ## What only a real phone can prove
 
-- That `adb shell -T` on Windows carries standard input to `run-as` on the
-  phone and ends it, so that `cat` sees the end of the file; the size check
-  catches a file cut short.
+- That `run-as` with `exec-out` reads the state the same way on other
+  phones and other versions of adb (measured once, on the Galaxy).
 - That `run-as` makes `files/limo-dev` in a way LiMo can read and delete
   (its owner and its SELinux label), on an app that has never run.
 - That an explicit broadcast with `--include-stopped-packages` reaches the
@@ -278,8 +332,8 @@ a small trait, and the stories play a phone with a fake.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | The adb line as typed; a reply's parts; looking for adb where it should be; the command line, each command and each refusal; the help saying first what the tool never does; devices of every state, one picked or each problem said; `run-as` telling a debug build from a release build; the phone's clock and zone; `dumpsys` and the install and uninstall answers; only LiMo's two log tags; no command carrying anything but names; bedtimes and package names; the test family's rules with the whole day away; the folder named for testing; a log line with the time in UTC and no control characters; times on the phone's clock; zones said; a child's name trimmed, its hidden characters dropped, 1 to 40 long; LiMo's own word about a pairing file read from its log, and the advice for each; permissions in words, in setup's order; numbers read from an APK, never past the end (and one ignored test that reads a real APK, below) | 26 |
-| `tests/devtool/` | The stories, against the fake phone (below), with the real hub on a real file in a temporary folder and the real phone engine on the phone's side | 47 |
+| `src/*.rs` | The adb line as typed; a reply's parts; looking for adb where it should be; the command line, each command and each refusal; the help saying first what the tool never does; devices of every state, one picked or each problem said; `run-as` telling a debug build from a release build; the phone's clock and zone; `dumpsys` and the install and uninstall answers; only LiMo's two log tags; no command carrying anything but names; bedtimes and package names; the test family's rules with the whole day away; the folder named for testing; a log line with the time in UTC and no control characters; times on the phone's clock; zones said; a child's name trimmed, its hidden characters dropped, 1 to 40 long; LiMo's own word about a pairing file read from its log, and the advice for each; permissions in words, in setup's order; the state's answer read exactly, with or without a state, and one whose line ends were changed said so, never taken as the state; every text answer read the same with carriage returns; numbers read from an APK, never past the end (and one ignored test that reads a real APK, below) | 28 |
+| `tests/devtool/` | The stories, against the fake phone (below), with the real hub on a real file in a temporary folder and the real phone engine on the phone's side | 53 |
 | `tests/house_rules.rs` | No unsafe code; no allow attributes; the service's folder and file never named; nothing sent to the phone that could change anything but LiMo (every command checked: no settings, accounts, device policy, permissions, other apps or rebooting); nothing in the tool's own code printed by its Debug form; no dash punctuation in anything a person reads or in anything printed | 7 |
 
 The fake phone answers exactly the calls the tool is meant to make, written
@@ -291,7 +345,12 @@ maker, LiMo a device admin, an install refused, a clock far from the PC's,
 an app that refuses every pairing file with a given word. Its debug
 receiver does what the section above says, as the app's own does, with the
 real engine, the child's name kept beside the state, and its words in its
-log. The stories:
+log. **It answers as adb on Windows did in the first real run**: every
+answer but `exec-out`'s comes back with each line feed made a carriage
+return and a line feed, and `exec-out` hands its bytes over as they are,
+with the command's errors on the same stream and an exit code of 0
+whatever happened. Read through `shell` instead, the state would fail 30
+of the stories. The stories:
 
 - `phones.rs` (12): each phone it cannot work with (none, two, not
   allowed, offline), and `adb` missing, for every command, each with its
@@ -333,6 +392,20 @@ log. The stories:
   LiMo gone; a pairing file never taken; a release build; LiMo not
   wiping; `uninstall` refused while LiMo is a device admin, and twice;
   `log` showing only LiMo's lines and stopping at its limit.
+- `line_ends.rs` (3): the first real run's failure: a state with line feeds
+  in it, which `shell` would hand back changed and `exec-out` exact, read
+  exactly by `check`, `status` and `forget`; LiMo saying `taken` while its
+  state cannot be read back, the test family on this PC kept, said plainly,
+  and whole again once the state reads; a state on the phone after the
+  broadcast with the log silent, the family kept; a refusal with no state,
+  undone.
+- `orphans.rs` (3): a phone holding a family this PC does not have: `check`,
+  `status`, `forget` and `setup` each saying so and changing nothing,
+  `forget --phone-only` wiping it through LiMo, checked, and `setup` after;
+  the first run's orphan, its state unreadable, and a damaged state, wiped
+  likewise; this PC's own family wiped from the phone and kept here, said;
+  nothing to wipe; no LiMo; a release build refused; a receiver that does
+  not wipe.
 - `secrets.rs` (2): a whole session with refused PINs, setup, three codes,
   status, check, log, forget and uninstall: the PIN, the refused PINs and
   the code secret never printed, logged or in any argument; each code
@@ -401,5 +474,5 @@ phone/devtool/
     house_rules.rs
     devtool/      main.rs, fake.rs (the fake phone and terminal), phones.rs,
                   check.rs, setup.rs, code_and_status.rs, forget.rs,
-                  secrets.rs, apk.rs
+                  line_ends.rs, orphans.rs, secrets.rs, apk.rs
 ```

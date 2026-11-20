@@ -118,7 +118,11 @@ fn nothing_sent_to_the_phone_could_change_anything_but_limo() {
     assert!(!runs.is_empty());
     for run in runs {
         let first = run.split('"').next().unwrap();
-        assert!(["shell", "install", "uninstall", "logcat"].contains(&first), "self.run with {first}");
+        assert!(["shell", "exec-out", "install", "uninstall", "logcat"].contains(&first), "self.run with {first}");
+        if first == "exec-out" {
+            // Only the kept state, read binary safe; never anything else.
+            assert!(run.starts_with("exec-out\", &read_state_command()]"), "{run}");
+        }
         if first == "uninstall" {
             assert!(run.starts_with("uninstall\", PACKAGE]"), "{run}");
         }

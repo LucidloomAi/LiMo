@@ -66,9 +66,40 @@ pub fn look_command() -> String {
     format!("run-as {PACKAGE} sh -c 'test -e {STATE_FILE} && echo state; test -e {PAIRING_FILE} && echo pairing; true'")
 }
 
-/// LiMo's kept state, or exit code 3 when it has none.
+/// The first line of the answer to [`read_state_command`] when LiMo keeps a
+/// state: the state's own bytes follow it.
+pub const STATE_FOLLOWS: &[u8] = b"limo-dev-state\n";
+/// The whole answer to [`read_state_command`] when LiMo keeps no state.
+pub const NO_STATE: &[u8] = b"limo-dev-none\n";
+
+/// LiMo's kept state, sent through `adb exec-out` ([`Phone::read_state`]):
+/// a first line saying whether one follows ([`STATE_FOLLOWS`]), then its
+/// bytes; or [`NO_STATE`]. The answer says which itself, because the exit
+/// code of `exec-out` is always 0.
 pub fn read_state_command() -> String {
-    format!("run-as {PACKAGE} sh -c 'test -e {STATE_FILE} || exit 3; cat {STATE_FILE}'")
+    format!(
+        "run-as {PACKAGE} sh -c 'if test -e {STATE_FILE}; then echo limo-dev-state; cat {STATE_FILE}; else echo limo-dev-none; fi'"
+    )
+}
+
+/// What [`read_state_command`] answered: the state's exact bytes, None when
+/// LiMo keeps none, or what went wrong (`run-as` refusing, say, whose words
+/// come on the same stream through `exec-out`).
+pub fn parse_state_answer(answer: &[u8]) -> Result<Option<Vec<u8>>, Trouble> {
+    if let Some(state) = answer.strip_prefix(STATE_FOLLOWS) {
+        return Ok(Some(state.to_vec()));
+    }
+    if answer == NO_STATE {
+        return Ok(None);
+    }
+    if answer.starts_with(b"limo-dev-state\r\n") || answer == b"limo-dev-none\r\n" {
+        return Err(Trouble::Unexpected(
+            "LiMo's state came back with its line ends changed (each line feed made a carriage return and a line \
+             feed), so it cannot be read as kept."
+                .to_string(),
+        ));
+    }
+    Err(Trouble::Unexpected(first_line(&String::from_utf8_lossy(answer))))
 }
 
 /// The pairing file from standard input into LiMo's own files, readable by
@@ -348,8 +379,11 @@ impl<'a> Phone<'a> {
         Ok(reply)
     }
 
-    /// Runs one shell command on the phone, with no terminal, so that bytes
-    /// cross as they are.
+    /// Runs one shell command on the phone, with no terminal. Its answers
+    /// are text, read line by line with each line trimmed, so a line feed
+    /// that comes back as a carriage return and a line feed (as `adb shell`
+    /// gives it on Windows) changes nothing. Bytes that must arrive exactly
+    /// come through `exec-out` instead ([`Phone::read_state`]).
     fn shell(&mut self, command: &str, stdin: Option<&[u8]>) -> Result<Reply, Trouble> {
         self.run(&["shell", "-T", command], stdin, T_SHORT)
     }
@@ -409,13 +443,16 @@ impl<'a> Phone<'a> {
     }
 
     /// LiMo's kept state, exactly as kept; None when it keeps none.
+    ///
+    /// Read through `adb exec-out`, which hands bytes over as they are.
+    /// `adb shell` does not on Windows: the first run on a real phone, on
+    /// 20 November 2026, saw every line feed of the state come back as a
+    /// carriage return and a line feed, and the engine then took the state
+    /// for damaged. The exit code of `exec-out` is always 0, so whether a
+    /// state follows is said by the answer's first line instead.
     pub fn read_state(&mut self) -> Result<Option<Vec<u8>>, Trouble> {
-        let reply = self.shell(&read_state_command(), None)?;
-        match reply.code {
-            Some(0) => Ok(Some(reply.stdout)),
-            Some(3) => Ok(None),
-            _ => Err(Trouble::Unexpected(first_line(&reply.text()))),
-        }
+        let reply = self.run(&["exec-out", &read_state_command()], None, T_SHORT)?;
+        parse_state_answer(&reply.stdout)
     }
 
     /// Writes the pairing file into LiMo's own files through standard
@@ -754,6 +791,47 @@ mod tests {
         assert!(!is_limo_line("11-20 21:42:03.123 I/LiMoOther( 1234): x"));
         assert!(!is_limo_line("--------- beginning of main"));
         assert!(!is_limo_line("11-20 21:42:03.123 I/ActivityManager( 99): LiMo/x(1)"));
+    }
+
+    #[test]
+    fn the_state_is_read_exactly_and_its_answer_says_whether_one_follows() {
+        let state = b"limo-phone-state\nformat 1\ncheck 0123456789abcdef\n{\"a\":1}";
+        let mut answer = STATE_FOLLOWS.to_vec();
+        answer.extend_from_slice(state);
+        assert_eq!(parse_state_answer(&answer), Ok(Some(state.to_vec())));
+        assert_eq!(parse_state_answer(NO_STATE), Ok(None));
+        // An answer whose line ends were changed on the way is said so,
+        // never handed on as the state.
+        let changed: Vec<u8> = String::from_utf8(answer).unwrap().replace('\n', "\r\n").into_bytes();
+        assert!(parse_state_answer(&changed).unwrap_err().to_string().contains("line ends changed"));
+        assert!(parse_state_answer(b"limo-dev-none\r\n").is_err());
+        // run-as refusing: its words come on the same stream.
+        assert_eq!(
+            parse_state_answer(b"run-as: package not debuggable: ai.lucidloom.limo.child\n"),
+            Err(Trouble::Unexpected("run-as: package not debuggable: ai.lucidloom.limo.child".to_string()))
+        );
+        assert!(parse_state_answer(b"").is_err());
+    }
+
+    #[test]
+    fn text_answers_read_the_same_with_carriage_returns() {
+        // adb shell on Windows gives each line feed as CR LF.
+        let crlf = |s: &str| s.replace('\n', "\r\n");
+        assert_eq!(parse_devices(&crlf("List of devices attached\nR5CN70\tdevice\n\n")), parse_devices("List of devices attached\nR5CN70\tdevice\n\n"));
+        assert_eq!(run_as_answer(&Reply::ok_with(&crlf("10245\n"))), RunAs::Works);
+        assert_eq!(
+            run_as_answer(&Reply::failed_with(1, &crlf("run-as: package not debuggable: ai.lucidloom.limo.child\n"))),
+            RunAs::Release
+        );
+        let dump = "  Package [ai.lucidloom.limo.child] (abc):\n    versionName=0.1.0\n    flags=[ DEBUGGABLE HAS_CODE ]\n";
+        assert_eq!(parse_dump(&crlf(dump)), parse_dump(dump));
+        assert_eq!(parse_clock(&crlf("1800000000\n+0530\n")), Some((1_800_000_000, 19_800)));
+        assert_eq!(parse_install(&crlf("Performing Streamed Install\nSuccess\n")), Installed::Done);
+        assert_eq!(parse_uninstall(&crlf("Success\n")), Removed::Done);
+        let log = "11-20 13:30:03.456 I/LiMo    ( 4242): dev pair taken\n";
+        assert_eq!(parse_pair_word(&crlf(log)), Some("taken".to_string()));
+        assert!(is_limo_line("11-20 13:30:03.456 I/LiMo    ( 4242): dev pair taken\r"));
+        assert_eq!(first_line(&crlf("one\ntwo\n")), "one");
     }
 
     #[test]

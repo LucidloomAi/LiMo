@@ -68,7 +68,7 @@ fn check_tells_this_pcs_test_family_from_another_and_a_pairing_not_taken() {
     other.phone.files = bench.phone.files.clone();
     assert_eq!(other.run("check"), DONE);
     assert!(other.printed().contains("LiMo's state on the phone: it holds a family this PC did not make (device device-"));
-    assert!(other.printed().contains("Next: uninstall, then install, to start afresh on this phone."));
+    assert!(other.printed().contains("Next: forget --phone-only, which wipes the family LiMo keeps on this phone and nothing else; then setup."));
 
     // A damaged state, and a pairing file LiMo has not taken.
     let mut damaged = Bench::new();

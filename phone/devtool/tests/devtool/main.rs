@@ -8,6 +8,8 @@ mod check;
 mod code_and_status;
 mod fake;
 mod forget;
+mod line_ends;
+mod orphans;
 mod phones;
 mod secrets;
 mod setup;
