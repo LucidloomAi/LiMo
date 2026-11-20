@@ -98,6 +98,9 @@ internal class AndroidPhone(private val context: Context) : PhoneSource {
 
   override fun notificationsEnabled(): Boolean = service<NotificationManager>().areNotificationsEnabled()
 
+  override fun phoneGranted(): Boolean =
+    context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+
   override fun batteryExempt(): Boolean = service<PowerManager>().isIgnoringBatteryOptimizations(ownPackage)
 
   override fun deviceAdmin(): Boolean =

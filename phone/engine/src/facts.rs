@@ -61,7 +61,7 @@ pub struct PhoneFacts {
     /// True when the master asked this phone to report now, since the last
     /// call.
     pub prodded: bool,
-    /// What LiMo has been allowed to do on the phone.
+    /// What LiMo has been allowed to do on the phone, all six.
     pub permissions: PhonePermissions,
 }
 
@@ -144,28 +144,99 @@ impl Front {
     }
 }
 
-/// What LiMo has been allowed to do on the phone. A permission switched off
-/// is noted for the guardian.
+/// What LiMo has been allowed to do on the phone, in the order setup asks
+/// for it. A permission switched off is noted for the guardian, and while
+/// any is off the child's Today screen says a guardian is needed
+/// ([`crate::TodayView::guardian_needed`]).
+///
+/// Only two change what the engine decides, and neither through this
+/// record: with accessibility off the host cannot say which app is in front
+/// ([`Front::Unknown`], which counts all the same) nor draw a cover, and with
+/// usage access off it cannot confirm the app in front. The other four
+/// change nothing the engine counts or covers: without notifications the
+/// host cannot show the time left or a warning, without the phone
+/// permission it knows less about calls, without the battery exemption
+/// Android may stop LiMo, and without protection LiMo can be removed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PhonePermissions {
+    /// LiMo may show notifications: the time left, and the warnings in
+    /// Android's own shade.
+    #[serde(default)]
+    pub notifications: bool,
+    /// LiMo holds Android's Phone permission, used only to know that a call
+    /// rings or is on, never who, so that a lock never hides a call.
+    #[serde(default)]
+    pub phone: bool,
+    /// LiMo may read usage access: how long each app is in front.
+    pub usage_access: bool,
     /// LiMo's accessibility service is on: the app in front is known, and
     /// covers can be drawn.
     pub accessibility: bool,
-    /// LiMo may read usage access.
-    pub usage_access: bool,
+    /// LiMo is left out of Android's battery optimisation, so it is not put
+    /// to sleep.
+    #[serde(default)]
+    pub battery: bool,
+    /// LiMo's protection is on (its device admin), so it cannot be removed
+    /// without a guardian.
+    #[serde(default)]
+    pub protection: bool,
 }
 
 impl PhonePermissions {
     /// Every permission given.
-    pub const ALL: PhonePermissions = PhonePermissions { accessibility: true, usage_access: true };
+    pub const ALL: PhonePermissions = PhonePermissions {
+        notifications: true,
+        phone: true,
+        usage_access: true,
+        accessibility: true,
+        battery: true,
+        protection: true,
+    };
+
+    /// Whether one permission is given.
+    pub fn has(self, permission: Permission) -> bool {
+        match permission {
+            Permission::Notifications => self.notifications,
+            Permission::Phone => self.phone,
+            Permission::UsageAccess => self.usage_access,
+            Permission::Accessibility => self.accessibility,
+            Permission::Battery => self.battery,
+            Permission::Protection => self.protection,
+        }
+    }
+
+    /// The permissions not given, in the order setup asks for them.
+    pub fn off(self) -> Vec<Permission> {
+        Permission::ALL.into_iter().filter(|p| !self.has(*p)).collect()
+    }
 }
 
 /// One permission LiMo needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
-    /// LiMo's accessibility service.
-    Accessibility,
+    /// Notifications.
+    Notifications,
+    /// Android's Phone permission.
+    Phone,
     /// Usage access.
     UsageAccess,
+    /// LiMo's accessibility service.
+    Accessibility,
+    /// The battery exemption.
+    Battery,
+    /// LiMo's protection (its device admin).
+    Protection,
+}
+
+impl Permission {
+    /// Every permission, in the order setup asks for them.
+    pub const ALL: [Permission; 6] = [
+        Permission::Notifications,
+        Permission::Phone,
+        Permission::UsageAccess,
+        Permission::Accessibility,
+        Permission::Battery,
+        Permission::Protection,
+    ];
 }

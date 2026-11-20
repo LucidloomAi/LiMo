@@ -67,6 +67,14 @@ internal interface PhoneSource {
   /** `NotificationManager.areNotificationsEnabled`. */
   fun notificationsEnabled(): Boolean
 
+  /**
+   * Android's Phone permission is granted to LiMo: `checkSelfPermission`
+   * for `READ_PHONE_STATE`. False while it is not granted, which is always
+   * while the manifest does not ask for it. Only whether it is granted is
+   * read here; how a call is read does not change with it.
+   */
+  fun phoneGranted(): Boolean
+
   /** `PowerManager.isIgnoringBatteryOptimizations`. */
   fun batteryExempt(): Boolean
 

@@ -48,6 +48,7 @@ mod error;
 mod facts;
 mod kept;
 mod orders;
+mod today;
 mod words;
 
 pub use counts::{app_in_use, may_cover};
@@ -59,6 +60,7 @@ pub use orders::{
     Cover, GrantTaken, LockScreen, LockWhy, PhoneNote, PhoneOrders, RequestLine, TimeLeft, TryAnswer, WarningShown,
     Way, WayRow,
 };
+pub use today::{GuardianNeeded, LeftKind, RulesWords, SwitchedOff, TodayApp, TodayLeft, TodayView};
 
 /// While there is use the master has not had, and the master is in reach,
 /// a report goes at least this often, in seconds: once a minute.
@@ -96,6 +98,11 @@ pub const SAVE_PROGRESS_EVERY_MS: u64 = 5_000;
 /// The notes for the guardian kept until the master takes them: the newest
 /// 200.
 pub const MAX_NOTES_KEPT: usize = 200;
+
+/// The most apps whose use today the engine keeps for the child's Today
+/// screen: 200. A new app beyond them takes the place of the one with the
+/// least time.
+pub const MAX_APPS_A_DAY: usize = 200;
 
 /// The form of the kept state this engine writes, and the newest it reads.
 pub const STATE_FORMAT: u32 = 1;

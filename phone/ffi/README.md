@@ -110,16 +110,57 @@ be (the elapsed count, the boot count, minutes) is refused with
 | `tryCode` | the typed code as UTF-8 bytes, the wall clock | `TryAnswer` |
 | `tryPin` | the typed PIN as UTF-8 bytes, a `PinAction`, the wall clock | `TryAnswer` |
 | `shouldSave`, `save`, `saveFailed` | | a flag; the bytes to keep; |
-| `view` | | `PhoneView?`: the ids, the day, counted, beyond and open seconds, how many slices and notes wait, the clock correction, and the engine's whole view as JSON |
+| `view` | | `PhoneView?`: the ids, the day, counted, beyond and open seconds, how many slices and notes wait, the clock correction, and the engine's whole view as JSON, the child's Today and the rules in words among it (below) |
 | `versions()` (a function) | | this layer's, the engine's, the core's and the link crate's versions, and the link version it speaks |
 
 **`PhoneFacts`** (in), field for field the engine's: `wallSecs`,
 `elapsedMs`, `bootCount`, `utcOffsetSecs`, `hours24`, `autoTime`,
 `interactive`, `keyguardLocked`, `call` (`IDLE`, `RINGING`, `ONGOING`),
-`front`, `inReach`, `prodded`, `permissions` (`accessibility`,
-`usageAccess`). `front` is a `Front`: a `kind` (`UNKNOWN`, `HOME`, `LIMO`,
-`DIALLER`, `EMERGENCY_DIALLER`, `APP`) with `packageName` and `label`, both
-optional and needed (the package) only for `APP`.
+`front`, `inReach`, `prodded`, `permissions`. `front` is a `Front`: a
+`kind` (`UNKNOWN`, `HOME`, `LIMO`, `DIALLER`, `EMERGENCY_DIALLER`, `APP`)
+with `packageName` and `label`, both optional and needed (the package) only
+for `APP`. `permissions` is a `PhonePermissions` of six, in the order setup
+asks for them: `notifications`, `phone` (Android's Phone permission,
+`READ_PHONE_STATE`), `usageAccess`, `accessibility`, `battery` (left out of
+battery optimisation) and `protection` (LiMo's device admin), each true only
+when Android says so.
+
+**The view's JSON** is the engine's own `PhoneView`. The child's screens
+read two parts of it, every word in them the engine's (the engine's README,
+"The child's own screens", says what each means):
+
+```json
+{
+  "today": {
+    "left": { "kind": "left", "words": "1 h 38 min" },
+    "used": "22 min used of 2 h",
+    "used_part": 0.189,
+    "where_used": "On this phone 22 min",
+    "bedtime": "Screens are off from 9:00 pm to 7:00 am.",
+    "apps": [
+      { "package": "org.example.game", "secs": 721, "minutes": "12 min" },
+      { "package": "org.example.maps", "secs": 540, "minutes": "9 min" }
+    ],
+    "guardian_needed": { "off": [
+      { "permission": "accessibility",
+        "words": "Accessibility is switched off, so LiMo cannot see which app is open." }
+    ] }
+  },
+  "rules_words": {
+    "time_a_day": "2 h",
+    "screens_off": "9:00 pm to 7:00 am",
+    "always_open": ["org.example.clock"],
+    "not_allowed": ["org.example.casino"]
+  }
+}
+```
+
+`left.kind` is `left`, `no_limit` or `open`; `used_part` is null on a day
+with no limit; `bedtime` and `screens_off` are null when no hours are off;
+`guardian_needed` is null while all six are on, and its `permission` is
+`notifications`, `phone`, `usage_access`, `accessibility`, `battery` or
+`protection`. Apps are packages, never names: Kotlin puts each app's name in
+before the screens show it.
 
 **`PhoneOrders`** (out): `cover`, `timeLeft`, `warning`, `sendReport`,
 `saveState`, `notes`, `nextCheckInSecs`.
@@ -188,7 +229,7 @@ Every Rust enum that carries data was given one of two shapes:
 | The notes (`PhoneNote`) | the engine's JSON text, one per note | the host only logs them; the engine keeps them for the master itself. A record would be a dozen optional fields Kotlin never reads |
 | The report (`Report`) and the grant (`Grant`) | the core's JSON, as bytes | they only travel between the engine and the link, both in Rust; Kotlin carries them and never reads them, so a change in the core changes nothing here |
 | The kept state, the kept pairing | bytes | Kotlin writes them to a file and hands them back |
-| The view (`PhoneView`) | a few numbers, and the whole as JSON | the child's own screen is React Native, which reads JSON as it is; Kotlin passes it on. The rules and the decision inside it are large and change with the core |
+| The view (`PhoneView`) | a few numbers, and the whole as JSON | the child's own screens are React Native, which reads JSON as it is; Kotlin puts each app's name in for its package and passes it on. The rules and the decision inside it are large and change with the core |
 
 The error enums carry data in Rust too (`PhoneError::Refused { problem }`,
 `LinkError::Refused(why)`, `LinkError::NoAnswer { report_waiting }`): they
@@ -400,8 +441,8 @@ proof three measured.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/convert.rs`, `src/engine.rs` | The facts field by field; every kind in front, and an app without its package refused; numbers below zero refused, big ones held; a PIN's action with what its kind needs; every refusal of the core and every error of the link to a variant of its own with the same words; JSON that is not a grant or a report; typed bytes that are not text; an engine whose lock was poisoned saying `Broken` | 9 |
-| `tests/bridge/` | Through this layer's API only, against the testkit: the short day below; a report out and a grant in as bytes, a stale grant, bytes that are not a grant; the notes as the engine's JSON and the view; a ringing call never covered and a call in progress offering the way back; asking for time and the core refusing a second; codes wrong, malformed, the wait after five surviving a crash; the PIN adding, unlocking, confirming a release, refused before it is looked at; four kinds of unreadable state locking the phone and never written over; a welcome that is not one and a secret of the wrong length; crashes after any call; a whole pairing over the link making the engine, a session carrying the report and the grant, the app list and the goodbye; a report unanswered ending the session as `NoAnswerToReport`; a removed phone refused by its reason; bad offers and kept pairings refused without quoting them; the versions | 15 |
+| `src/convert.rs`, `src/engine.rs` | The facts field by field, each of the six permissions to its own field; every kind in front, and an app without its package refused; numbers below zero refused, big ones held; a PIN's action with what its kind needs; every refusal of the core and every error of the link to a variant of its own with the same words; JSON that is not a grant or a report; typed bytes that are not text; an engine whose lock was poisoned saying `Broken` | 9 |
+| `tests/bridge/` | Through this layer's API only, against the testkit: the short day below; a report out and a grant in as bytes, a stale grant, bytes that are not a grant; the notes as the engine's JSON and the view; the view's JSON carrying Today, the rules in words and what is switched off, by the names Kotlin reads; a ringing call never covered and a call in progress offering the way back; asking for time and the core refusing a second; codes wrong, malformed, the wait after five surviving a crash; the PIN adding, unlocking, confirming a release, refused before it is looked at; four kinds of unreadable state locking the phone and never written over; a welcome that is not one and a secret of the wrong length; crashes after any call; a whole pairing over the link making the engine, a session carrying the report and the grant, the app list and the goodbye; a report unanswered ending the session as `NoAnswerToReport`; a removed phone refused by its reason; bad offers and kept pairings refused without quoting them; the versions | 16 |
 | `tests/house_rules.rs` | No line written here unsafe; the conversions forbid it and no UniFFI macro expands there; the testkit only behind its feature; nothing silences a lint; no dash punctuation; no machine paths | 6 |
 
 `npm run test:child` (in the app) runs the child module's **JVM tests**,
@@ -414,11 +455,12 @@ bindings that ship, with the PC library loaded by JNA:
 | `EngineDayTest.inReachTheReportGoesOutAndTheGrantComesBackAsBytes` | the report out, the grant in, a stale grant, `EngineException.NotAGrant` |
 | `EngineDayTest.theCoresRefusalsArriveAsTheirOwnExceptionsWithTheirWords` | `EngineException.RequestWaiting` with the core's words, `OutOfRange` for an app with no package, a wrong and a right PIN |
 | `EngineDayTest.aKeptStateThatCannotBeReadLocksThePhoneAndIsNeverWrittenOver` | empty bytes: `EMPTY`, the lock `CANNOT_CHECK`, nothing to keep |
+| `EngineDayTest.theViewCarriesTodayTheRulesAndWhatIsSwitchedOffAsTheEnginesJson` | the view's JSON with Today's time left, used line and part, where it went, the app list, the Phone permission switched off with its sentence, and the rules in words; the note of it switched off; none needed once it is on again |
 | `EngineDayTest.theLibraryNamesItsVersions` | `versions()` |
 | `LinkTest.aPairingMakesTheEngineAndASessionCarriesTheReportAndTheGrant` | an offer read, a pairing through the testkit's master, the engine made from it, the kept pairing read back, a session opened, a report and its grant, the goodbye, `LinkException.Closed` |
 | `LinkTest.aBadOfferIsRefusedWithoutQuotingIt` | `LinkException.BadOffer` |
 
-All 7 pass, in under a second of test time. `cargo build`, `cargo test`,
+All 8 pass, in under a second of test time. `cargo build`, `cargo test`,
 `cargo clippy --all-targets` and `cargo doc --no-deps` pass with no
 warnings and no allow attributes.
 

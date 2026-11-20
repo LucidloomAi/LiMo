@@ -124,16 +124,18 @@ enum class UnknownBecause {
   NOTHING_SEEN_YET,
 }
 
-/** Every permission LiMo needs, for setup and for the guardian. */
+/** Every permission LiMo needs, for setup and for the guardian, in the order setup asks for them. */
 data class LimoPermissions(
+  /** LiMo may show notifications (the time left). */
+  val notifications: Boolean,
+  /** Android's Phone permission (`READ_PHONE_STATE`) is granted: only ever to know that a call rings or is on. */
+  val phone: Boolean,
   /** Usage access. */
   val usageAccess: Boolean,
   /** LiMo's accessibility service is switched on in Settings. */
   val accessibility: Boolean,
   /** The accessibility service is connected now, so covers can be drawn. */
   val accessibilityRunning: Boolean,
-  /** LiMo may show notifications (the time left). */
-  val notifications: Boolean,
   /** LiMo is left out of battery optimisation. */
   val batteryExempt: Boolean,
   /** LiMo's device admin is active. */

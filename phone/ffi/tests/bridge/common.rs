@@ -38,6 +38,18 @@ pub fn screen(kind: FrontKind) -> Front {
     Front { kind, package_name: None, label: None }
 }
 
+/// Every permission LiMo needs, given.
+pub fn all_permissions() -> PhonePermissions {
+    PhonePermissions {
+        notifications: true,
+        phone: true,
+        usage_access: true,
+        accessibility: true,
+        battery: true,
+        protection: true,
+    }
+}
+
 /// The family, with Mira and her phone.
 pub struct Phone {
     _dir: TempDir,
@@ -55,6 +67,7 @@ pub struct Phone {
     pub call: CallState,
     pub in_reach: bool,
     pub auto_time: bool,
+    pub permissions: PhonePermissions,
     pub orders: Option<PhoneOrders>,
     /// Every note given, as the host's log would have it.
     pub notes: Vec<String>,
@@ -102,6 +115,7 @@ impl Phone {
             call: CallState::Idle,
             in_reach: false,
             auto_time: true,
+            permissions: all_permissions(),
             orders: None,
             notes: Vec::new(),
             reports: 0,
@@ -123,7 +137,7 @@ impl Phone {
             front: self.front.clone(),
             in_reach: self.in_reach,
             prodded: false,
-            permissions: PhonePermissions { accessibility: true, usage_access: true },
+            permissions: self.permissions,
         }
     }
 

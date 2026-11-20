@@ -91,8 +91,12 @@ with none, the default below, and one log line a minute at most.
 | `call` | the audio mode, and on Android 8 to 11 the telephony call state: see [Calls](#calls-without-the-phone-permission) | idle |
 | `front` | the state machine: see [Which app is in front](#which-app-is-in-front) | unknown |
 | `front.label` | `PackageManager.getApplicationLabel`, kept for each package until apps change | none |
-| `permissions.accessibility` | see [Permissions](#permissions) | false |
+| `permissions.notifications` | `NotificationManager.areNotificationsEnabled` | false |
+| `permissions.phone` | `checkSelfPermission(READ_PHONE_STATE)` | false |
 | `permissions.usageAccess` | `AppOpsManager`, `OPSTR_GET_USAGE_STATS` | false |
+| `permissions.accessibility` | see [Permissions](#permissions) | false |
+| `permissions.battery` | `PowerManager.isIgnoringBatteryOptimizations` | false |
+| `permissions.protection` | `DevicePolicyManager.isAdminActive` | false |
 | `inReach`, `prodded` | the link's, passed through | |
 
 Within one process the boot count cannot change (a restart of the phone
@@ -206,21 +210,32 @@ rings with the ringer silenced may leave the audio mode as it was, so it reads
 as idle; a cover drawn then could hide its heads up notification. An answered
 call is seen at once ("in call"), and a call screen that comes up full screen
 is never covered (rule 6). Closing the gap needs `READ_PHONE_STATE` (the
-"Phone" permission, asked at setup) and `TelephonyCallback.CallStateListener`:
-the lead's decision, not taken here.
+"Phone" permission, asked at setup) and `TelephonyCallback.CallStateListener`.
+The owner decided on 20 Nov 2026 that setup asks for it. So far the watch
+only reads whether it is granted (`permissions.phone`, false while the
+manifest does not ask for it) and hands that to the engine, which tells the
+child a guardian is needed while it is off; how a call is read is as above
+until the piece that adds the permission to the manifest uses it.
 
 ## Permissions
 
-`permissions()` and `look().permissions`:
+`permissions()` and `look().permissions`, in the order setup asks for them:
 
 | Permission | Android's call |
 | --- | --- |
+| `notifications` | `NotificationManager.areNotificationsEnabled` |
+| `phone` | `checkSelfPermission(READ_PHONE_STATE)` is granted: false while it is not, and always while the manifest does not ask for it |
 | `usageAccess` | `AppOpsManager.unsafeCheckOpNoThrow(OPSTR_GET_USAGE_STATS)` (before Android 10, `checkOpNoThrow`); "default" falls back to the permission itself |
 | `accessibility` | `Settings.Secure.ACCESSIBILITY_ENABLED` is on and `ENABLED_ACCESSIBILITY_SERVICES` names `WatchService`, in full or short form |
 | `accessibilityRunning` | the service is connected now (`onServiceConnected` without `onUnbind` since) |
-| `notifications` | `NotificationManager.areNotificationsEnabled` |
 | `batteryExempt` | `PowerManager.isIgnoringBatteryOptimizations` |
 | `deviceAdmin` | `DevicePolicyManager.isAdminActive` for `keep/AdminReceiver` |
+
+The engine takes six, in the same order: `notifications`, `phone`,
+`usageAccess`, `accessibility` (see below), `battery` (`batteryExempt`) and
+`protection` (`deviceAdmin`). Android tells nothing when the Phone
+permission changes in Settings (the app's process is stopped when it is
+taken away), so it is read again with the others every five seconds.
 
 They are read again every five seconds, at once when Android says one
 changed, and whenever usage tells a different story from the last reading.
@@ -285,10 +300,12 @@ are found only through intents it does not name yet:
 
 Without them the watch still finds both by rules 8 and 9 (learned from what
 comes to the front), but only after the first call, and only after LiMo
-opened the emergency dialler once. No permission and no dependency is
-needed. The accessibility service's description in
-`res/values/limo_strings.xml` still says that this early build does nothing
-yet.
+opened the emergency dialler once. These queries need no permission and no
+dependency. The Phone permission the owner decided on
+(`android.permission.READ_PHONE_STATE`) is for the piece that reads calls
+with it; until the manifest asks for it, `permissions.phone` reads false.
+The accessibility service's description in `res/values/limo_strings.xml`
+still says that this early build does nothing yet.
 
 ## Tests
 
@@ -301,10 +318,10 @@ back to write them late.
 | Where | What | Count |
 | --- | --- | --- |
 | `FrontTest` | An app in front once its activity resumed and its window said so; proof two's late event after "Go home", fourteen tries, the home screen in front throughout, the event dropped after three rechecks; the home screen's resume written late with the late event first; an event usage has not written yet, confirmed by a recheck; a floating window never in front; the shade, system dialogs, keyboards and LiMo's cover proposing nothing, older phones' recent apps and a permission dialog leaving the app in front; LiMo's activity and its cover; LiMo's word for its screen with usage access off, and a missed word put right; the dialler, a call's own screen learned and still the dialler after the call, a game during a call still a game; a screen with no icon the call's only during a call and learned only as it starts; an in call screen Android names; the emergency dialler named, learned, never learned for an app with an icon or after ten seconds; usage access off: unknown, a dialler still saying so, LiMo's covers changing nothing, back on at once; split screen; picture in picture, and Android 9 and older; an app with no label, a blank one, an unseen one, one that cannot be read; the clock set back, told or not; a restart of the phone in the record; events read twice near the edge, written late, the clock gone back | 19 |
-| `FactsTest` | Every fact from its reading in one place; each fact's fallback, its last good reading and then its default; every reading refused at once, logged once each, and the facts back when Android answers; a refusal logged once a minute without its message or a label; the call state from the audio mode and the telephony state, against Android's own numbers, a silent ring on Android 8 to 11; usage event kinds against Android's numbers; the accessibility permission switched on, connected, starting; the permissions read again after five seconds or when told; the accessibility setting in both forms; the launchable apps sorted, LiMo left out, the dialler never counted; labels kept and forgotten; the roles asked again and kept when refused; usage that cannot be read | 13 |
+| `FactsTest` | Every fact from its reading in one place; each fact's fallback, its last good reading and then its default; every reading refused at once, logged once each, and the facts back when Android answers; a refusal logged once a minute without its message or a label; the call state from the audio mode and the telephony state, against Android's own numbers, a silent ring on Android 8 to 11; usage event kinds against Android's numbers; the accessibility permission switched on, connected, starting; the permissions read again after five seconds or when told; the accessibility setting in both forms; the launchable apps sorted, LiMo left out, the dialler never counted; labels kept and forgotten; the roles asked again and kept when refused; usage that cannot be read; the Phone permission as Android grants it, each of the six reaching the engine's own field, off when it cannot be read | 14 |
 | `HouseRulesTest` | No source here reads a window's content, its text, a class name or changes the service's settings at run time, and a caller's number is never used; no dash punctuation in a comment or this README | 2 |
 
-All 34 pass, with the module's 7 tests of the engine and the link (41 in
+All 35 pass, with the module's 8 tests of the engine and the link (43 in
 all), in well under a second of test time.
 
 ## What only a phone can prove

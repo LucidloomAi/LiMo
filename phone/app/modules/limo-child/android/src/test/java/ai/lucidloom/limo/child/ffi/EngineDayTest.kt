@@ -208,7 +208,7 @@ class EngineDayTest {
           front = app(GAME, "Game"),
           inReach = false,
           prodded = false,
-          permissions = PhonePermissions(accessibility = true, usageAccess = true),
+          permissions = ALL_PERMISSIONS,
         ),
       )
       assertEquals(LockWhy.CANNOT_CHECK, orders.cover.lock!!.why)
@@ -217,6 +217,33 @@ class EngineDayTest {
       assertFalse(it.shouldSave())
       assertEquals(0, it.save().size)
       assertNull(it.view())
+    }
+  }
+
+  @Test
+  fun theViewCarriesTodayTheRulesAndWhatIsSwitchedOffAsTheEnginesJson() {
+    FakePhone(folder.newFolder(), WEDNESDAY_4_PM).use { phone ->
+      phone.run(60)
+      // The child opens LiMo; the Phone permission is not granted.
+      phone.front = screen(FrontKind.LIMO)
+      phone.permissions = ALL_PERMISSIONS.copy(phone = false)
+      phone.run(1)
+      val json = phone.engine.view()!!.json
+      for (part in listOf(
+        """"today":{"left":{"kind":"left","words":"29 min"},"used":"1 min used of 30 min","used_part":0.033,""",
+        """"where_used":"On this phone 1 min","bedtime":null,""",
+        """"apps":[{"package":"$GAME","secs":60,"minutes":"1 min"}],""",
+        """"guardian_needed":{"off":[{"permission":"phone","words":"Phone access is switched off, so a lock could hide a call."}]}""",
+        """"rules_words":{"time_a_day":"30 min","screens_off":null,"always_open":["$CLOCK"],"not_allowed":["$CASINO"]}""",
+      )) {
+        assertTrue("$part is not in $json", json.contains(part))
+      }
+      // The guardian is told it was switched off, by its name only.
+      assertEquals(1, phone.notes.count { it.contains("\"permission_off\"") && it.contains("\"phone\"") })
+      // Granted again: no guardian needed.
+      phone.permissions = ALL_PERMISSIONS
+      phone.run(1)
+      assertTrue(phone.engine.view()!!.json.contains(""""guardian_needed":null"""))
     }
   }
 

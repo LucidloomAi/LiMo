@@ -11,7 +11,7 @@ use limo_phone_ffi::{
     PhonePairing, PhoneSession,
 };
 
-use crate::common::{GAME, IST, app, at, rules};
+use crate::common::{GAME, IST, all_permissions, app, at, rules};
 
 /// Carries the phone's bytes to the master and back until the phone has
 /// nothing more to say. Returns how many round trips it took.
@@ -103,7 +103,7 @@ fn facts_in_reach(wall: i64, elapsed_ms: i64) -> limo_phone_ffi::PhoneFacts {
         front: app(GAME, "Game"),
         in_reach: true,
         prodded: false,
-        permissions: limo_phone_ffi::PhonePermissions { accessibility: true, usage_access: true },
+        permissions: all_permissions(),
     }
 }
 

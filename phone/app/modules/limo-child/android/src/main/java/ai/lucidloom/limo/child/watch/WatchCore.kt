@@ -54,6 +54,7 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
   private val usageAccess = Remembered("usage_access", false)
   private val accessibility = Remembered("accessibility", false)
   private val notifications = Remembered("notifications", false)
+  private val phoneGranted = Remembered("phone_permission", false)
   private val batteryExempt = Remembered("battery_exempt", false)
   private val deviceAdmin = Remembered("device_admin", false)
   private val home = Remembered("home", emptySet<String>())
@@ -113,7 +114,15 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
    * host when something unforeseen went wrong in [look].
    */
   fun lastLook(inReach: Boolean, prodded: Boolean): WatchLook {
-    val permissions = permissionsSeen ?: LimoPermissions(false, false, serviceRunning, false, false, false)
+    val permissions = permissionsSeen ?: LimoPermissions(
+      notifications = false,
+      phone = false,
+      usageAccess = false,
+      accessibility = false,
+      accessibilityRunning = serviceRunning,
+      batteryExempt = false,
+      deviceAdmin = false,
+    )
     val facts = PhoneFacts(
       wallSecs = (wall.good ?: wall.default).floorDiv(1_000L),
       elapsedMs = elapsed.good ?: elapsed.default,
@@ -127,7 +136,7 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
       front = Front(FrontKind.UNKNOWN),
       inReach = inReach,
       prodded = prodded,
-      permissions = PhonePermissions(permissions.accessibility && permissions.accessibilityRunning, permissions.usageAccess),
+      permissions = toEngine(permissions, accessibility = permissions.accessibility && permissions.accessibilityRunning),
     )
     return WatchLook(facts, emptyList(), permissions, UnknownBecause.USAGE_UNREADABLE)
   }
@@ -287,10 +296,11 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
       return seen.copy(accessibilityRunning = serviceRunning)
     }
     val read = LimoPermissions(
+      notifications = remembered(notifications, now) { phone.notificationsEnabled() },
+      phone = remembered(phoneGranted, now) { phone.phoneGranted() },
       usageAccess = remembered(usageAccess, now) { phone.usageAccess() },
       accessibility = remembered(accessibility, now) { phone.accessibilityEnabled() },
       accessibilityRunning = serviceRunning,
-      notifications = remembered(notifications, now) { phone.notificationsEnabled() },
       batteryExempt = remembered(batteryExempt, now) { phone.batteryExempt() },
       deviceAdmin = remembered(deviceAdmin, now) { phone.deviceAdmin() },
     )
@@ -300,7 +310,7 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
   }
 
   /**
-   * The engine's two permissions. The accessibility service counts as on
+   * The engine's six permissions. The accessibility service counts as on
    * when it is switched on in Settings and connected; or switched on and the
    * watch started less than a minute ago, since Android connects it a moment
    * after LiMo starts, and a guardian should not be told it was switched off
@@ -308,11 +318,18 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
    */
   private fun enginePermissions(p: LimoPermissions, now: Long): PhonePermissions {
     val starting = now - startedAtMs < WatchTimes.ACCESSIBILITY_START_MS
-    return PhonePermissions(
-      accessibility = p.accessibility && (p.accessibilityRunning || starting),
-      usageAccess = p.usageAccess,
-    )
+    return toEngine(p, accessibility = p.accessibility && (p.accessibilityRunning || starting))
   }
+
+  /** The watch's permissions as the engine takes them, in setup order, with the engine's [accessibility]. */
+  private fun toEngine(p: LimoPermissions, accessibility: Boolean) = PhonePermissions(
+    notifications = p.notifications,
+    phone = p.phone,
+    usageAccess = p.usageAccess,
+    accessibility = accessibility,
+    battery = p.batteryExempt,
+    protection = p.deviceAdmin,
+  )
 
   private fun refreshRoles(now: Long) {
     val at = rolesAtMs

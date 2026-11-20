@@ -28,7 +28,7 @@ internal const val WEDNESDAY_4_PM_MS = 1_794_997_800_000L
 internal val ALL_READINGS = listOf(
   "wall_clock", "elapsed", "boot_count", "utc_offset", "hours_24", "auto_time", "interactive",
   "keyguard_locked", "audio_mode", "telephony_call_state", "usage_access", "accessibility",
-  "notifications", "battery_exempt", "device_admin", "usage_events", "home", "diallers",
+  "notifications", "phone_permission", "battery_exempt", "device_admin", "usage_events", "home", "diallers",
   "in_call_screens", "emergency_dialler", "keyboards", "launchable", "label",
 )
 
@@ -50,6 +50,7 @@ internal class TestPhone : PhoneSource {
   var usageOn = true
   var accessibilityOn = true
   var notifications = true
+  var phoneGranted = true
   var battery = true
   var admin = false
   var home = setOf(LAUNCHER)
@@ -125,6 +126,7 @@ internal class TestPhone : PhoneSource {
   override fun usageAccess(): Boolean = usageOn.also { check("usage_access") }
   override fun accessibilityEnabled(): Boolean = accessibilityOn.also { check("accessibility") }
   override fun notificationsEnabled(): Boolean = notifications.also { check("notifications") }
+  override fun phoneGranted(): Boolean = phoneGranted.also { check("phone_permission") }
   override fun batteryExempt(): Boolean = battery.also { check("battery_exempt") }
   override fun deviceAdmin(): Boolean = admin.also { check("device_admin") }
 

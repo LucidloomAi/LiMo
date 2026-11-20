@@ -44,13 +44,25 @@ class FactsTest {
     // The link's two, passed through.
     assertTrue(facts.inReach)
     assertTrue(facts.prodded)
-    assertEquals(PhonePermissions(accessibility = true, usageAccess = true), facts.permissions)
+    // All six for the engine, in setup order: protection is the device admin, still off here.
+    assertEquals(
+      PhonePermissions(
+        notifications = true,
+        phone = true,
+        usageAccess = true,
+        accessibility = true,
+        battery = true,
+        protection = false,
+      ),
+      facts.permissions,
+    )
     assertEquals(
       LimoPermissions(
+        notifications = true,
+        phone = true,
         usageAccess = true,
         accessibility = true,
         accessibilityRunning = false,
-        notifications = true,
         batteryExempt = true,
         deviceAdmin = false,
       ),
@@ -124,8 +136,8 @@ class FactsTest {
     assertEquals(CallState.IDLE, facts.call)
     assertEquals(FrontKind.UNKNOWN, facts.front.kind)
     assertEquals(UnknownBecause.USAGE_UNREADABLE, look.unknownBecause)
-    assertEquals(PhonePermissions(accessibility = false, usageAccess = false), facts.permissions)
-    assertEquals(LimoPermissions(false, false, false, false, false, false), look.permissions)
+    assertEquals(PhonePermissions(false, false, false, false, false, false), facts.permissions)
+    assertEquals(LimoPermissions(false, false, false, false, false, false, false), look.permissions)
     // Nor do the service's events, the rechecks or the clock.
     assertFalse(rig.core.windowEvent(GAME))
     rig.core.recheck()
@@ -267,6 +279,31 @@ class FactsTest {
     // Asked for directly, they are read now.
     rig.phone.battery = true
     assertTrue(rig.core.permissions().batteryExempt)
+  }
+
+  @Test
+  fun thePhonePermissionIsReadAsAndroidGrantsItAndIsOffWhenItCannotBeRead() {
+    val rig = Rig()
+    assertTrue(rig.look().permissions.phone)
+    assertTrue(rig.facts().permissions.phone)
+    // Not granted: off for the watch and for the engine, and nothing else changes.
+    rig.phone.phoneGranted = false
+    rig.core.permissionsChanged()
+    val look = rig.look()
+    assertFalse(look.permissions.phone)
+    assertFalse(look.facts.permissions.phone)
+    assertTrue(look.facts.permissions.notifications && look.facts.permissions.usageAccess && look.facts.permissions.battery)
+    // Each of the watch's permissions reaches the engine's own field.
+    rig.phone.phoneGranted = true
+    rig.phone.notifications = false
+    rig.phone.battery = false
+    rig.phone.admin = true
+    rig.core.permissionsChanged()
+    val engine = rig.facts().permissions
+    assertEquals(PhonePermissions(notifications = false, phone = true, usageAccess = true, accessibility = true, battery = false, protection = true), engine)
+    // A reading Android refuses in a new process, with nothing good read yet: off.
+    rig.phone.failing += "phone_permission"
+    assertFalse(Rig(rig.phone).look().permissions.phone)
   }
 
   @Test

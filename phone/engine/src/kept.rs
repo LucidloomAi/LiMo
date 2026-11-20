@@ -1,7 +1,13 @@
 //! What the phone keeps: the core's device state and the engine's own notes
 //! (the stretch of use not yet recorded, the last look at which the child's
-//! time was being counted, LiMo's clock, the notes for the guardian), as one
-//! versioned blob the host writes.
+//! time was being counted, LiMo's clock, the notes for the guardian, each
+//! app's use today), as one versioned blob the host writes.
+//!
+//! **Each app's use today**, for the child's Today screen, is added up where
+//! the device state records use, from the slices it makes, so the two always
+//! agree and survive a restart together. Each slice carries the home day the
+//! core put it on (the rules' calendar, with the day start, never moving
+//! back): a slice of a later day empties the count and starts that day.
 //!
 //! **How time is counted.** Between two calls the engine measures the step
 //! with the elapsed count, never with the wall clock. A step counts when the
@@ -28,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::LoadProblem;
 use crate::facts::{Permission, PhoneFacts, PhonePermissions};
 use crate::orders::PhoneNote;
-use crate::{CLOCK_JUMP_MS, MAX_COUNTED_STEP_MS, MAX_NOTES_KEPT, NOT_WATCHED_NOTE_MS, STATE_FORMAT};
+use crate::{CLOCK_JUMP_MS, MAX_APPS_A_DAY, MAX_COUNTED_STEP_MS, MAX_NOTES_KEPT, NOT_WATCHED_NOTE_MS, STATE_FORMAT};
 
 /// The first line of every kept state.
 const MAGIC: &str = "limo-phone-state";
@@ -95,6 +101,58 @@ pub(crate) struct BlockedNoted {
     package: String,
 }
 
+/// One app's recorded use on one day, whether its time counts or not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct AppUse {
+    /// Its package name.
+    pub(crate) package: String,
+    /// Seconds recorded.
+    pub(crate) secs: u64,
+}
+
+/// The use of each app on one home day: what Today lists. Kept with the
+/// device state and changed only where the device state records use, so
+/// the two always agree. It holds one day at a time: a slice of a later day
+/// empties it and starts that day.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct AppsDay {
+    /// The home day, as the core put it on the slices.
+    day: i64,
+    /// At most [`MAX_APPS_A_DAY`].
+    apps: Vec<AppUse>,
+}
+
+impl AppsDay {
+    /// Adds the slices the device state made: each to its app on its day.
+    /// The app the host could not name (an empty package) is left out.
+    fn add(day: &mut Option<AppsDay>, slices: &[Slice]) {
+        for slice in slices.iter().filter(|s| !s.app_id.is_empty()) {
+            let open = match day.take() {
+                Some(d) if d.day >= slice.day => d,
+                _ => AppsDay { day: slice.day, apps: Vec::new() },
+            };
+            let open = day.insert(open);
+            // The device's day never moves back, so a slice of an earlier
+            // day cannot come; were one to, it is not today's.
+            if open.day != slice.day {
+                continue;
+            }
+            if let Some(app) = open.apps.iter_mut().find(|a| a.package == slice.app_id) {
+                app.secs = app.secs.saturating_add(slice.secs());
+                continue;
+            }
+            if open.apps.len() >= MAX_APPS_A_DAY {
+                // Full: the app with the least time makes room.
+                let least = open.apps.iter().enumerate().min_by_key(|(_, a)| a.secs).map(|(i, _)| i);
+                if let Some(least) = least {
+                    open.apps.remove(least);
+                }
+            }
+            open.apps.push(AppUse { package: slice.app_id.clone(), secs: slice.secs() });
+        }
+    }
+}
+
 /// Everything the phone keeps, in one blob. Every field added after the
 /// first form is filled in when missing, so a state kept by an earlier
 /// version loads.
@@ -116,6 +174,9 @@ pub(crate) struct Kept {
     permissions: Option<PhonePermissions>,
     #[serde(default)]
     blocked_noted: Vec<BlockedNoted>,
+    /// Each app's use on the phone's day, for Today.
+    #[serde(default)]
+    apps_day: Option<AppsDay>,
 }
 
 /// How a kept state differs from the one last saved.
@@ -152,6 +213,7 @@ impl Kept {
             notes: Vec::new(),
             permissions: None,
             blocked_noted: Vec::new(),
+            apps_day: None,
         }
     }
 
@@ -207,6 +269,7 @@ impl Kept {
             || self.notes != saved.notes
             || self.permissions != saved.permissions
             || self.blocked_noted != saved.blocked_noted
+            || self.apps_day != saved.apps_day
             || clock(self) != clock(saved)
         {
             return Change::Other;
@@ -298,17 +361,28 @@ impl Kept {
         self.clock.map_or(0, |c| c.correction_secs)
     }
 
-    /// Notes a permission that was on and is now off.
+    /// Notes each permission that was on and is now off, in the order setup
+    /// asks for them.
     pub(crate) fn watch_permissions(&mut self, now: PhonePermissions, at: i64, notes: &mut Vec<PhoneNote>) {
         if let Some(before) = self.permissions {
-            if before.accessibility && !now.accessibility {
-                notes.push(PhoneNote::PermissionOff { permission: Permission::Accessibility, at });
-            }
-            if before.usage_access && !now.usage_access {
-                notes.push(PhoneNote::PermissionOff { permission: Permission::UsageAccess, at });
+            for permission in Permission::ALL {
+                if before.has(permission) && !now.has(permission) {
+                    notes.push(PhoneNote::PermissionOff { permission, at });
+                }
             }
         }
         self.permissions = Some(now);
+    }
+
+    /// The permissions the last call saw, if any call did.
+    pub(crate) fn permissions(&self) -> Option<PhonePermissions> {
+        self.permissions
+    }
+
+    /// LiMo's clock at the last call, and the phone's time zone then, if any
+    /// call was made.
+    pub(crate) fn last_seen(&self) -> Option<(i64, i32)> {
+        self.clock.map(|c| (c.wall.saturating_sub(c.correction_secs), c.utc_offset_secs))
     }
 
     /// Notes a blocked app opened, once a day for each app.
@@ -384,23 +458,39 @@ impl Kept {
             let secs = open.ms / 1_000;
             if secs > 0 {
                 let start = open.wall_end.saturating_sub(i64::try_from(secs).unwrap_or(i64::MAX));
-                self.state.record_use(&open.app, start, open.wall_end);
+                let made = self.state.record_use(&open.app, start, open.wall_end);
+                AppsDay::add(&mut self.apps_day, &made);
                 open.ms %= 1_000;
             }
         }
     }
 
-    /// A copy of the device state with the open stretch recorded.
-    pub(crate) fn probe_state(&self) -> DeviceState {
+    /// A copy of the device state with the open stretch recorded, and the
+    /// slices that made.
+    fn probe_parts(&self) -> (DeviceState, Vec<Slice>) {
         let mut probe = self.state.clone();
+        let mut made = Vec::new();
         if let Some(open) = &self.stretch {
             let secs = open.ms / 1_000;
             if secs > 0 {
                 let start = open.wall_end.saturating_sub(i64::try_from(secs).unwrap_or(i64::MAX));
-                probe.record_use(&open.app, start, open.wall_end);
+                made = probe.record_use(&open.app, start, open.wall_end);
             }
         }
-        probe
+        (probe, made)
+    }
+
+    /// A copy of the device state with the open stretch recorded.
+    pub(crate) fn probe_state(&self) -> DeviceState {
+        self.probe_parts().0
+    }
+
+    /// Each app's use on home day `day`, the open stretch included, as it was
+    /// recorded: in no particular order, apps of any length.
+    pub(crate) fn apps_on(&self, day: i64) -> Vec<AppUse> {
+        let mut apps = self.apps_day.clone();
+        AppsDay::add(&mut apps, &self.probe_parts().1);
+        apps.filter(|a| a.day == day).map(|a| a.apps).unwrap_or_default()
     }
 
     /// The decision as it stands, without changing anything kept.
@@ -509,6 +599,50 @@ mod tests {
         assert_eq!(k.notes.len(), MAX_NOTES_KEPT);
         assert_eq!(k.notes.first(), Some(&PhoneNote::Restarted { at: 50 }));
         assert_eq!(k.notes.last(), Some(&PhoneNote::Restarted { at: 249 }));
+    }
+
+    fn slice(app: &str, day: i64, secs: i64) -> Slice {
+        Slice {
+            id: format!("p/{app}/{day}/{secs}"),
+            child_id: "c".into(),
+            device_id: "p".into(),
+            app_id: app.into(),
+            day,
+            start: 0,
+            end: secs,
+            counts: true,
+        }
+    }
+
+    #[test]
+    fn each_apps_use_is_added_up_for_one_day_bounded_and_starts_again_with_the_next() {
+        let mut apps = None;
+        AppsDay::add(&mut apps, &[slice("org.example.maps", 5, 600), slice("org.example.game", 5, 90)]);
+        AppsDay::add(&mut apps, &[slice("org.example.maps", 5, 120), slice("", 5, 300)]);
+        let today = apps.clone().unwrap();
+        assert_eq!(today.day, 5);
+        assert_eq!(
+            today.apps,
+            vec![
+                AppUse { package: "org.example.maps".into(), secs: 720 },
+                AppUse { package: "org.example.game".into(), secs: 90 },
+            ],
+            "the app the host could not name is left out"
+        );
+        // A slice of an earlier day changes nothing; one of a later day
+        // starts that day afresh.
+        AppsDay::add(&mut apps, &[slice("org.example.old", 4, 60)]);
+        assert_eq!(apps, Some(today));
+        AppsDay::add(&mut apps, &[slice("org.example.game", 6, 30)]);
+        assert_eq!(apps, Some(AppsDay { day: 6, apps: vec![AppUse { package: "org.example.game".into(), secs: 30 }] }));
+        // Bounded: a new app beyond the most takes the place of the least.
+        let many: Vec<Slice> = (0..MAX_APPS_A_DAY as i64).map(|i| slice(&format!("org.example.a{i}"), 7, 100 + i)).collect();
+        AppsDay::add(&mut apps, &many);
+        AppsDay::add(&mut apps, &[slice("org.example.new", 7, 5_000)]);
+        let full = apps.unwrap();
+        assert_eq!(full.apps.len(), MAX_APPS_A_DAY);
+        assert!(full.apps.iter().all(|a| a.package != "org.example.a0"), "the least went");
+        assert!(full.apps.iter().any(|a| a.package == "org.example.new" && a.secs == 5_000));
     }
 
     #[test]

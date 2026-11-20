@@ -101,7 +101,7 @@ class LinkTest {
         front = app(GAME, "Game"),
         inReach = true,
         prodded = false,
-        permissions = PhonePermissions(accessibility = true, usageAccess = true),
+        permissions = ALL_PERMISSIONS,
       )
       assertTrue(engine.tick(facts).sendReport)
       val report = engine.outgoingReport(start + 60)!!

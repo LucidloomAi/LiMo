@@ -190,6 +190,55 @@ fn the_notes_cross_as_the_engines_own_json() {
 }
 
 #[test]
+fn the_views_json_carries_today_the_rules_in_words_and_what_is_switched_off() {
+    let mut phone = Phone::new(at(16, 0));
+    phone.run(5 * 60);
+    phone.front = app(CLOCK, "Clock");
+    phone.run(2 * 60);
+    phone.front = screen(FrontKind::Limo);
+    phone.permissions.phone = false;
+    phone.run(1);
+    let view = phone.engine.view().unwrap().unwrap();
+    // The names Kotlin reads, as they are in the JSON.
+    let json: serde_json::Value = serde_json::from_str(&view.json).unwrap();
+    let today = &json["today"];
+    assert_eq!(today["left"], serde_json::json!({ "kind": "left", "words": "25 min" }));
+    assert_eq!(today["used"], "5 min used of 30 min");
+    assert_eq!(today["used_part"], 0.167);
+    assert_eq!(today["where_used"], "On this phone 5 min");
+    assert_eq!(today["bedtime"], serde_json::Value::Null);
+    assert_eq!(
+        today["apps"],
+        serde_json::json!([
+            { "package": GAME, "secs": 300, "minutes": "5 min" },
+            { "package": CLOCK, "secs": 120, "minutes": "2 min" },
+        ])
+    );
+    assert_eq!(
+        today["guardian_needed"],
+        serde_json::json!({ "off": [
+            { "permission": "phone", "words": "Phone access is switched off, so a lock could hide a call." }
+        ] })
+    );
+    assert_eq!(
+        json["rules_words"],
+        serde_json::json!({
+            "time_a_day": "30 min",
+            "screens_off": null,
+            "always_open": [CLOCK],
+            "not_allowed": [CASINO],
+        })
+    );
+    // A label never reaches the view.
+    assert!(!view.json.contains("\"Clock\"") && !view.json.contains("\"Game\""));
+    // All on again: no guardian needed.
+    phone.permissions = crate::common::all_permissions();
+    phone.run(1);
+    let json: serde_json::Value = serde_json::from_str(&phone.engine.view().unwrap().unwrap().json).unwrap();
+    assert_eq!(json["today"]["guardian_needed"], serde_json::Value::Null);
+}
+
+#[test]
 fn a_ringing_call_is_never_covered_and_a_call_in_progress_offers_the_way_back() {
     let mut phone = Phone::new(at(18, 0));
     phone.front = app(CASINO, "Casino");

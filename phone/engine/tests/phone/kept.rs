@@ -6,7 +6,9 @@
 //! fields that form must have loads.
 
 use limo_core::{DailyBudget, PinAction, WeekBudgets};
-use limo_phone::{CallState, Cover, Front, LoadProblem, LockWhy, PhoneEngine, PhoneError, PhoneFacts, STATE_FORMAT};
+use limo_phone::{
+    CallState, Cover, Front, LoadProblem, LockWhy, PhoneEngine, PhoneError, PhoneFacts, PhoneNote, STATE_FORMAT,
+};
 
 use crate::common::*;
 
@@ -165,6 +167,33 @@ fn a_state_in_the_first_form_with_only_its_needed_fields_loads() {
     let orders = engine.tick(&PhoneFacts { interactive: true, ..f.facts() });
     assert!(!matches!(orders.cover, Cover::Lock(_)));
     assert_eq!(engine.view().unwrap().counted_secs, f.view().counted_secs);
+}
+
+#[test]
+fn a_state_kept_with_two_permissions_and_no_apps_of_the_day_loads_and_notes_nothing_new() {
+    let f = used_phone();
+    let text = String::from_utf8(f.kept.clone()).unwrap();
+    let body = text.splitn(4, '\n').nth(3).unwrap();
+    let mut value: serde_json::Value = serde_json::from_str(body).unwrap();
+    let object = value.as_object_mut().unwrap();
+    // As the first engine kept it: two permissions, and no count of each
+    // app's use.
+    object.insert("permissions".into(), serde_json::json!({ "accessibility": true, "usage_access": true }));
+    object.remove("apps_day");
+    let body = serde_json::to_string(&value).unwrap();
+    let blob = format!("limo-phone-state\nformat 1\ncheck {:016x}\n{body}", fnv(body.as_bytes()));
+    let mut engine = PhoneEngine::load(blob.as_bytes());
+    assert_eq!(engine.load_problem(), None);
+    // The four it did not know read as off, and only a permission going from
+    // on to off is noted, so nothing is; Today lists no apps until there is
+    // use again.
+    let orders = engine.tick(&PhoneFacts { interactive: true, ..f.facts() });
+    assert!(!orders.notes.iter().any(|n| matches!(n, PhoneNote::PermissionOff { .. })), "{:?}", orders.notes);
+    let view = engine.view().unwrap();
+    assert_eq!(view.today.guardian_needed, None);
+    assert_eq!(view.counted_secs, f.view().counted_secs);
+    assert!(view.today.apps.is_empty());
+    assert!(!f.view().today.apps.is_empty());
 }
 
 /// FNV-1a, 64 bits, as the kept state's check.

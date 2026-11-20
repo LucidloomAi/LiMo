@@ -11,9 +11,14 @@
 //! Times are said on the phone's own clock: its own zone, and 12 or 24 hours
 //! as the phone shows them ("9:42 pm", "21:42").
 
-use limo_core::{HomeCalendar, LockReason, RequestAnswer, RequestView, TryOutcome, WarningCause};
+use limo_core::{
+    BlockedWindow, DailyBudget, HomeCalendar, LockReason, RequestAnswer, RequestView, RuleSet, SECONDS_PER_DAY,
+    TryOutcome, WarningCause, Weekday,
+};
 
+use crate::facts::Permission;
 use crate::orders::{LockWhy, Way};
+use crate::today::LeftKind;
 
 /// How the phone shows times: its zone, and 12 or 24 hours.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -459,6 +464,232 @@ pub(crate) fn try_words(way: Way, outcome: &TryOutcome, now: i64, clock: PhoneCl
 /// Said under a right code or PIN when the phone is open after it.
 pub(crate) const OPENS_NOW: &str = "The phone opens now.";
 
+// ---------- Today and the rules ----------
+
+/// A span of time used, in whole minutes rounded down, so that it never
+/// says more was used than was: "0 min", "48 min", "2 h", "1 h 5 min".
+/// Beside the time left, which is rounded up, the two add up to the day.
+pub(crate) fn used_span(secs: u64) -> String {
+    let m = secs / 60;
+    match (m / 60, m % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    }
+}
+
+/// The time left as Today shows it large: "1 h 12 min", "14 min", "0:42";
+/// "No limit today"; or "Open until 9:30 pm" while a guardian's unlock
+/// keeps the phone open.
+pub(crate) fn today_left(
+    seconds_left: Option<u64>,
+    unlocked_until: Option<i64>,
+    now: i64,
+    clock: PhoneClock,
+) -> (LeftKind, String) {
+    if let Some(until) = unlocked_until.filter(|u| *u > now) {
+        return (LeftKind::Open, format!("Open until {}", until_in_sentence(now, until, clock)));
+    }
+    match seconds_left {
+        None => (LeftKind::NoLimit, "No limit today".to_string()),
+        Some(s) => (LeftKind::Left, time_left(s)),
+    }
+}
+
+/// The line under Today's bar, "48 min used of 2 h" ("48 min used today" on
+/// a day with no limit, or with no time at all), and the part of the day's
+/// time used, from 0 to 1 in thousandths, for the bar: None with no limit,
+/// 1 on a day with no time.
+pub(crate) fn used_words(used_secs: u64, budget_secs: Option<u64>) -> (String, Option<f64>) {
+    let used = used_span(used_secs);
+    match budget_secs {
+        None => (format!("{used} used today"), None),
+        Some(0) => (format!("{used} used today"), Some(1.0)),
+        Some(budget) => {
+            let part = (used_secs as f64 / budget as f64).min(1.0);
+            (format!("{used} used of {}", used_span(budget)), Some((part * 1_000.0).round() / 1_000.0))
+        }
+    }
+}
+
+/// The dot between the parts of a line, with a space on each side.
+const DOT: &str = " \u{b7} ";
+
+/// Where today's time went: "On this phone 31 min". When the phone knows
+/// how much was used on the child's other devices (a minute or more), it
+/// says so too: "On this phone 31 min · on the PC 17 min" when all of it was
+/// on the family PC, "On this phone 31 min · on other devices 17 min" when
+/// it was on more than one, or the phone cannot tell which.
+pub(crate) fn where_words(on_this_phone: u64, elsewhere_secs: Option<u64>, all_on_the_pc: bool) -> String {
+    let here = format!("On this phone {}", used_span(on_this_phone));
+    match elsewhere_secs.filter(|s| *s >= 60) {
+        None => here,
+        Some(secs) if all_on_the_pc => format!("{here}{DOT}on the PC {}", used_span(secs)),
+        Some(secs) => format!("{here}{DOT}on other devices {}", used_span(secs)),
+    }
+}
+
+/// "a", "a and b", "a, b and c".
+fn and_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// A blocked window as two moments, on the home date that starts at
+/// `midnight`.
+fn window_span(window: &BlockedWindow, midnight: i64) -> (i64, i64) {
+    let start = midnight.saturating_add(i64::from(window.start_minute) * 60);
+    (start, start.saturating_add(i64::from(window.length_minutes()) * 60))
+}
+
+/// Today's hours with screens off, on the phone's clock: "Screens are off
+/// from 9:00 pm to 7:00 am.". These are the blocked hours that start on
+/// today's home date (a window belongs to the day it starts on, as in the
+/// rules), in order, with those that touch or overlap said as one: "Screens
+/// are off from 12:00 pm to 1:00 pm and from 9:00 pm to 7:00 am.". "Screens
+/// are off all day." when they cover the whole date. None when no hours are
+/// off today.
+pub(crate) fn bedtime_words(rules: &RuleSet, now: i64, clock: PhoneClock) -> Option<String> {
+    let cal = rules.calendar();
+    let date = cal.date_of(now);
+    let weekday = Weekday::of_date(date);
+    let midnight = cal.midnight(date);
+    let mut spans: Vec<(i64, i64)> =
+        rules.blocked_hours.iter().filter(|w| w.days.contains(&weekday)).map(|w| window_span(w, midnight)).collect();
+    spans.sort_unstable();
+    let mut joined: Vec<(i64, i64)> = Vec::new();
+    for (start, end) in spans {
+        match joined.last_mut() {
+            Some(last) if start <= last.1 => last.1 = last.1.max(end),
+            _ => joined.push((start, end)),
+        }
+    }
+    if joined.is_empty() {
+        return None;
+    }
+    let day_end = midnight.saturating_add(SECONDS_PER_DAY);
+    if joined.iter().any(|(start, end)| *start <= midnight && *end >= day_end) {
+        return Some("Screens are off all day.".to_string());
+    }
+    let parts: Vec<String> = joined
+        .iter()
+        .map(|(start, end)| format!("from {} to {}", time_of_day(*start, clock), time_of_day(*end, clock)))
+        .collect();
+    Some(format!("Screens are off {}.", and_list(&parts)))
+}
+
+/// The days of a rule, when it is not every day: "from Monday to Friday"
+/// for three days or more in a row ("from Sunday to Thursday" across the
+/// week's end), otherwise "on Saturday and Sunday" or "on Friday". None for
+/// all seven days, and for none.
+fn days_words(days: &[Weekday]) -> Option<String> {
+    let mut on = days.to_vec();
+    on.sort_unstable();
+    on.dedup();
+    let count = on.len();
+    if count == 0 || count == Weekday::ALL.len() {
+        return None;
+    }
+    let has = |i: usize| on.contains(&Weekday::ALL[i % 7]);
+    // A single run starts on the one day whose day before is not in it.
+    let run = (0..7).find(|i| has(*i) && !has(i + 6)).filter(|first| (0..count).all(|k| has(first + k)));
+    match run {
+        Some(first) if count >= 3 => Some(format!(
+            "from {} to {}",
+            Weekday::ALL[first].name(),
+            Weekday::ALL[(first + count - 1) % 7].name()
+        )),
+        _ => Some(format!("on {}", and_list(&on.iter().map(|d| d.name().to_string()).collect::<Vec<_>>()))),
+    }
+}
+
+/// The time a day, for How it works: "2 h", "No limit", "No screen time",
+/// or, when the days differ, each with its days, in the week's order: "1 h
+/// from Monday to Friday; 3 h on Saturday and Sunday".
+pub(crate) fn time_a_day(rules: &RuleSet) -> String {
+    let mut groups: Vec<(DailyBudget, Vec<Weekday>)> = Vec::new();
+    for day in Weekday::ALL {
+        let budget = rules.budgets.get(day);
+        match groups.iter_mut().find(|(b, _)| *b == budget) {
+            Some((_, days)) => days.push(day),
+            None => groups.push((budget, vec![day])),
+        }
+    }
+    let parts: Vec<String> = groups
+        .into_iter()
+        .map(|(budget, days)| {
+            let time = match budget {
+                DailyBudget::NoLimit => "no limit".to_string(),
+                DailyBudget::Minutes(0) => "no screen time".to_string(),
+                DailyBudget::Minutes(m) => used_span(u64::from(m) * 60),
+            };
+            match days_words(&days) {
+                None => time,
+                Some(when) => format!("{time} {when}"),
+            }
+        })
+        .collect();
+    capitalised(&parts.join("; "))
+}
+
+/// The hours screens are off, for How it works, on the phone's clock: "9:00
+/// pm to 7:00 am", with its days when it is not every day ("9:00 pm to 7:00
+/// am from Sunday to Thursday; 10:00 pm to 8:00 am on Friday and
+/// Saturday"), earliest first, and "All day" for hours that last the whole
+/// day. None with no blocked hours.
+pub(crate) fn screens_off(rules: &RuleSet, now: i64, clock: PhoneClock) -> Option<String> {
+    let cal = rules.calendar();
+    let midnight = cal.midnight(cal.date_of(now));
+    let mut groups: Vec<(&BlockedWindow, Vec<Weekday>)> = Vec::new();
+    for window in rules.blocked_hours.iter().filter(|w| !w.days.is_empty()) {
+        let same = |w: &BlockedWindow| w.start_minute == window.start_minute && w.length_minutes() == window.length_minutes();
+        match groups.iter_mut().find(|(w, _)| same(w)) {
+            Some((_, days)) => days.extend(window.days.iter().copied()),
+            None => groups.push((window, window.days.clone())),
+        }
+    }
+    if groups.is_empty() {
+        return None;
+    }
+    groups.sort_by_key(|(w, _)| (w.start_minute, w.length_minutes()));
+    let parts: Vec<String> = groups
+        .iter()
+        .map(|(window, days)| {
+            let hours = if window.length_minutes() >= u32::from(limo_core::time::MINUTES_PER_DAY) {
+                "all day".to_string()
+            } else {
+                let (start, end) = window_span(window, midnight);
+                format!("{} to {}", time_of_day(start, clock), time_of_day(end, clock))
+            };
+            match days_words(days) {
+                None => hours,
+                Some(when) => format!("{hours} {when}"),
+            }
+        })
+        .collect();
+    Some(capitalised(&parts.join("; ")))
+}
+
+impl Permission {
+    /// What it costs while it is switched off, in one sentence: for the
+    /// child's Today screen, which then says a guardian is needed.
+    pub fn off_words(self) -> &'static str {
+        match self {
+            Permission::Notifications => {
+                "Notifications are switched off, so LiMo cannot show the time left or a warning."
+            }
+            Permission::Phone => "Phone access is switched off, so a lock could hide a call.",
+            Permission::UsageAccess => "Usage access is switched off, so LiMo cannot count the time in each app.",
+            Permission::Accessibility => "Accessibility is switched off, so LiMo cannot see which app is open.",
+            Permission::Battery => "Android may put LiMo to sleep to save battery.",
+            Permission::Protection => "Protection is switched off, so LiMo can be removed.",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,5 +876,142 @@ mod tests {
         assert_eq!(shown_label(&words), Some(format!("{}\u{2026}", "a".repeat(58))));
         let _ = shown_label(&"\u{202E}".repeat(10_000));
         assert_eq!(BACK_TO_THE_CALL, "Back to the call");
+    }
+
+    #[test]
+    fn todays_time_left_used_and_where_it_went() {
+        let now = at(0, 16, 0);
+        assert_eq!(today_left(Some(4_320), None, now, H12), (LeftKind::Left, "1 h 12 min".to_string()));
+        assert_eq!(today_left(Some(14 * 60), None, now, H12).1, "14 min");
+        assert_eq!(today_left(Some(42), None, now, H12).1, "0:42");
+        assert_eq!(today_left(None, None, now, H12), (LeftKind::NoLimit, "No limit today".to_string()));
+        let open = today_left(Some(0), Some(at(0, 21, 30)), now, H12);
+        assert_eq!(open, (LeftKind::Open, "Open until 9:30 pm".to_string()));
+        assert_eq!(today_left(Some(0), Some(at(0, 21, 30)), now, H24).1, "Open until 21:30");
+        // An unlock that has ended is not said.
+        assert_eq!(today_left(Some(60), Some(now - 1), now, H12).0, LeftKind::Left);
+
+        // Used is rounded down and the time left up, so the two make the day.
+        assert_eq!(used_span(0), "0 min");
+        assert_eq!(used_span(59), "0 min");
+        assert_eq!(used_span(48 * 60 + 59), "48 min");
+        assert_eq!(used_span(7_200), "2 h");
+        assert_eq!(used_span(3_900), "1 h 5 min");
+        let _ = used_span(u64::MAX);
+        let (words, part) = used_words(48 * 60, Some(7_200));
+        assert_eq!((words.as_str(), part), ("48 min used of 2 h", Some(0.4)));
+        assert_eq!(used_words(31 * 60 + 59, Some(7_200)), ("31 min used of 2 h".to_string(), Some(0.267)));
+        assert_eq!(used_words(130 * 60, Some(7_200)), ("2 h 10 min used of 2 h".to_string(), Some(1.0)));
+        assert_eq!(used_words(48 * 60, None), ("48 min used today".to_string(), None));
+        assert_eq!(used_words(0, Some(0)), ("0 min used today".to_string(), Some(1.0)));
+        assert_eq!(used_words(0, Some(5_400)).1, Some(0.0));
+
+        assert_eq!(where_words(31 * 60, None, false), "On this phone 31 min");
+        assert_eq!(where_words(31 * 60, Some(17 * 60), true), "On this phone 31 min \u{b7} on the PC 17 min");
+        assert_eq!(
+            where_words(3_900, Some(17 * 60 + 40), false),
+            "On this phone 1 h 5 min \u{b7} on other devices 17 min"
+        );
+        assert_eq!(where_words(31 * 60, Some(59), true), "On this phone 31 min");
+    }
+
+    fn rules_with(windows: Vec<BlockedWindow>) -> RuleSet {
+        RuleSet { blocked_hours: windows, ..RuleSet::new(1, 0) }
+    }
+
+    fn window(days: &[Weekday], start: (u16, u16), end: (u16, u16)) -> BlockedWindow {
+        BlockedWindow { days: days.to_vec(), start_minute: start.0 * 60 + start.1, end_minute: end.0 * 60 + end.1 }
+    }
+
+    #[test]
+    fn the_hours_screens_are_off_today() {
+        // WED is a Wednesday; the home zone is UTC, as the phone's.
+        let now = at(0, 16, 0);
+        let bedtime = window(&Weekday::ALL, (21, 0), (7, 0));
+        let rules = rules_with(vec![bedtime.clone()]);
+        assert_eq!(bedtime_words(&rules, now, H12).as_deref(), Some("Screens are off from 9:00 pm to 7:00 am."));
+        assert_eq!(bedtime_words(&rules, now, H24).as_deref(), Some("Screens are off from 21:00 to 07:00."));
+        // On the phone's own clock, in its own zone.
+        let india = PhoneClock { utc_offset_secs: 19_800, hours_24: false };
+        assert_eq!(bedtime_words(&rules, now, india).as_deref(), Some("Screens are off from 2:30 am to 12:30 pm."));
+        // Only the hours that start today; none at all is nothing.
+        let thursdays = rules_with(vec![window(&[Weekday::Thursday], (21, 0), (7, 0))]);
+        assert_eq!(bedtime_words(&thursdays, now, H12), None);
+        assert_eq!(bedtime_words(&rules_with(vec![]), now, H12), None);
+        // Several, in order; touching ones said as one.
+        let school = window(&[Weekday::Wednesday], (8, 0), (13, 0));
+        let lunch = window(&[Weekday::Wednesday], (13, 0), (14, 0));
+        let two = rules_with(vec![bedtime.clone(), lunch.clone(), school]);
+        assert_eq!(bedtime_words(&two, now, H12).as_deref(), Some("Screens are off from 8:00 am to 2:00 pm and from 9:00 pm to 7:00 am."));
+        let three = rules_with(vec![bedtime.clone(), window(&[Weekday::Wednesday], (6, 0), (7, 0)), lunch]);
+        assert_eq!(
+            bedtime_words(&three, now, H12).as_deref(),
+            Some("Screens are off from 6:00 am to 7:00 am, from 1:00 pm to 2:00 pm and from 9:00 pm to 7:00 am.")
+        );
+        let whole = rules_with(vec![window(&[Weekday::Wednesday], (0, 0), (24, 0)), bedtime]);
+        assert_eq!(bedtime_words(&whole, now, H12).as_deref(), Some("Screens are off all day."));
+        for t in [i64::MIN, i64::MAX] {
+            let _ = bedtime_words(&two, t, H12);
+            let _ = screens_off(&two, t, H12);
+        }
+    }
+
+    #[test]
+    fn the_rules_in_words() {
+        let now = at(0, 16, 0);
+        let mut rules = RuleSet::new(1, 0);
+        assert_eq!(time_a_day(&rules), "2 h");
+        assert_eq!(screens_off(&rules, now, H12), None);
+        rules.budgets = limo_core::WeekBudgets::every_day(DailyBudget::NoLimit);
+        assert_eq!(time_a_day(&rules), "No limit");
+        rules.budgets = limo_core::WeekBudgets::every_day(DailyBudget::Minutes(90));
+        assert_eq!(time_a_day(&rules), "1 h 30 min");
+        rules.budgets.saturday = DailyBudget::Minutes(180);
+        rules.budgets.sunday = DailyBudget::Minutes(180);
+        assert_eq!(time_a_day(&rules), "1 h 30 min from Monday to Friday; 3 h on Saturday and Sunday");
+        rules.budgets.sunday = DailyBudget::NoLimit;
+        rules.budgets.wednesday = DailyBudget::Minutes(0);
+        assert_eq!(
+            time_a_day(&rules),
+            "1 h 30 min on Monday, Tuesday, Thursday and Friday; no screen time on Wednesday; 3 h on Saturday; no limit on Sunday"
+        );
+
+        let school_nights = [Weekday::Sunday, Weekday::Monday, Weekday::Tuesday, Weekday::Wednesday, Weekday::Thursday];
+        rules.blocked_hours = vec![window(&Weekday::ALL, (21, 0), (7, 0))];
+        assert_eq!(screens_off(&rules, now, H12).as_deref(), Some("9:00 pm to 7:00 am"));
+        assert_eq!(screens_off(&rules, now, H24).as_deref(), Some("21:00 to 07:00"));
+        rules.blocked_hours = vec![
+            window(&[Weekday::Friday, Weekday::Saturday], (22, 0), (8, 0)),
+            window(&school_nights[..1], (21, 0), (7, 0)),
+            window(&school_nights[1..], (21, 0), (7, 0)),
+            window(&[Weekday::Sunday], (0, 0), (24, 0)),
+            window(&[], (12, 0), (13, 0)),
+        ];
+        // Grouped by their hours, earliest first, school nights across the
+        // week's end, a window with no days left out.
+        assert_eq!(
+            screens_off(&rules, now, H12).as_deref(),
+            Some("All day on Sunday; 9:00 pm to 7:00 am from Sunday to Thursday; 10:00 pm to 8:00 am on Friday and Saturday")
+        );
+        assert_eq!(days_words(&[Weekday::Saturday, Weekday::Sunday, Weekday::Tuesday]).as_deref(), Some("on Tuesday, Saturday and Sunday"));
+        assert_eq!(days_words(&[Weekday::Friday, Weekday::Saturday, Weekday::Sunday, Weekday::Monday]).as_deref(), Some("from Friday to Monday"));
+        assert_eq!(days_words(&[Weekday::Friday]).as_deref(), Some("on Friday"));
+        assert_eq!(days_words(&[]), None);
+    }
+
+    #[test]
+    fn what_each_permission_switched_off_costs() {
+        let said: Vec<&str> = Permission::ALL.iter().map(|p| p.off_words()).collect();
+        assert_eq!(
+            said,
+            [
+                "Notifications are switched off, so LiMo cannot show the time left or a warning.",
+                "Phone access is switched off, so a lock could hide a call.",
+                "Usage access is switched off, so LiMo cannot count the time in each app.",
+                "Accessibility is switched off, so LiMo cannot see which app is open.",
+                "Android may put LiMo to sleep to save battery.",
+                "Protection is switched off, so LiMo can be removed.",
+            ]
+        );
     }
 }

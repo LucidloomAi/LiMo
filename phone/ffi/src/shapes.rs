@@ -91,13 +91,22 @@ pub enum FrontKind {
     App,
 }
 
-/// What LiMo has been allowed to do on the phone.
+/// What LiMo has been allowed to do on the phone, in the order setup asks
+/// for it. Each is true only when Android itself says so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
 pub struct PhonePermissions {
-    /// LiMo's accessibility service is on.
-    pub accessibility: bool,
+    /// LiMo may show notifications.
+    pub notifications: bool,
+    /// LiMo holds Android's Phone permission (`READ_PHONE_STATE`).
+    pub phone: bool,
     /// LiMo may read usage access.
     pub usage_access: bool,
+    /// LiMo's accessibility service is on.
+    pub accessibility: bool,
+    /// LiMo is left out of battery optimisation.
+    pub battery: bool,
+    /// LiMo's protection (its device admin) is on.
+    pub protection: bool,
 }
 
 /// What a right PIN should do: the core's `PinAction`, which carries data,

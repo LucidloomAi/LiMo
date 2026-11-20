@@ -29,6 +29,7 @@ and passes its tests on any system.
 - [How the host calls it](#how-the-host-calls-it)
 - [The facts](#the-facts)
 - [The orders](#the-orders)
+- [The child's own screens](#the-childs-own-screens)
 - [What LiMo records, and nothing else](#what-limo-records-and-nothing-else)
 - [The rules it keeps](#the-rules-it-keeps)
 - [The words](#the-words)
@@ -134,7 +135,7 @@ Rules for callers:
 | `front` | What is in front: `Unknown` (the watch is off, or has seen nothing), `Home` (the launcher or the recent apps), `LiMo`, `Dialler` (the default dialler, or the screen of a call in progress), `EmergencyDialler`, or `App { package, label }`. The label is the app's name under its icon, when the host has it: it is shown on the block screen, and never kept or reported. |
 | `in_reach` | The master can be reached: the link has a session. False until the link is built. |
 | `prodded` | The master asked for a report since the last call. |
-| `permissions` | Whether LiMo's accessibility service is on, and whether it has usage access. |
+| `permissions` | The six things LiMo needs, in the order setup asks for them: `notifications`, `phone` (Android's Phone permission, only to know that a call rings or is on), `usage_access`, `accessibility` (the service on), `battery` (left out of battery optimisation), `protection` (its device admin). Each is true only when Android says so. See rule 10. |
 
 **The engine holds no list of makers' package names.** Which app is the home
 screen, the dialler or the emergency dialler differs from maker to maker, so
@@ -185,6 +186,64 @@ engine's code names no package.
 - `next_check_in_secs`: call again within this many seconds if nothing
   happens.
 
+## The child's own screens
+
+`view()` gives the phone as the engine holds it. Two parts of it are for
+the child's own screens in the app, with every word in them, as at the last
+call (before any call, as at the last moment kept). The screens never make
+a sentence about time or rules themselves. An app is its package name
+here: the Android side puts in each app's name.
+
+**`today`**, for Today:
+
+| Field | What |
+| --- | --- |
+| `left` | The time left, shown large: a `kind` and its `words`. `left`: "1 h 12 min", "14 min", "0:42" under a minute (the time left display's words, rounded up). `no_limit`: "No limit today". `open`, while a guardian's unlock keeps the phone open: "Open until 9:30 pm". |
+| `used` | "48 min used of 2 h": this phone's counted use (see below) of the day's budget, rounded down, so that with the time left, rounded up, it makes the day. "48 min used today" on a day with no limit or with no time. Use beyond the day under an unlock is said as it is: "2 h 10 min used of 2 h". |
+| `used_part` | The part used, from 0 to 1 in thousandths, for the bar; none on a day with no limit; 1 on a day with no time. |
+| `where_used` | Where the time went: "On this phone 31 min". See below. |
+| `bedtime` | "Screens are off from 9:00 pm to 7:00 am.", or none when no hours are off today. |
+| `apps` | Today on this phone: each app's `package`, its `secs` and its `minutes` in words ("12 min", "1 h 5 min"), longest first; apps under a minute, and use the host could not name, left out. Every app's use is listed, also of an app whose time does not count (an always allowed one). |
+| `guardian_needed` | None while all six permissions are on; otherwise `off`, the permissions that are off in setup order, each with its one sentence (see [The words](#the-words)). |
+
+**`rules_words`**, for How it works: `time_a_day` ("2 h", "No limit",
+"No screen time", or each day's time when the days differ),
+`screens_off` ("9:00 pm to 7:00 am", with the days when not every day, or
+none), `always_open` (the packages that stay open under a lock) and
+`not_allowed` (the packages that are blocked).
+
+**What a phone knows of the child's other devices: only its own use.** A
+grant tells it `left_for_you_secs`, how much this phone may still use
+today, which the master works out by taking away what every other device
+used *and* what the others hold and have not used, and what they wait for,
+and adding any time the guardian gave; `held_elsewhere_secs`, the away
+time other phones hold and have not used; and `used_secs_reported`, this
+phone's own use as the master had it. None of these is the other devices'
+use, and the rest of the core's grant and the link's messages carry none
+either. So Today says only "On this phone 31 min", and its `used` line is
+this phone's own counted use. It never guesses the rest. The words for the
+day the core says more are settled and tested ("On this phone 31 min · on
+the PC 17 min" when all of the rest was on the family PC, "· on other
+devices 17 min" when it was on more than one, or the phone cannot tell
+which); see [What the core and the hub should gain](#what-the-core-and-the-hub-should-gain).
+
+**Each app's use today** is kept in the state, beside the device state, and
+added to where the device state records use, from the slices the core
+makes, so the two always agree and survive a restart together. **How the
+day's change is known:** each slice carries the home day the core put it on
+(`Slice.day`, from the rules' calendar, the home zone and the day start,
+cut at the day's start and never moving back, even when the clock does). A
+slice of a later day empties the count and starts that day; Today shows it
+only while its day is the day of the last decision, so after the day
+changes and before any use, Today lists no apps. The count holds at most
+200 apps (`MAX_APPS_A_DAY`); a new app beyond them takes the place of the
+one with the least time.
+
+**The hours screens are off**, on Today, are the blocked hours that start
+on today's home date, as the rules count them (a window belongs to the day
+it starts on), in order, with those that touch or overlap said as one, on
+the phone's own clock and zone, in 12 or 24 hours as the phone shows them.
+
 ## What LiMo records, and nothing else
 
 The types make LiMo's promise hold: **it records which app was used and for
@@ -198,7 +257,11 @@ order. Whether a call is ringing or in progress is all LiMo knows of it.
 The dialler, the home screen and LiMo itself are not recorded at all: they
 are not use of an app. What reaches the master is what the core's slices
 hold: the app's package name, the day, the start and the end, and whether it
-counted. Test: `kept::an_apps_label_is_shown_but_never_kept_nor_reported`.
+counted. Each app's use today, kept for the child's own Today screen, is a
+package name and seconds, and stays on the phone. The notes hold no
+sentence and no name: a permission switched off is noted by which it is.
+Tests: `kept::an_apps_label_is_shown_but_never_kept_nor_reported`,
+`today::today_says_the_time_left_the_time_used_and_each_apps_minutes_and_starts_again_the_next_day`.
 
 ## The rules it keeps
 
@@ -303,6 +366,24 @@ gave (the PC's engine exchanges before it decides, to the same end). Tests:
 **9. Restarts.** See [What is kept, and when](#what-is-kept-and-when). Tests:
 every test in `restart` and `kept`.
 
+**10. Permissions switched off.** The lead's rule, with the owner's
+decision of 20 Nov 2026 to ask for the Phone permission. Each of the six
+that goes from on to off is noted for the guardian
+(`PhoneNote::PermissionOff`, by which it is), and while any is off Today
+says a guardian is needed, with one sentence for each. **Nothing else
+changes in what the engine counts or covers, for any of the six:** the
+engine takes the app in front, the call and the screen from the other
+facts, as before. What changes is what the host can know and do. Without
+accessibility it cannot say which app is in front (`Front::Unknown`, which
+counts all the same) nor draw a cover; without usage access it cannot
+confirm the app in front; without notifications it cannot show the time
+left or a warning in Android's shade; without the Phone permission it knows
+less about calls (a call that rings with the ringer silenced may read as no
+call); without the battery exemption Android may stop LiMo; without
+protection LiMo can be removed. Tests:
+`today::a_guardian_is_needed_while_anything_is_switched_off_and_nothing_counted_or_covered_changes`,
+`clock::a_permission_switched_off_is_noted`.
+
 ## The words
 
 Every sentence the phone shows comes from the engine, in `src/words.rs`.
@@ -390,6 +471,37 @@ At 1 minute the hint is "Save what you are doing now.". Each comes with
 when: "Locks about 9:47 pm" for time running out, "Locks at 9:00 pm" for
 the others.
 
+Today, settled by the lead from the design sheets (`phone.html` frame E,
+`phone-setup.html` frames H and T): the time left, "1 h 12 min", "14 min",
+"0:42", "No limit today", "Open until 9:30 pm"; under the bar, "48 min used
+of 2 h", or "48 min used today"; where it went, "On this phone 31 min" (and,
+once the core says more, "On this phone 31 min · on the PC 17 min" or
+"On this phone 31 min · on other devices 17 min"); the hours,
+"Screens are off from 9:00 pm to 7:00 am.", "Screens are off from 12:00 pm
+to 1:00 pm and from 9:00 pm to 7:00 am.", "Screens are off all day."; each
+app's minutes, "12 min", "1 h 5 min". Spans used are rounded down: "0 min",
+"48 min", "2 h", "1 h 5 min".
+
+How it works: the time a day, "2 h", "No limit", "No screen time", or by
+days, "1 h 30 min from Monday to Friday; 3 h on Saturday and Sunday"; the
+hours screens are off, "9:00 pm to 7:00 am", "21:00 to 07:00", "All day",
+or by days, "9:00 pm to 7:00 am from Sunday to Thursday; 10:00 pm to 8:00
+am on Friday and Saturday". Days are "from Monday to Friday" for three or
+more in a row (across the week's end too), else "on Saturday and Sunday",
+"on Tuesday, Saturday and Sunday", "on Friday", and nothing for every day.
+
+What is switched off, one sentence each, settled by the lead, in the order
+setup asks for them:
+
+| Permission | Today says |
+| --- | --- |
+| `notifications` | Notifications are switched off, so LiMo cannot show the time left or a warning. |
+| `phone` | Phone access is switched off, so a lock could hide a call. |
+| `usage_access` | Usage access is switched off, so LiMo cannot count the time in each app. |
+| `accessibility` | Accessibility is switched off, so LiMo cannot see which app is open. |
+| `battery` | Android may put LiMo to sleep to save battery. |
+| `protection` | Protection is switched off, so LiMo can be removed. |
+
 ## How time is counted
 
 - **Steps.** Between two calls the engine measures the step with the
@@ -448,8 +560,9 @@ core's `DeviceState` (with the code secret and the PIN record), and the
 engine's own notes: the stretch not yet recorded, the last look at which the
 child's time was being counted, LiMo's clock (the last reading, the start
 count and the correction it keeps), the notes for the guardian not yet
-taken, the permissions last seen, and the blocked apps noted today. The
-check is against damage, not against anyone who can write the file.
+taken, the permissions last seen, the blocked apps noted today, and each
+app's use today (see [The child's own screens](#the-childs-own-screens)).
+The check is against damage, not against anyone who can write the file.
 
 **When the host must write it.** Always the same way: after a call, when
 `should_save()` is true, write `save()` before doing anything else. It is
@@ -506,7 +619,10 @@ Safe means:
 
 A state kept by an earlier version of this engine loads: every field after
 the device state is filled in when missing, and the form number says which
-form it is (this is the first). A state restored from an old copy cannot be
+form it is (this is the first). A state kept before the six permissions
+holds two: the other four read as off, and since only a permission going
+from on to off is noted, nothing is noted for them; one kept before each
+app's use was counted shows no apps on Today until there is use again. A state restored from an old copy cannot be
 told from a fresh one here; the core's README says what that costs (its new
 slices on a day the master already took higher numbers from it do not
 count), and the host keeps the file out of Android's backups.
@@ -559,6 +675,16 @@ this piece.
 - **Labels that are the same on every lock** ("What you can do", "Still
   open", "Go to the home screen", "Emergency call", "Send request"): left to
   the screens, which may ask for them here.
+- **The other devices' use on Today.** Today's `used` line and its bar are
+  this phone's own use until the core says more (see below). On a day the
+  child also used the PC, "31 min used of 2 h" sits beside a time left of
+  1 h 12 min that the PC's 17 minutes have already come off.
+- **Today's hours across midnight.** Today names the hours that start
+  today. In the morning, the end of last night's bedtime is not named
+  again: the lock says until when.
+- **Rules days in another zone.** How it works says the hours on the
+  phone's clock and the days as the rules name them; on a phone far from
+  home a window can start on the day before or after the one named.
 
 ## What the core and the hub should gain
 
@@ -586,6 +712,12 @@ What this piece worked around, inside the engine:
   for a lack of time. The core could say so itself.
 - **Core: the master's clock.** A grant carrying `master_now` (or the link's
   `Pong`) would let LiMo's clock be set right in reach and across restarts.
+- **Core: the other devices' use in the grant.** The master knows each
+  device's use that day; a grant carrying the use on the child's other
+  devices (with whether all of it was on the master PC) would let Today say
+  "On this phone 31 min · on the PC 17 min" and a `used` line of the whole
+  day. The words are ready (`words::where_words` takes it); only the figure
+  is missing. Until it comes, the phone says what it knows.
 - **Hub: note events** for each `PhoneNote`, and the phone's form and
   protection level, as the plan's P2 lists.
 
@@ -609,14 +741,15 @@ extra time, less use beyond what a device held under an unlock.
 | Where | What | Count |
 | --- | --- | --- |
 | `src/counts.rs` | The rule of what counts, a call in progress no way around it, and what is never covered | 5 |
-| `src/words.rs` | Times on the phone's clock; spans and the time left; every lock's short title beside its message; warnings with the time actually left, away or not, with hints and when; the answers to a code or a PIN; a request and its answer; the block screen naming the app by its label, cleaned and cut | 7 |
-| `src/kept.rs` | The check catching a change anywhere in the kept state; notes kept up to the limit; counting going on told from any other change | 3 |
+| `src/words.rs` | Times on the phone's clock; spans and the time left; every lock's short title beside its message; warnings with the time actually left, away or not, with hints and when; the answers to a code or a PIN; a request and its answer; the block screen naming the app by its label, cleaned and cut; Today's time left, the time used and its part, where it went in its three forms; the hours screens are off today, on the phone's clock and zone, joined, several, all day; the rules in words, by days, across the week's end; the six sentences for what is switched off | 11 |
+| `src/kept.rs` | The check catching a change anywhere in the kept state; notes kept up to the limit; counting going on told from any other change; each app's use added up for one day, the nameless left out, a later day starting afresh, bounded | 4 |
 | `tests/phone/day.rs` | The core README's worked day with the PC beside the phone; the away time used up, warned of as away, opening again at home; a plain day at home to zero with each warning once, the home screen covered, the 24 hour clock and when to call again; a warning that waits for the screen and says the time actually left; a prod from the master, only in reach; a master that does not answer asked again every ten seconds | 6 |
 | `tests/phone/covers.rs` | Allowed apps usable under the lock and recorded without counting; never a cover over a ringing call, the diallers, LiMo, the keyguard or a dark screen, and during a call in progress the same cover as with no call, through every mix of those facts; with the time used up and a call on, the game and the home screen covered with the way back to the call, the dialler not; a call left open not stopping the count in a game, nor a block, nor the lock; a blocked app covered, named by its label, sent home, never counted, noted once a day and across a restart; what counts, case by case | 6 |
 | `tests/phone/ways_out.rs` | A request made at home, answered and shown; a request made away, carried home, refused; a code at school adding time once, wrong codes counting down to a wait that survives a crash, the guardian seeing both at home; the PIN adding time and unlocking with no network, only the PIN at bedtime, use under the unlock counted beyond, an unlock refused, a release confirmed | 4 |
 | `tests/phone/clock.rs` | A clock set by hand not followed, bedtime on time, no new day, kept through a crash, followed again with automatic time; a clock set by the network followed; a time zone change; a restart of the phone in the middle of a step, and a clock set back while it was off; LiMo's process restarted in the middle of a step, and held up for a minute; a permission switched off | 6 |
 | `tests/phone/restart.rs` | One script for a whole day played uninterrupted, with a crash after every single call (over 4,000), and with crashes here and there: every call orders and counts the same (a call while locked among them), and each day's total is the same; a crash losing at most five seconds; a lock on again at the first call | 3 |
-| `tests/phone/kept.rs` | A kept state read back the same; an app's label shown but never kept, reported or in the view; a save that could not be written asked for again; empty, foreign, newer, cut short and changed states failing safe; a state with only the fields the first form needs | 5 |
+| `tests/phone/kept.rs` | A kept state read back the same; an app's label shown but never kept, reported or in the view; a save that could not be written asked for again; empty, foreign, newer, cut short and changed states failing safe; a state with only the fields the first form needs; a state kept with two permissions and no count of each app loading and noting nothing new | 6 |
+| `tests/phone/today.rs` | Today through a day: the time left, the time used and its part, where it went, bedtime, each app longest first with the short and the nameless left out, the same after a crash, at bedtime, and starting again the next morning; a day with no limit and a guardian's unlock; How it works by days, on a 24 hour phone, and with no blocked hours; all six permissions switched off, noted in setup order, sent for a guardian with six sentences, while a phone with all on is told the same at every call through a game, a blocked app, the lock, a call and the dialler | 4 |
 | `tests/house_rules.rs` | No unsafe code; no allow attributes; no makers' package names in the engine; no dash punctuation in anything a person reads, nor in any sentence the phone shows | 5 |
 
 The whole suite takes under a minute on the development PC, most of it the
@@ -649,13 +782,14 @@ phone/engine/
   Cargo.toml, Cargo.lock, README.md, .gitignore
   src/
     lib.rs        crate notes, the public names and the limits
-    facts.rs      PhoneFacts, Front, CallState, PhonePermissions
+    facts.rs      PhoneFacts, Front, CallState, PhonePermissions, Permission
     counts.rs     what counts on a phone, and what is never covered
     orders.rs     PhoneOrders, Cover, LockScreen, LockWhy, the ways out,
                   TimeLeft, WarningShown, TryAnswer, GrantTaken, PhoneNote
     words.rs      every sentence the phone shows
+    today.rs      the child's own screens: Today and the rules in words
     kept.rs       the kept state: the stretch, the look, LiMo's clock, the
-                  notes, and the blob's form
+                  notes, each app's use today, and the blob's form
     engine.rs     PhoneEngine: the call, the report and the grant, the ways
                   out, keeping, the view
     error.rs      PhoneError, LoadProblem, in plain words
@@ -664,5 +798,5 @@ phone/engine/
     phone/
       main.rs     the one story program
       common.rs   the fake phone, the PC beside it, and its checks
-      day.rs, covers.rs, ways_out.rs, clock.rs, restart.rs, kept.rs
+      day.rs, covers.rs, ways_out.rs, clock.rs, restart.rs, kept.rs, today.rs
 ```

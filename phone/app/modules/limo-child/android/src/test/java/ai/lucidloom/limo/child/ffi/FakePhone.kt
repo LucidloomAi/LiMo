@@ -36,6 +36,16 @@ fun miraRules() = TestRules(
   utcOffsetSecs = IST,
 )
 
+/** Every permission LiMo needs, given, in setup order. */
+val ALL_PERMISSIONS = PhonePermissions(
+  notifications = true,
+  phone = true,
+  usageAccess = true,
+  accessibility = true,
+  battery = true,
+  protection = true,
+)
+
 fun app(packageName: String, label: String) = Front(FrontKind.APP, packageName, label)
 
 fun screen(kind: FrontKind) = Front(kind)
@@ -56,6 +66,7 @@ class FakePhone(folder: File, start: Long) : AutoCloseable {
   var elapsedMs = 3_600_000L
   var front = app(GAME, "Game")
   var inReach = false
+  var permissions = ALL_PERMISSIONS
   val notes = mutableListOf<String>()
 
   init {
@@ -82,7 +93,7 @@ class FakePhone(folder: File, start: Long) : AutoCloseable {
     front = front,
     inReach = inReach,
     prodded = false,
-    permissions = PhonePermissions(accessibility = true, usageAccess = true),
+    permissions = permissions,
   )
 
   /** One call, carried out as the host does: keep the state when told, and carry a report and its grant. */

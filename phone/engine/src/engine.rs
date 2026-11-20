@@ -17,6 +17,7 @@ use crate::orders::{
     Cover, GrantTaken, LockScreen, LockWhy, PhoneNote, PhoneOrders, RequestLine, TimeLeft, TryAnswer, WarningShown,
     Way, WayRow,
 };
+use crate::today::{self, RulesWords, TodayView};
 use crate::words::{self, PhoneClock};
 use crate::{ANSWER_WAIT_MS, REPORT_EVERY_SECS, REPORT_IDLE_SECS, SAVE_PROGRESS_EVERY_MS};
 
@@ -90,9 +91,9 @@ impl Talk {
     }
 }
 
-/// The phone as the engine holds it now: for the child's own screen, and
-/// for tests.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// The phone as the engine holds it now: for the child's own screens
+/// (`today` and `rules_words`, with every word in them), and for tests.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PhoneView {
     /// The child.
     pub child_id: String,
@@ -124,6 +125,10 @@ pub struct PhoneView {
     /// How far the phone's wall clock is ahead of LiMo's clock, in seconds:
     /// the jumps LiMo did not follow.
     pub clock_correction_secs: i64,
+    /// The child's Today screen, at the last call.
+    pub today: TodayView,
+    /// The rules in words, for How it works.
+    pub rules_words: RulesWords,
 }
 
 /// The engine of LiMo on a child's phone. It holds the core's device state
@@ -471,7 +476,8 @@ impl PhoneEngine {
     }
 
     /// The phone as the engine holds it now, or None when the kept state
-    /// could not be loaded.
+    /// could not be loaded. Today and the rules in words are as at the last
+    /// call; before any call, as at the last moment kept.
     pub fn view(&self) -> Option<PhoneView> {
         let kept = self.kept.as_ref()?;
         let now = self.seen.map_or(i64::MIN, |s| s.now);
@@ -480,10 +486,23 @@ impl PhoneEngine {
         let day = self.decision.as_ref().map_or(holding.day, |d| d.day);
         let (counted_secs, over_secs) =
             if holding.day == day { (holding.used_secs(), holding.over_secs()) } else { (0, 0) };
+        let rules = kept.state.rules();
+        let (at, clock) = match (self.seen, kept.last_seen()) {
+            (Some(seen), _) => (seen.now, seen.clock),
+            (None, Some((at, offset))) => (at, PhoneClock { utc_offset_secs: offset, hours_24: false }),
+            (None, None) => (rules.calendar().day_start(holding.day), PhoneClock::default()),
+        };
+        let decision = match &self.decision {
+            Some(decision) => decision.clone(),
+            None => probe.clone().decide(at, None),
+        };
+        let today =
+            today::today(&rules, &decision, counted_secs, kept.apps_on(day), kept.permissions(), at, clock);
         Some(PhoneView {
             child_id: kept.state.child_id(),
             device_id: kept.state.device_id(),
-            rules: kept.state.rules(),
+            rules_words: today::rules_words(&rules, at, clock),
+            rules,
             decision: self.decision.clone(),
             day,
             counted_secs,
@@ -494,6 +513,7 @@ impl PhoneEngine {
             requests_today: kept.state.requests_today(now),
             notes: kept.notes.clone(),
             clock_correction_secs: kept.correction_secs(),
+            today,
         })
     }
 }

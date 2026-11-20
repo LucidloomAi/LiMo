@@ -100,8 +100,12 @@ pub(crate) fn facts_in(facts: PhoneFacts) -> Result<engine::PhoneFacts, EngineEr
         in_reach: facts.in_reach,
         prodded: facts.prodded,
         permissions: engine::PhonePermissions {
-            accessibility: facts.permissions.accessibility,
+            notifications: facts.permissions.notifications,
+            phone: facts.permissions.phone,
             usage_access: facts.permissions.usage_access,
+            accessibility: facts.permissions.accessibility,
+            battery: facts.permissions.battery,
+            protection: facts.permissions.protection,
         },
     })
 }
@@ -464,7 +468,14 @@ mod tests {
             front,
             in_reach: true,
             prodded: true,
-            permissions: PhonePermissions { accessibility: true, usage_access: false },
+            permissions: PhonePermissions {
+                notifications: true,
+                phone: false,
+                usage_access: false,
+                accessibility: true,
+                battery: false,
+                protection: true,
+            },
         }
     }
 
@@ -490,9 +501,38 @@ mod tests {
                 front: engine::Front::labelled("org.example.game", "Game"),
                 in_reach: true,
                 prodded: true,
-                permissions: engine::PhonePermissions { accessibility: true, usage_access: false },
+                permissions: engine::PhonePermissions {
+                    notifications: true,
+                    phone: false,
+                    usage_access: false,
+                    accessibility: true,
+                    battery: false,
+                    protection: true,
+                },
             }
         );
+        // Each permission crosses to its own field, and only to it.
+        for permission in engine::Permission::ALL {
+            let mut f = facts(front(FrontKind::Home, None, None));
+            let p = &mut f.permissions;
+            *p = PhonePermissions {
+                notifications: true,
+                phone: true,
+                usage_access: true,
+                accessibility: true,
+                battery: true,
+                protection: true,
+            };
+            match permission {
+                engine::Permission::Notifications => p.notifications = false,
+                engine::Permission::Phone => p.phone = false,
+                engine::Permission::UsageAccess => p.usage_access = false,
+                engine::Permission::Accessibility => p.accessibility = false,
+                engine::Permission::Battery => p.battery = false,
+                engine::Permission::Protection => p.protection = false,
+            }
+            assert_eq!(facts_in(f).unwrap().permissions.off(), vec![permission]);
+        }
         for (call, expected) in [
             (CallState::Idle, engine::CallState::Idle),
             (CallState::Ringing, engine::CallState::Ringing),
