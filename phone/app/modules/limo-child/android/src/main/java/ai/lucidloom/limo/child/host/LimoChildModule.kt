@@ -45,14 +45,29 @@ class LimoChildModule : Module() {
     OnStopObserving("change") {
       seam?.events?.listening(null)
     }
+    // The main activity came to the front or left it. Expo runs both inside
+    // the activity's own onResume and onPause, on the main thread, as React
+    // Native calls its lifecycle listeners there. Only the first resume of a
+    // cold start may come later, on the thread that first reaches Expo's
+    // modules, since Expo holds events until then (seam/README.md, "LiMo's
+    // own screen"). The watch is told first, before anything else, and on
+    // the main thread at once: seam/OwnScreen says why the order matters.
     OnActivityEntersForeground {
-      seam?.let {
-        it.opener.backInFront()
-        it.events.front(true)
+      guarded("foreground") {
+        seam?.let {
+          it.ownScreen.entersForeground(appContext.currentActivity)
+          it.opener.backInFront()
+          it.events.front(true)
+        }
       }
     }
     OnActivityEntersBackground {
-      seam?.events?.front(false)
+      guarded("background") {
+        seam?.let {
+          it.ownScreen.entersBackground()
+          it.events.front(false)
+        }
+      }
     }
     OnActivityResult { _, payload ->
       seam?.opener?.result(payload.requestCode)
@@ -94,6 +109,17 @@ class LimoChildModule : Module() {
           promise.reject("Failed", "The child module could not answer $name.", null)
         }
       }
+    }
+  }
+
+  /** A hook from the activity's lifecycle never throws into it: a failure is logged by what failed and its kind. */
+  private inline fun guarded(what: String, block: () -> Unit) {
+    try {
+      block()
+    } catch (e: Exception) {
+      AndroidHostLog.line("host failed what=$what error=${e.javaClass.simpleName}")
+    } catch (e: LinkageError) {
+      AndroidHostLog.line("host failed what=$what error=${e.javaClass.simpleName}")
     }
   }
 }

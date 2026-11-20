@@ -48,6 +48,9 @@ internal class Seam private constructor(context: Context) {
   /** What opens Android's screens for the steps, and LiMo's ways out. */
   val opener = StepOpener(app, main, AndroidSeamLog)
 
+  /** Tells the watch whether the main activity is LiMo's own screen in front. */
+  val ownScreen = OwnScreen(watch, AndroidSeamLog)
+
   /** Whether a state is kept: read from the file, right at once on any thread. */
   val paired: Boolean get() = host.paired
 

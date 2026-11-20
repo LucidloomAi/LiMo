@@ -12,7 +12,8 @@ hands each request here.
 view, the watch (watch/) for the permissions and each app's name, and
 Android for its own screens, and turns what they give into the screens'
 answers. It keeps two marks of its own for setup, apart from the engine's
-state.
+state, and tells the watch whenever the app's main activity is LiMo's own
+screen in front.
 
 **What it is not.** It decides nothing about rules and makes no sentence
 about time, rules or a step that is off: every such word is the engine's,
@@ -29,6 +30,7 @@ the engine only through the host. Nothing here has run on a phone yet: see
 - [What is kept, and where](#what-is-kept-and-where)
 - [The child's name](#the-childs-name)
 - [The change event](#the-change-event)
+- [LiMo's own screen](#limos-own-screen)
 - [Threads and failures](#threads-and-failures)
 - [What it logs](#what-it-logs)
 - [Tests](#tests)
@@ -52,7 +54,7 @@ never on the main thread. An error reaches JavaScript with a `code`.
 | `child.today` | `TodayView` | the engine's `today`, turned (below) |
 | `child.rules` | `RulesView` | the engine's `rules_words`, turned (below) |
 | `child.maker` | a string | `Build.MANUFACTURER` exactly as Android gives it, such as `samsung` |
-| `child.askForMoreTime` | null, once it opened | opens `show.WaysOutActivity` with the extra `ai.lucidloom.limo.child.show.WAY` set to `ASK` (the bridge's `Way.ASK.name`, `StepOpener.EXTRA_WAY`), so the ways out show asking for more time at once; `NotPaired` when not paired |
+| `child.askForMoreTime` | null, once it opened | opens LiMo's ways out screen at asking for more time, with no lock behind it (`show.WaysOutActivity.openAsking`); `NotPaired` when not paired |
 | `about` | `{ form, module, android, sdk }` | as before |
 
 Any other name is refused with `UnknownRequest`. The screens read the
@@ -191,6 +193,75 @@ have changed:
   differs from the one it last sent. When the screens begin to listen,
   the answers then are taken as sent, since the screens have just asked.
 
+## LiMo's own screen
+
+The watch takes LiMo's own word that one of its screens is in front
+(`PhoneWatch.limoScreenShown`, watch/README.md, rule 10): a fact, which
+holds with usage access off too, when the front would otherwise be
+unknown, and so counted and maybe covered. Usage access is off all through
+setup until its third step, and again whenever someone switches it off.
+The ways out screen (`show/WaysOutActivity`) gives its own word; the app's
+main activity (setup, the child's introduction, Today, How it works) gives
+it through `OwnScreen`, from the two hooks Expo hands `LimoChildModule`
+(`OnActivityEntersForeground`, `OnActivityEntersBackground`). The rules:
+
+- **In front: true. Leaving it: false.** So a minute on setup or on Today
+  is never counted, Today's "Looking at this screen does not use your
+  time." holds, and no cover stands over LiMo's own screens.
+- **At once, on the main thread, in order.** The watch holds one word for
+  all of LiMo's screens, the last given. When the ways out screen opens
+  over Today, Today's pause says false and then the ways out screen's
+  resume says true; a false given later, through another thread, would
+  land after that true and leave the ways out screen unknown and covered.
+  So the word is told on the thread that hands it, before the hook
+  returns, before anything else the hook does.
+- **Never in split screen.** In split screen, or a floating window
+  (`Activity.isInMultiWindowMode`), the word is false: another app shares
+  the screen, and "LiMo is in front" would let it run uncounted and
+  uncovered with usage access off. Unknown is the safe answer there. The
+  main activity handles its own size changes (its `configChanges` take
+  `screenSize`, `screenLayout` and `smallestScreenSize`), so it can enter or
+  leave split screen without a pause, and on Android 10 and later both
+  halves stay resumed. Android tells only the activity itself
+  (`onMultiWindowModeChanged`), which the app's generated main activity
+  does not pass on, so `OwnScreen` watches the activity's window instead:
+  each time it is laid out again (as it is when its size changes), it looks
+  at `isInMultiWindowMode` and says the word again if that changed.
+- **Never throws into the activity.** The watch is told inside a guard,
+  and so is everything the two hooks do in `LimoChildModule`.
+
+**On which thread Expo calls the two hooks, as read in the sources.**
+React Native calls its lifecycle listeners on the main thread, inside the
+activity's own `onResume` and `onPause` (`ReactActivityDelegate` to
+`ReactDelegate` to `ReactHostImpl.onHostResume` and `onHostPause` to
+`ReactLifecycleStateManager` to `ReactContext.onHostResume` and
+`onHostPause`, all `@ThreadConfined(UI)`, in
+`node_modules/react-native/ReactAndroid/src/main/java/com/facebook/react/`).
+Expo's `AppContext.onHostResume` and `onHostPause`
+(`node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/AppContext.kt`)
+post `ACTIVITY_ENTERS_FOREGROUND` and `ACTIVITY_ENTERS_BACKGROUND` to each
+module on that same thread, at once (`ModuleRegistry.post`, then
+`ModuleHolder.post`), so a word given there keeps its place.
+
+**The first resume of a cold start is not missed, but may come late, on
+another thread.** React Native starts after the activity has resumed. Two
+paths bring that resume to Expo, and both reach the module: when React
+Native's context is ready it calls `ReactContext.onHostResume` for an
+activity already resumed (`ReactLifecycleStateManager.resumeReactContextIfHostResumed`,
+from `ReactHostImpl`), and a listener added to a context already resumed
+is called at once by `ReactContext.addLifecycleEventListener`, through
+`runOnUiQueueThread` (`ReactContext.java`). Either way on the main thread.
+But Expo's `ModuleRegistry` holds every event that comes before its modules
+are created (`addToQueueIfNeeded`) and hands them over, in order, from
+`postOnCreate`, which `NativeModulesProxy.getConstants` runs when
+JavaScript first reaches Expo's modules
+(`node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/ModuleRegistry.kt`,
+`.../adapters/react/NativeModulesProxy.java`): on that thread, not the
+main one. So `OwnScreen` takes a word that comes on another thread over to
+the main thread, and takes it only if no word came in order on the main
+thread meanwhile (any such word is newer: events are held only until the
+modules exist). A pause between the two is never undone by a late resume.
+
 ## Threads and failures
 
 Requests run on Expo's queue; the change event's work on the seam's own
@@ -213,7 +284,8 @@ in words that hold no name, label or sentence:
 | `seam step=<step> opened page=<page>` | A settings page opened (`app_notifications`, `app_details`, `usage_for_limo`, `usage_list`, `accessibility_list`, `battery_list`). |
 | `seam step=<step> not_opened` | Nothing could be opened. |
 | `seam pairing no_child_name fallback` | Paired, with no name kept: the screens say `your child`. Once, and again only after a name was seen. |
-| `seam failed what=<what> error=<kind>` | Anything else that failed (`marks_read`, `ask`, `read_permission`, `open_step`, `ways_out`, or the change event's `look`, `note`, `front`, `listening`, `stop`). |
+| `seam failed what=<what> step=<step> error=<kind>` | Opening a step failed: `open_step` (anything while opening it, which then answers `NotOpened`) or `ask` (Expo's permission service refused to ask, and the next way was tried). |
+| `seam failed what=<what> error=<kind>` | Anything else that failed: `marks_read`, `read_permission`, `ways_out`, `own_screen`, or the change event's `look`, `note`, `front`, `listening`, `stop`. |
 
 ## Tests
 
@@ -229,6 +301,8 @@ guardian would set them on the PC.
 | `SeamRequestsTest` | The three answers to the pairing: not paired (not set up, nothing kept, Today and the rules refused, the steps and the maker answered), paired with a name (named, agreeing and the introduction kept for this pairing and told, paired again starting again with the new name), and paired with no name (`your child`, logged once, setup going on); a kept state that cannot be read still paired, with nothing to show; each step on only when Android says so in this reading; the change event's answers asking the host and the watch once for all; the marks file |
 | `SeamChangesTest` | A burst gathered into one look; at most one look a second; only what changed sent; a failure sent once; one order; what the host's and the watch's words may change |
 | `StepPlansTest` | Every step on every Android from 8.0 to 16: the question or the page, refused for good, granted and switched off; when a page follows a question |
+| `OwnScreenTest` | The main activity's word to the watch's real core, with usage access off: in front it is LiMo, leaving it unknown; the ways out screen opened over Today and closed again, each said in Android's order, LiMo throughout, and the same false told late leaving the ways out screen unknown; split screen false, entered and left with no pause through the window's layout, a layout that changed nothing saying nothing; the first resume of a cold start handed over late, taken, or dropped when a pause came in order first; a watch that fails never throwing into the activity |
+| `OwnScreenThreadsTest` (Robolectric) | On the main thread the watch is told before the hook returns, nothing left waiting; a word from another thread waits for the main thread, and a newer one in order wins; an activity in split screen says false, and its window being laid out says true and false again as it leaves and enters split screen without a pause |
 | `SeamHouseRulesTest` | No log line carries a name, a label, a sentence or the view; no sentence about time is written here; no dash punctuation |
 
 **The contract with the screens.** Each answer the tests above make is
@@ -301,10 +375,30 @@ screen is used, then ON once back in LiMo.
     is switched off, so LiMo cannot count the time in each app." Switch it
     on again: the banner goes. With Today showing, forget the pairing from
     the PC: S0 comes by itself.
-13. **Ask for more time.** Tap it on Today: `WaysOutActivity` opens (still
-    a stub that closes at once: a flicker). `adb logcat -s ActivityTaskManager`
-    shows the start with the extra.
-14. **Expo's turning of the answers.** Every screen above showing its words
+13. **Ask for more time.** Tap it on Today: LiMo's ways out screen opens at
+    asking for more time, with no lock strip at its top (show/README.md
+    says what it shows and does). Back closes it and Today shows again.
+14. **LiMo's own screens are not counted with usage access off.** Switch
+    usage access off for LiMo in Android's settings and come back to LiMo.
+    Run `limo-phone-dev status` on the PC and note the time used today;
+    stay a full minute on LiMo's setup screens (forget and pair the phone
+    again to see them) and a full minute on Today, then run `status` again:
+    the time used today has not moved. Meanwhile the notification says the
+    time is paused ("paused" after the time left), and the watch's log
+    (`adb logcat -s LiMoWatch`) says `front now limo`. Then open a game for
+    a minute: that minute is counted.
+15. **The ways out screen over Today, with usage access off.** With usage
+    access off, tap "Ask for more time" on Today: the ways out screen opens
+    and nothing covers it, also when the day is used up and the phone is
+    locked; Back shows Today again, never covered.
+16. **Split screen.** With usage access off, put LiMo in split screen with
+    a game: the minutes in the game count (`status`), and LiMo is not said
+    to be in front (the watch's log says `front now unknown`, not `front now
+    limo`, while it shares the screen). Take it out of split screen without
+    leaving it: `front now limo` again. If
+    either does not happen, the window's layout did not tell `OwnScreen`
+    (see "Left open").
+17. **Expo's turning of the answers.** Every screen above showing its words
     is the proof that maps, lists, strings, numbers and nulls reach
     JavaScript as the readers expect.
 
@@ -315,9 +409,21 @@ screen is used, then ON once back in LiMo.
   LiMo being removed while it is on, and anyone can switch it off in
   Settings; the base protection has to make the step's words true, or they
   change. The admin's own description says only what is true now.
-- **`show.WaysOutActivity`** is still a stub: it must read
-  `ai.lucidloom.limo.child.show.WAY` (`ASK`) and open at asking for more
-  time.
+- **Split screen without a pause** is caught from the main activity's
+  window being laid out again, not from Android's own word for it
+  (`Activity.onMultiWindowModeChanged`), which only the activity hears and
+  the app's generated main activity does not pass on. That a layout always
+  follows the change, and that `isInMultiWindowMode` already says the new
+  mode then, is what a phone must show (check 16). Passing Android's own
+  word on would need a change to the generated main activity through a
+  config plugin.
+- **Android's own screens opened from LiMo are not LiMo.** A permission
+  question over LiMo, the battery question, the device admin page and
+  Settings pause the main activity, so with usage access off the front is
+  unknown while they show: counted, and under a lock covered. That is the
+  watch's rule for any other app, kept here; it means the walk from
+  Today's banner into Settings to switch usage access back on runs under
+  the lock when the day is used up.
 - **Accessibility, twice.** The step is on when the service is switched on
   in Settings; the engine's banner when it is switched on and connected (or
   was switched on less than a minute ago). The two can differ for a moment
@@ -342,8 +448,10 @@ seam/
   SeamChanges.kt   the change event's throttle, pure
   StepPlans.kt     what each step opens on each Android, pure
   StepOpener.kt    opening Android's screens and questions, and the ways out
-  Seam.kt          the seam of the process: its thread, the host and the watch, the marks file, the change event
+  OwnScreen.kt     whether the main activity is LiMo's own screen in front, for the watch
+  Seam.kt          the seam of the process: its thread, the host and the watch, the marks file, the change event, the own screen
 src/test/java/ai/lucidloom/limo/child/seam/
   SeamRig.kt       the engine's phone, the host and phone as the seam sees them, JSON out, the answer files
-  SeamTodayTest.kt, SeamRequestsTest.kt, SeamChangesTest.kt, StepPlansTest.kt, SeamHouseRulesTest.kt
+  SeamTodayTest.kt, SeamRequestsTest.kt, SeamChangesTest.kt, StepPlansTest.kt, OwnScreenTest.kt,
+  OwnScreenThreadsTest.kt, SeamHouseRulesTest.kt
 ```

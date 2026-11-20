@@ -1,6 +1,5 @@
 package ai.lucidloom.limo.child.seam
 
-import ai.lucidloom.limo.child.ffi.Way
 import ai.lucidloom.limo.child.keep.AdminReceiver
 import ai.lucidloom.limo.child.keep.Battery
 import ai.lucidloom.limo.child.show.WaysOutActivity
@@ -84,14 +83,14 @@ internal class StepOpener(
     }
   }
 
-  /** Opens LiMo's ways out, at asking for more time, and nothing else. True when it opened. */
+  /**
+   * Opens LiMo's ways out at asking for more time, with no lock behind it
+   * (`WaysOutActivity.openAsking`), and nothing else. True when it opened.
+   */
   fun askForMoreTime(activity: Activity?): Boolean {
     val from: Context = activity ?: app
-    val intent = Intent(app, WaysOutActivity::class.java)
-      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      .putExtra(EXTRA_WAY, Way.ASK.name)
     return try {
-      from.startActivity(intent)
+      WaysOutActivity.openAsking(from)
       true
     } catch (e: ActivityNotFoundException) {
       log.line("seam failed what=ways_out error=${e.javaClass.simpleName}")
@@ -219,12 +218,6 @@ internal class StepOpener(
   }
 
   companion object {
-    /**
-     * The extra `show.WaysOutActivity` is opened with: which way out to show
-     * at once, by the bridge's `Way` (`ASK` for asking for more time).
-     */
-    const val EXTRA_WAY = "ai.lucidloom.limo.child.show.WAY"
-
     private const val SETTINGS_ROW = ":settings:fragment_args_key"
     private const val SETTINGS_ROW_ARGS = ":settings:show_fragment_args"
   }
