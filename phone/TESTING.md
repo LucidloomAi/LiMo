@@ -391,7 +391,9 @@ starts.
    minutes a day, with its test phone paired.` and `Next: status, log or
    code; or forget, to start again.`
 6. `.\limo-phone-dev status`, at once: `Child: Asha (this PC's test family),
-   on its test phone.`, `Time left today: 30 min (held on the phone: there
+   on its test phone.`, `Setup is not finished on this phone. LiMo counts
+   nothing and covers nothing until a guardian finishes setup on the
+   phone.`, `Time left today: 30 min (held on the phone: there
    is no master to reach).`, `Used today: 0 min used of 30 min. On this
    phone 0 min.`, `Apps today: none used for a minute or more.`, `Screens
    are off from 23:00 to 06:00.`, `Locked: no.`, `Wrong tries of a code or
@@ -403,11 +405,12 @@ starts.
    minutes a day, 1 blocked and 1 always allowed apps, screens off at night,
    and paired one phone.`, each with a time in UTC, and no name and no PIN.
 
-From here until usage access is on (part E, step 5), LiMo cannot tell which
-app is in front, and counts the time all the same while the screen is on.
-Its own screens are the exception: they say for themselves that they are in
-front, so setup's screens do not use the day. Android's own pages, which
-the steps open, are counted as any app is.
+From here until setup is finished on the phone (part F, step 1, `Show Asha
+how it works`), LiMo counts nothing and covers nothing, whatever is in
+front: Android's own pages, LiMo's own screens and any app tried meanwhile.
+Setup is the guardian's time. LiMo's notification says `Setup is not
+finished on this phone.` in place of the time left, and `status` says so
+first.
 
 Undo: `.\limo-phone-dev forget`, then `.\limo-phone-dev uninstall`.
 
@@ -425,12 +428,9 @@ says so.
    LiMo does here`, three rows (`Counts time`, `Covers and locks`, `Never
    reads`), `Nothing leaves your home. This phone talks only to your family
    PC.`, and the box `I am Asha's guardian, and I agree.` `Continue` is
-   switched off until the box is ticked. Before ticking it, stay a full
-   minute on this screen, then run `.\limo-phone-dev status`: still `Used
-   today: 0 min used of 30 min.`, and the log terminal has a line beginning
-   `front now limo` (it may have come when LiMo was opened). (Settles
-   whether LiMo's own screens are left uncounted while usage access is
-   off.) Tick the box, tap `Continue`.
+   switched off until the box is ticked. Tick the box, tap `Continue`.
+   (Whether LiMo's own screens are left uncounted while usage access is off
+   is settled in part I, step 1: during setup nothing is counted at all.)
 2. **Kept.** On the first step, swipe LiMo away from the recent apps and
    open it again: it starts at the first step not on (Notifications), not
    at S1.
@@ -438,7 +438,8 @@ says so.
    over LiMo, "Allow LiMo to send you notifications?", with Allow and Don't
    allow. Tap Allow: ON. The log: `seam step=notifications asked
    granted=true`. Pull down the shade: LiMo's notification is there,
-   ongoing, its title the time left (`N min left` or `N min paused`).
+   ongoing, its title `Setup is not finished on this phone.`, with no
+   countdown.
 4. **Phone** (step 2), and **going on without it**, tried here once.
    Its note, `WHAT ANDROID ASKS`: `Android's words are "make and manage
    phone calls". LiMo never makes a call. It only learns that one is
@@ -489,10 +490,12 @@ says so.
    The next three screens are Asha's.`, and `Show Asha how it works`.
 10. No step logged `seam step=... not_opened` (which shows `Android did not
     open it. Try again.`). If one did, note which.
-11. `.\limo-phone-dev status`: `Switched off on the phone when LiMo last
-    looked: phone.` Under `Used today:` are only the minutes spent on
-    Android's own pages during setup (Settings counts as any app does), none
-    for LiMo's own screens: note them.
+11. `.\limo-phone-dev status`: `Setup is not finished on this phone. LiMo
+    counts nothing and covers nothing until a guardian finishes setup on the
+    phone.`, `Used today: 0 min used of 30 min. On this phone 0 min.`, `Apps
+    today: none used for a minute or more.`, and `Switched off on the phone
+    when LiMo last looked: phone.` Nothing of setup is counted, Android's
+    own pages included.
 
 Undo: part O, steps 6 to 11.
 
@@ -513,7 +516,11 @@ Today show the app's first letter, as drawn.
    `Your messages, what you type, and the pages you visit. It only knows
    which app is open, and for how long.` C3: `How to ask for more time`,
    `When the time is used up, tap Ask for more time. A guardian answers. A
-   guardian who is away can read you a code to type.`, `Got it`.
+   guardian who is away can read you a code to type.`, `Got it`. Setup is
+   finished as the button is tapped: the log says `seam setup finished` and
+   `host setup finished`; the notification's title turns to the time left
+   (`30 min paused` while LiMo is in front); `.\limo-phone-dev status`:
+   `Setup was finished on the phone today at HH:MM.`
 2. `Got it` shows Today, under the floating tab bar (`TODAY`, `HOW IT
    WORKS`). Swipe LiMo away and open it: Today at once.
 3. **Today with the banner** (T): `NEEDS A GUARDIAN` in coral, `Phone
@@ -660,12 +667,14 @@ Mute.
    `note` line with `permission_off` and the usage access. Leave usage
    access off and close split screen, so that Today fills the screen: a
    line beginning `front now limo`, since LiMo's own screen says so itself
-   and is not said to be in front while it shares the screen. Tap `Ask for
-   more time`: the ways out screen opens and nothing covers it; Back shows
-   Today again. If split screen will not work, switch usage access off in
-   Settings and come back to Today: note which was done. (Settles whether
-   LiMo's screen is known without usage access, and whether leaving split
-   screen is noticed.)
+   and is not said to be in front while it shares the screen. Run
+   `.\limo-phone-dev status` and note `Used today`; stay a full minute on
+   Today, usage access still off, and run it again: `Used today` has not
+   moved. Tap `Ask for more time`: the ways out screen opens and nothing
+   covers it; Back shows Today again. If split screen will not work, switch
+   usage access off in Settings and come back to Today: note which was
+   done. (Settles whether LiMo's screen is known without usage access, so
+   that it is left uncounted, and whether leaving split screen is noticed.)
 2. **The banner's button.** On Today, tap `Show a guardian what to do`: the
    Phone step first. Have the second phone ready to call. Its `Allow` now
    opens LiMo's App info page (`seam step=phone opened page=app_details`),
@@ -698,8 +707,11 @@ note when.
    `LOCKS ABOUT TIME` and `OK`. The log: `show warning floated`. While it
    shows, tap the browser outside the card and type in its search field:
    the browser takes the touches and keeps the keyboard. The card goes by
-   itself after 30 seconds. In the shade, the warning is a notification
-   too, with no heads up and no sound.
+   itself after 10 seconds (it stayed 30 in the first run, and sat on the
+   browser's address bar; see the notes). At a later warning, swipe the
+   card up or to a side: it goes at once (`show warning gone by=swipe`),
+   and a tap on its body does nothing. In the shade, the warning is a
+   notification too, with no heads up and no sound.
 2. **The heads up notification instead.** At about 7 minutes left (the
    notification says `7 min left`), switch LiMo off in Settings,
    Accessibility, Installed apps. At 5 minutes there is no card: Android's
@@ -994,7 +1006,7 @@ Undo: this part is the undoing.
 | D5 check: this PC's test family | yes | yes |
 | D6 status: Asha, 30 min, 0 used, not locked, six switched off | yes | yes, the six in words |
 | D7 tool's log: no name, no PIN | yes | yes; the failed setup left no line (note 1) |
-| E1 S2: Continue off until ticked; a minute on it not counted, `front now limo` | yes | yes: a full minute, 0 min used, `front now limo` |
+| E1 S2: Continue off until ticked (the minute not counted moved to I1) | yes | yes: a full minute, 0 min used, `front now limo` |
 | E2 swiped away: back at the first step not on | yes | yes, at Notifications |
 | E3 Notifications: Android's question, ON, the notification there | yes | the first answer logged `granted=false`; ON through `page=app_notifications`; the notification then there: note 4 |
 | E4 Phone refused twice: the line and Go on without it, nothing moved | yes | yes; Android asked both times |
@@ -1004,7 +1016,7 @@ Undo: this part is the undoing.
 | E8 Protection: Android's page with LiMo's words, no powers listed, ON | yes | ON (`seam step=protection answered`); the page's words not noted |
 | E9 S9: ticks for all but Phone | yes | yes: five ticks, none on Phone; to change: note 16 |
 | E10 no `not_opened` | none | none |
-| E11 status: phone switched off; only Android's own pages counted during setup | note the minutes | phone switched off; 6 min, all on Android's own pages: note 6 |
+| E11 status: setup not finished said first; 0 min used, no apps; phone switched off | yes | phone switched off; 6 min, all on Android's own pages: note 6 |
 | F1 C1 to C3 as drawn | note differences | not looked at closely |
 | F2 Today at once after swiping away | yes | not tried |
 | F3 Today and its banner against E and T | note differences | as drawn |
@@ -1024,12 +1036,12 @@ Undo: this part is the undoing.
 | H4 emergency dialler from the block screen, not covered, nothing dialled; a known one ends the wait (`front emergency_wait ended first=`) | yes; note `how` and how it was known | `how=emergency_dialler`; `front now emergency_dialler package=com.samsung.android.app.telephonyui`, known at once, never covered; nothing dialled. Before the watch's fix, so no `emergency_wait` line; what came after: note 2 |
 | H5 YouTube not counted | yes | yes |
 | H6 silent ring without the Phone permission over the block screen | note what showed and what the log said | not run: no SIM |
-| I1 usage access off while Today shows: AND 1 MORE; out of split screen `front now limo`; ways out not covered | yes; note split screen or not | switched off in Settings, not in split screen: `AND 1 MORE`, the `permission_off` note, `front now unknown`, then `front now limo` on Today; the ways out not tried |
+| I1 usage access off while Today shows: AND 1 MORE; out of split screen `front now limo`; a minute on Today not counted; ways out not covered | yes; note split screen or not | switched off in Settings, not in split screen: `AND 1 MORE`, the `permission_off` note, `front now unknown`, then `front now limo` on Today; the ways out not tried |
 | I2 Phone step opens App info after two refusals | `page=app_details` | `page=app_details` |
 | I3 call within ten seconds of granting: `call now ringing` | yes | not run: no SIM |
 | I4 the banner's walk ends on Today with no banner | yes | yes |
 | I5 status: nothing switched off | yes | yes |
-| J1 card at 15: words, keyboard kept, gone after 30 s, quiet in the shade | yes | the card floated (`show warning floated`), touches outside it reached Chrome; it sat on the address bar: note 11; the rest not noted |
+| J1 card at 15: words, keyboard kept, gone after 10 s (30 s in the first run), a swipe puts it away, quiet in the shade | yes | the card floated (`show warning floated`), touches outside it reached Chrome; it sat on the address bar: note 11; the rest not noted |
 | J2 accessibility off: heads up at 5 with a sound | yes | not run |
 | J3 card at 1, OK puts it away; notification counts seconds | yes | the cards at 5 and 1 minute floated; OK and the seconds not noted |
 | J4 warning notifications gone a minute after the lock | yes | not looked at |
@@ -1174,3 +1186,12 @@ cable.
     and N6, note 14), part O but forget (steps 6 and 7, run with no cover
     up), and the Finish. LiMo was left installed on the phone, with its
     device admin, accessibility and usage access on.
+18. **Since this run: nothing is counted or covered until setup is
+    finished.** The first run saw 6 minutes counted during setup, all on
+    Android's own pages (note 6), and a `permission_off` note during it
+    (note 7). Since then, from pairing until the guardian taps `Show Asha
+    how it works` on S9, LiMo counts nothing, covers nothing and notes no
+    permission switched off, and its notification and `status` say setup
+    is not finished. Parts D, E and F say so now, and the check that LiMo's
+    own screens are not counted with usage access off moved from E1 to I1.
+    The Seen cells of the results keep what the first run saw.
