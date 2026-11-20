@@ -52,11 +52,19 @@ internal interface PhoneSource {
   fun audioMode(): Int
 
   /**
-   * `TelephonyManager.getCallState()`, where Android gives it without a
-   * permission (Android 8 to 11); null where it does not (Android 12 and
-   * later ask for the phone permission, which LiMo does not hold).
+   * Android tells the telephony call state only to an app that holds the
+   * Phone permission (`READ_PHONE_STATE`): Android 12 and later, for an app
+   * aimed at them, as LiMo is. Before Android 12 it tells any app.
    */
-  fun telephonyCallState(): Int?
+  val callStateNeedsPhone: Boolean
+
+  /**
+   * `TelephonyManager.getCallState()`: ringing, or off the hook, for every
+   * call on the phone, a call that rings with the ringer silenced among
+   * them. Where [callStateNeedsPhone] and the Phone permission is not
+   * granted, Android refuses it, so [WatchCore] asks only when it may.
+   */
+  fun telephonyCallState(): Int
 
   /** LiMo may read usage access (`AppOpsManager`, `OPSTR_GET_USAGE_STATS`). */
   fun usageAccess(): Boolean
@@ -69,9 +77,8 @@ internal interface PhoneSource {
 
   /**
    * Android's Phone permission is granted to LiMo: `checkSelfPermission`
-   * for `READ_PHONE_STATE`. False while it is not granted, which is always
-   * while the manifest does not ask for it. Only whether it is granted is
-   * read here; how a call is read does not change with it.
+   * for `READ_PHONE_STATE`. With it the telephony call state is read on
+   * Android 12 and later too; without it the audio mode alone says there.
    */
   fun phoneGranted(): Boolean
 
@@ -145,16 +152,19 @@ internal fun usageKindOf(type: Int): UsageKind? = when (type) {
 }
 
 /**
- * The call state, from what Android gives without the phone permission.
+ * The call state, from two readings.
  *
- * The audio mode (`AudioManager.getMode`, any Android): Android's telecom
- * service sets it to "ringtone" while a call rings aloud, "in call" while a
- * call is dialled, on or held, and "call screening" while a screening
- * service answers it. "In communication" is an internet call, such as a voice
- * chat in a game: it is not a call here, so a game's chat never keeps a cover
- * away. On Android 8 to 11 the telephony call state needs no permission
- * either, and catches a call that rings silently, which the audio mode may
- * not.
+ * The audio mode (`AudioManager.getMode`, any Android, no permission):
+ * Android's telecom service sets it to "ringtone" while a call rings aloud,
+ * "in call" while a call is dialled, on or held, and "call screening" while a
+ * screening service answers it. "In communication" is an internet call, such
+ * as a voice chat in a game: it is not a call here, so a game's chat never
+ * keeps a cover away.
+ *
+ * The telephony call state catches a call that rings silently, which the
+ * audio mode may not. Android 8 to 11 tell it to any app; Android 12 and
+ * later only with the Phone permission, so there the audio mode alone is the
+ * fallback while the permission is not granted.
  */
 internal object Calls {
   /** From `AudioManager.getMode()`. */

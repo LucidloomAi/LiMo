@@ -1,10 +1,12 @@
 package ai.lucidloom.limo.child.watch
 
+import android.Manifest
 import android.app.AppOpsManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.media.AudioManager
 import android.os.Build
@@ -12,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.telecom.TelecomManager
+import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 
 /**
@@ -26,6 +29,7 @@ import android.telephony.TelephonyManager
  * | --- | --- | --- |
  * | screen on, off, unlocked | receiver: `SCREEN_ON`, `SCREEN_OFF`, `USER_PRESENT` | [WatchChange.SCREEN] |
  * | a call (Android 12 and later) | `AudioManager.addOnModeChangedListener` | [WatchChange.CALL] |
+ * | a call (Android 12 and later, with the Phone permission) | `TelephonyManager.registerTelephonyCallback` with a `CallStateListener` | [WatchChange.CALL] |
  * | a call (Android 8 to 11) | `TelephonyManager.listen(LISTEN_CALL_STATE)`, no permission needed there | [WatchChange.CALL] |
  * | apps installed, removed, changed; the default dialler | receiver: `PACKAGE_*` with the `package` scheme, `ACTION_DEFAULT_DIALER_CHANGED` | [WatchChange.APPS] |
  * | keyboards | receiver: `INPUT_METHOD_CHANGED` | nothing to tell; the roles are asked again |
@@ -38,6 +42,9 @@ import android.telephony.TelephonyManager
 internal class WatchSignals(private val context: Context, private val watch: Watch) {
   private var running = false
   private val registered = ArrayList<() -> Unit>()
+
+  /** Android's own call listener, registered while the Phone permission is granted (Android 12 and later). */
+  private var phoneCalls: (() -> Unit)? = null
 
   private val screen = object : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) = watch.screenChanged()
@@ -81,9 +88,21 @@ internal class WatchSignals(private val context: Context, private val watch: Wat
     attempt("accessibility_setting") { accessibilitySetting() }
   }
 
+  /**
+   * The Phone permission was read as granted or not (it can be granted at
+   * any time from setup; taking it away stops LiMo's process). On Android
+   * 12 and later, Android's own call listener is registered only with it.
+   */
+  fun phoneGranted(granted: Boolean) {
+    if (!running || Build.VERSION.SDK_INT < 31) return
+    if (granted && phoneCalls == null) attempt("phone_calls") { phoneCallsOn() }
+    if (!granted) phoneCallsOff()
+  }
+
   fun stop() {
     if (!running) return
     running = false
+    phoneCallsOff()
     for (undo in registered.asReversed()) {
       try {
         undo()
@@ -105,7 +124,8 @@ internal class WatchSignals(private val context: Context, private val watch: Wat
   }
 
   // PhoneStateListener is deprecated from Android 12, where it is not used:
-  // there it would need the phone permission. Before, it needs none.
+  // there TelephonyCallback takes its place, with the Phone permission.
+  // Before, it needs none.
   @Suppress("DEPRECATION")
   private fun calls() {
     if (Build.VERSION.SDK_INT >= 31) {
@@ -113,6 +133,9 @@ internal class WatchSignals(private val context: Context, private val watch: Wat
       val listener = AudioManager.OnModeChangedListener { watch.callChanged() }
       audio.addOnModeChangedListener(context.mainExecutor, listener)
       registered.add { audio.removeOnModeChangedListener(listener) }
+      if (context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
+        attempt("phone_calls") { phoneCallsOn() }
+      }
     } else {
       val telephony = requireNotNull(context.getSystemService(TelephonyManager::class.java))
       val listener = object : android.telephony.PhoneStateListener() {
@@ -123,6 +146,28 @@ internal class WatchSignals(private val context: Context, private val watch: Wat
       }
       telephony.listen(listener, android.telephony.PhoneStateListener.LISTEN_CALL_STATE)
       registered.add { telephony.listen(listener, android.telephony.PhoneStateListener.LISTEN_NONE) }
+    }
+  }
+
+  /** Android 12 and later, with the Phone permission: told at once when a call rings, a silent ring among them. */
+  private fun phoneCallsOn() {
+    val telephony = requireNotNull(context.getSystemService(TelephonyManager::class.java))
+    val callback = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
+      // The state passed here is not used: the watch reads every call
+      // reading again itself.
+      override fun onCallStateChanged(state: Int) = watch.callChanged()
+    }
+    telephony.registerTelephonyCallback(context.mainExecutor, callback)
+    phoneCalls = { telephony.unregisterTelephonyCallback(callback) }
+  }
+
+  private fun phoneCallsOff() {
+    val undo = phoneCalls ?: return
+    phoneCalls = null
+    try {
+      undo()
+    } catch (_: Exception) {
+      // Already gone.
     }
   }
 

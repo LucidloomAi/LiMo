@@ -282,11 +282,29 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
 
   private fun callNow(now: Long): CallState {
     val audio = optional("audio_mode") { Calls.fromAudioMode(phone.audioMode()) }
-    val telephony = optional("telephony_call_state") { phone.telephonyCallState()?.let(Calls::fromTelephony) }
+    val telephony = if (telephonyAllowed(now)) {
+      optional("telephony_call_state") { Calls.fromTelephony(phone.telephonyCallState()) }
+    } else {
+      null
+    }
     val state = Calls.both(audio, telephony) ?: callGood ?: CallState.IDLE
     if (audio != null || telephony != null) callGood = state
     front.callState(state, now, roles)
     return state
+  }
+
+  /**
+   * The telephony call state may be asked for: on Android 8 to 11 always,
+   * on Android 12 and later only while the Phone permission is granted (as
+   * the permissions were last read, or read now when that is five seconds
+   * old or more). Without it the audio mode alone says whether a call rings.
+   */
+  private fun telephonyAllowed(now: Long): Boolean {
+    if (!phone.callStateNeedsPhone) return true
+    val seen = permissionsSeen
+    val at = permissionsAtMs
+    if (seen != null && at != null && now - at < WatchTimes.PERMISSIONS_EVERY_MS) return seen.phone
+    return remembered(phoneGranted, now) { phone.phoneGranted() }
   }
 
   private fun permissionsNow(now: Long, force: Boolean = false): LimoPermissions {

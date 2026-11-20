@@ -8,22 +8,29 @@ parent's phone and holds none of them.
 
 **What it is now.** The skeleton both forms are built on, and the child
 form's own screens. Every component of the child form is declared once, in
-one manifest, as a stub that does nothing; later pieces fill the Kotlin
-folders and leave the manifest alone. The theme comes from the design, the
-three fonts and the icon set are in. The child form has its screens, drawn
-to the approved design: setup, the child's introduction, Today and How it
-works (see [The child form's screens](#the-child-forms-screens)). They ask
-for everything through one seam that Kotlin answers later; until it does,
-the phone counts as not paired and the child form shows "This phone is not
-set up yet." The guardian form still shows one plain start screen.
+one manifest; the pieces that fill the Kotlin folders change it only for
+what their folder needs. The theme comes from the design, the three fonts
+and the icon set are in. The child form has its screens, drawn to the
+approved design: setup, the child's introduction, Today and How it works
+(see [The child form's screens](#the-child-forms-screens)). They ask for
+everything through one seam that Kotlin answers later; until it does, the
+phone counts as not paired and the child form shows "This phone is not set
+up yet." The guardian form still shows one plain start screen.
 
-**What it is not.** It counts nothing, covers nothing and limits nothing.
-The child form carries the Rust engine and the phone's side of the link
-(see [The Rust engine](#the-rust-engine)), but nothing calls them yet; it
-has no link to the master PC, and the child module does not answer the
-screens yet. It holds no permission to open a network socket. It has been
-built and its files inspected on the development PC only: nothing here has
-run on a phone or an emulator.
+In the child module, the watch (`watch/`) reads the facts and the app in
+front; the engine's host (`host/`) calls the Rust engine with them about
+once a second, keeps its state, and hands out its orders; the keeper
+(`keep/`) keeps LiMo running with a foreground service that shows the time
+left, starts it again after a restart, and wakes it with an alarm; and a
+debug build can be paired with a test family over the USB cable (`dev/`).
+Each folder has a README.
+
+**What it is not.** It covers nothing yet: the host hands each cover to a
+stand in that only logs it, until the covers (`show/`) are built. It has no
+link to the master PC, and the child module does not answer the screens
+yet. It holds no permission to open a network socket. It has been built and
+its files inspected on the development PC only: nothing here has run on a
+phone or an emulator.
 
 ## Contents
 
@@ -62,7 +69,8 @@ npm ci
 npm run build:child        # out/limo-child-release.apk
 npm run build:guardian     # out/limo-guardian-release.apk
 npm run build:both         # both, one after the other
-npm run inspect            # looks inside both and checks them
+npm run build:child:debug  # out/limo-child-debug.apk, for the development tool only
+npm run inspect            # looks inside both release files and checks them
 npm run typecheck
 npm run test:child         # the child module's JVM tests: the Rust engine from Kotlin
 npm test                   # the screens' tests (jest), against the mock host
@@ -90,9 +98,16 @@ and the React Native and Expo libraries into the user's Gradle cache; later
 builds use the cache. Gradle runs without a daemon and compiles Kotlin in its
 own process, so nothing keeps running after a build.
 
-**Debug builds.** `gradlew assembleDebug` works, but a debug build has no
-`INTERNET` either, so it cannot load JavaScript from a development server.
-Release builds carry their JavaScript inside and need none.
+**Debug builds.** `npm run build:child:debug` makes the child form as a
+debug build, `out/limo-child-debug.apk`, beside the release files. It is
+for the development tool on the PC only: it is debuggable, so the tool can
+put a test family's pairing into the app's files with `run-as` (which works
+on nothing else), and it holds the development receiver (`dev/`). A debug
+build has no `INTERNET` either, so it could not load JavaScript from a
+development server; `scripts/debug-bundle.gradle` makes it carry its
+JavaScript inside, as a release build does. Same package name as the
+release build: one replaces the other. Never give a debug build to a
+family.
 
 ## The two forms
 
@@ -181,36 +196,37 @@ Router now: see [Versions, and why](#versions-and-why).
 ## The child module
 
 `modules/limo-child` is a local Expo module, linked in the child form only.
-Its manifest declares every Android component the child form will need, each
-a stub that does nothing yet. The Kotlin lives in
-`ai.lucidloom.limo.child.<folder>`, one folder per later piece; the module's
-own namespace (`ai.lucidloom.limo.child.module`) only names its R class,
-which must not clash with the app's.
+Its manifest declares every Android component the child form needs. The
+Kotlin lives in `ai.lucidloom.limo.child.<folder>`, one folder per piece,
+each with its README; the module's own namespace
+(`ai.lucidloom.limo.child.module`) only names its R class, which must not
+clash with the app's.
 
-| Folder | Class | Manifest entry | Guard | What it will do |
+| Folder | Class | Manifest entry | Guard | What it does |
 | --- | --- | --- | --- | --- |
-| `watch/` | `WatchService` | accessibility service, exported, `res/xml/limo_watch_service.xml` | `BIND_ACCESSIBILITY_SERVICE` | which app is in front, by package name only; its overlay windows carry the covers |
+| `watch/` | `WatchService` | accessibility service, exported, `res/xml/limo_watch_service.xml` | `BIND_ACCESSIBILITY_SERVICE` | which app is in front, by package name only; starts the keeper when it connects; its overlay windows will carry the covers |
 | `watch/` | `ClockReceiver` | receiver, not exported: `TIME_SET`, `TIMEZONE_CHANGED` | | clock changes, as facts for the engine |
-| `show/` | `WaysOutActivity` | activity, not exported, own task, not in Recents | | ask with a typed reason, a code, the PIN |
-| `keep/` | `KeepService` | foreground service, not exported, type `specialUse` | | hosts the engine, shows the time left notification |
-| `keep/` | `RestartReceiver` | receiver, not exported: `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED` | | starts LiMo again after a restart or an update |
-| `keep/` | `AlarmReceiver` | receiver, not exported, no filter | | LiMo's own alarms |
-| `keep/` | `AdminReceiver` | device admin receiver, exported, `res/xml/limo_admin.xml` (no policies) | `BIND_DEVICE_ADMIN` | the base protection; later the device owner of strict mode |
-| `dev/` (debug only) | `DevReceiver` | receiver in `src/debug`, exported: `ai.lucidloom.limo.child.DEV` | `android.permission.DUMP` (only adb and the system hold it) | the development tool's commands over the cable |
-| `host/` | `LimoChildModule` | none (an Expo module) | | the child's side of the host seam; later the engine host |
+| `show/` | `WaysOutActivity` | activity, not exported, own task, not in Recents | | (a stub) ask with a typed reason, a code, the PIN |
+| `host/` | `Host` | none | | the engine's host: its own thread, the kept state (`files/limo/state`), a tick about once a second, the orders handed out |
+| `keep/` | `KeepService` | foreground service, not exported, type `specialUse` | | keeps the process alive while paired; the time left notification |
+| `keep/` | `RestartReceiver` | receiver, not exported: `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED` | | starts the keeper again after a restart or an update |
+| `keep/` | `AlarmReceiver` | receiver, not exported, no filter | | LiMo's own alarm: wakes the host, brings LiMo back |
+| `keep/` | `AdminReceiver` | device admin receiver, exported, `res/xml/limo_admin.xml` (no policies) | `BIND_DEVICE_ADMIN` | (a stub) the base protection; later the device owner of strict mode |
+| `dev/` (debug only) | `DevReceiver` | receiver in `src/debug`, exported: `ai.lucidloom.limo.child.dev.PAIR`, `ai.lucidloom.limo.child.dev.FORGET` | `android.permission.DUMP` (only adb and the system hold it) | a test family's pairing over the cable, and forgetting it |
+| `host/` | `LimoChildModule` | none (an Expo module) | | the child's side of the host seam; starts the keeper when the app opens |
 | `link/` | none | none | | the link to the master PC, run inside `KeepService` |
 | `strict/` | none | none | | strict mode: the device owner is `keep/AdminReceiver` |
 
-Each stub says in its own file what it is and what it will do. The class
-names are now part of the app: Android remembers an accessibility service a
-guardian switched on, a device admin and a device owner by class name, so
-renaming one later switches it off on every phone.
+The class names are part of the app: Android remembers an accessibility
+service a guardian switched on, a device admin and a device owner by class
+name, so renaming one later switches it off on every phone.
 
 The accessibility service's settings are proof two's: window state changes
 only, no window content (`canRetrieveWindowContent="false"`), no gestures, no
-key filtering, `isAccessibilityTool="false"`. The device admin asks for no
-policy at all, as in proof five. The words Android shows for both in
-Settings say what this build does: nothing yet.
+key filtering, `isAccessibilityTool="false"`. Its words in Settings say what
+it does: LiMo is told which app is in front, by its name only, and never
+what is on the screen. The device admin asks for no policy at all, as in
+proof five; its words still say this early build does nothing yet.
 
 `LimoChildModule` answers one request, `about`, so the start screen can show
 that the module is linked; any other name is refused with the code
@@ -221,8 +237,9 @@ that the module is linked; any other name is refused with the code
 The child form carries the phone's Rust: the engine and the phone's side of
 the link, through the bridge crate [`../ffi`](../ffi/) (`limo-phone-ffi`)
 and the Kotlin bindings UniFFI generates for it, which call it through JNA.
-Its README says what crosses and in which shape. Nothing calls it yet: the
-engine host (a later piece) will, from Kotlin, never from JavaScript.
+Its README says what crosses and in which shape. The engine's host
+(`host/`) calls it, from Kotlin on a thread of its own, never from
+JavaScript.
 
 **The build step.** The child module's Gradle task `buildRustEngine` runs
 `scripts/build-engine.mjs android` before the module is compiled, so
@@ -252,7 +269,12 @@ second copy of the bindings for the testkit only, in `src/generated/`
 drive the real engine and the real link from Kotlin through the bindings
 that ship, with the PC library loaded by JNA: a short day from a made up
 welcome to a right code and a reload, and a pairing and a session over the
-link. Nothing in the APK depends on this step.
+link. Nothing in the APK depends on this step. The same run has the tests of
+`watch/`, `host/` (a day through the host on the real engine), `keep/` and
+`dev/`, each listed in its folder's README: 62 in all. The release unit
+tests also compile `src/debug/java` (source set `testRelease` in the
+module's `build.gradle`), so the debug only `dev/` code is tested too;
+tests never ship.
 
 **What `npm run inspect` adds.** The child form must hold
 `lib/<abi>/liblimo_phone_ffi.so` for every ABI it names, exporting the
@@ -272,6 +294,8 @@ What each built APK holds, as `aapt2` reads it (see [Checks](#checks)):
 | `POST_NOTIFICATIONS` | yes | no | the time left notification (Android 13 and later asks the person) |
 | `RECEIVE_BOOT_COMPLETED` | yes | no | `keep/RestartReceiver`, after a restart |
 | `PACKAGE_USAGE_STATS` | yes | no | usage access for `watch/`; a person grants it in Settings |
+| `READ_PHONE_STATE` | yes | no | the Phone permission (the owner, 20 Nov 2026), asked at setup: `watch/` knows that a call rings or is on, a silent ring among them, so a lock never hides a call. Never a number, never who, never how long |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | yes | no | lets setup show Android's own question whether LiMo may be left out of battery optimisation (`keep/Battery`); Android asks the person |
 | `<package>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` | yes | yes | AndroidX's own, signature level: lets the app's receivers registered in code stay private on Android 12 and older. No other app can hold it |
 
 That is all: the guardian form holds nothing but AndroidX's private one.
@@ -285,18 +309,20 @@ only adb and the system reach it) and expo-file-system's
 
 Each permission of the child form is in the module's manifest with a comment
 saying why. Neither form asks for the camera, the microphone, location,
-contacts, accounts, the phone's state, shared storage, or "draw over other
-apps": the covers will be accessibility overlays, which need no permission.
-`app.config.ts` lists everything no form may hold, and the build removes each
-one even when React Native's template or a library asks for it
-(`tools:node="remove"`). The guardian form also refuses the child form's
-own permissions, so nothing of the child's can reach it by accident.
-`plugins/with-limo-android.js` removes `SYSTEM_ALERT_WINDOW` from the debug
-manifests too, where React Native's template adds it.
+contacts, accounts, the call log, phone numbers, shared storage, exact
+alarms, or "draw over other apps": the covers will be accessibility
+overlays, which need no permission. The guardian form does not ask for the
+phone's state either. `app.config.ts` lists everything no form may hold, and
+the build removes each one even when React Native's template or a library
+asks for it (`tools:node="remove"`). The guardian form also refuses the
+child form's own permissions, the Phone permission among them, so nothing
+of the child's can reach it by accident. `plugins/with-limo-android.js`
+removes `SYSTEM_ALERT_WINDOW` from the debug manifests too, where React
+Native's template adds it.
 
-Not declared yet, for the pieces that need them to decide: `INTERNET` and
-`ACCESS_NETWORK_STATE` (the link), exact alarms (`SCHEDULE_EXACT_ALARM` or
-`USE_EXACT_ALARM`), and asking to be left out of battery optimisation.
+Not declared yet, for the piece that needs them to decide: `INTERNET` and
+`ACCESS_NETWORK_STATE` (the link). Exact alarms are not needed: the host's
+alarm is an ordinary one (`keep/README.md`).
 
 ## Nothing leaves the phone
 
@@ -601,7 +627,8 @@ as a Gradle task instead, as proof three did it.
 | `make-design.mjs` | `make:design`, `postinstall` | the design into `src/generated` and the module's `src/generated` |
 | `icons.mjs` | | paints the icons with `clay.js`; used by `make-design` and the launcher icon |
 | `vector-drawable.mjs` | | one painted icon as an Android vector drawable |
-| `build.mjs` | `build:child`, `build:guardian`, `build:both` | prebuild and a release build of a form, into `out/` |
+| `build.mjs` | `build:child`, `build:guardian`, `build:both`, `build:child:debug` | prebuild and a release build of a form, into `out/`; with `--debug`, a debug build (`out/limo-<form>-debug.apk`) |
+| `debug-bundle.gradle` | | a Gradle init script for debug builds only: the JavaScript inside the debug APK, as in a release build |
 | `build-engine.mjs` | `build:engine` | the Rust bridge and its bindings, for the phone (run by the child module's Gradle build) or for the JVM tests on this PC |
 | `test-child.mjs` | `test:child` | the child module's JVM tests |
 | `inspect.mjs` | `inspect` | looks inside `out/*.apk` and checks them |
@@ -693,6 +720,22 @@ under a tenth of a percent of the pixels differ on each, the smoothing of
 letters, and a quarter of a percent on S9, the phase of its five dashed
 dividers. No Gradle build was made.
 
+With the engine's host, the keeper, the Phone permission and the debug
+build (20 Nov 2026), all on the PC: `npm run test:child` ran its 62 JVM
+tests, all passing (43 before: the engine and the link from Kotlin, and the
+watch; and 19 new: the host on the real engine, the keeper's look and the
+schedule, the test family's pairing file, the watch's calls with and
+without the Phone permission, and the folders' house rules), with no
+compiler warning in the module; `npm run typecheck` had no errors; `npm run
+build:both` built both forms (Gradle 160 s for the child, 139 s for the
+guardian); `npm run inspect` passed every check, the child form holding
+`READ_PHONE_STATE` and the guardian form not; `npm run build:child:debug`
+built `out/limo-child-debug.apk` (55,683,658 bytes, Gradle 135 s):
+debuggable, the development receiver guarded by `DUMP` with its two
+actions, the JavaScript bundle and the Rust library inside, no `INTERNET`.
+The child form's release APK is 30,423,233 bytes (about 220 KB more: the
+host, the keeper and their resources); the guardian's 28,273,711.
+
 ## Versions, and why
 
 - **Expo SDK 57**: expo 57.0.33, React Native 0.86.3, React 19.2.3, Hermes,
@@ -779,11 +822,8 @@ follow Expo's blank template (0BSD).
 - **Expo Router.** See [Versions, and why](#versions-and-why).
 - **For the pieces that fill the folders:** the foreground service type
   (`specialUse` now; Android also has `systemExempted` for device admin and
-  device owner apps), exact alarms, leaving battery optimisation, and how
-  `watch/` learns of a call (the owner decided on 20 Nov 2026 that setup
-  asks for Android's Phone permission, for this only). Each adds a line to the
-  module's manifest when it is decided. And an accessibility overlay draws
-  above every activity, so the cover has to step aside while
+  device owner apps, for the protection to weigh). And an accessibility
+  overlay draws above every activity, so the cover has to step aside while
   `WaysOutActivity` is open.
 - **Libraries linked but unused.** `expo` links expo-file-system, expo-asset,
   expo-font, expo-keep-awake and `@expo/dom-webview` by itself. The JavaScript
@@ -817,9 +857,10 @@ follow Expo's blank template (0BSD).
   list of apps left out with no app used today.
 - **For the child module (Kotlin), from the six steps:** answer `child.maker`
   with `Build.MANUFACTURER`; `child.steps` with `phone`; `child.openStep`
-  for `phone` with Android's own question for the Phone permission, which
-  needs `READ_PHONE_STATE` in the module's manifest (not declared yet); and
-  `guardianNeeded` with the engine's sentences beside the steps.
+  for `phone` with Android's own question for the Phone permission
+  (`READ_PHONE_STATE`, in the module's manifest now), and for `battery` with
+  `keep/Battery.askToLeaveOutOfOptimisation`; and `guardianNeeded` with the
+  engine's sentences beside the steps (the host's `view`).
 - **On a small phone** the way on past a step sits under the stamp, inside
   the card, so on the longer steps at 360 by 640 the guardian scrolls to
   it, as to the stamp itself. The screen does not scroll by itself.

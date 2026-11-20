@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+keep/: the small icon of LiMo's notifications, in the status bar. Android
+draws it from its shape alone, in one colour, so it is the design's
+hourglass (design/icons/shapes.js) as a plain silhouette: its body, its two
+ends, and the sand left out.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M13.5,9 L34.5,9 L34.5,15.5 C34.5,20.6 28.4,22.4 28.4,24 C28.4,25.6 34.5,27.4 34.5,32.5 L34.5,39 L13.5,39 L13.5,32.5 C13.5,27.4 19.6,25.6 19.6,24 C19.6,22.4 13.5,20.6 13.5,15.5 Z M18.2,14.5 L29.8,14.5 C29.2,18 26.4,19.8 24,19.8 C21.6,19.8 18.8,18 18.2,14.5 Z M17.4,37 C17.8,32.6 20.8,30.4 24,30.4 C27.2,30.4 30.2,32.6 30.6,37 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12.7,4.5 L35.3,4.5 A3.7,3.7 0 0 1 35.3,11.9 L12.7,11.9 A3.7,3.7 0 0 1 12.7,4.5 Z M12.7,36.1 L35.3,36.1 A3.7,3.7 0 0 1 35.3,43.5 L12.7,43.5 A3.7,3.7 0 0 1 12.7,36.1 Z" />
+</vector>

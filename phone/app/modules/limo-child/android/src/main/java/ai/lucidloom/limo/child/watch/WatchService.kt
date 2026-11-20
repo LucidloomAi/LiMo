@@ -1,5 +1,6 @@
 package ai.lucidloom.limo.child.watch
 
+import ai.lucidloom.limo.child.keep.Keeper
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
@@ -24,6 +25,10 @@ class WatchService : AccessibilityService() {
     super.onServiceConnected()
     current = this
     guard("service") { Watch.get(this).serviceConnected(true) }
+    // Android starts LiMo's process to connect this service (after a
+    // restart, or a guardian switching it on): the engine's host and the
+    // keeper start with it, when the phone is paired.
+    guard("keep") { Keeper.start(this, "accessibility") }
   }
 
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {

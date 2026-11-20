@@ -4,6 +4,7 @@
 //   node scripts/build.mjs child
 //   node scripts/build.mjs guardian
 //   node scripts/build.mjs child guardian
+//   node scripts/build.mjs child --debug
 //
 // For each form, in order:
 //   1. scripts/make-design.mjs (the theme, icons and logo from the design);
@@ -11,6 +12,14 @@
 //      so nothing of the other form is left in it;
 //   3. `gradlew assembleRelease`, with LIMO_FORM set for the whole run;
 //   4. copies the APK to out/limo-<form>-release.apk.
+//
+// With --debug, step 3 is `gradlew assembleDebug` and the APK is
+// out/limo-<form>-debug.apk: debuggable, so the development tool on the PC
+// can reach the app's files with run-as, and with the development receiver
+// (src/debug of the child module). scripts/debug-bundle.gradle makes Gradle
+// put the JavaScript inside it as a release build does, so it runs without
+// a development server (it has no INTERNET to reach one). Never give a debug
+// build to a family: anyone with a cable can change what it keeps.
 //
 // Expo's command line tool is told not to send usage data
 // (EXPO_NO_TELEMETRY=1). Gradle runs without a daemon and compiles Kotlin in
@@ -32,11 +41,15 @@ const androidDir = path.join(appDir, 'android');
 const outDir = path.join(appDir, 'out');
 const FORMS = ['child', 'guardian'];
 
-const forms = process.argv.slice(2);
+const args = process.argv.slice(2);
+const debug = args.includes('--debug');
+const forms = args.filter((a) => a !== '--debug');
 if (forms.length === 0 || forms.some((f) => !FORMS.includes(f))) {
-  console.error('Usage: node scripts/build.mjs child|guardian [child|guardian]');
+  console.error('Usage: node scripts/build.mjs child|guardian [child|guardian] [--debug]');
   process.exit(2);
 }
+const variant = debug ? 'debug' : 'release';
+const task = debug ? 'assembleDebug' : 'assembleRelease';
 
 function run(label, command, args, cwd, env) {
   const started = Date.now();
@@ -68,17 +81,16 @@ for (const form of forms) {
 
   // The full path, quoted: Windows may be set not to look in the current folder.
   const gradlew = process.platform === 'win32' ? `"${path.join(androidDir, 'gradlew.bat')}"` : './gradlew';
-  t.gradle = run(
-    `gradlew assembleRelease (${form})`,
-    gradlew,
-    ['assembleRelease', '--no-daemon', '-Pkotlin.compiler.execution.strategy=in-process'],
-    androidDir,
-    env,
-  );
+  const gradleArgs = [task, '--no-daemon', '-Pkotlin.compiler.execution.strategy=in-process'];
+  // The init script's path has no space in it here; Windows runs gradlew.bat
+  // through a shell, so it is quoted all the same.
+  const initScript = path.join(appDir, 'scripts', 'debug-bundle.gradle');
+  if (debug) gradleArgs.push('--init-script', process.platform === 'win32' ? `"${initScript}"` : initScript);
+  t.gradle = run(`gradlew ${task} (${form})`, gradlew, gradleArgs, androidDir, env);
 
-  const apk = path.join(androidDir, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk');
+  const apk = path.join(androidDir, 'app', 'build', 'outputs', 'apk', variant, `app-${variant}.apk`);
   fs.mkdirSync(outDir, { recursive: true });
-  const target = path.join(outDir, `limo-${form}-release.apk`);
+  const target = path.join(outDir, `limo-${form}-${variant}.apk`);
   fs.copyFileSync(apk, target);
   t.bytes = fs.statSync(target).size;
   console.log(`[build] ${path.relative(appDir, target)}: ${t.bytes} bytes`);

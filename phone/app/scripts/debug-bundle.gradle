@@ -1,0 +1,23 @@
+// A Gradle init script, for debug builds only (node scripts/build.mjs child
+// --debug passes it with --init-script; nothing else applies it).
+//
+// React Native leaves the JavaScript out of a debug build and loads it from
+// a development server on the PC instead. LiMo holds no INTERNET permission,
+// so a debug build could never reach one and would show no screen. Here the
+// React Native plugin is told that no variant is a development one
+// (debuggableVariants is empty), so the debug build bundles its JavaScript
+// as the release build does, and still is debuggable, which is what the
+// development tool needs (run-as reaches the app's files only in a
+// debuggable build).
+//
+// The setting is made the moment the plugin is applied to :app, before
+// android/app/build.gradle's own react { } block runs (which does not touch
+// it) and before the variants are made.
+
+gradle.beforeProject { project ->
+  if (project.path != ':app') return
+  project.pluginManager.withPlugin('com.facebook.react') {
+    project.extensions.getByName('react').debuggableVariants.set([])
+    project.logger.lifecycle('LiMo: the debug build carries its JavaScript inside (scripts/debug-bundle.gradle).')
+  }
+}

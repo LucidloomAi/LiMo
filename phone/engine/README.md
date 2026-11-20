@@ -719,7 +719,7 @@ What this piece worked around, inside the engine:
   day. The words are ready (`words::where_words` takes it); only the figure
   is missing. Until it comes, the phone says what it knows.
 - **Hub: note events** for each `PhoneNote`, and the phone's form and
-  protection level, as the plan's P2 lists.
+  protection level.
 
 ## Tests
 

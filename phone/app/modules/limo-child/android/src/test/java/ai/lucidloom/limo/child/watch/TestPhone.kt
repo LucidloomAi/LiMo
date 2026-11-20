@@ -46,7 +46,13 @@ internal class TestPhone : PhoneSource {
   var screenOn = true
   var keyguard = false
   var audioMode = 0
-  var telephony: Int? = null
+
+  /** Android asks for the Phone permission before it tells the telephony call state: Android 12 and later. */
+  override var callStateNeedsPhone = true
+
+  /** The telephony call state, as `TelephonyManager` has it (idle). */
+  var telephony = 0
+  var telephonyReads = 0
   var usageOn = true
   var accessibilityOn = true
   var notifications = true
@@ -122,7 +128,13 @@ internal class TestPhone : PhoneSource {
   override fun interactive(): Boolean = screenOn.also { check("interactive") }
   override fun keyguardLocked(): Boolean = keyguard.also { check("keyguard_locked") }
   override fun audioMode(): Int = audioMode.also { check("audio_mode") }
-  override fun telephonyCallState(): Int? = telephony.also { check("telephony_call_state") }
+  override fun telephonyCallState(): Int {
+    check("telephony_call_state")
+    // As Android does it: refused where it needs the Phone permission and LiMo does not hold it.
+    if (callStateNeedsPhone && !phoneGranted) throw SecurityException("no phone permission")
+    telephonyReads += 1
+    return telephony
+  }
   override fun usageAccess(): Boolean = usageOn.also { check("usage_access") }
   override fun accessibilityEnabled(): Boolean = accessibilityOn.also { check("accessibility") }
   override fun notificationsEnabled(): Boolean = notifications.also { check("notifications") }

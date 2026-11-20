@@ -18,12 +18,13 @@
 // build PC's user name, home folder and repository folder appear nowhere in
 // the APK's files.
 // For the child form: every stub component is there with its guard, and the
-// development receiver is not (it is in debug builds only); the Rust bridge
+// development receiver is not (it is in debug builds only); it holds the
+// Phone permission (READ_PHONE_STATE); the Rust bridge
 // (liblimo_phone_ffi.so) is there for every ABI the APK names, with JNA's
 // library and the bindings in the dex. For the guardian form: no
 // accessibility service, no device admin receiver, no usage access, no
-// foreground service, and nothing of the child module at all: no Rust
-// bridge, no JNA, no bindings.
+// foreground service, no Phone permission, and nothing of the child module
+// at all: no Rust bridge, no JNA, no bindings.
 // For both: nothing of the testkit (the Rust feature that plays the master
 // PC in the JVM tests) in any native library or dex file. The same check is
 // run once on the library built for the JVM tests, which has the testkit,
@@ -199,7 +200,6 @@ const NEVER = [
   'android.permission.READ_CONTACTS',
   'android.permission.WRITE_CONTACTS',
   'android.permission.GET_ACCOUNTS',
-  'android.permission.READ_PHONE_STATE',
   'android.permission.READ_EXTERNAL_STORAGE',
   'android.permission.WRITE_EXTERNAL_STORAGE',
   'android.permission.QUERY_ALL_PACKAGES',
@@ -226,12 +226,16 @@ const BINDINGS_CLASS = Buffer.from('Lai/lucidloom/limo/child/ffi/PhoneEngine;');
 const BINDINGS_PACKAGE = Buffer.from('Lai/lucidloom/limo/child/ffi/');
 const TESTKIT_CLASSES = [Buffer.from('Lai/lucidloom/limo/child/ffi/testkit/'), Buffer.from('TestFamily')];
 
+// The child form must hold each of these; the guardian form none of them
+// but POST_NOTIFICATIONS. READ_PHONE_STATE is the Phone permission, for the
+// child form only: to know that a call rings or is on.
 const CHILD_PERMISSIONS = [
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
   'android.permission.POST_NOTIFICATIONS',
   'android.permission.RECEIVE_BOOT_COMPLETED',
   'android.permission.PACKAGE_USAGE_STATS',
+  'android.permission.READ_PHONE_STATE',
 ];
 
 function inspect(form, file, tools) {

@@ -52,7 +52,6 @@ const NEVER = [
   'android.permission.READ_CONTACTS',
   'android.permission.WRITE_CONTACTS',
   'android.permission.GET_ACCOUNTS',
-  'android.permission.READ_PHONE_STATE',
   'android.permission.READ_PHONE_NUMBERS',
   'android.permission.READ_CALL_LOG',
   'android.permission.READ_SMS',
@@ -68,6 +67,11 @@ const CHILD_ONLY = [
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
   'android.permission.RECEIVE_BOOT_COMPLETED',
+  // The Phone permission (the owner's decision of 20 Nov 2026): the child
+  // form asks for it only to know that a call is ringing or on, so a lock
+  // never hides a call (see the child module's manifest). The guardian form
+  // never holds it.
+  'android.permission.READ_PHONE_STATE',
 ];
 
 function readForm(): Form {

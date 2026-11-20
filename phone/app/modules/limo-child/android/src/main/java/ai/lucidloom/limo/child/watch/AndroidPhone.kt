@@ -70,9 +70,13 @@ internal class AndroidPhone(private val context: Context) : PhoneSource {
 
   override fun audioMode(): Int = service<AudioManager>().mode
 
+  override val callStateNeedsPhone: Boolean = Build.VERSION.SDK_INT >= 31
+
+  // Marked deprecated from Android 12 in favour of one SIM's state
+  // (getCallStateForSubscription); this one tells every call on the phone,
+  // which is what a lock must step aside for.
   @Suppress("DEPRECATION")
-  override fun telephonyCallState(): Int? =
-    if (Build.VERSION.SDK_INT < 31) service<TelephonyManager>().callState else null
+  override fun telephonyCallState(): Int = service<TelephonyManager>().callState
 
   // permissions
 

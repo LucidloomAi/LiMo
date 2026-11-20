@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-Words Android shows for LiMo's components in Settings. They say what this
-build does, which is nothing yet; the pieces that fill each folder change
-them to say what LiMo then does.
+Words Android shows for LiMo's components in Settings, and the names of its
+notification channels. The pieces that fill each folder change them to say
+what LiMo then does. Every word LiMo shows about time and rules comes from
+the Rust engine instead; these are only Android's labels.
 -->
 <resources>
     <string name="limo_watch_label">LiMo</string>
-    <string name="limo_watch_description">LiMo will note which app is in front, by its name only, to count screen time and to cover apps a parent blocked. It never reads what is on the screen. In this early build it does nothing yet.</string>
+    <string name="limo_watch_description">LiMo is told which app is in front, by its name only, to count screen time and to cover an app when it is blocked or the time is used up. It is never told what is on the screen.</string>
     <string name="limo_admin_label">LiMo</string>
     <string name="limo_admin_description">LiMo will stop itself from being removed without a parent. It asks for no other powers: it cannot wipe the phone, change the screen lock or use the camera. In this early build it does nothing yet.</string>
+    <!-- keep/: the two notification channels, as Android lists them in LiMo's notification settings. -->
+    <string name="limo_channel_time_left">Time left</string>
+    <string name="limo_channel_time_left_about">How much screen time is left today.</string>
+    <string name="limo_channel_warnings">Warnings</string>
+    <string name="limo_channel_warnings_about">A few minutes before the phone locks.</string>
 </resources>

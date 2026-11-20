@@ -245,7 +245,7 @@ own, so Kotlin can tell them apart without reading words.
 - **Discovery names and TXT records.** `PairedMaster.masterId()` and the
   offer's addresses are enough to connect; reading an announcement's TXT
   records (`limo_link::discovery::read_txt`) and the service type are left
-  for the piece that writes the discovery (P13), which can add them here
+  for the piece that writes the discovery, which can add them here
   in a few lines.
 - **The guardian form.** The library is in the child form only, and a
   pairing request always says the child's form.

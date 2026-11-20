@@ -89,11 +89,14 @@ class FactsTest {
     rig.phone.hours24 = true
     rig.phone.autoTime = true
     rig.phone.audioMode = 2
+    rig.phone.telephony = TelephonyManager.CALL_STATE_OFFHOOK
     val good = rig.facts()
     assertEquals(CallState.ONGOING, good.call)
 
     // Android now says otherwise, and refuses to say it.
-    val refused = listOf("boot_count", "utc_offset", "hours_24", "auto_time", "interactive", "keyguard_locked", "audio_mode")
+    val refused = listOf(
+      "boot_count", "utc_offset", "hours_24", "auto_time", "interactive", "keyguard_locked", "audio_mode", "telephony_call_state",
+    )
     rig.phone.failing += refused
     rig.phone.boot = 8
     rig.phone.offset = 0
@@ -102,6 +105,7 @@ class FactsTest {
     rig.phone.screenOn = false
     rig.phone.keyguard = true
     rig.phone.audioMode = 0
+    rig.phone.telephony = TelephonyManager.CALL_STATE_IDLE
     val kept = rig.facts()
     assertEquals(good.bootCount, kept.bootCount)
     assertEquals(good.utcOffsetSecs, kept.utcOffsetSecs)
@@ -207,15 +211,69 @@ class FactsTest {
     assertEquals(CallState.IDLE, Calls.both(CallState.IDLE, null))
 
     // On Android 8 to 11, a call that rings silently leaves the audio mode
-    // as it was; the telephony state still says so.
+    // as it was; the telephony state, which Android tells any app there,
+    // still says so, with or without the Phone permission.
     val rig = Rig()
+    rig.phone.callStateNeedsPhone = false
+    rig.phone.phoneGranted = false
     rig.phone.telephony = TelephonyManager.CALL_STATE_RINGING
     assertEquals(CallState.RINGING, rig.facts().call)
-    // On Android 12 and later there is no telephony state without the phone permission.
-    rig.phone.telephony = null
+    rig.phone.telephony = TelephonyManager.CALL_STATE_IDLE
     assertEquals(CallState.IDLE, rig.facts().call)
     rig.phone.audioMode = AudioManager.MODE_RINGTONE
     assertEquals(CallState.RINGING, rig.facts().call)
+  }
+
+  @Test
+  fun aSilentRingIsReadWithThePhonePermissionAndTheAudioModeAloneIsTheFallbackWithout() {
+    // Android 12 and later, the Phone permission granted: a call rings with
+    // the ringer silenced, the audio mode stays normal, the telephony state
+    // says it rings. Nothing is covered over it.
+    val rig = Rig()
+    rig.phone.callStateNeedsPhone = true
+    rig.phone.phoneGranted = true
+    rig.phone.audioMode = AudioManager.MODE_NORMAL
+    rig.phone.telephony = TelephonyManager.CALL_STATE_RINGING
+    assertEquals(CallState.RINGING, rig.facts().call)
+    assertTrue(rig.phone.telephonyReads > 0)
+    // Answered: on.
+    rig.phone.telephony = TelephonyManager.CALL_STATE_OFFHOOK
+    rig.phone.audioMode = AudioManager.MODE_IN_CALL
+    assertEquals(CallState.ONGOING, rig.facts().call)
+
+    // Without the permission, in a new process: the telephony state is never
+    // asked for (Android would refuse it), so the same silent ring reads as
+    // no call; the audio mode alone says, and a ring aloud still rings.
+    val without = TestPhone()
+    without.callStateNeedsPhone = true
+    without.phoneGranted = false
+    without.audioMode = AudioManager.MODE_NORMAL
+    without.telephony = TelephonyManager.CALL_STATE_RINGING
+    val bare = Rig(without)
+    assertEquals(CallState.IDLE, bare.facts().call)
+    assertEquals(0, without.telephonyReads)
+    assertFalse(bare.log.lines.any { it.contains("telephony_call_state") })
+    without.audioMode = AudioManager.MODE_RINGTONE
+    assertEquals(CallState.RINGING, bare.facts().call)
+    without.audioMode = AudioManager.MODE_IN_CALL
+    assertEquals(CallState.ONGOING, bare.facts().call)
+
+    // Granted from setup while LiMo runs: read from the next reading of the
+    // permissions on, within five seconds, with nothing else told.
+    without.audioMode = AudioManager.MODE_NORMAL
+    without.phoneGranted = true
+    without.pass(5_000)
+    assertEquals(CallState.RINGING, bare.facts().call)
+    assertTrue(without.telephonyReads > 0)
+
+    // A reading Android refuses all the same falls back to the audio mode, logged once.
+    without.failing += "telephony_call_state"
+    without.telephony = TelephonyManager.CALL_STATE_IDLE
+    without.audioMode = AudioManager.MODE_RINGTONE
+    assertEquals(CallState.RINGING, bare.facts().call)
+    without.audioMode = AudioManager.MODE_NORMAL
+    assertEquals(CallState.IDLE, bare.facts().call)
+    assertEquals(1, bare.log.lines.count { it.startsWith("fact telephony_call_state unreadable") })
   }
 
   @Test

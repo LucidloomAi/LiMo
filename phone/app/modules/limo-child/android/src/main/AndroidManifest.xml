@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-Every Android component of LiMo's child form, declared once, here. Each is a
-stub that does nothing yet. Later pieces fill the Kotlin folders named below
-and leave this file alone.
+Every Android component of LiMo's child form, declared once, here. The
+pieces that fill the Kotlin folders named below change this file only for
+what their folder needs, and say why where they do.
 
 The guardian form leaves this whole module out (see plugins/with-limo-form.js),
 so nothing in this file can reach a guardian's phone.
@@ -19,22 +19,39 @@ ai.lucidloom.limo.child: .watch.WatchService, .keep.AdminReceiver.
     <!--
     Permissions. Only what these components need, each one for a reason.
     Not here, on purpose: the camera, the microphone, location, contacts,
-    accounts, the phone's state, reading or writing shared storage, and "draw
-    over other apps" (the covers are accessibility overlays, which need no
-    permission of their own). Also not here: INTERNET. Nothing in this build
-    opens a socket; the link to the master PC (folder link/, a later piece)
-    adds INTERNET and ACCESS_NETWORK_STATE for the home network only, and
-    says so where it adds them.
+    accounts, the call log, phone numbers, reading or writing shared storage,
+    exact alarms, and "draw over other apps" (the covers are accessibility
+    overlays, which need no permission of their own). Also not here:
+    INTERNET. Nothing in this build opens a socket; the link to the master PC
+    (folder link/, a later piece) adds INTERNET and ACCESS_NETWORK_STATE for
+    the home network only, and says so where it adds them.
     -->
 
     <!-- keep/KeepService runs as a foreground service (Android 9 and later). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- keep/KeepService's type, specialUse (Android 14 and later). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <!-- The time left notification of keep/KeepService (Android 13 and later asks the person). -->
+    <!-- The time left and the warnings of keep/ (Android 13 and later asks the person). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- keep/RestartReceiver starts LiMo again after the phone restarts. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!--
+    Android's Phone permission, for the child form only (the guardian form
+    refuses it, see app.config.ts), asked at setup. watch/ uses it for one
+    thing: to know that a call is ringing or on, so that a lock never hides a
+    call. On Android 12 and later Android tells that only with this
+    permission, also for a call that rings with the ringer silenced; and
+    show/'s way back to a call (TelecomManager.showInCallScreen) needs it.
+    Never a number, never who, never how long.
+    -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!--
+    keep/Battery: lets setup show Android's own question whether LiMo may run
+    in the background, left out of battery optimisation. Android asks the
+    person; this only lets LiMo ask. Left out, LiMo's alarm may also start its
+    foreground service again after it was stopped (Android 12 and later).
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!--
     Usage access, for watch/: Android's own record of which app was in front,
     to check the accessibility service missed nothing. A person grants it in
@@ -66,6 +83,17 @@ ai.lucidloom.limo.child: .watch.WatchService, .keep.AdminReceiver.
         <!-- Keyboards: their windows are not an app coming to the front. -->
         <intent>
             <action android:name="android.view.InputMethod" />
+        </intent>
+        <!-- The screen of a call, where it is another package than the dialler: never covered. -->
+        <intent>
+            <action android:name="android.telecom.InCallService" />
+        </intent>
+        <!-- The emergency dialler: never covered. -->
+        <intent>
+            <action android:name="android.intent.action.DIAL_EMERGENCY" />
+        </intent>
+        <intent>
+            <action android:name="com.android.phone.EmergencyDialer.DIAL" />
         </intent>
     </queries>
 
@@ -115,8 +143,10 @@ ai.lucidloom.limo.child: .watch.WatchService, .keep.AdminReceiver.
             android:windowSoftInputMode="adjustResize|stateHidden" />
 
         <!--
-        keep/KeepService: the foreground service that hosts the engine and
-        shows the time left notification.
+        keep/KeepService: the foreground service that keeps LiMo's process
+        alive while the phone is paired, so the engine's host (host/) goes on
+        ticking, and shows the time left notification. Type specialUse, with
+        the subtype Android 14 and later ask for.
         -->
         <service
             android:name="ai.lucidloom.limo.child.keep.KeepService"
@@ -127,7 +157,7 @@ ai.lucidloom.limo.child: .watch.WatchService, .keep.AdminReceiver.
                 android:value="Screen time limits that a parent set: counts time while the child uses the phone and shows the time left." />
         </service>
 
-        <!-- keep/RestartReceiver: the phone restarted, or LiMo was updated. -->
+        <!-- keep/RestartReceiver: the phone restarted, or LiMo was updated: the keeper starts again. -->
         <receiver
             android:name="ai.lucidloom.limo.child.keep.RestartReceiver"
             android:exported="false">
@@ -137,7 +167,7 @@ ai.lucidloom.limo.child: .watch.WatchService, .keep.AdminReceiver.
             </intent-filter>
         </receiver>
 
-        <!-- keep/AlarmReceiver: LiMo's own alarms. Reached only by its own pending intents. -->
+        <!-- keep/AlarmReceiver: LiMo's own alarm, which wakes the host. Reached only by its own pending intent. -->
         <receiver
             android:name="ai.lucidloom.limo.child.keep.AlarmReceiver"
             android:exported="false" />

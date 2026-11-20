@@ -26,6 +26,9 @@ class Watch private constructor(context: Context) : PhoneWatch {
   private val listeners = CopyOnWriteArrayList<WatchListener>()
   private val signals = WatchSignals(app, this)
 
+  @Volatile
+  private var phoneSeen: Boolean? = null
+
   private val recheck = Runnable {
     guard("recheck") {
       val changed = synchronized(lock) { core.recheck() }
@@ -38,13 +41,17 @@ class Watch private constructor(context: Context) : PhoneWatch {
 
   override fun factsNow(inReach: Boolean, prodded: Boolean): PhoneFacts = look(inReach, prodded).facts
 
-  override fun look(inReach: Boolean, prodded: Boolean): WatchLook = synchronized(lock) {
-    try {
-      core.look(inReach, prodded)
-    } catch (e: Exception) {
-      AndroidWatchLog.line("look failed error=${e.javaClass.simpleName}")
-      core.lastLook(inReach, prodded)
+  override fun look(inReach: Boolean, prodded: Boolean): WatchLook {
+    val look = synchronized(lock) {
+      try {
+        core.look(inReach, prodded)
+      } catch (e: Exception) {
+        AndroidWatchLog.line("look failed error=${e.javaClass.simpleName}")
+        core.lastLook(inReach, prodded)
+      }
     }
+    phoneRead(look.permissions.phone)
+    return look
   }
 
   override fun listen(listener: WatchListener): AutoCloseable {
@@ -67,7 +74,7 @@ class Watch private constructor(context: Context) : PhoneWatch {
     return synchronized(lock) { core.shapeApps(raw) }
   }
 
-  override fun permissions(): LimoPermissions = synchronized(lock) { core.permissions() }
+  override fun permissions(): LimoPermissions = synchronized(lock) { core.permissions() }.also { phoneRead(it.phone) }
 
   override fun limoScreenShown(shown: Boolean) {
     guard("limo_screen") {
@@ -116,6 +123,17 @@ class Watch private constructor(context: Context) : PhoneWatch {
   internal fun permissionsChanged() = guard("permissions") {
     synchronized(lock) { core.permissionsChanged() }
     announce(WatchChange.PERMISSIONS)
+  }
+
+  /**
+   * The Phone permission as just read. When it reads otherwise than before
+   * (setup grants it while LiMo runs, and Android tells nothing of it),
+   * Android's own call listener follows it, on the main thread.
+   */
+  private fun phoneRead(granted: Boolean) {
+    if (phoneSeen == granted) return
+    phoneSeen = granted
+    main.post { guard("signals") { signals.phoneGranted(granted) } }
   }
 
   private fun scheduleRecheck() {

@@ -55,6 +55,13 @@ android {
     test {
       java.srcDirs += 'src/generated/test-kotlin'
     }
+    // The development receiver's code (src/debug, debug builds only) is
+    // tested by the release unit tests that npm run test:child runs, so it
+    // is compiled into those tests too. Tests never ship; the release APK
+    // is made from src/main alone (npm run inspect checks it).
+    testRelease {
+      java.srcDirs += 'src/debug/java'
+    }
   }
   testOptions {
     unitTests.all { test ->

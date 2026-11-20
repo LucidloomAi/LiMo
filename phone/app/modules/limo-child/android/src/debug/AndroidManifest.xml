@@ -3,10 +3,12 @@
 Debug builds only. A release build is made from src/main alone and never has
 this receiver or its code (src/debug/java).
 
-dev/DevReceiver: how the development tool on the PC (a later piece) talks to
-the app over the USB cable, before the link exists. It is exported so that
-adb can reach it, and guarded by android.permission.DUMP, which only the adb
-shell and the system hold: no app on the phone can send to it.
+dev/DevReceiver: how the development tool on the PC talks to the app over
+the USB cable, before the link exists. It takes two broadcasts: PAIR (take
+the test family's pairing file from files/limo-dev/pairing.json, then delete
+it) and FORGET (wipe the kept state). It is exported so that adb can reach
+it, and guarded by android.permission.DUMP, which only the adb shell and the
+system hold: no app on the phone can send to it.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
@@ -15,7 +17,8 @@ shell and the system hold: no app on the phone can send to it.
             android:exported="true"
             android:permission="android.permission.DUMP">
             <intent-filter>
-                <action android:name="ai.lucidloom.limo.child.DEV" />
+                <action android:name="ai.lucidloom.limo.child.dev.PAIR" />
+                <action android:name="ai.lucidloom.limo.child.dev.FORGET" />
             </intent-filter>
         </receiver>
     </application>
