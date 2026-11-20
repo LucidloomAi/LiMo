@@ -1,10 +1,18 @@
 # Testing LiMo on a child's phone
 
-These are the steps for the first run of LiMo's child form on a real phone,
-with the owner there, at a PC with the phone in hand. They go from the
-safest to the riskiest; stop at any part, and undo it as its last lines say.
-Every part says what to do and what to look for, word for word, and the
-results go in the table at the end, with notes under it.
+These are the steps for trying LiMo's child form on a real phone, with the
+owner there, at a PC with the phone in hand. They go from the safest to the
+riskiest; stop at any part, and undo it as its last lines say. Every part
+says what to do and what to look for, word for word, and the results go in
+the table at the end, with notes under it.
+
+**The first run was done on 20 November 2026**, on a Galaxy S20 Ultra,
+Android 13 (One UI 5.1), with no SIM. It went through parts A to L, then
+forget (part O, steps 6 and 7). Not run: every check that needs a call
+(G5, G6, H6, I3, K6 to K8), B1, B4, F2, J2, K11, L2 and L3 as written,
+parts M and N (but N5 and N6, seen with codes in part L), and the rest of
+part O. What was seen is in the table at the end, with notes under it; the
+steps below have been corrected where the run showed them wrong.
 
 The whole run takes about four hours with the phone in hand, and longer if
 the builds below are made for the first time. A day's minutes run in real
@@ -70,8 +78,11 @@ know the ways back, easiest first:
    covers nothing. The tool checks within 15 seconds that the state is
    gone. It needs the cable in, USB debugging on and this PC allowed, and
    it refuses, changing nothing, when LiMo's state cannot be read or is
-   another family's.
-4. **A force stop over the cable**, when forget refuses:
+   another family's. Then `.\limo-phone-dev forget --phone-only` wipes it:
+   it asks LiMo, through its own debug receiver, to wipe the state it
+   keeps, whoever's it is, checks that it is gone, and leaves this PC's
+   test family as it is.
+4. **A force stop over the cable**, when neither forget can:
    `adb shell am force-stop ai.lucidloom.limo.child`. It is the same force
    stop as the button in Android's settings, after which Android switches
    LiMo's accessibility service off (seen in the second spike,
@@ -120,7 +131,10 @@ the cover offers `Back to the call`.
 - **Two terminals**, both in the tool's folder: one for the commands, one
   for the log, `.\limo-phone-dev log --minutes 720`, which follows LiMo's
   two tags, `LiMo` and `LiMoWatch`, for up to twelve hours. Restart it
-  whenever it stops.
+  whenever it stops. Run it in a terminal window: started by another
+  program with no terminal, it ended at once in the first run (note 15).
+  `adb logcat -d -v time -s LiMo:V LiMoWatch:V` prints what LiMo has said
+  so far, and ends.
 - **A test PIN** of 6 to 8 digits, written down, used for nothing else.
 - **The two clocks** agree to a few minutes: `setup` refuses when the
   phone's and the PC's are 50 minutes or more apart, and says so from 5.
@@ -144,12 +158,16 @@ Android 8.0 or later can take LiMo.
   asks "Allow USB debugging?", tick "Always allow from this computer", so
   that it never needs to ask again while a cover is up.
 - **Installed and not disabled:** YouTube (`com.google.android.youtube`),
-  which part D blocks, and the calculator, which part D always allows
-  (`com.sec.android.app.popupcalculator` on a Galaxy). Part B finds both
-  package names.
+  which part D blocks, and an app to always allow: any app with an icon
+  other than YouTube and the browser. The calculator is not on every
+  Galaxy; the first run used the Clock (`com.sec.android.app.clockpackage`).
+  Below it is called `ALLOWED`, and its name is the one under its icon.
+  Part B finds both package names.
 - **A browser**, the app whose time is counted in this run (Chrome or
   Samsung Internet).
-- **A second phone** that can ring this one, and this phone's number.
+- **A SIM in this phone, and a second phone** that can ring it, with this
+  phone's number. Without a SIM no check with a call can be done (G5, G6,
+  H6, I3, K6 to K8), as in the first run.
 - **The phone's own screen lock PIN**, for the restarts.
 - **The battery** above half, and the cable left in: it charges.
 - **Sound mode on and Do not disturb off**, so that calls ring.
@@ -168,8 +186,8 @@ does not uninstall an app while it is one:
 
 - `.\limo-phone-dev uninstall` then refuses, saying where a person switches
   it off, and changes nothing. The tool never switches it off.
-- `.\limo-phone-dev forget` wipes LiMo's kept state and leaves the device
-  admin as it is.
+- `.\limo-phone-dev forget` (and `forget --phone-only`) wipes LiMo's kept
+  state and leaves the device admin as it is.
 - A person switches it off on the phone, under Device admin apps (part O,
   step 9). Under a lock, Android's settings are covered, so that is done
   with the phone open, or after `forget` or a force stop.
@@ -195,10 +213,17 @@ The phone unplugged.
    folder of the test family, `%LOCALAPPDATA%\LiMo-phone-dev-TEST-ONLY`.
    Exit code 0.
 2. `.\limo-phone-dev check`: `check reads only; it changes nothing.`, the
-   `adb:` line, then `No phone is attached. Plug the phone in with a USB
+   `adb:` line, then what this PC sees on its USB ports: `This PC sees no
+   phone on its USB ports.` and `The cable probably only charges: many
+   cables carry no data. Use the cable that came with the phone, or one
+   known to move files; plug it into a port on the PC itself, not a hub;
+   and unlock the phone.`, then `Nothing was changed on the phone.` Exit
+   code 2. Where Windows' list of USB devices cannot be read, the first line
+   is `This PC's list of USB devices could not be read: ...` and the advice
+   the older sentence, `No phone is attached. Plug the phone in with a USB
    cable, unlock it, and check that USB debugging is on (Settings,
-   Developer options). This tool never turns it on by itself.` and
-   `Nothing was changed on the phone.` Exit code 2.
+   Developer options). This tool never turns it on by itself.` (the only
+   one the tool said in the first run, before its cable check).
 3. `.\limo-phone-dev code`: `code is scaffolding until the guardian's phone
    app exists.` and `There is no test family on this PC. Run setup first.`
    Exit code 2.
@@ -213,6 +238,33 @@ Undo: nothing to undo.
 
 ## Part B: the phone attached, read only
 
+**When adb sees no phone at all**, every command says what Windows sees on
+its USB ports, in one line, then what to do, and changes nothing. `NAME` is
+the phone's name as Windows shows it, such as `Galaxy S20 Ultra 5G`:
+
+- `This PC sees no phone on its USB ports.`: `The cable probably only
+  charges: many cables carry no data. Use the cable that came with the
+  phone, or one known to move files; plug it into a port on the PC itself,
+  not a hub; and unlock the phone.`
+- `This PC sees what looks like a phone on its USB ports (NAME), but adb
+  does not.`: `If that is the phone, its cable carries data, but USB
+  debugging is off. Switch it on, on the phone (Settings, Developer
+  options); this tool never turns it on by itself. If it is on already,
+  unplug the phone and plug it in again, unlocked. If it is something else
+  that offers pictures or files, such as a camera, the phone's own cable
+  probably only charges: use the one that came with the phone.`
+- `This PC sees the debugging interface of a phone (NAME), but has no
+  working driver for it.`: `The phone maker's USB driver has to be
+  installed on this PC before adb can reach the phone. Install it, then
+  unplug the phone and plug it in again. This tool installs nothing.`
+- `This PC sees the debugging interface of a phone (NAME), with its driver
+  working, but adb does not list it.`: `Unplug the phone and plug it in
+  again, unlocked; if adb still lists nothing, run adb kill-server, then
+  this again.`
+
+When adb lists the phone in any state, Windows' list is not read, and adb's
+own answer is said, as in step 1.
+
 1. Plug the phone in and unlock it. If it asks "Allow USB debugging?", do
    not answer yet: run `.\limo-phone-dev check`. Look for `The phone SERIAL
    has not allowed this PC yet. Unlock it and tap Allow on the "Allow USB
@@ -224,10 +276,11 @@ Undo: nothing to undo.
    model; `LiMo's child form: not installed.`; `The test family on this PC:
    none.`; `Next: install --apk PATH, with the debug child form.` Exit
    code 0.
-3. The package names, read only: `adb shell pm list packages youtube` and
-   `adb shell pm list packages calc`. Write down the calculator's (below
-   called `CALCULATOR`). Do the same for the browser (`chrome` or
-   `sbrowser`).
+3. The package names, read only: `adb shell pm list packages youtube`, and
+   the same for the app to always allow (`clock` finds the Clock,
+   `com.sec.android.app.clockpackage`; `calc` a calculator, where there is
+   one). Write it down (below called `ALLOWED`). Do the same for the
+   browser (`chrome` or `sbrowser`).
 4. If an emulator or a second phone is at hand, attach it too and run
    `check`: `More than one phone or emulator is attached (...). Unplug the
    others or close the emulator, so that this tool cannot pick the wrong
@@ -280,7 +333,7 @@ between 06:00 and 18:30. The run must end before midnight, when a new day
 starts.
 
 1. With S0 on the phone's screen:
-   `.\limo-phone-dev setup --child Asha --minutes 30 --block com.google.android.youtube --allow CALCULATOR --bedtime 23:00-06:00`.
+   `.\limo-phone-dev setup --child Asha --minutes 30 --block com.google.android.youtube --allow ALLOWED --bedtime 23:00-06:00`.
    Look for, in order: `setup is scaffolding until pairing over the network
    exists.`; the `adb:`, `Phone:` and `Android` lines; `The phone's clock is
    in UTC+...: the test family's days and bedtime follow it.` (the phone's
@@ -289,15 +342,24 @@ starts.
    typed. Then `Made the test family on this PC: Asha, 30 minutes a day, the
    away share at 100 percent (a phone with no master has its whole day), and
    the PIN set.`; `Blocked for Asha: com.google.android.youtube.`; `Always
-   allowed, also under a lock: CALCULATOR.`; `Screens off every day from
+   allowed, also under a lock: ALLOWED.`; `Screens off every day from
    23:00 to 06:00.`; `Paired one phone with it: the test phone.`; `Wrote
    the pairing file into LiMo's own files on the phone (N bytes, through
    adb's standard input).`; `Asked LiMo to take it. Android: Broadcast
-   completed: result=0`; and within 15 seconds `LiMo took it: its state on
-   the phone now holds Asha's test phone.` and the `Next:` line. Exit
-   code 0. Note N and how long it took. (Settles the tool's questions:
-   whether adb's standard input reaches `run-as` on this phone, and whether
-   the broadcast reaches LiMo's receiver.)
+   completed: result=0`; then, as it reads LiMo's state back, once or
+   more, the call
+   `> adb -s SERIAL exec-out "run-as ai.lucidloom.limo.child sh -c 'if test
+   -e files/limo/state; then echo limo-dev-state; cat files/limo/state; else
+   echo limo-dev-none; fi'"` (through `exec-out`, which hands the state's
+   bytes over as they are: note 1); and within 15 seconds `LiMo took it:
+   its state on the phone now holds Asha's test phone.` and the `Next:`
+   line. Exit code 0. Note N and how long it took.
+   - If it says `LiMo says it took the test family (its log says: dev pair
+     taken), but this tool could not read its state back to check that it
+     holds the test phone.`, then `The test family on this PC is kept, so
+     that this PC and the phone still match. Run check, then status, to see
+     what the phone holds. To start again, run forget: it wipes the test
+     family from the phone and from this PC.` Exit code 1. Copy both lines.
    - If LiMo refused the file: `LiMo did not take the test family. Its log
      says: dev pair refused why=WORD` and what to do. Copy both. Then `The
      pairing file was removed from the phone, and the test family on this
@@ -306,6 +368,10 @@ starts.
      its log says nothing of it.`, look in the log terminal: a `dev pair`
      line there, when the tool found none, means the phone's `logcat` does
      not take a time given in unix seconds. Copy what the log shows.
+   - If it refuses with `LiMo on this phone already holds ...` (a family
+     left by an earlier try), run `.\limo-phone-dev forget --phone-only`,
+     which wipes the state LiMo keeps on the phone and nothing else, then
+     setup again.
 2. On the phone, without a tap, S0 gives way to S1: `FOR A GUARDIAN`,
    `This phone is now Asha's.`, `Six short steps finish the setup. Each one
    asks Android for one thing, and says why.`, and `Start` pinned. If it
@@ -462,8 +528,8 @@ Today show the app's first letter, as drawn.
 4. With Today in front, LiMo's notification says `N min paused`: looking at
    LiMo uses no time.
 5. **How it works** (H), the second tab: `YOUR RULES` with `TIME A DAY`
-   `30 min`, `SCREENS OFF` `11:00 pm to 6:00 am`, `ALWAYS OPEN` with the
-   calculator's name, `NOT ALLOWED` `YouTube`; `WHAT LIMO DOES`, the three
+   `30 min`, `SCREENS OFF` `11:00 pm to 6:00 am`, `ALWAYS OPEN` with
+   `ALLOWED`'s name, `NOT ALLOWED` `YouTube`; `WHAT LIMO DOES`, the three
    rows of C1 to C3; `ABOUT` with LiMo's version, `Free and open source,
    under the Apache 2.0 licence.` and `github.com/LucidloomAi/LiMo`, which
    opens nothing. Android's Back goes to Today; from Today it leaves LiMo.
@@ -490,16 +556,19 @@ Android's own countdown between the minutes while time is counted.
 2. **What stays the browser.** Over the browser, pull down the shade, open
    the Edge panel, take a screenshot (its toolbar shows) and tap the
    browser's search field (the keyboard comes up): no new `front now` line
-   for any of them, and the count goes on. (Settles the watch's question
-   whether One UI's overlays change the app in front.)
+   for any of them, and the count goes on. An overlay may log a line
+   beginning `front window_event package=` with its own package and ending
+   `not_confirmed front=` and the browser's package: that is the watch
+   leaving it out. (Settles the watch's question whether One UI's overlays
+   change the app in front.)
 3. **What does not count.** Open the recent apps: the log line begins
    `front now home` (One UI's list is the launcher's), and the notification
    says `paused`. A minute on the home screen; then the screen off for 2
    minutes; then on, with Android's own lock screen left up for a minute:
    none of it counts. `status`: the same minutes used, give or take
    seconds.
-4. **An app always allowed.** Use the calculator for a minute: the time left
-   does not go down. `status`: the calculator's package under `Apps today:`
+4. **An app always allowed.** Use `ALLOWED` for a minute: the time left
+   does not go down. `status`: its package under `Apps today:`
    with `1 min`, and the same time left. Note what the notification says.
 5. **A call, ringer on, without the Phone permission.** With the browser in
    front, ring this phone from the second one. The log: `call now ringing`;
@@ -554,10 +623,17 @@ how long LiMo takes to cover an app.
    covers it. **Do not place an emergency call, and type no number**: the
    button only opens the dialler, and dials nothing by itself. The log:
    `show emergency opened how=emergency_dialler` (or `how=dial_emergency`,
-   or `how=dial`: note which), and a line beginning `front learned
-   emergency_dialler` or `front now emergency_dialler`: note which. Press
-   Back, and Back again to leave YouTube. (Settles the watch's question
-   which screen One UI opens for an emergency call, and how LiMo knows it.)
+   or `how=dial`: note which), then a line beginning `front now
+   emergency_dialler`. On the Galaxy it is `front now emergency_dialler
+   package=com.samsung.android.app.telephonyui`, known from Android's
+   roles, with no `front learned` line; on a phone whose emergency dialler
+   Android does not name, a line beginning `front learned
+   emergency_dialler package=` comes first. Since the watch's fix after the
+   first run (note 2), an emergency dialler Android names also logs a line
+   beginning `front emergency_wait ended first=` with its package, and
+   nothing opened after it (the home screen, Settings, its search) may log
+   a line beginning `front learned`. Press Back, and Back again to leave
+   YouTube.
 5. `status`: YouTube is not under `Apps today:`, and the time used did not
    grow while it was covered.
 6. **A silent ring without the Phone permission.** Set the sound mode to
@@ -648,24 +724,31 @@ Undo: nothing; part K goes on from here.
    the clock (the phone's own time, in its 12 or 24 hours, and the date,
    such as `FRI 20 NOV`); the card with the hourglass, the stamp `LOCKED`,
    `ASHA · THIS PHONE`, `Today's time is used up.`, `You have used all of
-   today's screen time.`, `OPENS AGAIN` and `Tomorrow, 12:00 am` (`Tomorrow,
-   00:00` on a 24 hour phone); `WHAT YOU CAN DO` with three rows: `Ask for
-   more time` (`A guardian sees your request in LiMo`), `Type a one time
-   code` (`A guardian who is away can read you 8 digits`) and `Guardian
-   PIN` (`For a guardian who is with you`); `STILL OPEN` with two tiles,
-   the phone app first, then the calculator, each with its own icon and
-   name; `Nothing was closed. Your apps are still open behind this
+   today's screen time.`, `OPENS AGAIN` and when: the end of the bedtime
+   when one runs over midnight, as this test family's does, so `Tomorrow,
+   6:00 am` (`Tomorrow, 06:00` on a 24 hour phone); with no bedtime over
+   midnight, `Tomorrow, 12:00 am` (`Tomorrow, 00:00`). `WHAT YOU CAN DO`
+   with three rows: `Ask for more time` (`A guardian sees your request in
+   LiMo`), `Type a one time code` (`A guardian who is away can read you 8
+   digits`) and `Guardian PIN` (`For a guardian who is with you`); `STILL
+   OPEN` with two tiles, the phone app first, then `ALLOWED`, each with its
+   own icon and name; `Nothing was closed. Your apps are still open behind this
    screen.`; the maker's mark; `Emergency call` pinned. Note anything that
    differs, with a photo.
 2. The log: `show cover now lock why=time_used_up rows=3 tiles=2
    call=false` and `show cover drawn ms=N`. LiMo's notification's title is
    now `Today's time is used up.`
 3. `status`: `Time left today: 0:00.` and `Locked: yes, today's time is used
-   up, until tomorrow at 00:00. The lock says: Today's time is used up.`
-4. **Nothing gets past it.** Home, Back and the recent apps: the lock stays
-   (the home screen is covered under a lock). Try to pull down the quick
-   panel over the lock, and note whether it comes down.
-5. **What stays open.** Tap the calculator's tile: it opens and stays open,
+   up, until tomorrow at 06:00. The lock says: Today's time is used up.`
+   (`until tomorrow at 00:00` with no bedtime over midnight; `status` says
+   its times in 24 hours.)
+4. **Nothing gets past it.** The lock covers the navigation bar too, so
+   there is no Home, Back or recent apps button to press, and the quick
+   panel does not come down over it, as the first run found (note 13).
+   Note which navigation the phone uses: the covers' README expects the
+   swipes of gesture navigation still to reach Android, and the home screen
+   is covered under a lock all the same.
+5. **What stays open.** Tap `ALLOWED`'s tile: it opens and stays open,
    and its time is not taken from the day. Go back to the
    browser: locked again at once. Tap the phone app's tile: the phone app
    opens, never covered. Back to the browser: locked.
@@ -691,7 +774,8 @@ Calls under the lock (the Phone permission is on since part I):
    emergency dialler opens at once and is never covered while it is up.
    **Do not place an emergency call, and type no number**: LiMo only opens
    the dialler, which dials nothing by itself. The log: `show emergency
-   opened how=...`, as in part H. Press Back: the lock again.
+   opened how=...` and the lines after it, as in part H, step 4. Press
+   Back: the lock again.
 
 Turning the phone:
 
@@ -709,7 +793,8 @@ Undo: nothing; part L goes on from here, on the lock.
 
 Each way out is a screen of its own (B1 to B3 in `phone.html`), with the
 lock's reason as a strip at the top of its card (the hourglass, `Today's
-time is used up.` and `Opens tomorrow, 12:00 am`), the main button pinned
+time is used up.` and `Opens tomorrow, 6:00 am` with this test family's
+bedtime, as in part K, step 1), the main button pinned
 at the bottom, and `Emergency call`, the plain line and the maker's mark at
 the end of the page. Back always returns to the lock.
 
@@ -784,13 +869,14 @@ Undo: nothing; part N goes on from here, on the lock, with the larger text.
 2. **A restart while locked.** Restart the phone; at the first unlock,
    before anything is opened, the lock is back at once. Run `log` again:
    `show cover now lock why=time_used_up ...`.
-3. **Stopped from the quick panel.** If the quick panel came down over the
-   lock in part K, pull it down, open Android's list of running apps, and
-   tap Stop for LiMo. The lock goes. Write down when it comes back: at once
-   if the accessibility service connects again, at the latest by LiMo's
-   alarm, within about fifteen minutes; and what the log shows meanwhile
-   (no `host failed` line). If the panel does not come down over the
-   lock, do this step in part O instead, with the phone open. (Settles the
+3. **Stopped from the quick panel.** In the first run the quick panel did
+   not come down over the lock (part K, step 4); if it does not, do this
+   step in part O instead, with the phone open. If it does, pull it down,
+   open Android's list of running apps, and tap Stop for LiMo. The lock
+   goes. Write down when it comes back: at once if the accessibility
+   service connects again, at the latest by LiMo's alarm, within about
+   fifteen minutes; and what the log shows meanwhile (no `host failed`
+   line). (Settles the
    keeper's question how LiMo comes back after Android 13's Stop button.)
 4. **The code again.** `Type a one time code`, and the code of part L:
    `That code was already used today.` Then type `1234` and tap `Use this
@@ -892,106 +978,199 @@ Undo: this part is the undoing.
 
 | Check | Expected | Seen |
 | --- | --- | --- |
-| A1 to A5 | as written, exit codes 0, 2, 2, 2, 2 | |
-| B1 phone not allowed yet | the "has not allowed this PC" message, exit code 2 | |
-| B2 check: adb, phone, Android, not installed | yes; note the Android version and model | |
-| B3 package names of YouTube, the calculator, the browser | found; note them | |
-| B4 two attached | both listed, refused | |
-| C1 release and guardian builds refused, no adb line | yes | |
-| C2 debug build installed | yes; copy any refusal | |
-| C3 check: a debug build, run-as works | yes | |
-| C4 S0 on the phone, as drawn; `host not_paired waiting` | yes | |
-| D1 setup: the zone, the family, N bytes, broadcast, taken | yes; note N and how long it took | |
-| D2 S1 by itself, naming Asha | yes | |
-| D3 `dev pair taken`, `host paired`, no `host failed` | yes | |
-| D4 second setup refused, nothing sent | yes | |
-| D5 check: this PC's test family | yes | |
-| D6 status: Asha, 30 min, 0 used, not locked, six switched off | yes | |
-| D7 tool's log: no name, no PIN | yes | |
-| E1 S2: Continue off until ticked; a minute on it not counted, `front now limo` | yes | |
-| E2 swiped away: back at the first step not on | yes | |
-| E3 Notifications: Android's question, ON, the notification there | yes | |
-| E4 Phone refused twice: the line and Go on without it, nothing moved | yes | |
-| E5 Usage access: which page opened | `usage_for_limo` or `usage_list`: note which | |
-| E6 Accessibility: row lit up or top page; restricted setting | note which | |
-| E7 Battery: ON at once; the Samsung note's path on this phone | note the path | |
-| E8 Protection: Android's page with LiMo's words, no powers listed, ON | yes | |
-| E9 S9: ticks for all but Phone | yes | |
-| E10 no `not_opened` | none | |
-| E11 status: phone switched off; only Android's own pages counted during setup | note the minutes | |
-| F1 C1 to C3 as drawn | note differences | |
-| F2 Today at once after swiping away | yes | |
-| F3 Today and its banner against E and T | note differences | |
-| F4 notification paused with Today in front | yes | |
-| F5 How it works against H; Back to Today | note differences | |
-| F6 Ask for more time from Today: B1 with no strip | yes | |
-| G1 browser counted: notification, status, Today | yes | |
-| G2 shade, Edge panel, screenshot toolbar, keyboard: no new front | yes | |
-| G3 recents read as home; home, screen off, Android's lock screen not counted | yes | |
-| G4 calculator recorded, not counted | yes; note the notification's words | |
-| G5 ringing not counted; call's screen the dialler; the browser during a call counted | yes | |
-| G6 a call made: call screen learned or known | note which | |
-| G7 log: only LiMo's tags, no names, PIN, code or typed text | yes | |
-| H1 block screen as drawn, bars covered, the note once | yes; note differences | |
-| H2 home, not covered again; YouTube's late event not confirmed | yes | |
-| H3 fourteen tries, never covered over home | yes; note the ms values | |
-| H4 emergency dialler from the block screen, not covered, nothing dialled | yes; note `how` and how it was known | |
-| H5 YouTube not counted | yes | |
-| H6 silent ring without the Phone permission over the block screen | note what showed and what the log said | |
-| I1 usage access off while Today shows: AND 1 MORE; out of split screen `front now limo`; ways out not covered | yes; note split screen or not | |
-| I2 Phone step opens App info after two refusals | `page=app_details` | |
-| I3 call within ten seconds of granting: `call now ringing` | yes | |
-| I4 the banner's walk ends on Today with no banner | yes | |
-| I5 status: nothing switched off | yes | |
-| J1 card at 15: words, keyboard kept, gone after 30 s, quiet in the shade | yes | |
-| J2 accessibility off: heads up at 5 with a sound | yes | |
-| J3 card at 1, OK puts it away; notification counts seconds | yes | |
-| J4 warning notifications gone a minute after the lock | yes | |
-| K1 the lock against A: label, words, rows, tiles, fonts, logo | note differences | |
-| K2 log: lock, rows=3, tiles=2; notification is the lock's title | yes | |
-| K3 status: 0:00, locked until tomorrow at 00:00 | yes | |
-| K4 Home, Back, recents: still locked; quick panel over the lock | note whether the panel came down | |
-| K5 calculator tile opens and stays; phone app tile; locked again | yes | |
-| K6 ringing call: lock steps aside at once | yes | |
-| K7 Back to the call in teal above Emergency call; opens the call | `how=in_call_screen` | |
-| K8 silent ring with the Phone permission: never covered | yes; two SIMs if any | |
-| K9 emergency dialler from the lock, nothing dialled | yes | |
-| K10 the lock turned: laid out again, cut out clear | yes | |
-| K11 B3 turned: dots empty, choice kept | yes | |
-| L1 request: waiting on the lock, two rows, reason not logged or printed | yes | |
-| L2 Back leaves the cells empty | yes | |
-| L3 screenshot refused, no picture in recents | yes | |
-| L4 wrong code: words in coral, cleared by typing; status 1 wrong try | yes | |
-| L5 right code: 15 minutes added, lock gone; no digits logged | yes | |
-| M1 second request refused in the core's words | yes | |
-| M2 Today and How it works at the largest text | note anything cut | |
-| M3 restart with time left: notification back, time kept, nothing reported off | yes | |
-| M4 optional: one alarm of LiMo's; battery next to nothing | note both | |
-| M5 warnings in the code's fifteen minutes | note which | |
-| N1 the lock at the largest text | note anything cut | |
-| N2 restart while locked: lock at once | yes | |
-| N3 Stop from the quick panel: when the lock came back | note how long | |
-| N4 code already used; 4 digits refused; neither counted | yes | |
-| N5 wrong PINs count down; fifth: the wait, rows greyed | yes | |
-| N6 rows back after the minute | yes | |
-| N7 right PIN adds 15 minutes, wrong tries cleared | yes; note how long it took | |
-| O1 Stop from the quick panel, if not done in N3 | note how long | |
-| O2 Force stop: greyed out or done; accessibility switched off | note which | |
-| O3 YouTube not covered; LiMo back by itself or not | note which | |
-| O4 banner and status: accessibility off; the note | yes | |
-| O5 accessibility on again; YouTube covered | yes | |
-| O6 forget under the block screen: cover gone, S0 | yes | |
-| O7 check: nothing on either side | yes | |
-| O8 home screen uninstall refused; tool's uninstall refused, exit 2 | yes | |
-| O9 device admin's words; switched off | yes | |
-| O10 uninstall done | yes | |
-| O11 check: not installed | yes | |
-| Finish: nothing left, phone as found | yes | |
+| A1 to A5 | as written, exit codes 0, 2, 2, 2, 2 | as written; A2 said `No phone is attached`, exit 2 (the tool before its cable check) |
+| B1 phone not allowed yet | the "has not allowed this PC" message, exit code 2 | not run: this PC was already allowed |
+| B2 check: adb, phone, Android, not installed | yes; note the Android version and model | yes: Android 13 (API 33), a Galaxy S20 Ultra |
+| B3 package names of YouTube, an app to always allow, the browser | found; note them | `com.google.android.youtube`, `com.android.chrome`; no calculator, the Clock (`com.sec.android.app.clockpackage`) used: note 3 |
+| B4 two attached | both listed, refused | not run |
+| C1 release and guardian builds refused, no adb line | yes | yes |
+| C2 debug build installed | yes; copy any refusal | yes; the phone asked nothing |
+| C3 check: a debug build, run-as works | yes | yes |
+| C4 S0 on the phone, as drawn; `host not_paired waiting` | yes | yes; to change: note 16 |
+| D1 setup: the zone, the family, N bytes, broadcast, taken | yes; note N and how long it took | failed, then passed: see note 1; the second time 1381 bytes, taken at once |
+| D2 S1 by itself, naming Asha | yes | yes |
+| D3 `dev pair taken`, `host paired`, no `host failed` | yes | yes: the Rust engine loads and runs on this phone |
+| D4 second setup refused, nothing sent | yes | yes |
+| D5 check: this PC's test family | yes | yes |
+| D6 status: Asha, 30 min, 0 used, not locked, six switched off | yes | yes, the six in words |
+| D7 tool's log: no name, no PIN | yes | yes; the failed setup left no line (note 1) |
+| E1 S2: Continue off until ticked; a minute on it not counted, `front now limo` | yes | yes: a full minute, 0 min used, `front now limo` |
+| E2 swiped away: back at the first step not on | yes | yes, at Notifications |
+| E3 Notifications: Android's question, ON, the notification there | yes | the first answer logged `granted=false`; ON through `page=app_notifications`; the notification then there: note 4 |
+| E4 Phone refused twice: the line and Go on without it, nothing moved | yes | yes; Android asked both times |
+| E5 Usage access: which page opened | `usage_for_limo` or `usage_list`: note which | `usage_for_limo`, one switch |
+| E6 Accessibility: row lit up or top page; restricted setting | note which | the top page: note 5; not a restricted setting |
+| E7 Battery: ON at once; the Samsung note's path on this phone | note the path | ON at once; the path not written down: note 6 |
+| E8 Protection: Android's page with LiMo's words, no powers listed, ON | yes | ON (`seam step=protection answered`); the page's words not noted |
+| E9 S9: ticks for all but Phone | yes | yes: five ticks, none on Phone; to change: note 16 |
+| E10 no `not_opened` | none | none |
+| E11 status: phone switched off; only Android's own pages counted during setup | note the minutes | phone switched off; 6 min, all on Android's own pages: note 6 |
+| F1 C1 to C3 as drawn | note differences | not looked at closely |
+| F2 Today at once after swiping away | yes | not tried |
+| F3 Today and its banner against E and T | note differences | as drawn |
+| F4 notification paused with Today in front | yes | yes: `24 min paused` |
+| F5 How it works against H; Back to Today | note differences | as drawn: 30 min, 23:00 to 06:00, Clock, YouTube; Back not noted; to change: note 16 |
+| F6 Ask for more time from Today: B1 with no strip | yes | the asking screen opened; its strip not noted; a picture over the cable came back empty: note 8 |
+| G1 browser counted: notification, status, Today | yes | Chrome counted: used went from 6 to 9 min, `21 min left` with Android's countdown; Today not noted |
+| G2 shade, Edge panel, screenshot toolbar, keyboard: no new front | yes | yes: each logged `not_confirmed front=com.android.chrome`; a clock note meanwhile: note 9 |
+| G3 recents read as home; home, screen off, Android's lock screen not counted | yes | yes; `20 min paused` |
+| G4 `ALLOWED` recorded, not counted | yes; note the notification's words | the Clock recorded (1 min), not counted; the words not noted |
+| G5 ringing not counted; call's screen the dialler; the browser during a call counted | yes | not run: no SIM |
+| G6 a call made: call screen learned or known | note which | not run: no SIM |
+| G7 log: only LiMo's tags, no names, PIN, code or typed text | yes | yes: the whole log searched |
+| H1 block screen as drawn, bars covered, the note once | yes; note differences | as drawn; bars covered; the note once for the day |
+| H2 home, not covered again; YouTube's late event not confirmed | yes | never covered over home; no late window event from YouTube in the log |
+| H3 fourteen tries, never covered over home | yes; note the ms values | 15 tries: 15 covers up, 15 down, never over home; drawn in 72 to 402 ms, median 244 |
+| H4 emergency dialler from the block screen, not covered, nothing dialled; a known one ends the wait (`front emergency_wait ended first=`) | yes; note `how` and how it was known | `how=emergency_dialler`; `front now emergency_dialler package=com.samsung.android.app.telephonyui`, known at once, never covered; nothing dialled. Before the watch's fix, so no `emergency_wait` line; what came after: note 2 |
+| H5 YouTube not counted | yes | yes |
+| H6 silent ring without the Phone permission over the block screen | note what showed and what the log said | not run: no SIM |
+| I1 usage access off while Today shows: AND 1 MORE; out of split screen `front now limo`; ways out not covered | yes; note split screen or not | switched off in Settings, not in split screen: `AND 1 MORE`, the `permission_off` note, `front now unknown`, then `front now limo` on Today; the ways out not tried |
+| I2 Phone step opens App info after two refusals | `page=app_details` | `page=app_details` |
+| I3 call within ten seconds of granting: `call now ringing` | yes | not run: no SIM |
+| I4 the banner's walk ends on Today with no banner | yes | yes |
+| I5 status: nothing switched off | yes | yes |
+| J1 card at 15: words, keyboard kept, gone after 30 s, quiet in the shade | yes | the card floated (`show warning floated`), touches outside it reached Chrome; it sat on the address bar: note 11; the rest not noted |
+| J2 accessibility off: heads up at 5 with a sound | yes | not run |
+| J3 card at 1, OK puts it away; notification counts seconds | yes | the cards at 5 and 1 minute floated; OK and the seconds not noted |
+| J4 warning notifications gone a minute after the lock | yes | not looked at |
+| K1 the lock against A: label, words, rows, tiles, fonts, logo | note differences | as drawn: `OPENS AGAIN Tomorrow, 06:00` (note 12), three rows, tiles Phone and Clock with their own icons |
+| K2 log: lock, rows=3, tiles=2; notification is the lock's title | yes | yes: `rows=3 tiles=2 call=false`, drawn in 916 ms; `Today's time is used up.` |
+| K3 status: 0:00, locked until the day's end, or until the end of a bedtime over midnight | yes | locked until tomorrow at 06:00 (note 12) |
+| K4 the navigation bar covered; quick panel over the lock | note whether the panel came down | no Home, Back or recents to press; the quick panel does not come down: note 13 |
+| K5 `ALLOWED`'s tile opens and stays; phone app tile; locked again | yes | yes: the Clock and the Phone app open from their tiles; home and Settings locked again in about half a second |
+| K6 ringing call: lock steps aside at once | yes | not run: no SIM |
+| K7 Back to the call in teal above Emergency call; opens the call | `how=in_call_screen` | not run: no SIM |
+| K8 silent ring with the Phone permission: never covered | yes; two SIMs if any | not run: no SIM |
+| K9 emergency dialler from the lock, nothing dialled | yes | yes: opened from the lock, never covered |
+| K10 the lock turned: laid out again, cut out clear | yes | the owner turned the phone; what it showed was not written down |
+| K11 B3 turned: dots empty, choice kept | yes | not run |
+| L1 request: waiting on the lock, two rows, reason not logged or printed | yes | yes: `way_out ask answer=done`, `rows=2`; status `A request waits for an answer: 30 minutes, asked today at 20:38`; the reason nowhere |
+| L2 Back leaves the cells empty | yes | not run as written |
+| L3 screenshot refused, no picture in recents | yes | not run as written; see F6 |
+| L4 wrong code: words in coral, cleared by typing; status 1 wrong try | yes | five wrong codes, not one: note 14 |
+| L5 right code: 15 minutes added, lock gone; no digits logged | yes | yes: `way_out code answer=added`, 15 minutes added, the lock gone; no digits in any log |
+| M1 second request refused in the core's words | yes | not run: the run was ended |
+| M2 Today and How it works at the largest text | note anything cut | not run: the run was ended |
+| M3 restart with time left: notification back, time kept, nothing reported off | yes | not run: the run was ended |
+| M4 optional: one alarm of LiMo's; battery next to nothing | note both | not run: the run was ended |
+| M5 warnings in the code's fifteen minutes | note which | not run: the run was ended |
+| N1 the lock at the largest text | note anything cut | not run: the run was ended |
+| N2 restart while locked: lock at once | yes | not run: the run was ended |
+| N3 Stop from the quick panel: when the lock came back | note how long | not run: the run was ended |
+| N4 code already used; 4 digits refused; neither counted | yes | not run: the run was ended |
+| N5 wrong PINs count down; fifth: the wait, rows greyed | yes | seen with five wrong codes in part L: back to the lock, a wait of one minute (note 14) |
+| N6 rows back after the minute | yes | yes, after the codes of part L |
+| N7 right PIN adds 15 minutes, wrong tries cleared | yes; note how long it took | not run: the run was ended |
+| O1 Stop from the quick panel, if not done in N3 | note how long | not run: the run was ended |
+| O2 Force stop: greyed out or done; accessibility switched off | note which | not run: the run was ended |
+| O3 YouTube not covered; LiMo back by itself or not | note which | not run: the run was ended |
+| O4 banner and status: accessibility off; the note | yes | not run: the run was ended |
+| O5 accessibility on again; YouTube covered | yes | not run: the run was ended |
+| O6 forget under the block screen: cover gone, S0 | yes | forget with no cover up: wiped, `host forgotten`, `dev forget done`; S0 not noted |
+| O7 check: nothing on either side | yes | yes |
+| O8 home screen uninstall refused; tool's uninstall refused, exit 2 | yes | not run: the run was ended |
+| O9 device admin's words; switched off | yes | not run: the run was ended |
+| O10 uninstall done | yes | not run: the run was ended |
+| O11 check: not installed | yes | not run: the run was ended |
+| Finish: nothing left, phone as found | yes | not done: LiMo left installed, with its device admin, accessibility and usage access on |
 
-## Notes from the run
+## Notes from the first run, 20 November 2026
 
-Kept here after the run, numbered, each with its part and step: what
-differed from this page, the phone's words or the log's line exactly, and
-a photo of any screen that differs from its drawing. Also the phone's
-model, its Android and One UI versions, and the order the parts were run
-in. Not run yet.
+A Galaxy S20 Ultra, Android 13 (One UI 5.1), with no SIM, and a Windows
+PC; the debug child form, version 0.1.0. The owner held the phone, and the
+commands were run at the PC. Parts A to L were run in order, then forget
+(part O, steps 6 and 7), in a little over two hours. Pictures of S5, S9,
+Today, How it works, the block screen and the lock were taken over the
+cable.
+
+1. **Part D, step 1: the tool misread LiMo's state.** The first setup
+   wrote the pairing file and LiMo took it (its log said `dev pair taken`),
+   but the tool said it had not. adb on Windows gives every line feed of an
+   `adb shell` answer as a carriage return and a line feed, so the kept
+   state (1984 bytes) came back as 1987; the engine took it for damaged,
+   and the tool then deleted the test family on the PC, leaving the phone
+   holding a family no PC knew. Fixed during the run (commit 54e39e9): the
+   state is read through `adb exec-out`, which hands its bytes over as they
+   are; setup keeps the PC's test family whenever LiMo says `taken` or keeps
+   a state; and `forget --phone-only` wipes a family the PC does not have.
+   The second setup passed. The failed one left no line in the tool's own
+   log.
+2. **Part H, step 4, and after: a screen learned as an emergency dialler.**
+   Emergency call on the block screen opened Samsung's emergency dialler,
+   which LiMo knew at once from Android's roles. The home screen, Settings
+   and its search came next; the search (`com.android.settings.intelligence`,
+   a package with no icon) came to the front 8.7 seconds after the tap, and
+   the log said `front learned emergency_dialler
+   package=com.android.settings.intelligence`: until LiMo's process ended,
+   it would never have been covered or counted. Fixed after the run (commit
+   4d968b7): only the first screen after the tap can be learned, a known
+   emergency dialler ends the wait (`front emergency_wait ended first=`
+   with its package), and nothing after it is learned. Not yet seen on a
+   phone.
+3. **Part B, step 3: no calculator on this Galaxy.** The Clock
+   (`com.sec.android.app.clockpackage`) was the app always allowed. The
+   steps now say to pick any app with an icon.
+4. **Part E, step 3: the first Notifications answer logged as not
+   granted.** Android asked; after 12 seconds on its question the log said
+   `seam step=notifications asked granted=false`. The second tap opened
+   LiMo's notification settings (`seam step=notifications opened
+   page=app_notifications`), where the owner switched them on, and the
+   notification then showed. What was tapped on the question is not known:
+   try again on a fresh install.
+5. **Part E, step 6: One UI opened Accessibility's top page**, not LiMo's
+   row: Installed apps, then LiMo. One UI also offered a shortcut, which
+   was declined.
+6. **Part E: setup used 6 of the 30 minutes**, all on Android's own pages
+   (`com.samsung.accessibility` 2 minutes, `com.android.settings` 2,
+   `com.samsung.android.lool` 1; each app's minutes are rounded down) and
+   none on LiMo's screens. For the Battery step's Samsung note the owner
+   went through Device care (`com.samsung.android.lool`); the path One UI
+   5.1 really has was not written down.
+7. **Part E: a `permission_off` note for accessibility during setup**,
+   though as far as was seen it had not been switched on yet. Why is not
+   settled.
+8. **Part F, step 6: the asking screen cannot be pictured.** A picture of
+   it taken over the cable came back empty (0 bytes): the ways out are
+   protected from capture, as built.
+9. **Part G, step 2: a clock note.** A `clock_moved` note came during the
+   overlay checks: the phone's clock moved 8 seconds back while automatic
+   time was on, and LiMo followed it (`followed` true).
+10. **Part J: a YouTube link in the browser.** A YouTube link tapped in
+    Chrome brought the YouTube app to the front for half a second: it was
+    covered in 116 ms and uncovered when Chrome came back. Watching
+    youtube.com inside Chrome is not blocked: LiMo blocks apps, not sites.
+11. **Part J, step 1: the warning card sat on the browser's address bar.**
+    To change.
+12. **Part K, steps 1 and 3: "OPENS AGAIN Tomorrow, 06:00".** The test
+    family's bedtime runs over midnight (23:00 to 06:00), so the phone
+    opens at the bedtime's end, not at midnight; `status` said `until
+    tomorrow at 06:00`. The phone was set to 24 hours. The steps now say
+    so.
+13. **Part K, step 4: no Home to press.** The lock covers the navigation
+    bar, so there is no Home, Back or recent apps button to press, and the
+    quick panel does not come down over the lock. Which navigation the
+    phone used was not written down. Part N, step 3, which needs the quick
+    panel, now goes to part O.
+14. **Part L, step 4: five wrong codes, and the wait.** Five wrong codes
+    were typed, not one. After the fifth the ways out closed, the lock came
+    back with the code and PIN rows waiting, and a minute later the rows
+    came back by themselves. This stands for part N, steps 5 and 6, with
+    codes in place of PINs. The words after each wrong code were not
+    written down.
+15. **The log follower.** `.\limo-phone-dev log`, started by a program
+    with no terminal, ended at once: `The log ended: adb stopped following
+    it, perhaps because the phone was unplugged. Run log again to go on.`
+    It was not tried in a terminal window; the log was read in snapshots
+    with `adb logcat -d` instead.
+16. **To change, from the owner.** S0 (part C, step 4): the card in the
+    middle of the screen, not at the top. S9 (part E, step 9): with a step
+    off, say so, since five ticks of six read as a fault. How it works,
+    About (part F, step 5): remove the "Free and open source" line and the
+    repository's address, and put "More info on https://lucidloom.ai" in
+    their place. The warning card on the address bar (note 11).
+17. **Not run, and why.** No SIM: G5, G6, H6, I3, K6 to K8. This PC was
+    already allowed: B1. Not tried: B4, F2, J2, K11, and L2 and L3 as
+    written. The owner ended the run after part L: parts M and N (but N5
+    and N6, note 14), part O but forget (steps 6 and 7, run with no cover
+    up), and the Finish. LiMo was left installed on the phone, with its
+    device admin, accessibility and usage access on.
