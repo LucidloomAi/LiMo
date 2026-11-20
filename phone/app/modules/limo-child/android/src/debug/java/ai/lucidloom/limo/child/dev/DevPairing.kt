@@ -1,5 +1,6 @@
 package ai.lucidloom.limo.child.dev
 
+import ai.lucidloom.limo.child.host.ChildName
 import java.io.File
 
 /**
@@ -8,12 +9,14 @@ import java.io.File
  * app's private `files/limo-dev/pairing.json`:
  *
  * ```
- * { "welcome": { ...the core's Grant... }, "code_secret_hex": "<64 hex digits>", "made_at": 1795000000 }
+ * { "welcome": { ...the core's Grant... }, "code_secret_hex": "<64 hex digits>", "made_at": 1795000000, "child_name": "Asha" }
  * ```
  *
  * `welcome` is the master's welcome grant as a JSON object, passed to the
  * engine as it is; `code_secret_hex` the phone's 32 byte code secret;
- * `made_at` the PC's clock when it wrote the file, in unix seconds.
+ * `made_at` the PC's clock when it wrote the file, in unix seconds;
+ * `child_name` the child's name, for the child's screens and the lock (the
+ * welcome grant holds no name), which the host keeps beside the state.
  *
  * Debug builds only (src/debug): a release build has none of this.
  */
@@ -23,8 +26,12 @@ internal object DevPairing {
 
   /** What the file gave. */
   sealed class Taken {
-    /** The welcome's JSON and the code secret, as bytes: fill both with zeros once the engine has them. */
-    class Pairing(val welcome: ByteArray, val codeSecret: ByteArray) : Taken()
+    /**
+     * The welcome's JSON and the code secret, as bytes: fill both with zeros
+     * once the engine has them. [childName] is the child's name, cleaned as
+     * the host keeps it ([ChildName]).
+     */
+    class Pairing(val welcome: ByteArray, val codeSecret: ByteArray, val childName: String) : Taken()
 
     /** There was no file. */
     data object NoFile : Taken()
@@ -70,12 +77,16 @@ internal object DevPairing {
     val madeAt = members["made_at"]?.let { raw -> runCatching { DevJson.long(raw) }.getOrNull() }
       ?: return Taken.Refused("no_made_at")
     if (madeAt < nowSecs - MAX_AGE_SECS || madeAt > nowSecs + MAX_AGE_SECS) return Taken.Refused("old_file")
+    // A name that is not text, or nothing once cleaned as the host keeps it, is none.
+    val childName = members["child_name"]?.let { raw -> runCatching { DevJson.string(raw) }.getOrNull() }
+      ?.let { ChildName.clean(it) }
+      ?: return Taken.Refused("no_child_name")
     val secret = fromHex(hex) ?: return Taken.Refused("code_secret_not_hex")
     if (secret.size != 32) {
       secret.fill(0)
       return Taken.Refused("code_secret_not_32_bytes")
     }
-    return Taken.Pairing(welcome.toByteArray(Charsets.UTF_8), secret)
+    return Taken.Pairing(welcome.toByteArray(Charsets.UTF_8), secret, childName)
   }
 
   private fun fromHex(hex: String): ByteArray? {

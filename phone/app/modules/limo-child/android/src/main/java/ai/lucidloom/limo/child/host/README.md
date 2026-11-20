@@ -17,15 +17,16 @@ answers back, and gives the engine's view to the child's screens.
 itself (watch/ does), draws nothing (show/ will), and keeps nothing alive
 (keep/ does). It has no link to the master PC yet, so the master is never
 in reach and no report is ever sent. It does not answer the screens'
-requests (`LimoChildModule` will, in the piece that builds the Kotlin side
-of the seam); it only starts the keeper when the app opens. Nothing here
-has run on a phone yet: see [What only a phone can prove](#what-only-a-phone-can-prove).
+requests itself: `LimoChildModule` hands each to the seam (seam/README.md),
+which asks the host for its view; the module also starts the keeper when
+the app opens. Nothing here has run on a phone yet: see [What only a phone can prove](#what-only-a-phone-can-prove).
 
 ## Contents
 
 - [How the other pieces call it](#how-the-other-pieces-call-it)
 - [When it ticks, and what wakes it](#when-it-ticks-and-what-wakes-it)
 - [What it does with the orders](#what-it-does-with-the-orders)
+- [The child's name](#the-childs-name)
 - [The kept state](#the-kept-state)
 - [When something goes wrong](#when-something-goes-wrong)
 - [What it logs](#what-it-logs)
@@ -66,20 +67,21 @@ call could not be made. The caller reads the field into a `CharArray`,
 makes the bytes, fills the `CharArray` with zeros and clears the field.
 The reason a child types is not a secret, but it is never logged.
 
-**For the screens (the seam's Kotlin side, a later piece):**
+**For the screens (the seam's Kotlin side, seam/):**
 
 | Call | What |
 | --- | --- |
 | `paired` | A state is kept on this phone, read from the file itself, right at once on any thread. True also while that state cannot be read (the phone is then locked). |
+| `childName` | The child's name the pairing gave, for the child's screens and the lock; null when not paired, or when no name is kept (see [The child's name](#the-childs-name)). Read from its file, right at once on any thread. |
 | `view { v -> }` | `HostView(paired, json, problem)`: the engine's whole view as JSON (snake case), with `today` and `rules_words` for Today and How it works, as the engine's README says; null when not paired or when the kept state cannot be read, and then `problem` says why. Apps in it are packages: the seam puts each app's name in, from the watch. |
-| `listen { what -> }` | Told on the main thread: `PAIRING` when the phone was paired or forgotten, `VIEW` when the time left's words, the cover, the permissions or the engine's notes changed, or after a way out. Ask again then. Close the handle to stop. |
+| `listen { what -> }` | Told on the main thread: `PAIRING` when the phone was paired or forgotten (and so its name changed), `VIEW` when the time left's words, the cover, the permissions or the engine's notes changed, or after a way out. Ask again then. Close the handle to stop. |
 
 **For pairing (dev/ now, the link later):**
 
 | Call | What |
 | --- | --- |
-| `pair(welcome, codeSecret) { ok -> }` | A new engine from the core's welcome grant (JSON bytes) and the 32 byte code secret, both filled with zeros after. Its state is written before the engine is used; if it cannot be written, nothing changes and the answer is false. It replaces any state kept before, one that cannot be read among them. |
-| `forget { }` | The kept state deleted, nothing covered, nothing ticking, the keeper stopped (`KeeperDisplay.cleared`). |
+| `pair(welcome, codeSecret, childName) { ok -> }` | A new engine from the core's welcome grant (JSON bytes) and the 32 byte code secret, both filled with zeros after, for the child called `childName`. Its state is written before the engine is used; if it cannot be written, nothing changes, the name neither, and the answer is false. Then the name is kept (or, with none, any older one removed). It replaces any state and name kept before, a state that cannot be read among them. |
+| `forget { }` | The kept state and the child's name deleted, nothing covered, nothing ticking, the keeper stopped (`KeeperDisplay.cleared`). |
 
 **For receivers (keep/):** `start()` (idempotent) and `wake(done)`, a tick
 at once with `done` run after it, so a receiver can hold its broadcast
@@ -125,6 +127,28 @@ In this order, at every tick:
    log line says so.
 7. **The next tick**, as above.
 
+## The child's name
+
+The welcome grant holds no name, so the pairing hands the host the child's
+name beside it (the development tool's pairing file now, `dev/README.md`).
+The host keeps it in a small file of its own beside the engine's state,
+the app's private `files/limo/child.json`, `{"child_name":"Asha"}`, written
+all or nothing with `AtomicFile` (`ChildName`, `AtomicNameStore`), out of
+backups like everything of the app. It is the one home of the name: the
+child's screens (seam/) and the lock read it from `childName`.
+
+- **Cleaned** before it is kept: control characters and direction marks
+  dropped, trimmed, cut at 40 characters (never inside one); nothing left
+  is no name, as the development tool cleans it.
+- **Changed** only by `pair` (kept, or removed when the pairing gives
+  none) and `forget` (removed), each told as `PAIRING`.
+- **No name** while paired: the pairing gave none, its file could not be
+  written, or it was lost or damaged (one that cannot be read is no name).
+  The phone stays paired and keeps its limits; the screens then say "your
+  child" (seam/README.md).
+- **Never** in a log line (only `host paired no_child_name` says there is
+  none), a report, a note or the engine's state.
+
 ## The kept state
 
 One file, the app's private `files/limo/state`, written with Android's
@@ -167,7 +191,7 @@ a code, a PIN, nor an error's own words.
 | Line | When |
 | --- | --- |
 | `host not_paired waiting` | Started with no state kept. |
-| `host paired`, `host pair_refused error=<kind>` | A pairing taken, or refused by the engine. |
+| `host paired`, `host paired no_child_name`, `host pair_refused error=<kind>` | A pairing taken, with the child's name or without one, or refused by the engine. |
 | `host forgotten` | The state was deleted. |
 | `host state_unreadable kind=<empty, not_limo, newer, damaged> phone_locked` | The kept state could not be read. |
 | `host engine_broken error=<kind> loading_again` | The engine was made again. |
@@ -200,7 +224,8 @@ purpose.
 | `HostTroubleTest.aPairingWhoseStateCannotBeKeptChangesNothing` | A pairing that cannot be written: refused, the secret wiped, the engine made for it closed, still not paired, nothing ticking, nothing told |
 | `HostTroubleTest.withTheScreenOffNothingTicksEverySecondAndTheAlarmWakesTheHost` | The screen off: one tick at once, the time left paused, at most one tick in ten minutes, the alarm at most fifteen minutes away and firing, set again; the screen on: a tick at once and every second again |
 | `HostTroubleTest.forgettingThePairingStopsEverything` | The state deleted, no tick, no alarm, no watching, nothing covered, the keeper cleared, told; a way out answered `NotPaired` |
-| `HostHouseRulesTest` (2) | No log line in host/, keep/ or dev/ interpolates a label, a reason, a message, words, a title, a welcome, a secret, a code or a PIN; no dash punctuation in their files, READMEs, the module's words and manifests |
+| `HostNameTest` (6) | The name from a pairing cleaned and kept beside the state, read by a new process, removed by forgetting, told, never logged; a pairing with no name keeping none and removing an older one; a name file lost or damaged is no name, and a name that cannot be written leaves the phone paired; not paired, no name whatever the file holds; cleaning (direction marks, control characters, cut at 40 without splitting a character); the file read back exactly, anything else refused |
+| `HostHouseRulesTest` (2) | No log line in host/, keep/ or dev/ interpolates a label, the child's name, a reason, a message, words, a title, a welcome, a secret, a code or a PIN; no dash punctuation in their files, READMEs, the module's words and manifests |
 
 The keeper's look and the schedule are tested in `keep/KeeperLookTest`, the
 test family's pairing file in `dev/DevPairingTest`.
@@ -242,6 +267,9 @@ development tool):
 
 ## Left open
 
+- **The name over the network.** When pairing over the network is built,
+  the master's welcome will carry the child's name, and the link hands it
+  to `pair` as the development tool does now.
 - **The link.** `inReach` and `prodded` are always false, and a report is
   never sent; the link (P13) adds the session, `outgoingReport`,
   `takeGrant`, `lostContact` and the wake ups the engine asks for in reach
@@ -262,10 +290,11 @@ host/
   README.md
   PhoneHost.kt        the interface for the other pieces: PhoneHost, Shower, WayOut, HostView, HostListener, HostChange
   HostCore.kt         the host with no Android in it, and the small interfaces it needs (state, facts, engines, clock, timer, alarm, keeper, log)
+  ChildName.kt        the child's name: cleaned, its file's text, and where it is kept (NameStore)
   HostTimes.kt        when it ticks and sets its alarm, and its times
-  Host.kt             the host of the process: its thread, AtomicFile, the watch's facts, the alarm, the main thread
-  LimoChildModule.kt  the Expo module: starts the keeper when the app opens; answers the screens (a later piece)
+  Host.kt             the host of the process: its thread, AtomicFile for the state and the name, the watch's facts, the alarm, the main thread
+  LimoChildModule.kt  the Expo module: starts the keeper when the app opens; hands the screens' requests and the change event to seam/
 src/test/java/ai/lucidloom/limo/child/host/
   HostRig.kt          the made up phone, the state in memory, the engine watched
-  HostDayTest.kt, HostTroubleTest.kt, HostHouseRulesTest.kt
+  HostDayTest.kt, HostTroubleTest.kt, HostNameTest.kt, HostHouseRulesTest.kt
 ```

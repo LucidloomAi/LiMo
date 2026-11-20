@@ -1,0 +1,20 @@
+{
+  "request": "child.today",
+  "answer": {
+    "left": {
+      "kind": "left",
+      "words": "29 min"
+    },
+    "used": "1 min used of 30 min",
+    "usedPart": 0.033,
+    "where": "On this phone 1 min",
+    "bedtime": "Screens are off from 9:00 pm to 7:00 am.",
+    "apps": [
+      {
+        "name": "Game",
+        "minutes": "1 min"
+      }
+    ],
+    "guardianNeeded": null
+  }
+}

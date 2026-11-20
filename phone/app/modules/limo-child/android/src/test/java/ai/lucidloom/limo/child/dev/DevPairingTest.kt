@@ -31,7 +31,8 @@ class DevPairingTest {
       file.writeText(
         """{ "welcome": ${String(welcome.welcome, Charsets.UTF_8)},
            |  "code_secret_hex": "${hex(welcome.codeSecret)}",
-           |  "made_at": ${rig.wall - 3} }""".trimMargin(),
+           |  "made_at": ${rig.wall - 3},
+           |  "child_name": " Asha " }""".trimMargin(),
       )
 
       val taken = DevPairing.take(file, rig.wall)
@@ -40,9 +41,11 @@ class DevPairingTest {
       val pairing = taken as DevPairing.Taken.Pairing
       assertTrue(pairing.welcome.contentEquals(welcome.welcome))
       assertTrue(pairing.codeSecret.contentEquals(welcome.codeSecret))
+      assertEquals("Asha", pairing.childName)
 
-      // The host makes the engine from it, keeps the state, and wipes both.
-      assertTrue(rig.core.pair(pairing.welcome, pairing.codeSecret))
+      // The host makes the engine from it, keeps the state and the name, and wipes both.
+      assertTrue(rig.core.pair(pairing.welcome, pairing.codeSecret, pairing.childName))
+      assertEquals("Asha", rig.core.childName)
       assertTrue(pairing.welcome.all { it.toInt() == 0 } && pairing.codeSecret.all { it.toInt() == 0 })
       assertEquals(1 + rig.engines.current.orders.count { it.saveState }, rig.store.writes)
       assertTrue(rig.events.contains(HostChange.PAIRING))
@@ -67,12 +70,16 @@ class DevPairingTest {
       "not_json" to """{"welcome": {"a": 1}, "code_secret_hex": "$secret", "made_at": $now} and more""",
       "no_welcome" to """{"code_secret_hex": "$secret", "made_at": $now}""",
       "no_welcome" to """{"welcome": "Mira", "code_secret_hex": "$secret", "made_at": $now}""",
-      "no_code_secret" to """{"welcome": $welcome, "made_at": $now}""",
-      "no_made_at" to """{"welcome": $welcome, "code_secret_hex": "$secret"}""",
-      "no_made_at" to """{"welcome": $welcome, "code_secret_hex": "$secret", "made_at": "yesterday"}""",
-      "old_file" to """{"welcome": $welcome, "code_secret_hex": "$secret", "made_at": ${now - 2 * 60 * 60}}""",
-      "code_secret_not_hex" to """{"welcome": $welcome, "code_secret_hex": "Mira is not hex", "made_at": $now}""",
-      "code_secret_not_32_bytes" to """{"welcome": $welcome, "code_secret_hex": "abcd", "made_at": $now}""",
+      "no_code_secret" to """{"welcome": $welcome, "made_at": $now, "child_name": "Asha"}""",
+      "no_made_at" to """{"welcome": $welcome, "code_secret_hex": "$secret", "child_name": "Asha"}""",
+      "no_made_at" to """{"welcome": $welcome, "code_secret_hex": "$secret", "made_at": "yesterday", "child_name": "Asha"}""",
+      "old_file" to """{"welcome": $welcome, "code_secret_hex": "$secret", "made_at": ${now - 2 * 60 * 60}, "child_name": "Asha"}""",
+      "code_secret_not_hex" to """{"welcome": $welcome, "code_secret_hex": "Mira is not hex", "made_at": $now, "child_name": "Asha"}""",
+      "code_secret_not_32_bytes" to """{"welcome": $welcome, "code_secret_hex": "abcd", "made_at": $now, "child_name": "Asha"}""",
+      "no_child_name" to """{"welcome": $welcome, "code_secret_hex": "$secret", "made_at": $now}""",
+      "no_child_name" to """{"welcome": $welcome, "code_secret_hex": "$secret", "made_at": $now, "child_name": 7}""",
+      "no_child_name" to """{"welcome": $welcome, "code_secret_hex": "$secret", "made_at": $now, "child_name": "  "}""",
+      "no_child_name" to """{"welcome": $welcome, "code_secret_hex": "$secret", "made_at": $now, "child_name": "\u202e\u0007 "}""",
     )
     for ((why, text) in cases) {
       val file = File(dir, "pairing.json")
@@ -84,10 +91,16 @@ class DevPairingTest {
       assertFalse((taken as DevPairing.Taken.Refused).why.contains("Mira"))
     }
     // Strings with escapes and a nested object in the welcome are read as they are.
-    val nested = """{"welcome": {"a": [1, 2.5e3, true, null, {"b": "q\"é"}]}, "code_secret_hex": "$secret", "made_at": $now}"""
+    val nested = """{"welcome": {"a": [1, 2.5e3, true, null, {"b": "q\"é"}]}, "code_secret_hex": "$secret", "made_at": $now, "child_name": "Mira"}"""
     val taken = DevPairing.read(nested, now) as DevPairing.Taken.Pairing
     assertEquals("""{"a": [1, 2.5e3, true, null, {"b": "q\"é"}]}""", String(taken.welcome, Charsets.UTF_8))
     assertEquals(32, taken.codeSecret.size)
     assertTrue(taken.codeSecret.all { it == 0xab.toByte() })
+    // The child's name, cleaned as the host keeps it: trimmed, a direction mark dropped, cut at 40.
+    assertEquals("Mira", taken.childName)
+    val marked = DevPairing.read("""{"welcome": $welcome, "code_secret_hex": "$secret", "made_at": $now, "child_name": " \u200fAsha "}""", now)
+    assertEquals("Asha", (marked as DevPairing.Taken.Pairing).childName)
+    val long = DevPairing.read("""{"welcome": $welcome, "code_secret_hex": "$secret", "made_at": $now, "child_name": "${"Asha".repeat(15)}"}""", now)
+    assertEquals("Asha".repeat(10), (long as DevPairing.Taken.Pairing).childName)
   }
 }

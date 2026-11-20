@@ -167,13 +167,14 @@ src/
   env.d.ts
   generated/              written by scripts/make-design.mjs, git ignored
 tests/                    the screens' tests (jest)
+  seam-answers/           the child module's real answers, written by its JVM tests, read by seamContract.test.ts
 jest.config.js
 modules/limo-child/       the child module (a local Expo module)
   expo-module.config.json, index.ts
   android/build.gradle
   android/src/main/AndroidManifest.xml      every component, once
   android/src/main/java/ai/lucidloom/limo/child/
-    host/   watch/   show/   keep/   link/   strict/
+    host/   seam/   watch/   show/   keep/   link/   strict/
   android/src/main/res/   the accessibility and admin settings, words, a theme
   android/src/debug/      the development receiver (folder dev/), debug builds only
   android/src/test/       the JVM tests of the Rust engine from Kotlin
@@ -214,6 +215,7 @@ clash with the app's.
 | `keep/` | `AdminReceiver` | device admin receiver, exported, `res/xml/limo_admin.xml` (no policies) | `BIND_DEVICE_ADMIN` | (a stub) the base protection; later the device owner of strict mode |
 | `dev/` (debug only) | `DevReceiver` | receiver in `src/debug`, exported: `ai.lucidloom.limo.child.dev.PAIR`, `ai.lucidloom.limo.child.dev.FORGET` | `android.permission.DUMP` (only adb and the system hold it) | a test family's pairing over the cable, and forgetting it |
 | `host/` | `LimoChildModule` | none (an Expo module) | | the child's side of the host seam; starts the keeper when the app opens |
+| `seam/` | none | none | | answers the screens' `child.*` requests and sends the `change` event: the engine's view turned into the screens' shapes, Android's screens opened for each step |
 | `link/` | none | none | | the link to the master PC, run inside `KeepService` |
 | `strict/` | none | none | | strict mode: the device owner is `keep/AdminReceiver` |
 
@@ -226,10 +228,12 @@ only, no window content (`canRetrieveWindowContent="false"`), no gestures, no
 key filtering, `isAccessibilityTool="false"`. Its words in Settings say what
 it does: LiMo is told which app is in front, by its name only, and never
 what is on the screen. The device admin asks for no policy at all, as in
-proof five; its words still say this early build does nothing yet.
+proof five; its words say exactly that, and that it is asked only so that
+LiMo cannot be removed while it is on.
 
-`LimoChildModule` answers one request, `about`, so the start screen can show
-that the module is linked; any other name is refused with the code
+`LimoChildModule` answers `about`, and every `child.*` request of
+[The child's seam](#the-childs-seam) through `seam/` (its README says what
+each does on Android); any other name is refused with the code
 `UnknownRequest`.
 
 ## The Rust engine
@@ -270,8 +274,8 @@ drive the real engine and the real link from Kotlin through the bindings
 that ship, with the PC library loaded by JNA: a short day from a made up
 welcome to a right code and a reload, and a pairing and a session over the
 link. Nothing in the APK depends on this step. The same run has the tests of
-`watch/`, `host/` (a day through the host on the real engine), `keep/` and
-`dev/`, each listed in its folder's README: 62 in all. The release unit
+`watch/`, `host/` (a day through the host on the real engine), `keep/`,
+`dev/` and `seam/`, each listed in its folder's README: 90 in all. The release unit
 tests also compile `src/debug/java` (source set `testRelease` in the
 module's `build.gradle`), so the debug only `dev/` code is tested too;
 tests never ship.
@@ -560,11 +564,21 @@ app, the rules as words, and the sentence for each step that is off, are
 not all in `phone/engine` yet: they belong in its `words.rs` and its view,
 so that Kotlin passes words through and never makes them.
 
-**Until Kotlin answers.** The child module answers only `about` today. A
-request it does not know is refused, and `childHost.pairing()` takes that as
-not paired, so the child form shows S0 and asks nothing else. A malformed
+**The Kotlin side** is `modules/limo-child/android/.../seam/` (its README
+says what each request does on Android, where agreeing and the
+introduction are kept, and what throttles `change`). Where no child module
+answers, a request is refused, and `childHost.pairing()` takes that as not
+paired, so the child form shows S0 and asks nothing else. A malformed
 answer fails with a message naming the field; a step reads as on only for
 the exact word `"on"`.
+
+**The contract between the two sides.** The child module's JVM tests turn
+the real engine's view, from a made up family, into each answer and write
+it into `tests/seam-answers/` (`{ "request", "answer" }`, again at every
+`npm run test:child`, and only when it changed); `tests/seamContract.test.ts`
+reads every one through the readers above. A change on either side that
+breaks the other fails there. To refresh the files, run `npm run
+test:child`, then `npm test`.
 
 ## The preview
 
@@ -597,7 +611,7 @@ itself.
 
 ## Tests
 
-`npm test` runs 102 tests with jest (Expo's preset for Android), against the
+`npm test` runs 130 tests with jest (Expo's preset for Android), against the
 mock host. Nothing in them runs on a phone.
 
 | File | What |
@@ -607,6 +621,7 @@ mock host. Nothing in them runs on a phone.
 | `tests/seam.test.ts` | the readers of what Kotlin sends, the steps a guardian is needed for and their sentences lining up among them, and who made the phone; the app's host with no child module: not paired, nothing else answered |
 | `tests/access.test.tsx` | a role, a label and 48 of height for everything to tap, the way on and the banner with three off among them; headings; the reading order |
 | `tests/release.test.ts` | no screen names a native module, the network or a link out, or holds the engine's sentences for a step that is off; only `src/host.ts` reaches the child module; the app's imports, as Android resolves them from `index.ts`, never reach the mock, the preview or the tests |
+| `tests/seamContract.test.ts` | the child module's real answers (`tests/seam-answers/`, written by its JVM tests) each pass the reader the app's host checks it with, unchanged; none missing and none unknown; the engine's kinds turned, apps by their names only, what is switched off in setup order with its sentences |
 
 `npm run check:release-js` shows the last on the bundles themselves: it
 makes each form's JavaScript as Gradle's release build does (`expo
@@ -734,7 +749,26 @@ built `out/limo-child-debug.apk` (55,683,658 bytes, Gradle 135 s):
 debuggable, the development receiver guarded by `DUMP` with its two
 actions, the JavaScript bundle and the Rust library inside, no `INTERNET`.
 The child form's release APK is 30,423,233 bytes (about 220 KB more: the
-host, the keeper and their resources); the guardian's 28,273,711.
+host, the keeper and their resources); the guardian's 28,273,687.
+
+With the Kotlin side of the child's seam (20 Nov 2026), all on the PC:
+`npm run test:child` ran its 96 JVM tests, all passing (62 before, 28 new
+in `seam/`: the engine's real view turned into Today and the rules, the
+requests paired with a name, with none and not paired, the steps, the
+change event's throttle, what each step opens on each Android, and the
+folder's house rules; and 6 in `host/` for the child's name the host now
+keeps), with no compiler warning in the module, and wrote the 21 answers of
+`tests/seam-answers/`; `npm test` ran its 130 tests (28 new, the contract
+with those answers), all passing; `npm run typecheck` had no errors; `npm run build:both` built both
+forms (Gradle 195 s for the child, 160 s for the guardian; one earlier try
+stopped on a file Windows held for a moment while `android/` was made again
+for the guardian, and running it again went through); `npm run inspect`
+passed every check, the child form holding
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` and the guardian form not; `npm run
+build:child:debug` built `out/limo-child-debug.apk` (55,716,486 bytes,
+Gradle 161 s). The child
+form's release APK is 30,456,057 bytes (about 33 KB more: the seam); the
+guardian's 28,273,687, as before.
 
 ## Versions, and why
 
@@ -842,9 +876,11 @@ follow Expo's blank template (0BSD).
 - **The maker's logo** is 22 on the child form's screens, as the phone
   sheet says, and `tokens.maker.logoSize` (26) on the guardian's start
   screen.
-- **For the child module (Kotlin):** answer the `child.*` requests and send
-  the `change` event of [The child's seam](#the-childs-seam). Until then the
-  child form shows S0 on every phone.
+- **The child's name over the network.** It comes with the pairing, and
+  the host keeps it beside the engine's state (the child module's
+  `host/README.md`, "The child's name"); the development tool's pairing
+  file carries it now, and the master's welcome will when pairing over the
+  network is built.
 - **For the engine:** the words Today and How it works need that it does
   not have yet (see [The child's seam](#the-childs-seam)), and a day's
   minutes per app, which the core keeps only until they are reported.

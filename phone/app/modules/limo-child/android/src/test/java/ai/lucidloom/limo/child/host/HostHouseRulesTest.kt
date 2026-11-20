@@ -7,8 +7,9 @@ import org.junit.Test
 
 /**
  * The promises of host/, keep/ and dev/, checked in their files: no log
- * line carries a label, a typed reason, a code, a PIN, a secret or an
- * error's own words; and nothing a person reads has dash punctuation.
+ * line carries a label, the child's name, a typed reason, a code, a PIN, a
+ * secret or an error's own words; and nothing a person reads has dash
+ * punctuation.
  */
 class HostHouseRulesTest {
   private val moduleDir: File by lazy {
@@ -36,7 +37,7 @@ class HostHouseRulesTest {
   @Test
   fun noLogLineCarriesALabelATypedReasonASecretOrAnErrorsWords() {
     val logCall = Regex("""(Log\.[a-z]\(|log\.line\(|AndroidHostLog\.line\()""")
-    val forbidden = Regex("""\$\{?[A-Za-z_.?]*(label|reason|message|words|title|welcome|secret|pin\b|code\b|localizedMessage)""", RegexOption.IGNORE_CASE)
+    val forbidden = Regex("""\$\{?[A-Za-z_.?]*(label|reason|message|words|title|welcome|secret|pin\b|code\b|localizedMessage|childName)""", RegexOption.IGNORE_CASE)
     val sources = folders.take(3).flatMap { files(it, ".kt") }
     assertTrue(sources.size >= 10)
     for (file in sources) {

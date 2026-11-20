@@ -1,0 +1,11 @@
+{
+  "request": "child.steps",
+  "answer": {
+    "notifications": "on",
+    "phone": "on",
+    "usage": "on",
+    "accessibility": "on",
+    "battery": "off",
+    "protection": "off"
+  }
+}

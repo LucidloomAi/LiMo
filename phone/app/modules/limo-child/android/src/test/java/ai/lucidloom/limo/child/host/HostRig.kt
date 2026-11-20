@@ -62,6 +62,23 @@ internal class MemoryStore(private val trail: Trail) : StateStore {
   }
 }
 
+/** The child's name, in memory, kept through the file's own text as the app keeps it; a write can be refused. */
+internal class MemoryNames : NameStore {
+  var text: String? = null
+  var refuseWrite: IOException? = null
+
+  override fun read(): String? = text?.let { ChildName.parse(it) }
+
+  override fun write(name: String) {
+    refuseWrite?.let { throw it }
+    text = ChildName.text(name)
+  }
+
+  override fun delete() {
+    text = null
+  }
+}
+
 /** Every cover and warning the host handed out. */
 internal class RecordingShower(private val trail: Trail) : Shower {
   val covers = ArrayList<Cover>()
@@ -185,6 +202,7 @@ internal class HostRig(folder: File, start: Long = WEDNESDAY_4_PM) : AutoCloseab
   var permissions = ALL_PERMISSIONS
 
   val store = MemoryStore(trail)
+  val names = MemoryNames()
   val shower = RecordingShower(trail)
   val keeper = RecordingKeeper()
   val engines = SpyEngines(trail)
@@ -257,14 +275,14 @@ internal class HostRig(folder: File, start: Long = WEDNESDAY_4_PM) : AutoCloseab
   var core = newCore()
 
   /** A host as a new process makes it, on the same kept state. */
-  fun newCore(): HostCore = HostCore(store, facts, engines, clock, timer, wakeups, keeper, { log += it }, { events += it }).also {
+  fun newCore(): HostCore = HostCore(store, names, facts, engines, clock, timer, wakeups, keeper, { log += it }, { events += it }).also {
     it.shower = shower
   }
 
-  /** Pairs the phone from a welcome the family's master made; returns the phone's device id. */
-  fun pair(): String {
+  /** Pairs the phone from a welcome the family's master made, for the child called [name]; returns the phone's device id. */
+  fun pair(name: String? = "Mira"): String {
     val welcome = family.welcome(child, "Phone", wall)
-    check(core.pair(welcome.welcome, welcome.codeSecret)) { "the pairing was refused" }
+    check(core.pair(welcome.welcome, welcome.codeSecret, name)) { "the pairing was refused" }
     // The host filled both with zeros.
     check(welcome.codeSecret.all { it.toInt() == 0 } && welcome.welcome.all { it.toInt() == 0 })
     return welcome.deviceId

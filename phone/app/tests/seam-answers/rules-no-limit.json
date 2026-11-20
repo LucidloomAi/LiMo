@@ -1,0 +1,11 @@
+{
+  "request": "child.rules",
+  "answer": {
+    "timeADay": "No limit",
+    "screensOff": null,
+    "alwaysOpen": [
+      "Clock"
+    ],
+    "notAllowed": []
+  }
+}

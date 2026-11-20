@@ -1,0 +1,31 @@
+{
+  "request": "child.today",
+  "answer": {
+    "left": {
+      "kind": "left",
+      "words": "29 min"
+    },
+    "used": "1 min used of 30 min",
+    "usedPart": 0.05,
+    "where": "On this phone 1 min",
+    "bedtime": null,
+    "apps": [
+      {
+        "name": "Game",
+        "minutes": "1 min"
+      }
+    ],
+    "guardianNeeded": {
+      "off": [
+        "phone",
+        "usage",
+        "battery"
+      ],
+      "words": [
+        "Phone access is switched off, so a lock could hide a call.",
+        "Usage access is switched off, so LiMo cannot count the time in each app.",
+        "Android may put LiMo to sleep to save battery."
+      ]
+    }
+  }
+}

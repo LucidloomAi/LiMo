@@ -42,6 +42,17 @@ interface PhoneHost {
   val paired: Boolean
 
   /**
+   * The child's name, as the pairing gave it, for the child's screens and
+   * the lock: trimmed, control characters and direction marks dropped, at
+   * most 40 characters. Null when not paired, or when no name is kept (the
+   * pairing gave none, or its file was lost or damaged). Kept in its own
+   * file beside the engine's state (`files/limo/child.json`), never in a log
+   * line, a report or the engine's state. Read from that file, so it is
+   * right at once on any thread; a change is told as [HostChange.PAIRING].
+   */
+  val childName: String?
+
+  /**
    * Who draws the covers (show/). Until one is given, a stand in only logs
    * each cover as it changes. See [Shower].
    */
@@ -72,13 +83,14 @@ interface PhoneHost {
   /**
    * Pairs the phone from a welcome that came by another way than the link
    * (the development tool over the cable): the core's welcome grant as JSON
-   * bytes and the 32 byte code secret, both filled with zeros after. It
-   * replaces any state kept before, a state that cannot be read among them.
-   * The answer says whether the phone is paired and the state kept.
+   * bytes and the 32 byte code secret, both filled with zeros after, and
+   * the child's name ([childName]). It replaces any state and name kept
+   * before, a state that cannot be read among them. The answer says
+   * whether the phone is paired and the state kept.
    */
-  fun pair(welcome: ByteArray, codeSecret: ByteArray, answer: (Boolean) -> Unit)
+  fun pair(welcome: ByteArray, codeSecret: ByteArray, childName: String?, answer: (Boolean) -> Unit)
 
-  /** Forgets the pairing: the kept state is deleted and nothing is covered any more. */
+  /** Forgets the pairing: the kept state and the child's name are deleted, and nothing is covered any more. */
   fun forget(answer: () -> Unit)
 }
 
@@ -140,7 +152,7 @@ fun interface HostListener {
 
 /** What may have changed. */
 enum class HostChange {
-  /** The phone was paired or forgotten: ask [PhoneHost.paired] again. */
+  /** The phone was paired or forgotten: ask [PhoneHost.paired] and [PhoneHost.childName] again. */
   PAIRING,
 
   /** The time left, the cover, the apps used, the permissions or the rules: ask [PhoneHost.view] again. */

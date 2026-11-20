@@ -15,7 +15,8 @@ import java.io.File
  *
  * - [ACTION_PAIR]: take the test family's pairing file
  *   (`files/limo-dev/pairing.json`, see [DevPairing]) once, delete it,
- *   make the engine from it, keep its state, and start the keeper;
+ *   make the engine from it, keep its state and the child's name, and
+ *   start the keeper;
  * - [ACTION_FORGET]: wipe the kept state and stop the keeper.
  *
  * Only the adb shell and the system can send to it (it is guarded by
@@ -49,7 +50,7 @@ class DevReceiver : BroadcastReceiver() {
         Log.i(TAG, "dev pair refused why=${taken.why}")
         done()
       }
-      is DevPairing.Taken.Pairing -> Host.of(app).pair(taken.welcome, taken.codeSecret) { ok ->
+      is DevPairing.Taken.Pairing -> Host.of(app).pair(taken.welcome, taken.codeSecret, taken.childName) { ok ->
         Log.i(TAG, if (ok) "dev pair taken" else "dev pair refused why=engine")
         if (ok) Keeper.start(app, "dev_pair")
         done()

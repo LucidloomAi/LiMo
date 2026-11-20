@@ -1,0 +1,13 @@
+{
+  "request": "child.rules",
+  "answer": {
+    "timeADay": "30 min",
+    "screensOff": null,
+    "alwaysOpen": [
+      "Clock"
+    ],
+    "notAllowed": [
+      "Casino"
+    ]
+  }
+}

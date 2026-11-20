@@ -10,8 +10,9 @@ import android.provider.Settings
 
 /**
  * Leaving LiMo out of battery optimisation, for the setup screens' Battery
- * step ("Android asks once. Choose Allow."). Nothing calls it yet: the
- * piece that answers the screens' requests does, from `child.openStep`.
+ * step ("Android asks once. Choose Allow."). The seam (folder seam/) opens
+ * [question] from `child.openStep` and waits for its answer, and [list]
+ * where a phone has no such question.
  *
  * Why it matters: Android may stop or hold back an app that is optimised,
  * and from Android 12 an app left out of optimisation may start its
@@ -21,20 +22,29 @@ import android.provider.Settings
  */
 object Battery {
   /**
-   * Shows Android's own question whether LiMo may run in the background
+   * Android's own question whether LiMo may run in the background
    * (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, which the manifest's
-   * `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` lets it ask). Where a phone has
-   * no such screen, Android's list of apps left out instead. True when one
-   * of them opened.
+   * `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` lets it ask). It answers with a
+   * result when opened for one.
    */
   // LiMo's whole work is keeping limits while the child uses the phone:
   // being stopped in the background is what it must not be.
   @SuppressLint("BatteryLife")
   @JvmStatic
+  fun question(context: Context): Intent =
+    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
+
+  /** Android's list of apps left out of battery optimisation, where a phone has no question. */
+  @JvmStatic
+  fun list(): Intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+
+  /**
+   * Shows [question], or [list] where a phone has no such screen, without
+   * waiting for an answer. True when one of them opened.
+   */
+  @JvmStatic
   fun askToLeaveOutOfOptimisation(context: Context): Boolean {
-    val ask = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
-    val list = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-    for (intent in listOf(ask, list)) {
+    for (intent in listOf(question(context), list())) {
       if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       try {
         context.startActivity(intent)

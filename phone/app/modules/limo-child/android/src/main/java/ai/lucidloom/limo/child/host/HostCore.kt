@@ -130,6 +130,7 @@ internal val NO_COVER = Cover(CoverKind.NOTHING, null, null)
  */
 internal class HostCore(
   private val store: StateStore,
+  private val names: NameStore,
   private val facts: FactsSource,
   private val engines: Engines,
   private val clock: HostClock,
@@ -157,6 +158,9 @@ internal class HostCore(
 
   /** A state is kept: the phone is paired. */
   val paired: Boolean get() = engine != null || safely("state_exists", false) { store.exists() }
+
+  /** The child's name the pairing gave, cleaned; null when not paired or when none is kept. */
+  val childName: String? get() = if (paired) safely("name_read", null) { names.read() } else null
 
   /** Loads the kept state and ticks, or waits for a pairing. Once. */
   fun start() {
@@ -238,11 +242,14 @@ internal class HostCore(
 
   /**
    * Pairs the phone from a welcome and its code secret, both filled with
-   * zeros after. The new state is kept before the engine is used; if it
-   * cannot be kept, the phone stays as it was. Replaces any state kept
-   * before, one that cannot be read among them.
+   * zeros after, for the child called [childName] (cleaned by [ChildName];
+   * null or nothing left is no name). The new state is kept before the
+   * engine is used; if it cannot be kept, the phone stays as it was, its
+   * name too. Replaces any state and name kept before, a state that cannot
+   * be read among them. A name that cannot be kept leaves the phone paired
+   * with no name.
    */
-  fun pair(welcome: ByteArray, codeSecret: ByteArray): Boolean {
+  fun pair(welcome: ByteArray, codeSecret: ByteArray, childName: String?): Boolean {
     started = true
     try {
       val made = engines.paired(welcome, codeSecret, clock.wallSecs())
@@ -265,8 +272,19 @@ internal class HostCore(
       }
       close(engine)
       engine = made
+      // Never in a log line: only whether one is kept.
+      val name = ChildName.clean(childName)
+      safely("name_write", Unit) {
+        try {
+          if (name != null) names.write(name) else names.delete()
+        } catch (e: Exception) {
+          // Never an older pairing's name for this one.
+          names.delete()
+          throw e
+        }
+      }
       watch()
-      log.line("host paired")
+      log.line(if (name != null) "host paired" else "host paired no_child_name")
       events.changed(HostChange.PAIRING)
       tick()
       return true
@@ -292,6 +310,7 @@ internal class HostCore(
     watching?.let { safely("watch_stop", Unit) { it.close() } }
     watching = null
     safely("state_delete", Unit) { store.delete() }
+    safely("name_delete", Unit) { names.delete() }
     timer.cancel()
     safely("alarm_cancel", Unit) { wakeups.cancel() }
     alarmAt = null

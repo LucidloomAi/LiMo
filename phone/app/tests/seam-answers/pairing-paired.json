@@ -1,0 +1,7 @@
+{
+  "request": "child.pairing",
+  "answer": {
+    "paired": true,
+    "childName": "Mira"
+  }
+}

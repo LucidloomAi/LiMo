@@ -1,0 +1,20 @@
+{
+  "request": "child.today",
+  "answer": {
+    "left": {
+      "kind": "open",
+      "words": "Open until 6:00 pm"
+    },
+    "used": "30 min used of 30 min",
+    "usedPart": 1.0,
+    "where": "On this phone 30 min",
+    "bedtime": null,
+    "apps": [
+      {
+        "name": "Game",
+        "minutes": "30 min"
+      }
+    ],
+    "guardianNeeded": null
+  }
+}

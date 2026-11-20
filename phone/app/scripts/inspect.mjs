@@ -19,11 +19,13 @@
 // the APK's files.
 // For the child form: every stub component is there with its guard, and the
 // development receiver is not (it is in debug builds only); it holds the
-// Phone permission (READ_PHONE_STATE); the Rust bridge
+// Phone permission (READ_PHONE_STATE) and may ask to be left out of battery
+// optimisation (REQUEST_IGNORE_BATTERY_OPTIMIZATIONS); the Rust bridge
 // (liblimo_phone_ffi.so) is there for every ABI the APK names, with JNA's
 // library and the bindings in the dex. For the guardian form: no
 // accessibility service, no device admin receiver, no usage access, no
-// foreground service, no Phone permission, and nothing of the child module
+// foreground service, no Phone permission, no asking to be left out of
+// battery optimisation, and nothing of the child module
 // at all: no Rust bridge, no JNA, no bindings.
 // For both: nothing of the testkit (the Rust feature that plays the master
 // PC in the JVM tests) in any native library or dex file. The same check is
@@ -229,6 +231,8 @@ const TESTKIT_CLASSES = [Buffer.from('Lai/lucidloom/limo/child/ffi/testkit/'), B
 // The child form must hold each of these; the guardian form none of them
 // but POST_NOTIFICATIONS. READ_PHONE_STATE is the Phone permission, for the
 // child form only: to know that a call rings or is on.
+// REQUEST_IGNORE_BATTERY_OPTIMIZATIONS lets setup's Battery step show
+// Android's own question, for the child form only.
 const CHILD_PERMISSIONS = [
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
@@ -236,6 +240,7 @@ const CHILD_PERMISSIONS = [
   'android.permission.RECEIVE_BOOT_COMPLETED',
   'android.permission.PACKAGE_USAGE_STATS',
   'android.permission.READ_PHONE_STATE',
+  'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
 ];
 
 function inspect(form, file, tools) {

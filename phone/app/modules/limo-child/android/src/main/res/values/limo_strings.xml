@@ -9,7 +9,13 @@ the Rust engine instead; these are only Android's labels.
     <string name="limo_watch_label">LiMo</string>
     <string name="limo_watch_description">LiMo is told which app is in front, by its name only, to count screen time and to cover an app when it is blocked or the time is used up. It is never told what is on the screen.</string>
     <string name="limo_admin_label">LiMo</string>
-    <string name="limo_admin_description">LiMo will stop itself from being removed without a parent. It asks for no other powers: it cannot wipe the phone, change the screen lock or use the camera. In this early build it does nothing yet.</string>
+    <!--
+    The device admin (keep/AdminReceiver), shown on Android's page that asks to
+    turn it on and in its list of device admin apps. It holds no policy at all
+    (res/xml/limo_admin.xml): all it does is what Android does for any active
+    device admin app, which cannot be removed until it is switched off.
+    -->
+    <string name="limo_admin_description">LiMo asks for this only so that it cannot be removed from this phone while this is on. It uses no other power of a device admin app: it cannot wipe the phone, lock it, change its screen lock or switch off its camera. To remove LiMo, switch this off first.</string>
     <!-- keep/: the two notification channels, as Android lists them in LiMo's notification settings. -->
     <string name="limo_channel_time_left">Time left</string>
     <string name="limo_channel_time_left_about">How much screen time is left today.</string>

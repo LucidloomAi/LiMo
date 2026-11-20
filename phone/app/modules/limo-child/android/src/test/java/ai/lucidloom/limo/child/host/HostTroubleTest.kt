@@ -170,7 +170,9 @@ class HostTroubleTest {
       rig.core.start()
       rig.store.refuseWrite = IOException("full")
       val welcome = rig.family.welcome(rig.child, "Phone", rig.wall)
-      assertFalse(rig.core.pair(welcome.welcome, welcome.codeSecret))
+      assertFalse(rig.core.pair(welcome.welcome, welcome.codeSecret, "Mira"))
+      // The name is kept only with the state.
+      assertNull(rig.names.text)
       // Wiped all the same; the engine made for it closed and never used; still not paired.
       assertTrue(welcome.codeSecret.all { it.toInt() == 0 })
       assertTrue(rig.engines.current.closed)

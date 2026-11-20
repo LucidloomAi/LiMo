@@ -15,7 +15,8 @@ the two notifications, in the engine's words; `RestartReceiver` and
 runs on its own thread whether the service runs or not, and the service
 only keeps the process alive. It decides nothing and makes no sentence about
 time. `AdminReceiver` (the device admin) is still a stub: it is the base
-protection's, a later piece. Nothing here has run on a phone yet.
+protection's, a later piece; setup's Protection step asks to turn it on
+(seam/README.md). Nothing here has run on a phone yet.
 
 ## Contents
 
@@ -136,15 +137,17 @@ stopped comes back by itself. Alarms do not survive a restart of the phone;
 
 ## Battery
 
-`Battery.askToLeaveOutOfOptimisation(context)`, for the setup screens'
-Battery step ("Android asks once. Choose Allow."). Nothing calls it yet: the
-piece that answers the screens' requests does, from `child.openStep`. It
-shows Android's own question (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`,
-which the manifest's `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` lets LiMo ask),
-or Android's list of apps left out where a phone has no such question, and
-says whether one opened. Whether LiMo is left out is the watch's to read
-(`batteryExempt`). Left out, LiMo may also start its service from its alarm
-after it was stopped (Android 12 and later).
+`Battery`, for the setup screens' Battery step ("Android asks once.
+Choose Allow."): `Battery.question(context)` is Android's own question
+(`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, which the manifest's
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` lets LiMo ask), and `Battery.list()`
+Android's list of apps left out, for a phone with no such question. The
+seam (seam/README.md) opens the question from `child.openStep` for its
+answer, and the list where the question cannot open.
+`Battery.askToLeaveOutOfOptimisation(context)` opens either without waiting
+for an answer and says whether one opened. Whether LiMo is left out is the
+watch's to read (`batteryExempt`). Left out, LiMo may also start its service
+from its alarm after it was stopped (Android 12 and later).
 
 ## Tests
 
@@ -194,7 +197,8 @@ LiMo`:
 ## Left open
 
 - **The device admin** (`AdminReceiver`) is still a stub, for the base
-  protection. Its words in Settings still say this early build does nothing.
+  protection. Its words in Settings (`limo_admin_description`) say exactly
+  what it does now: nothing but stop LiMo being removed while it is on.
 - **Google Play.** `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` and a `specialUse`
   service are both reviewed by Google Play; LiMo is not on it.
 - **`systemExempted`**, a foreground service type for device admin and
@@ -211,7 +215,7 @@ keep/
   KeepService.kt     the foreground service, type specialUse
   RestartReceiver.kt boot and update
   AlarmReceiver.kt   LiMo's alarm
-  Battery.kt         Android's question for leaving LiMo out of battery optimisation
+  Battery.kt         Android's question for leaving LiMo out of battery optimisation, and its list
   AdminReceiver.kt   the device admin, a stub (base protection, later)
 res/values/limo_strings.xml    the channels' names
 res/drawable/limo_notify.xml   the small icon

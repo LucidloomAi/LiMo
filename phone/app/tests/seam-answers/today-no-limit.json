@@ -1,0 +1,20 @@
+{
+  "request": "child.today",
+  "answer": {
+    "left": {
+      "kind": "no-limit",
+      "words": "No limit today"
+    },
+    "used": "5 min used today",
+    "usedPart": null,
+    "where": "On this phone 5 min",
+    "bedtime": null,
+    "apps": [
+      {
+        "name": "Game",
+        "minutes": "5 min"
+      }
+    ],
+    "guardianNeeded": null
+  }
+}

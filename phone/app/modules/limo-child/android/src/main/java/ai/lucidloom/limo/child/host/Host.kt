@@ -41,6 +41,7 @@ class Host private constructor(context: Context) : PhoneHost {
   private val main = Handler(Looper.getMainLooper())
   private val listeners = CopyOnWriteArrayList<HostListener>()
   private val store = AtomicStateStore(stateFile(app))
+  private val names = AtomicNameStore(nameFile(app))
 
   // Already on the engine's thread.
   private val tick: Runnable = Runnable { guarded("tick") { core.tick() } }
@@ -56,6 +57,7 @@ class Host private constructor(context: Context) : PhoneHost {
 
   private val core: HostCore = HostCore(
     store = store,
+    names = names,
     facts = WatchFacts(Watch.of(app)),
     engines = RealEngines,
     clock = AndroidClock,
@@ -71,6 +73,8 @@ class Host private constructor(context: Context) : PhoneHost {
   }
 
   override val paired: Boolean get() = store.exists()
+
+  override val childName: String? get() = if (paired) names.read() else null
 
   override fun useShower(shower: Shower) {
     onEngine("shower") {
@@ -112,9 +116,9 @@ class Host private constructor(context: Context) : PhoneHost {
     return AutoCloseable { listeners.remove(listener) }
   }
 
-  override fun pair(welcome: ByteArray, codeSecret: ByteArray, answer: (Boolean) -> Unit) {
+  override fun pair(welcome: ByteArray, codeSecret: ByteArray, childName: String?, answer: (Boolean) -> Unit) {
     val posted = onEngine("pair", fallback = { welcome.fill(0); codeSecret.fill(0) }) {
-      core.pair(welcome, codeSecret).also { ok -> answerOnMain { answer(ok) } }
+      core.pair(welcome, codeSecret, childName).also { ok -> answerOnMain { answer(ok) } }
     }
     if (!posted) answerOnMain { answer(false) }
   }
@@ -187,6 +191,9 @@ class Host private constructor(context: Context) : PhoneHost {
 
     /** The engine's kept state: the app's private file `files/limo/state`. */
     internal fun stateFile(context: Context): File = File(context.filesDir, "limo/state")
+
+    /** The child's name, beside it: `files/limo/child.json`. */
+    internal fun nameFile(context: Context): File = File(context.filesDir, "limo/child.json")
   }
 }
 
@@ -208,6 +215,37 @@ internal class AtomicStateStore(private val file: File) : StateStore {
     val out = atomic.startWrite()
     try {
       out.write(bytes)
+      atomic.finishWrite(out)
+    } catch (e: IOException) {
+      atomic.failWrite(out)
+      throw e
+    }
+  }
+
+  override fun delete() = atomic.delete()
+}
+
+/**
+ * The child's name in one small file ([ChildName]), written all or nothing
+ * with Android's AtomicFile. One that cannot be read is no name.
+ */
+internal class AtomicNameStore(private val file: File) : NameStore {
+  private val atomic = AtomicFile(file)
+
+  override fun read(): String? {
+    if (!file.exists() && !File(file.path + ".bak").exists()) return null
+    return try {
+      ChildName.parse(String(atomic.readFully(), Charsets.UTF_8))
+    } catch (_: IOException) {
+      null
+    }
+  }
+
+  override fun write(name: String) {
+    file.parentFile?.mkdirs()
+    val out = atomic.startWrite()
+    try {
+      out.write(ChildName.text(name).toByteArray(Charsets.UTF_8))
       atomic.finishWrite(out)
     } catch (e: IOException) {
       atomic.failWrite(out)
