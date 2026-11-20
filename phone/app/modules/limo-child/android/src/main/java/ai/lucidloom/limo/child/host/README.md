@@ -14,7 +14,7 @@ of the lock (asking for time, a code, the PIN) to the engine and the
 answers back, and gives the engine's view to the child's screens.
 
 **What it is not.** It decides nothing (the engine does), reads no fact
-itself (watch/ does), draws nothing (show/ will), and keeps nothing alive
+itself (watch/ does), draws nothing (show/ does), and keeps nothing alive
 (keep/ does). It has no link to the master PC yet, so the master is never
 in reach and no report is ever sent. It does not answer the screens'
 requests itself: `LimoChildModule` hands each to the seam (seam/README.md),
@@ -45,11 +45,11 @@ Every call returns at once and may be made from any thread; the work runs
 on the host's thread ("LiMo engine"), the only one that calls the engine.
 Every answer comes back on the main thread. Nothing throws.
 
-**For the covers and the ways out (show/, the next piece):**
+**For the covers and the ways out (show/):**
 
 | Call | What |
 | --- | --- |
-| `useShower(shower)` | Who draws the covers. `Shower.show(cover)` is called on the main thread at every tick (about once a second with the screen on, at once on any change), with the engine's `Cover` as a level: draw it, change it, or take it away for `NOTHING`; the same cover twice changes nothing. `Shower.warn(warning)` once, in the tick a warning falls due. Until a shower is given, a stand in logs each cover as it changes. |
+| `useShower(shower)` | Who draws the covers. `Shower.show(cover)` is called on the main thread at every tick (about once a second with the screen on, at once on any change), with the engine's `Cover` as a level: draw it, change it, or take it away for `NOTHING`; the same cover twice changes nothing. `Shower.warn(warning)` once, in the tick a warning falls due. show/'s shower is given by `keep/Keeper.start`, through `CoverShower.install(app) { Host.of(app).childName }`, each time the keeper starts (only the first call in a process gives it), and the host ticks at once when it is given. Until then a stand in logs each cover as it changes and each warning (see [What it logs](#what-it-logs)). |
 | `askForTime(minutes, reason) { answer -> }` | The child asks for more time, with the reason typed (or empty). `WayOut.Done(TimeRequest)`, or `WayOut.Refused(e)` with the core's own words in `e.message`, such as "A request from this device is still waiting for an answer.". |
 | `tryCode(bytes) { answer -> }` | A one time code typed on the lock, as UTF-8 bytes. `WayOut.Done(TryAnswer)` with the engine's words (`message`, `opensNow`), whatever the kind. |
 | `tryPin(bytes, PinAction(...)) { answer -> }` | A guardian's PIN, the same way; the action (`ADD_MINUTES` with minutes, `UNLOCK_UNTIL`, `CONFIRM_RELEASE`) is the activity's to know. |
@@ -117,8 +117,10 @@ In this order, at every tick:
 2. **The cover** to the `Shower`, on the main thread, as a level.
 3. **The time left** to the keeper (keep/), every tick; the keeper posts
    its notification again only when what it shows changed.
-4. **A warning**, in the one tick it falls due, to the keeper (a heads up
-   notification) and to the `Shower` (show/ may float it).
+4. **A warning**, in the one tick it falls due, to the keeper (a
+   notification: a heads up one, or a quiet one while show/'s card can
+   float) and to the `Shower` (show/ floats it as a card over the app in
+   front while the accessibility service is connected).
 5. **The engine's notes**, each logged as the engine's JSON (`note
    {"note":"blocked_app_opened","package":"org.example.casino",...}`). They
    hold no sentence and no name.
@@ -199,7 +201,20 @@ a code, a PIN, nor an error's own words.
 | `host report_ordered no_link` | Never expected before the link. |
 | `note <the engine's JSON>` | Each of the engine's notes for the guardian. |
 | `way_out <ask, code, pin> answer=<done, added, unlocked, wrong, must_wait, ...>` | Each way out, by the kind of its answer. |
-| `cover now <nothing, block package=..., lock why=...>`, `warning now cause=... minutes=...` | The stand in shower, until show/ gives one. |
+| `cover now nothing`, `cover now block package=<package>`, `cover now lock why=<the engine's reason, such as time_used_up>`, `warning now cause=<time_runs_out, blocked_hours_start, unlock_ends> minutes=<minutes>` | The stand in shower: each cover as it changes, and each warning, while show/'s shower is not installed in the process. |
+
+Once `keep/Keeper.start` has installed show/'s shower, the covers and the
+warnings are show/'s to log, in its own lines (show/README.md, "What it
+logs"): `show cover now block package=<package> call=<true, false>`, `show
+cover now lock why=<the engine's reason> rows=<ways out shown>
+tiles=<apps still open> call=<true, false>`, `show cover now nothing`,
+`show warning floated` and the rest. `Keeper.start` installs the shower
+before it starts the host, so a new process's first tick is already show/'s.
+The stand in still speaks once in one case, in debug builds only: a pairing
+that dev/ makes before the keeper has run in the process, since its
+receiver pairs first and calls `Keeper.start` after. The shower is then
+installed straight after, and the host ticks again at once, so the cover is
+drawn then.
 
 ## Tests
 
@@ -236,31 +251,36 @@ For the owner, on the Galaxy S20 Ultra, with `adb logcat -s LiMo LiMoWatch`
 and the debug build (`npm run build:child:debug`, paired with the
 development tool):
 
-1. **JNA and the engine on the phone.** The first tick after pairing logs
-   nothing but `host paired`, and the notification shows "30 min left" (or
-   the test family's time). A `host failed what=engine_load
-   error=UnsatisfiedLinkError` means the library did not load.
+1. **JNA and the engine on the phone.** After pairing the log has `host
+   paired` (with dev/'s `dev pair taken`) and no `host failed` line, and the
+   notification shows "30 min left" (or the test family's time). A `host
+   failed what=engine_load error=UnsatisfiedLinkError` means the library
+   did not load.
 2. **Once a second, and quiet with the screen off.** With the screen on in
    a game, the notification's words change once a minute and the
    chronometer counts down between. With the screen off for ten minutes,
    no work: Android's battery page for LiMo should show next to nothing.
-3. **At once on a change.** Open a blocked app: the stand in logs `cover now
-   block package=...` within a few hundred milliseconds of the watch's
-   `front now app package=...`.
+3. **At once on a change.** Open a blocked app: show/ logs `show cover now
+   block package=<package> call=false`, then `show cover drawn
+   ms=<milliseconds>`, within a few hundred milliseconds of the watch's
+   `front now app package=<package>`.
 4. **The alarm.** Screen off for twenty minutes, then `adb shell dumpsys
    alarm | findstr limo`: one alarm of LiMo's, about fifteen minutes ahead or
    at the engine's next check.
 5. **The lock after a restart.** Use the day up, restart the phone: the log
-   after unlocking shows the lock again at the first tick (`cover now lock
-   why=time_used_up`), before anything is opened.
+   after unlocking shows the lock again at the first tick after the unlock
+   (`show cover now lock why=time_used_up rows=<ways out shown>
+   tiles=<apps still open> call=false`), before anything is opened.
 6. **Killed.** Stop LiMo from the notification shade's list of running apps
    (Android 13 and later): it should come back by itself, by the
    accessibility service being connected again or by the alarm within
-   fifteen minutes, and log nothing but `host` lines from a new start.
-7. **An unreadable state.** With the development tool, push garbage in
-   place of `files/limo/state` and restart LiMo: `host state_unreadable
-   kind=not_limo phone_locked`, and the file unchanged after (`run-as
-   ... cat files/limo/state`).
+   fifteen minutes, with no `host failed` line in its new start; a lock that
+   was on is drawn again (`show cover now lock ...`).
+7. **An unreadable state.** Over the cable, with `adb shell run-as
+   ai.lucidloom.limo.child` (the development tool has no command for it),
+   put garbage in place of `files/limo/state` and restart LiMo: `host
+   state_unreadable kind=not_limo phone_locked`, and the file unchanged
+   after (`run-as ... cat files/limo/state`).
 8. **How long a tick takes** on the phone (proof three measured 0.25 ms for
    one small record across the bridge); and how long `tryPin` takes, since
    the PIN is hashed slowly on purpose.
@@ -271,7 +291,7 @@ development tool):
   the master's welcome will carry the child's name, and the link hands it
   to `pair` as the development tool does now.
 - **The link.** `inReach` and `prodded` are always false, and a report is
-  never sent; the link (P13) adds the session, `outgoingReport`,
+  never sent; the link adds the session, `outgoingReport`,
   `takeGrant`, `lostContact` and the wake ups the engine asks for in reach
   (at least once a minute).
 - **Split screen with a blocked app beside the front** (the watch's

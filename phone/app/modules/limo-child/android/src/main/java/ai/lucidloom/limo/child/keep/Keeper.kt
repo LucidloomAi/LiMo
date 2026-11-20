@@ -46,10 +46,10 @@ object Keeper {
     try {
       val app = context.applicationContext ?: context
       val host = Host.of(app)
-      host.start()
-      // The covers: from here on the engine's orders are drawn, not only logged.
-      // The child's name is read at each order, and never logged.
+      // The covers first, so that the host's very first tick is drawn and not
+      // only logged. The child's name is read at each order, and never logged.
       CoverShower.install(app) { Host.of(app).childName }
+      host.start()
       if (host.paired && !KeepService.running) startService(app, why)
     } catch (e: Exception) {
       Log.i(TAG, "keep failed what=start why=$why error=${e.javaClass.simpleName}")

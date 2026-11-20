@@ -26,6 +26,7 @@ has no thread of its own. Nothing here has run on a phone yet: see
 - [Calls](#calls)
 - [Permissions](#permissions)
 - [What the watch reads, and nothing else](#what-the-watch-reads-and-nothing-else)
+- [What it logs](#what-it-logs)
 - [Signals](#signals)
 - [What the manifest gives it](#what-the-manifest-gives-it)
 - [Tests](#tests)
@@ -270,6 +271,24 @@ the service's settings ask Android for no window content, so it has none to
 give. Log lines (tag `LiMoWatch`) name at most a package, a fact and the
 kind of a failure; never a label, nor an exception's message.
 
+## What it logs
+
+Android's log, tag `LiMoWatch` (`adb logcat -s LiMoWatch`), each line as
+the code writes it:
+
+| Line | When |
+| --- | --- |
+| `front now <home, limo, dialler, emergency_dialler, app> package=<package>` | What is in front changed. Every kind but unknown names its package: the launcher's for the home screen, LiMo's own for LiMo. |
+| `front now unknown because=<usage_access_off, usage_unreadable, nothing_seen_yet>` | What is in front cannot be told, and why. |
+| `front window_event package=<package> not_confirmed front=<package, or none>` | A window event that usage did not confirm within a second, dropped; `front=` is what usage shows in front then. |
+| `front learned call_screen package=<package>` | A call's own screen learned (rule 8). |
+| `front learned emergency_dialler package=<package>` | The emergency dialler learned (rule 9). |
+| `call now <idle, ringing, ongoing>` | The call state changed. |
+| `fact <fact> unreadable error=<kind> fallback_used` | A reading Android refused, its fallback used; at most once a minute for each fact. |
+| `fact launchable_apps unreadable error=<kind>` | The list of apps a child can open could not be read. |
+| `signal <calls, usage_access, accessibility_setting, phone_calls> unavailable error=<kind>` | One of Android's signals could not be registered. |
+| `<what> failed error=<kind>`, `look failed error=<kind>`, `listener failed change=<what> error=<kind>`, `clock failed error=<kind>` | Anything else that failed, caught so that the service goes on. |
+
 ## Signals
 
 While someone listens (`listen`), and only then:
@@ -349,16 +368,18 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
 1. **Proof two's flaw, gone.** Block an app that sends a late window event
    (YouTube was the one), open it, let the cover come, tap "Go home"; repeat
    14 times. The home screen must never be covered again. The log should
-   show `front now home` and then, for the late event,
-   `front window_event package=com.google.android.youtube not_confirmed`.
+   show `front now home package=<the launcher's package>` and then, for the
+   late event, `front window_event package=com.google.android.youtube
+   not_confirmed front=<the launcher's package>`.
 2. **How long usage takes to confirm.** The cover's delay over proof two's
    25 to 226 ms. If a `not_confirmed` line ever names the app that really came
    up, usage was later than a second, and the rechecks need stretching.
 3. **The call screen on One UI.** Dial a number from the Phone app and look
-   for `front learned call_screen package=...`, and that the call's screen
-   reads as the dialler (`front now dialler`). Then answer an incoming call
-   while a game is in front. With the manifest's `InCallService` query
-   added, the call screen should be named before any call.
+   for `front learned call_screen package=<package>`, and that the call's
+   screen reads as the dialler (`front now dialler package=<package>`).
+   Then answer an incoming call while a game is in front. With the
+   manifest's `InCallService` query added, the call screen should be named
+   before any call.
 4. **A silent ring on Android 13.** Ringer off (and vibration off), a game
    in front, call the phone, first **with the Phone permission granted**:
    the log should say `call now ringing` at once (Android's call listener),
@@ -372,12 +393,13 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
    to the second one too.
 5. **The emergency dialler.** Which package opens for an emergency call
    from LiMo's lock, and whether it is found from the emergency dial actions
-   (with the manifest's queries) or learned (`front learned
-   emergency_dialler`).
+   (with the manifest's queries: `front now emergency_dialler
+   package=<package>`, with no `front learned` line) or learned (`front
+   learned emergency_dialler package=<package>`).
 6. **One UI's recent apps, pop up view and split screen.** Recents should
-   read as `front now home` (the launcher). A pop up window and split screen
-   should give the last resumed app as the front and the other in
-   `alsoVisible`.
+   read as `front now home package=<the launcher's package>`. A pop up
+   window and split screen should give the last resumed app as the front
+   and the other in `alsoVisible`.
 7. **Overlays.** The notification shade, the Edge panel, the screenshot
    toolbar, Game Booster and the keyboard: none should change the front.
 8. **Usage events of apps LiMo cannot see.** Open an app with no icon (a
@@ -408,9 +430,10 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
   ringing, which covers nothing and counts nothing. Whether Android 13 lets
   it is for a phone to show; a time limit on how long a ring may last would
   close it.
-- **"Back to the call"** (show/): `TelecomManager.showInCallScreen` needs
-  `READ_PHONE_STATE`, which the manifest now asks for. Without it granted,
-  opening the default dialler is the way back on most phones.
+- **"Back to the call"** is show/'s: `TelecomManager.showInCallScreen`
+  while `READ_PHONE_STATE` is granted, and the dialler otherwise, which
+  shows the call on most phones (show/README.md). Whether it does on a
+  given phone without the permission is for that phone to show.
 - **The labels** are the app's own, cleaned by the engine before it shows
   them; the list for the guardian is passed as Android gives it.
 

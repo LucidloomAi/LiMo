@@ -43,18 +43,18 @@ Nothing here has run on a phone yet: see
 ## How the other pieces call it
 
 ```kotlin
-CoverShower.install(context) { childName }      // once, where the host is started; the host then calls it
-CoverShower.canFloatWarning()                   // keep/: a card can float now, so the notification stays quiet
-WaysOutActivity.openAsking(context)             // asking for more time with no lock behind it (Today)
+CoverShower.install(app) { Host.of(app).childName } // keep/Keeper.start, each time it runs; only the first call does anything
+CoverShower.canFloatWarning()                       // keep/: a card can float now, so the notification stays quiet
+WaysOutActivity.openAsking(context)                 // seam/: asking for more time from Today, with no lock behind it
 ```
 
 | Call | What |
 | --- | --- |
-| `install(context, childName)` | Makes the process's shower and gives it to the host (`Host.of(context).useShower`). Called again, it does nothing. `childName` gives the child's name for the lock's label, or null; it is read at each order and never logged. |
+| `install(context, childName)` | Makes the process's shower and gives it to the host (`Host.of(context).useShower`). Called again, it does nothing. `keep/Keeper.start` calls it every time it runs, before it starts the host, with the host's own child's name (`Host.of(app).childName`); from then on the host's orders are drawn. `childName` gives the child's name for the lock's label, or null; it is read at each order and never logged. |
 | `show(cover)` | The host's `Shower`: the engine's `Cover`, on the main thread, as a level. |
 | `warn(warning)` | The host's `Shower`: a warning, once. |
 | `canFloatWarning()` | True while the accessibility service is connected, so the warning floats as a card. Any thread. |
-| `WaysOutActivity.openAsking(context)` | Opens asking for more time from the child's Today screen. With no lock behind it there is no strip at the top. |
+| `WaysOutActivity.openAsking(context)` | Opens asking for more time with no lock behind it, so with no strip at the top. Today's "Ask for more time" reaches it through the seam: the screens' request `child.askForMoreTime` (seam/README.md) calls it. |
 
 The lock opens the ways out itself: a tap on a row opens the activity for
 that way, with the lock's reason for the strip at the top and the row's
@@ -284,12 +284,20 @@ words, a reason, a code or a PIN.
 
 | Line | When |
 | --- | --- |
-| `show cover now block package=... call=...`, `show cover now lock why=... rows=... tiles=... call=...` | A cover drawn or changed. |
-| `show cover drawn ms=...` | A new cover's first frame, from the order. |
-| `show cover now nothing` | A cover taken away. |
+| `show cover now block package=<package> call=<true, false>` | The block screen drawn, or changed; `call=true` while a call is on, so Back to the call shows. |
+| `show cover now lock why=<the engine's reason, such as time_used_up> rows=<ways out shown> tiles=<apps still open> call=<true, false>` | The lock drawn, or changed. |
+| `show cover drawn ms=<milliseconds>` | A new cover window's first frame, from the order (Android 10 and later). |
+| `show cover now nothing` | A cover window taken away. Not said when none was up. |
 | `show warning floated` | A warning card. |
-| `show home by=...`, `show emergency opened how=...`, `show back_to_call how=...` | The taps, and how Android did them. |
-| `show ... failed error=<kind>` | Android refused something. |
+| `show home by=<service, intent, none>` | Go to the home screen: by the accessibility service's Home action, by Android's home intent, or not at all. |
+| `show emergency opened how=<emergency_dialler, dial_emergency, dial, none>` | Emergency call on a cover; from the ways out the same line ends with ` from=ways_out`. |
+| `show back_to_call how=<in_call_screen, dial, none>` | Back to the call. |
+| `show cover failed error=<kind>`, `show uncover failed error=<kind>`, `show warning failed error=<kind>`, `show warning_moved failed error=<kind>`, `show warning_gone failed error=<kind>`, `show failed what=<start, emergency_watch, watch> error=<kind>` | Android refused something. |
+
+These lines come only once this shower is installed in the process (see
+[How the other pieces call it](#how-the-other-pieces-call-it)). Before
+that, the host's stand in logs the covers in its own words (host/README.md,
+"What it logs").
 
 ## Pictures without a phone
 
@@ -395,10 +403,15 @@ paired by the development tool and `adb logcat -s LiMo LiMoWatch`:
 
 ## Left open
 
-- **Where the shower is installed.** `CoverShower.install(context) {
-  childName }` has to be called once the host exists, where the keeper
-  starts it, with the host's child's name; until then the host's stand in
-  only logs each cover.
+- **A pairing by dev/ before the keeper has run.** `keep/Keeper.start`
+  installs this shower before it starts the host, so a new process's first
+  tick is drawn. But dev/'s receiver pairs first and only then calls
+  `Keeper.start(app, "dev_pair")`, so in a process where the keeper has not
+  run yet, the pairing's one tick goes to the host's stand in, which only
+  logs. The shower, installed straight after, is ticked at once and draws
+  the cover. A warning that falls due in that one tick is only logged: no
+  card floats, and keep/'s notification of it stays quiet, since a card
+  could float. Debug builds only.
 - **The logo on a phone.** The module has no copy of the LucidLoom AI logo;
   it is looked up by name in the app: `limo_maker_logo`, then
   `src_generated_lucidloomlogo`, the name the screens' bundle gives

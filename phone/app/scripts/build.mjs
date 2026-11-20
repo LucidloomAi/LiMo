@@ -75,7 +75,10 @@ for (const form of forms) {
   t.design = run('make-design', process.execPath, [path.join('scripts', 'make-design.mjs')], appDir, env);
 
   const started = Date.now();
-  fs.rmSync(androidDir, { recursive: true, force: true, maxRetries: 3 });
+  // On Windows a file of the build before (a dex file, mostly) can stay held
+  // for some seconds after Gradle ends. Each try waits half a second longer
+  // than the one before, up to about 40 seconds in all.
+  fs.rmSync(androidDir, { recursive: true, force: true, maxRetries: 12, retryDelay: 500 });
   t.clean = Number(((Date.now() - started) / 1000).toFixed(1));
   t.prebuild = run(`expo prebuild (${form})`, 'npx', ['expo', 'prebuild', '--platform', 'android', '--no-install'], appDir, env);
 
