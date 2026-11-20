@@ -2,7 +2,7 @@
 //
 //   not paired                      S0, and nothing else
 //   paired, no guardian agreed yet  S1 welcome, S2 what LiMo does here
-//   agreed, introduction not seen   the first step not on (S3 to S7), or S8
+//   agreed, introduction not seen   the first of the six steps not on, or done
 //   introduction seen               Today and How it works, under the tab bar
 //
 // Where to start is worked out once, from what the host says when the app
@@ -10,11 +10,16 @@
 // moves through the screens and Android's back button goes back. A step is
 // never taken on trust: its screen asks the host again whenever the app
 // comes back to the front, and after Android's own screen was opened.
+//
+// A step never traps a guardian: once Android's screen for it has been
+// opened twice on one visit and the step is still off, the screen offers to
+// go on without it. Setup then goes on, and Today's banner names the step,
+// because the engine says what is off.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler } from 'react-native';
 
-import { type ChildHost, STEP_IDS, type StepId, type StepStates } from '../host';
+import { type ChildHost, isSamsung, STEP_IDS, type StepId, type StepStates } from '../host';
 import { Page } from '../ui/paper/Page';
 import { Tabs } from '../ui/paper/Tabs';
 import { HowItWorks, Today } from './AppScreens';
@@ -29,8 +34,12 @@ export type Route =
   | { readonly at: 'not-set-up' }
   | { readonly at: 'welcome' }
   | { readonly at: 'agree'; readonly ticked?: boolean }
-  /** `fixing`: the steps a guardian is putting right from Today's banner. */
-  | { readonly at: 'step'; readonly step: StepId; readonly fixing?: readonly StepId[] }
+  /**
+   * `fixing`: the steps a guardian is putting right from Today's banner.
+   * `triedOff`: how many times, on this visit, Android's screen for the step
+   * was opened and the step came back still off.
+   */
+  | { readonly at: 'step'; readonly step: StepId; readonly fixing?: readonly StepId[]; readonly triedOff?: number }
   | { readonly at: 'done' }
   | { readonly at: 'intro'; readonly index: number }
   | { readonly at: 'app'; readonly tab: Tab };
@@ -46,6 +55,9 @@ export async function startRoute(host: ChildHost): Promise<Route> {
   const firstOff = STEP_IDS.find((id) => steps[id] !== 'on');
   return firstOff ? { at: 'step', step: firstOff } : { at: 'done' };
 }
+
+/** After this many tries that came back off, a step's screen offers to go on without it. */
+export const TRIES_BEFORE_GOING_ON = 2;
 
 const TAB_ITEMS = [
   { key: 'today', label: W.tabs.today, icon: 'sun' },
@@ -80,9 +92,23 @@ export function ChildApp({ initial }: { initial?: Route }) {
     // give one).
   }, [paired, host]);
 
+  // Who made the phone, asked once: it never changes.
+  const maker = useHostValue((h) => h.maker(), []);
+
   const go = useCallback((r: Route) => setStack((s) => [...s, r]), []);
   const replace = useCallback((r: Route) => setStack((s) => [...s.slice(0, -1), r]), []);
   const reset = useCallback((r: Route) => setStack([r]), []);
+  // One more try that came back off, kept on the step's own place in the
+  // stack, so going back to a step finds its tries still there.
+  const triedOff = useCallback(
+    (step: StepId) =>
+      setStack((s) => {
+        const top = s[s.length - 1];
+        if (top?.at !== 'step' || top.step !== step) return s;
+        return [...s.slice(0, -1), { ...top, triedOff: (top.triedOff ?? 0) + 1 }];
+      }),
+    [],
+  );
 
   // Android's back button goes back a screen; on the first screen it leaves.
   useEffect(() => {
@@ -113,24 +139,36 @@ export function ChildApp({ initial }: { initial?: Route }) {
       return <Welcome name={name} onStart={() => go({ at: 'agree' })} />;
     case 'agree':
       return <AgreeRoute name={name} initiallyTicked={route.ticked} onAgreed={() => go({ at: 'step', step: STEP_IDS[0] })} />;
-    case 'step':
+    case 'step': {
+      const { step, fixing } = route;
+      // Onward, after Next or going on without the step: the next step, or
+      // done; from Today's banner, the next step after this one that is
+      // still off, or back to Today.
+      const onward = (steps: StepStates) => {
+        if (fixing) {
+          const next = fixing.slice(fixing.indexOf(step) + 1).find((id) => steps[id] !== 'on');
+          if (next) replace({ at: 'step', step: next, fixing });
+          else reset({ at: 'app', tab: 'today' });
+          return;
+        }
+        const i = STEP_IDS.indexOf(step);
+        go(i + 1 < STEP_IDS.length ? { at: 'step', step: STEP_IDS[i + 1] } : { at: 'done' });
+      };
+      // A note for one maker's phones waits for the maker, so it never comes in late and moves the stamp.
+      if (W.steps[step].note?.only === 'samsung' && maker.state === 'waiting') return <Page>{null}</Page>;
       return (
         <StepRoute
-          key={route.step}
-          step={route.step}
+          key={step}
+          step={step}
           name={name}
-          onNext={(steps) => {
-            if (route.fixing) {
-              const next = route.fixing.find((id) => id !== route.step && steps[id] !== 'on');
-              if (next) replace({ at: 'step', step: next, fixing: route.fixing });
-              else reset({ at: 'app', tab: 'today' });
-              return;
-            }
-            const i = STEP_IDS.indexOf(route.step);
-            go(i + 1 < STEP_IDS.length ? { at: 'step', step: STEP_IDS[i + 1] } : { at: 'done' });
-          }}
+          samsung={maker.state === 'ready' && isSamsung(maker.value)}
+          stuck={(route.triedOff ?? 0) >= TRIES_BEFORE_GOING_ON}
+          onTriedOff={() => triedOff(step)}
+          onNext={onward}
+          onGoOn={onward}
         />
       );
+    }
     case 'done':
       return <DoneRoute name={name} onShow={() => go({ at: 'intro', index: 0 })} />;
     case 'intro':
@@ -181,28 +219,52 @@ function AgreeRoute({ name, initiallyTicked, onAgreed }: { name: string; initial
   );
 }
 
-function StepRoute({ step, name, onNext }: { step: StepId; name: string; onNext: (steps: StepStates) => void }) {
+function StepRoute({
+  step,
+  name,
+  samsung,
+  stuck,
+  onTriedOff,
+  onNext,
+  onGoOn,
+}: {
+  step: StepId;
+  name: string;
+  samsung: boolean;
+  stuck: boolean;
+  onTriedOff: () => void;
+  onNext: (steps: StepStates) => void;
+  onGoOn: (steps: StepStates) => void;
+}) {
   const host = useChildHost();
   const steps = useHostValue((h) => h.steps(), ['steps'], { whenBackInFront: true });
   const [notOpened, setNotOpened] = useState(false);
   const state = steps.state === 'ready' && steps.value[step] === 'on' ? 'on' : 'off';
+  const now = () => (steps.state === 'ready' ? steps.value : ({} as StepStates));
+  // Android is asked again once its screen is open, or could not be opened;
+  // a try counts once that answer is in and the step is still off, so the
+  // way on never shows for a moment before the step turns on.
+  const askAgain = () =>
+    steps.again().then((answer) => {
+      if (!(answer?.state === 'ready' && answer.value[step] === 'on')) onTriedOff();
+    });
   return (
     <Step
       id={step}
       name={name}
       state={state}
+      samsung={samsung}
       notOpened={notOpened && state !== 'on'}
+      stuck={stuck}
       onOpen={() => {
         setNotOpened(false);
-        host.openStep(step).then(
-          () => steps.again(),
-          () => {
-            setNotOpened(true);
-            steps.again();
-          },
-        );
+        host.openStep(step).then(askAgain, () => {
+          setNotOpened(true);
+          return askAgain();
+        });
       }}
-      onNext={() => onNext(steps.state === 'ready' ? steps.value : ({} as StepStates))}
+      onNext={() => onNext(now())}
+      onGoOn={() => onGoOn(now())}
     />
   );
 }

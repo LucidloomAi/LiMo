@@ -4,18 +4,26 @@
 import { screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
-import type { Route } from '../src/child/ChildApp';
+import { type Route, TRIES_BEFORE_GOING_ON } from '../src/child/ChildApp';
 import { type MockState, states, stepsOnUpTo } from '../src/mock/childMock';
 import { renderChild } from './render';
 
 const SCREENS: [string, MockState, Route | undefined, string][] = [
   ['S1', states.fresh, undefined, 'This phone is now Mira’s.'],
   ['S2', states.fresh, { at: 'agree' }, 'What LiMo does here'],
-  ['S4', { ...states.agreed, steps: stepsOnUpTo(1) }, { at: 'step', step: 'usage' }, 'Usage access'],
-  ['S6', { ...states.agreed, steps: stepsOnUpTo(3) }, { at: 'step', step: 'battery' }, 'Battery'],
-  ['S8', states.allOn, undefined, 'This phone is set up.'],
+  ['S4', { ...states.agreed, steps: stepsOnUpTo(1) }, { at: 'step', step: 'phone' }, 'Phone'],
+  ['S5', { ...states.agreed, steps: stepsOnUpTo(2) }, { at: 'step', step: 'usage' }, 'Usage access'],
+  [
+    'S6, still off',
+    { ...states.agreed, steps: stepsOnUpTo(3) },
+    { at: 'step', step: 'accessibility', triedOff: TRIES_BEFORE_GOING_ON },
+    'Go on without it',
+  ],
+  ['S7', { ...states.agreed, steps: stepsOnUpTo(4) }, { at: 'step', step: 'battery' }, 'Battery'],
+  ['S9', states.allOn, undefined, 'This phone is set up.'],
   ['C3', states.allOn, { at: 'intro', index: 2 }, 'How to ask for more time'],
   ['T', states.guardianNeeded, undefined, '1 h 12 min'],
+  ['T, three off', states.threeOff, undefined, 'And 2 more'],
   ['H', states.childApp, { at: 'app', tab: 'how' }, 'Your rules'],
 ];
 
@@ -80,10 +88,28 @@ describe.each(SCREENS)('%s', (_id, state, route, heading) => {
 });
 
 describe('reading order', () => {
-  it('S4: LiMo, the step, why, what happens, where it stands, then the button', async () => {
-    renderChild({ ...states.agreed, steps: stepsOnUpTo(1) }, { route: { at: 'step', step: 'usage' } });
+  it('S5: LiMo, the step, why, what happens, where it stands, then the button', async () => {
+    renderChild({ ...states.agreed, steps: stepsOnUpTo(2) }, { route: { at: 'step', step: 'usage' } });
     await screen.findByText('Usage access');
-    inOrder(textsInOrder(), ['LiMo', 'Step 2 of 5', 'Usage access', 'Why', 'What happens', 'Not on yet', 'Open Android’s settings']);
+    inOrder(textsInOrder(), ['LiMo', 'Step 3 of 6', 'Usage access', 'Why', 'What happens', 'Not on yet', 'Open Android’s settings']);
+  });
+
+  it('S4: the note on what Android asks comes after what happens', async () => {
+    renderChild({ ...states.agreed, steps: stepsOnUpTo(1) }, { route: { at: 'step', step: 'phone' } });
+    await screen.findByText('Phone');
+    inOrder(textsInOrder(), ['LiMo', 'Step 2 of 6', 'Phone', 'Why', 'What happens', 'What Android asks', 'Not on yet', 'Allow']);
+  });
+
+  it('S6 still off: where it stands, why it can be gone past, the way on, then the step’s own button', async () => {
+    renderChild({ ...states.agreed, steps: stepsOnUpTo(3) }, { route: { at: 'step', step: 'accessibility', triedOff: TRIES_BEFORE_GOING_ON } });
+    await screen.findByText('Go on without it');
+    inOrder(textsInOrder(), [
+      'Accessibility',
+      'Not on yet',
+      'Android has not turned this on. You can go on and come back to it from Today.',
+      'Go on without it',
+      'Open Android’s settings',
+    ]);
   });
 
   it('T: LiMo, the name, the banner, the time left, the bedtime line, asking, the apps, then the tabs', async () => {
@@ -106,5 +132,11 @@ describe('reading order', () => {
       'Today',
       'How it works',
     ]);
+  });
+
+  it('T with three off: the first sentence, how many more, then the button', async () => {
+    renderChild(states.threeOff);
+    await screen.findByText('And 2 more');
+    inOrder(textsInOrder(), ['Needs a guardian', 'Phone access is switched off, so a lock could hide a call.', 'And 2 more', 'Show a guardian what to do', '1 h 12 min']);
   });
 });

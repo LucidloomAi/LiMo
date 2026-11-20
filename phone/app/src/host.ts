@@ -35,6 +35,7 @@ import {
   type Pairing,
   readBoolean,
   readChange,
+  readMaker,
   readPairing,
   readRules,
   readSteps,
@@ -48,7 +49,7 @@ import {
 import { appForm, type Form } from './form';
 
 export type * from './childSeam';
-export { STEP_IDS } from './childSeam';
+export { isSamsung, STEP_IDS } from './childSeam';
 
 export type Place = 'child-module' | 'none' | 'mock';
 
@@ -78,6 +79,7 @@ export type Requests = {
   'child.markIntroSeen': { args: None; answer: null };
   'child.today': { args: None; answer: TodayView }; // readToday
   'child.rules': { args: None; answer: RulesView }; // readRules
+  'child.maker': { args: None; answer: string }; // readMaker
   'child.askForMoreTime': { args: None; answer: null };
 };
 
@@ -139,6 +141,7 @@ const READ: { [N in RequestName]: (answer: unknown) => Requests[N]['answer'] } =
   'child.markIntroSeen': () => null,
   'child.today': readToday,
   'child.rules': readRules,
+  'child.maker': readMaker,
   'child.askForMoreTime': () => null,
 };
 
@@ -205,6 +208,7 @@ export const childHost: ChildHost = {
   rules: () => request('child.rules', none),
   // The version the app was built as (app.config.ts), from its embedded config.
   version: async () => Constants.expoConfig?.version ?? '',
+  maker: () => request('child.maker', none),
   askForMoreTime: async () => {
     await request('child.askForMoreTime', none);
   },

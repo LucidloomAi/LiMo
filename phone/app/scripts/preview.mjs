@@ -83,4 +83,4 @@ for (const [key, name] of Object.entries(NAMES)) {
 const url = pathToFileURL(htmlFile).href;
 console.log(`[preview] done: ${path.relative(appDir, htmlFile)}`);
 console.log(`[preview] open ${url}`);
-console.log('[preview] one phone alone, for a picture: add #one=S4b&size=390 (or 360), and &scale=1.3 for larger text');
+console.log('[preview] one phone alone, for a picture: add #one=S5b&size=390 (or 360), and &scale=1.3 for larger text');

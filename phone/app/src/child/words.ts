@@ -1,8 +1,9 @@
 // The child form's own words: setup, the child's introduction, the labels of
-// Today and How it works, and the banner. They are the drawings' words
-// (design/screens/phone-setup.js and phone.js), word for word.
+// Today and How it works, and the banner's labels. They are the drawings'
+// words (design/screens/phone-setup.js and phone.js), word for word.
 //
-// Words about time and rules are not here: they come from the phone's
+// Words about time and rules are not here, and neither is the sentence the
+// banner says about a step that is switched off: they come from the phone's
 // engine, through the host (TodayView, RulesView).
 //
 // The words name the child and never say "her" or "him": the app knows a
@@ -23,7 +24,7 @@ export const notSetUp = {
 export const welcome = {
   eyebrow: 'For a guardian',
   heading: (name: string) => `This phone is now ${possessive(name)}.`,
-  text: 'Five short steps finish the setup. Each one asks Android for one thing, and says why.',
+  text: 'Six short steps finish the setup. Each one asks Android for one thing, and says why.',
   button: 'Start',
 };
 
@@ -46,9 +47,8 @@ export type StepWords = {
   why: (name: string) => string;
   what: Rich;
   button: string;
-  note?: { label: string; text: string };
-  /** The banner's line on Today when this step is switched off later. */
-  banner: string;
+  /** A quiet outlined note under what happens; `only: 'samsung'` shows it only on a Samsung phone. */
+  note?: { label: string; text: string; only?: 'samsung' };
 };
 
 const allow: Rich = ['Android asks once. Choose ', { strong: 'Allow' }, '.'];
@@ -60,7 +60,18 @@ export const steps: Readonly<Record<StepId, StepWords>> = {
     why: (name) => `So ${name} sees the time left, and a warning before the phone locks.`,
     what: allow,
     button: 'Allow notifications',
-    banner: 'Notifications are switched off, so LiMo cannot show the time left or a warning.',
+  },
+  phone: {
+    // A handset, so the Phone step differs from S1's picture of the device (`phone`).
+    icon: 'call',
+    title: 'Phone',
+    why: () => 'So a lock never hides a call. LiMo is told that a call is ringing or on, never who is calling.',
+    what: allow,
+    button: 'Allow',
+    note: {
+      label: 'What Android asks',
+      text: 'Android’s words are “make and manage phone calls”. LiMo never makes a call. It only learns that one is ringing or on.',
+    },
   },
   usage: {
     icon: 'chart',
@@ -68,7 +79,6 @@ export const steps: Readonly<Record<StepId, StepWords>> = {
     why: () => 'So LiMo can count the time in each app. It gets app names and minutes from Android, nothing else.',
     what: ['Android opens its own settings. Find LiMo in the list and switch it on.'],
     button: 'Open Android’s settings',
-    banner: 'Usage access is switched off, so LiMo cannot count the time in each app.',
   },
   accessibility: {
     icon: 'shield',
@@ -77,7 +87,6 @@ export const steps: Readonly<Record<StepId, StepWords>> = {
       'So LiMo can see which app is in front, and cover it when it is blocked or the time is used up. It is told the app’s name only, never what is on the screen.',
     what: ['Android opens its own settings and shows a warning of its own. Find LiMo under Installed apps and switch it on.'],
     button: 'Open Android’s settings',
-    banner: 'Accessibility is switched off, so LiMo cannot see which app is open.',
   },
   battery: {
     icon: 'battery',
@@ -88,8 +97,8 @@ export const steps: Readonly<Record<StepId, StepWords>> = {
     note: {
       label: 'On a Samsung phone',
       text: 'Also open Settings, then Battery, then Background usage limits, then Never sleeping apps, and add LiMo there.',
+      only: 'samsung',
     },
-    banner: 'Battery saving is on for LiMo, so Android may put it to sleep.',
   },
   protection: {
     icon: 'key',
@@ -97,7 +106,6 @@ export const steps: Readonly<Record<StepId, StepWords>> = {
     why: () => 'So LiMo cannot be switched off or removed without the guardian PIN.',
     what: ['Android asks you to make LiMo a device admin app. Choose ', { strong: 'Activate' }, '.'],
     button: 'Turn on protection',
-    banner: 'Protection is switched off, so LiMo can be removed without the guardian PIN.',
   },
 };
 
@@ -110,6 +118,9 @@ export const step = {
   onLine: 'Android says it is on.',
   /** Under the stamp when Android's own screen could not be opened. */
   notOpened: 'Android did not open it. Try again.',
+  /** Under the stamp once Android's screen was opened twice and the step is still off. */
+  stuck: 'Android has not turned this on. You can go on and come back to it from Today.',
+  goOn: 'Go on without it',
   next: 'Next',
 };
 
@@ -157,6 +168,8 @@ export const today = {
   ask: 'Ask for more time',
   apps: 'Today on this phone',
   needsGuardian: 'Needs a guardian',
+  /** Under the engine's sentence when more than one step is off: how many more there are. */
+  more: (count: number) => `And ${count} more`,
   showGuardian: 'Show a guardian what to do',
 };
 

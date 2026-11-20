@@ -8,12 +8,16 @@
 // the README, "The child's seam".
 //
 // The words in TodayView and RulesView are the engine's (phone/engine, through
-// Kotlin), so the screens never make a sentence about time or rules
-// themselves. Labels that never change ("Left today", "Your rules") and the
-// setup's own words are the screens'.
+// Kotlin), so the screens never make a sentence about time or rules, or about
+// a step that is switched off, themselves. Labels that never change ("Left
+// today", "Your rules") and the setup's own words are the screens'.
 
-/** The five things Android has to grant, in the order setup asks for them. */
-export const STEP_IDS = ['notifications', 'usage', 'accessibility', 'battery', 'protection'] as const;
+/**
+ * The six things Android has to grant, in the order setup asks for them.
+ * "phone" is Android's Phone permission, used only to know that a call is
+ * ringing or on, so that a lock never hides a call.
+ */
+export const STEP_IDS = ['notifications', 'phone', 'usage', 'accessibility', 'battery', 'protection'] as const;
 export type StepId = (typeof STEP_IDS)[number];
 
 /**
@@ -38,8 +42,12 @@ export type TimeLeft =
 /** One app on Today's list: its name and its minutes, nothing else. */
 export type TodayApp = { readonly name: string; readonly minutes: string };
 
-/** Something LiMo needs is switched off: the steps that are off, in setup order, never empty. */
-export type GuardianNeeded = { readonly off: readonly StepId[] };
+/**
+ * Something LiMo needs is switched off: the steps that are off, in setup
+ * order, never empty, and beside them the engine's sentence for each, in the
+ * same order: `words[i]` says what it means that `off[i]` is off.
+ */
+export type GuardianNeeded = { readonly off: readonly StepId[]; readonly words: readonly string[] };
 
 /** The child's Today screen. */
 export type TodayView = {
@@ -100,6 +108,11 @@ export interface ChildHost {
   rules(): Promise<RulesView>;
   /** The app's version, such as "0.1.0". */
   version(): Promise<string>;
+  /**
+   * Who made the phone, as Android itself says it (Build.MANUFACTURER), such
+   * as "samsung" or "Google". Passed through as it is; `isSamsung` reads it.
+   */
+  maker(): Promise<string>;
   /** Opens LiMo's own ways out screen (Kotlin), at asking for more time. Nothing else. */
   askForMoreTime(): Promise<void>;
   /** Calls `listener` whenever an answer may have changed. Returns a function that stops it. */
@@ -186,14 +199,6 @@ export function readToday(x: unknown): TodayView {
     const app = obj(a, `today.apps[${i}]`);
     return { name: str(app, 'name', `today.apps[${i}]`), minutes: str(app, 'minutes', `today.apps[${i}]`) };
   });
-  let guardianNeeded: GuardianNeeded | null = null;
-  if (o.guardianNeeded !== null && o.guardianNeeded !== undefined) {
-    const g = obj(o.guardianNeeded, 'today.guardianNeeded');
-    const off = Array.isArray(g.off) ? g.off.filter(isStepId) : [];
-    // In setup order, each once.
-    const ordered = STEP_IDS.filter((id) => off.includes(id));
-    if (ordered.length) guardianNeeded = { off: ordered };
-  }
   return {
     left: readTimeLeft(o.left),
     used: str(o, 'used', 'today'),
@@ -201,8 +206,44 @@ export function readToday(x: unknown): TodayView {
     where: str(o, 'where', 'today'),
     bedtime: strOrNull(o, 'bedtime', 'today'),
     apps,
-    guardianNeeded,
+    guardianNeeded: readGuardianNeeded(o.guardianNeeded),
   };
+}
+
+/**
+ * The steps that are off and the engine's sentence for each. The two lists
+ * must line up, one sentence for each step, none empty; anything else is
+ * refused. A step this app does not know is left out with its sentence (a
+ * newer engine may know more steps), and the rest are put in setup order,
+ * each once.
+ */
+function readGuardianNeeded(x: unknown): GuardianNeeded | null {
+  if (x === null || x === undefined) return null;
+  const what = 'today.guardianNeeded';
+  const g = obj(x, what);
+  if (!Array.isArray(g.off)) throw new SeamError(`${what}.off is not a list`);
+  const words = strings(g, 'words', what);
+  if (words.length !== g.off.length) {
+    throw new SeamError(`${what} has ${g.off.length} steps and ${words.length} sentences: they do not line up`);
+  }
+  const said = new Map<StepId, string>();
+  g.off.forEach((id: unknown, i) => {
+    if (!words[i].trim()) throw new SeamError(`${what}.words[${i}] is empty`);
+    if (isStepId(id) && !said.has(id)) said.set(id, words[i]);
+  });
+  const off = STEP_IDS.filter((id) => said.has(id));
+  return off.length ? { off, words: off.map((id) => said.get(id) as string) } : null;
+}
+
+/** Who made the phone, as Android says it. */
+export function readMaker(x: unknown): string {
+  if (typeof x !== 'string') throw new SeamError('maker is not a string');
+  return x.trim();
+}
+
+/** Whether Android's own name for the phone's maker is Samsung's ("samsung"). */
+export function isSamsung(maker: string): boolean {
+  return maker.trim().toLowerCase() === 'samsung';
 }
 
 export function readRules(x: unknown): RulesView {

@@ -2,6 +2,8 @@
 //
 // - no screen names a native module, or the network: only src/host.ts
 //   reaches the child module;
+// - no screen holds the engine's sentences for a step that is off: the
+//   banner shows what the host gives;
 // - the mock host (src/mock) and the preview (src/preview, App.web.tsx) are
 //   never reached from the app's entry point as Android resolves it, so no
 //   made up data can be in either built app.
@@ -10,6 +12,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+
+import { ENGINE_OFF } from '../src/mock/childMock';
 
 const appDir = path.resolve(__dirname, '..');
 const rel = (f: string) => path.relative(appDir, f).replaceAll('\\', '/');
@@ -92,6 +96,12 @@ describe('the screens', () => {
   ])('never name %s', (_what, pattern) => {
     const named = screens.filter((f) => pattern.test(fs.readFileSync(f, 'utf8'))).map(rel);
     expect(named).toEqual([]);
+  });
+
+  it('hold none of the engine’s sentences for a step that is off: those come from the host', () => {
+    const said = Object.values(ENGINE_OFF);
+    const holding = screens.filter((f) => said.some((s) => fs.readFileSync(f, 'utf8').includes(s))).map(rel);
+    expect(holding).toEqual([]);
   });
 
   it('reach the child module only through src/host.ts', () => {

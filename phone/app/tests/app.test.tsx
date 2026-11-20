@@ -1,13 +1,15 @@
 // The child's own app: Today (E), its banner (T), How it works (H), the
 // floating tab bar, and long names.
 
-import { fireEvent, screen, within } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
+import { ChildApp } from '../src/child/ChildApp';
+import { ChildHostProvider } from '../src/child/HostContext';
 import * as W from '../src/child/words';
-import { LONG_CHILD, states } from '../src/mock/childMock';
+import { ALL_ON, ENGINE_OFF, LONG_CHILD, mockHost, states, TODAY } from '../src/mock/childMock';
 import { tabStyles } from '../src/ui/paper/Tabs';
-import { renderChild } from './render';
+import { inPhone, renderChild } from './render';
 
 describe('Today (E)', () => {
   it('shows the engine’s words as they come, and never says counting', async () => {
@@ -58,11 +60,12 @@ describe('Today (E)', () => {
 });
 
 describe('the banner (T)', () => {
-  it('says what is switched off and sends for a guardian, who can put it right', async () => {
+  it('says what is switched off in the engine’s words and sends for a guardian, who can put it right', async () => {
     const { host } = renderChild(states.guardianNeeded);
     const banner = await screen.findByTestId('banner');
     expect(within(banner).getByText(W.today.needsGuardian)).toBeOnTheScreen();
     expect(within(banner).getByText('Accessibility is switched off, so LiMo cannot see which app is open.')).toBeOnTheScreen();
+    expect(within(banner).queryByTestId('banner-more')).toBeNull();
 
     fireEvent.press(within(banner).getByRole('button', { name: W.today.showGuardian }));
     expect(await screen.findByText(W.steps.accessibility.why(''))).toBeOnTheScreen();
@@ -75,11 +78,71 @@ describe('the banner (T)', () => {
     expect(screen.queryByTestId('banner')).toBeNull();
   });
 
+  it('shows exactly the sentence the host gives, and holds none of its own', async () => {
+    const host = mockHost(states.guardianNeeded);
+    const said = Object.assign(Object.create(host) as typeof host, {
+      today: async () => ({ ...TODAY, guardianNeeded: { off: ['accessibility'], words: ['Words the engine chose.'] } }),
+    });
+    render(
+      inPhone(
+        <ChildHostProvider host={said}>
+          <ChildApp />
+        </ChildHostProvider>,
+      ),
+    );
+    const banner = await screen.findByTestId('banner');
+    expect(within(banner).getByTestId('banner-words')).toHaveTextContent('Words the engine chose.');
+    expect(within(banner).queryByText(ENGINE_OFF.accessibility)).toBeNull();
+    for (const step of Object.values(W.steps)) expect(Object.keys(step)).not.toContain('banner');
+  });
+
+  it('with three off, says the first and how many more, and walks a guardian through all three', async () => {
+    const { host } = renderChild(states.threeOff);
+    const banner = await screen.findByTestId('banner');
+    expect(within(banner).getByTestId('banner-words')).toHaveTextContent('Phone access is switched off, so a lock could hide a call.');
+    expect(within(banner).getByTestId('banner-more')).toHaveTextContent('And 2 more');
+
+    fireEvent.press(within(banner).getByRole('button', { name: W.today.showGuardian }));
+    for (const id of ['phone', 'battery', 'protection'] as const) {
+      expect(await screen.findByText(W.steps[id].title)).toBeOnTheScreen();
+      fireEvent.press(screen.getByRole('button', { name: W.steps[id].button }));
+      fireEvent.press(await screen.findByRole('button', { name: 'Next' }));
+    }
+    expect(await screen.findByText('1 h 12 min')).toBeOnTheScreen();
+    expect(screen.queryByTestId('banner')).toBeNull();
+    expect(host.calls.filter((c) => c.startsWith('openStep'))).toEqual(['openStep phone', 'openStep battery', 'openStep protection']);
+  });
+
+  it('with two off, says one more', async () => {
+    renderChild({ ...states.childApp, steps: { ...ALL_ON, usage: 'off', battery: 'off' } });
+    expect(await screen.findByTestId('banner-more')).toHaveTextContent('And 1 more');
+  });
+
   it('comes when something is switched off while Today shows', async () => {
     const { host } = renderChild(states.childApp);
     await screen.findByText('1 h 12 min');
-    host.set({ today: { ...host.state.today, guardianNeeded: { off: ['usage', 'battery'] } } }, ['today']);
-    expect(await screen.findByText(W.steps.usage.banner)).toBeOnTheScreen();
+    act(() => host.set({ steps: { ...ALL_ON, usage: 'off', battery: 'off' } }, ['steps']));
+    expect(await screen.findByText(ENGINE_OFF.usage)).toBeOnTheScreen();
+  });
+
+  it('lets a guardian go on past a step that will not turn on, back to Today, still naming it', async () => {
+    renderChild({ ...states.childApp, steps: { ...ALL_ON, phone: 'off', battery: 'off' } }, { mock: { openTurnsOn: false } });
+    fireEvent.press(await screen.findByRole('button', { name: W.today.showGuardian }));
+    expect(await screen.findByText('Phone')).toBeOnTheScreen();
+    for (let i = 0; i < 2; i += 1) {
+      fireEvent.press(screen.getByRole('button', { name: W.steps.phone.button }));
+      await act(async () => {});
+    }
+    fireEvent.press(screen.getByRole('button', { name: W.step.goOn }));
+    // The next step that is off after this one, never back to the one gone past.
+    expect(await screen.findByText('Battery')).toBeOnTheScreen();
+    for (let i = 0; i < 2; i += 1) {
+      fireEvent.press(screen.getByRole('button', { name: W.steps.battery.button }));
+      await act(async () => {});
+    }
+    fireEvent.press(screen.getByRole('button', { name: W.step.goOn }));
+    expect(await screen.findByText(ENGINE_OFF.phone)).toBeOnTheScreen();
+    expect(screen.getByTestId('banner-more')).toHaveTextContent('And 1 more');
   });
 });
 
@@ -130,7 +193,7 @@ describe('long names', () => {
     expect(who.props.numberOfLines).toBe(1);
     expect(screen.getByText('Super Long Puzzle Adventure Deluxe Edition HD Remastered')).toBeOnTheScreen();
     expect(screen.getByLabelText('Super Long Puzzle Adventure Deluxe Edition HD Remastered, 1 hour 12 min')).toBeOnTheScreen();
-    expect(screen.getByText(W.steps.usage.banner)).toBeOnTheScreen();
+    expect(screen.getByText(ENGINE_OFF.usage)).toBeOnTheScreen();
   });
 
   it('give the button the room it needs', async () => {

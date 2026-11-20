@@ -1,6 +1,6 @@
 // Setting up a child's phone, as design/screens/phone-setup.html draws it:
 // S0 not set up, S1 welcome, S2 what LiMo does here (and S2b, ticked), S3 to
-// S7 the five steps from one layout, S8 done, and C1 to C3, the child's own
+// S8 the six steps from one layout, S9 done, and C1 to C3, the child's own
 // introduction.
 //
 // These are plain screens: they show what they are given and say what was
@@ -144,9 +144,9 @@ export function Agree({
   );
 }
 
-// ---------- S3 to S7. One permission each ----------
+// ---------- S3 to S8. One permission each ----------
 
-/** "Step 2 of 5", and the dots: done ones teal, this one marigold. */
+/** "Step 2 of 6", and the dots: done ones teal, this one marigold. */
 function StepCount({ at }: { at: number }) {
   return (
     <View style={styles.count}>
@@ -160,24 +160,35 @@ export function Step({
   id,
   name,
   state,
+  samsung,
   notOpened,
+  stuck,
   onOpen,
   onNext,
+  onGoOn,
 }: {
   id: StepId;
   name: string;
   /** As Android reports it. Shown as on only when it is "on". */
   state: StepState;
+  /** The host says the phone is a Samsung: a note only for Samsung phones shows. */
+  samsung: boolean;
   /** Android's own screen could not be opened just now. */
   notOpened: boolean;
+  /** Android's screen was opened twice and the step is still off: a guardian may go on without it. */
+  stuck: boolean;
   onOpen: () => void;
   onNext: () => void;
+  onGoOn: () => void;
 }) {
   const s = W.steps[id];
   const at = STEP_IDS.indexOf(id);
   const on = state === 'on';
-  // The line under the stamp keeps its room, so nothing moves when it comes.
-  const line = on ? W.step.onLine : notOpened ? W.step.notOpened : '';
+  const goOn = stuck && !on;
+  const note = s.note && (s.note.only !== 'samsung' || samsung) ? s.note : null;
+  // The line under the stamp keeps its room, so nothing moves when it comes;
+  // the way on without the step comes under it, where nothing else is.
+  const line = on ? W.step.onLine : goOn ? W.step.stuck : notOpened ? W.step.notOpened : '';
   return (
     <Page
       testID={`screen-step-${id}`}
@@ -198,17 +209,22 @@ export function Step({
             <View style={styles.detail} accessible accessibilityLabel={plain(s.what)}>
               <RichText words={s.what} style={type.detail} wrap="pretty" />
             </View>
-            {s.note ? (
-              <View style={styles.note}>
-                <Label>{s.note.label}</Label>
+            {note ? (
+              <View style={styles.note} testID="step-note" accessible accessibilityLabel={`${note.label}. ${note.text}`}>
+                <Label>{note.label}</Label>
                 <Txt style={[type.note, styles.noteWords]} wrap="pretty">
-                  {s.note.text}
+                  {note.text}
                 </Txt>
               </View>
             ) : null}
           </View>
         </View>
-        <View style={styles.state} accessible accessibilityLabel={on ? `${W.step.on}. ${W.step.onLine}` : W.step.notOnYet} testID="step-state">
+        <View
+          style={styles.state}
+          accessible
+          accessibilityLabel={line ? `${on ? W.step.on : W.step.notOnYet}. ${line}` : W.step.notOnYet}
+          testID="step-state"
+        >
           {on ? (
             <Stamp tone="teal" testID="stamp-on">
               {W.step.on}
@@ -218,16 +234,17 @@ export function Step({
               {W.step.notOnYet}
             </Stamp>
           )}
-          <Txt style={[type.state, styles.stateLine]} testID="step-line">
+          <Txt style={[type.state, styles.stateLine]} wrap="pretty" testID="step-line">
             {line}
           </Txt>
         </View>
+        {goOn ? <Button label={W.step.goOn} onPress={onGoOn} outer={styles.goOn} testID="go-on-without" /> : null}
       </Card>
     </Page>
   );
 }
 
-// ---------- S8. Done ----------
+// ---------- S9. Done ----------
 
 export function Done({ name, steps, onShow }: { name: string; steps: StepStates | null; onShow: () => void }) {
   return (
@@ -323,6 +340,7 @@ const styles = StyleSheet.create({
   gap: { marginTop: 14 },
   what: { marginTop: 14 },
   whatInside: { paddingTop: 12 },
+  goOn: { marginTop: 14 },
   note: {
     marginTop: 12,
     paddingTop: 10,

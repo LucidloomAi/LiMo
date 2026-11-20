@@ -8,11 +8,17 @@
 //
 // The words here stand in for the engine's. They are the drawings' own
 // where the drawings have them; the states the drawings do not show (no
-// limit, open until, a long name) use words of the same kind.
+// limit, open until, a long name) use words of the same kind. The sentences
+// for a step that is off are the engine's own (ENGINE_OFF).
+//
+// As the engine will, the mock says what is off from the steps it holds:
+// Today's guardianNeeded is never held, it is worked out from `steps` each
+// time Today is asked.
 
 import {
   type ChildChange,
   type ChildHost,
+  type GuardianNeeded,
   type Pairing,
   type RulesView,
   STEP_IDS,
@@ -24,14 +30,37 @@ import {
 /** Found in any bundle this file is in. scripts/check-release-js.mjs looks for it. */
 export const MOCK_MARK = 'limo-mock-host-development-only';
 
+/** Android's own names for two makers (Build.MANUFACTURER): one that is Samsung, one that is not. */
+export const SAMSUNG = 'samsung';
+export const NOT_SAMSUNG = 'Google';
+
+/** The engine's sentence for each step that is off, word for word. */
+export const ENGINE_OFF: Readonly<Record<StepId, string>> = {
+  notifications: 'Notifications are switched off, so LiMo cannot show the time left or a warning.',
+  phone: 'Phone access is switched off, so a lock could hide a call.',
+  usage: 'Usage access is switched off, so LiMo cannot count the time in each app.',
+  accessibility: 'Accessibility is switched off, so LiMo cannot see which app is open.',
+  battery: 'Android may put LiMo to sleep to save battery.',
+  protection: 'Protection is switched off, so LiMo can be removed.',
+};
+
+/** What the engine says is off, from the steps: null while every step is on. */
+export function offFrom(steps: StepStates): GuardianNeeded | null {
+  const off = STEP_IDS.filter((id) => steps[id] !== 'on');
+  return off.length ? { off, words: off.map((id) => ENGINE_OFF[id]) } : null;
+}
+
 export type MockState = {
   pairing: Pairing;
   agreed: boolean;
   steps: StepStates;
   introSeen: boolean;
+  /** Today as the engine says it; its guardianNeeded is worked out from `steps` instead. */
   today: TodayView;
   rules: RulesView;
   version: string;
+  /** Who made the phone, as Android says it. */
+  maker: string;
 };
 
 export type MockOptions = {
@@ -86,17 +115,7 @@ export function mockHost(start: MockState, options: MockOptions = {}): MockHost 
       calls.push(`openStep ${step}`);
       if (openFails) return Promise.reject(new Error('Android did not open it'));
       if (openTurnsOn) {
-        const turnOn = () => {
-          const steps = { ...state.steps, [step]: 'on' as const };
-          const off = STEP_IDS.filter((id) => steps[id] !== 'on');
-          set(
-            {
-              steps,
-              today: { ...state.today, guardianNeeded: state.introSeen && off.length ? { off } : null },
-            },
-            ['steps', 'today'],
-          );
-        };
+        const turnOn = () => set({ steps: { ...state.steps, [step]: 'on' as const } }, ['steps', 'today']);
         if (delayMs > 0) setTimeout(turnOn, delayMs);
         else turnOn();
       }
@@ -104,9 +123,10 @@ export function mockHost(start: MockState, options: MockOptions = {}): MockHost 
     },
     introSeen: () => answer('introSeen', () => state.introSeen),
     markIntroSeen: () => answer('markIntroSeen', () => set({ introSeen: true }, ['intro'])),
-    today: () => answer('today', () => state.today),
+    today: () => answer('today', () => ({ ...state.today, guardianNeeded: offFrom(state.steps) })),
     rules: () => answer('rules', () => state.rules),
     version: () => answer('version', () => state.version),
+    maker: () => answer('maker', () => state.maker),
     askForMoreTime: () => answer('askForMoreTime', () => undefined),
     subscribe(listener) {
       listeners.add(listener);
@@ -124,8 +144,8 @@ export const CHILD = 'Mira';
 /** A long name, made up, to try every place a name goes. */
 export const LONG_CHILD = 'Ashamira Lumenvale-Brightwater Quillfeather';
 
-export const ALL_OFF: StepStates = { notifications: 'off', usage: 'off', accessibility: 'off', battery: 'off', protection: 'off' };
-export const ALL_ON: StepStates = { notifications: 'on', usage: 'on', accessibility: 'on', battery: 'on', protection: 'on' };
+export const ALL_OFF: StepStates = { notifications: 'off', phone: 'off', usage: 'off', accessibility: 'off', battery: 'off', protection: 'off' };
+export const ALL_ON: StepStates = { notifications: 'on', phone: 'on', usage: 'on', accessibility: 'on', battery: 'on', protection: 'on' };
 
 /** The first `count` steps on, the rest off. */
 export function stepsOnUpTo(count: number): StepStates {
@@ -168,6 +188,8 @@ const base: MockState = {
   today: TODAY,
   rules: RULES,
   version: '0.1.0',
+  // The drawings show the Samsung note on the Battery step.
+  maker: SAMSUNG,
 };
 
 export const states = {
@@ -187,8 +209,16 @@ export const states = {
     agreed: true,
     introSeen: true,
     steps: { ...ALL_ON, accessibility: 'off' },
-    today: { ...TODAY, guardianNeeded: { off: ['accessibility'] } },
   } as MockState,
+  /** T with three steps off: the banner says the first, and how many more. */
+  threeOff: {
+    ...base,
+    agreed: true,
+    introSeen: true,
+    steps: { ...ALL_ON, phone: 'off', battery: 'off', protection: 'off' },
+  } as MockState,
+  /** Agreed, every step off, on a phone that is not a Samsung. */
+  notSamsung: { ...base, agreed: true, maker: NOT_SAMSUNG },
   /** Little time left. */
   littleLeft: {
     ...base,
@@ -242,7 +272,6 @@ export const states = {
     steps: { ...ALL_ON, usage: 'off' },
     today: {
       ...TODAY,
-      guardianNeeded: { off: ['usage'] },
       apps: [
         { name: 'Super Long Puzzle Adventure Deluxe Edition HD Remastered', minutes: '1 hour 12 min' },
         { name: 'Messages and Video Calls for the Whole Family', minutes: '9 min' },

@@ -3,8 +3,11 @@
 // works (H). Both sit under the floating tab bar, which ChildApp draws.
 //
 // Today shows the engine's words as they come (TodayView): it never makes a
-// sentence about time. It never says "counting": looking at LiMo itself
-// does not use time, and the screen says so.
+// sentence about time, or about what is switched off. With more than one
+// step off, the banner says the first step's sentence and, under it, how many
+// more there are; its button walks a guardian through all of them. It never
+// says "counting": looking at LiMo itself does not use time, and the screen
+// says so.
 
 import { StyleSheet, View } from 'react-native';
 
@@ -49,9 +52,15 @@ export function Today({
                 <Tile icon="alert" large />
                 <Stamp tone="coral">{W.today.needsGuardian}</Stamp>
               </View>
-              <Txt style={[type.line, styles.bannerWords]} wrap="pretty">
-                {W.steps[view.guardianNeeded.off[0]].banner}
+              {/* The engine's sentence for the first step that is off, and how many more there are. */}
+              <Txt style={[type.line, styles.bannerWords]} wrap="pretty" testID="banner-words">
+                {view.guardianNeeded.words[0]}
               </Txt>
+              {view.guardianNeeded.off.length > 1 ? (
+                <View style={styles.bannerMore} testID="banner-more">
+                  <Txt style={type.where}>{W.today.more(view.guardianNeeded.off.length - 1)}</Txt>
+                </View>
+              ) : null}
               <Button label={W.today.showGuardian} onPress={onShowGuardian} outer={styles.bannerButton} testID="show-guardian" />
             </Card>
           ) : null}
@@ -164,6 +173,7 @@ const styles = StyleSheet.create({
   // With very large text the stamp goes under the tile instead of past the card's edge.
   bannerTop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', columnGap: 12, rowGap: 8 },
   bannerWords: { marginTop: 12 },
+  bannerMore: { marginTop: 8 },
   bannerButton: { marginTop: 14 },
   bigLabel: { marginTop: 9 },
   quiet: { marginTop: 10 },

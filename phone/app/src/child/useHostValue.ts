@@ -15,8 +15,11 @@ export type Loaded<T> =
   | { readonly state: 'failed'; readonly error: unknown };
 
 export type HostValue<T> = Loaded<T> & {
-  /** Ask again now. */
-  again: () => void;
+  /**
+   * Ask again now. Resolves with that answer once it is in, or with null when
+   * it was dropped for a newer one or the screen has gone.
+   */
+  again: () => Promise<Loaded<T> | null>;
 };
 
 export function useHostValue<T>(
@@ -34,13 +37,14 @@ export function useHostValue<T>(
   const again = useCallback(() => {
     asked.current += 1;
     const mine = asked.current;
-    readRef.current(host).then(
-      (value) => {
-        if (live.current && mine === asked.current) setLoaded({ state: 'ready', value });
-      },
-      (error: unknown) => {
-        if (live.current && mine === asked.current) setLoaded({ state: 'failed', error });
-      },
+    const settle = (now: Loaded<T>): Loaded<T> | null => {
+      if (!live.current || mine !== asked.current) return null;
+      setLoaded(now);
+      return now;
+    };
+    return readRef.current(host).then(
+      (value) => settle({ state: 'ready', value }),
+      (error: unknown) => settle({ state: 'failed', error }),
     );
   }, [host]);
 

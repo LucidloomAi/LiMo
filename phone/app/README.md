@@ -399,32 +399,58 @@ per point they match the drawings to within the smoothing of the letters
 | Screen | What | States |
 | --- | --- | --- |
 | S0 | This phone is not set up yet: connect it to the family PC | not paired; nothing to tap |
-| S1 | Welcome, for a guardian, naming the child | Start pinned |
+| S1 | Welcome, for a guardian, naming the child: six short steps | Start pinned |
 | S2, S2b | What LiMo does here, and the guardian agrees | Continue switched off until the box is ticked |
-| S3 to S7 | One step each: notifications, usage access, accessibility, battery, protection | NOT ON YET (coral) with the step's own button, or ON (teal), "Android says it is on." and Next |
-| S8 | This phone is set up | a teal tick for each step Android says is on |
+| S3 to S8 | One step each: notifications, phone, usage access, accessibility, battery, protection ("Step 2 of 6" and six dots) | NOT ON YET (coral) with the step's own button, or ON (teal), "Android says it is on." and Next; still off after two tries: a line and "Go on without it" |
+| S9 | This phone is set up | six rows, a teal tick for each step Android says is on |
 | C1 to C3 | For the child: what LiMo counts, what it never looks at, how to ask for more time | Next, Next, Got it |
 | E | Today, under the floating tab bar | the time left, the bar, where the time went, the hours off, Ask for more time, the apps |
-| T | Today with the banner | a step switched off: Needs a guardian, and a button that shows a guardian the step |
+| T | Today with the banner | steps switched off: Needs a guardian, the engine's sentence for the first, "And 2 more" when there are more, and a button that shows a guardian each step |
 | H | How it works, the second tab | the child's rules, what LiMo does, the version |
 
 Where to start is worked out when the app opens, from the host: not paired
 is S0 and nothing else; paired with no guardian agreed is S1; agreed with
-the introduction not seen is the first step not on, or S8; after that,
+the introduction not seen is the first step not on, or S9; after that,
 Today. The pairing is watched: S0 moves on by itself when the PC pairs the
 phone. Android's back button goes back a screen.
+
+**The Phone step** asks for Android's Phone permission, only so that LiMo
+knows a call is ringing or on and a lock never hides it. Its icon is the
+handset (`call`), so it differs from S1's picture of the phone. Its note,
+drawn like the Samsung note, quotes Android's own words for the permission
+and says that LiMo never makes a call. The Samsung note on the Battery step shows only when
+the host says the phone is a Samsung (`maker()`, below); the Battery step
+waits for that answer before it shows, so the note never comes in late and
+moves the stamp.
 
 **A step is never taken on trust.** Its screen shows ON only when the host
 says Android says so, asks again whenever the app comes back to the front
 (as it does after Android's own settings) and after Android's own screen
 was opened. Each step's button opens Android's own screen through the host
 and does nothing else. The banner's button walks a guardian through the
-steps that are off, then back to Today.
+steps that are off, in setup order, then back to Today.
 
-**Words.** Setup's words, the labels and the banner are the screens'
-(`src/child/words.ts`). Every word about time or rules comes from the
-engine through the host, and the screens make no sentence about either. A
-time keeps its am or pm, and a span its unit, on one line. The words name
+**A step never traps a guardian.** When Android's screen for a step has
+been opened twice on one visit (or could not be opened) and the step is
+still off once Android has been asked again, the line under the stamp says
+"Android has not turned this on. You can go on and come back to it from
+Today." and an outlined "Go on without it" comes under it, inside the card;
+the pinned button stays, to try again. The stamp and everything above it
+stay where they were. A try counts only once Android's answer after it is
+in, so the line never shows for a moment before a step turns on. Going on
+goes to the next step, or to done; from the banner, to the next step after
+it that is still off, or back to Today. The tries are kept with the step's
+place in the screens, so going back to it finds the way on still there.
+Every step works so, protection and accessibility too. Today's banner then
+names the step, because the engine says what is off.
+
+**Words.** Setup's words and the labels are the screens'
+(`src/child/words.ts`). Every word about time or rules, and the sentence
+the banner says about a step that is off, comes from the engine through
+the host, and the screens make no sentence about any of them. With more
+than one step off, the banner shows the first step's sentence and, under
+it, "And 2 more" as a small mono label, like the line under Today's bar.
+A time keeps its am or pm, and a span its unit, on one line. The words name
 the child and never say "her" or "him".
 
 **The theme's rules that are easy to break in React Native.** The hard
@@ -467,13 +493,14 @@ pass another.
 | `pairing()` | `child.pairing` | `{ paired: false }`, or `{ paired: true, childName }` |
 | `agreed()` | `child.agreed` | whether a guardian has agreed to S2 |
 | `agree()` | `child.agree` | nothing: keep that a guardian agreed |
-| `steps()` | `child.steps` | `{ notifications, usage, accessibility, battery, protection }`, each `"on"` or `"off"`, as Android says now, never remembered |
-| `openStep(step)` | `child.openStep` with `{ step }` | nothing, once Android's screen is open or its question answered |
+| `steps()` | `child.steps` | `{ notifications, phone, usage, accessibility, battery, protection }`, each `"on"` or `"off"`, as Android says now, never remembered; a missing one is off |
+| `openStep(step)` | `child.openStep` with `{ step }` | nothing, once Android's screen is open or its question answered; for `phone`, Android's own question for the Phone permission |
 | `introSeen()` | `child.introSeen` | whether the child has seen C1 to C3 |
 | `markIntroSeen()` | `child.markIntroSeen` | nothing: keep it |
 | `today()` | `child.today` | `TodayView`, below |
 | `rules()` | `child.rules` | `{ timeADay, screensOff, alwaysOpen, notAllowed }`: words, and app names |
 | `version()` | none | the version the app was built as, from its own config |
+| `maker()` | `child.maker` | who made the phone, as Android says it (`Build.MANUFACTURER`), passed through as it is, such as `"samsung"`; `isSamsung()` reads it, whatever its case. No answer means not a Samsung |
 | `askForMoreTime()` | `child.askForMoreTime` | nothing: opens LiMo's ways out activity at asking, and does nothing else |
 | `subscribe(listener)` | the module's `change` event, `{ what }` | `what` is `pairing`, `agreement`, `steps`, `intro`, `today` or `rules`; the screens ask again |
 
@@ -482,15 +509,30 @@ as "1 h 12 min", "No limit today", "Open until 9:30 pm"), `used` ("48 min
 used of 2 h"), `usedPart` (0 to 1 for the bar, or null with no limit),
 `where` ("On this phone 31 min · on the PC 17 min"), `bedtime` ("Screens
 are off from 9:00 pm to 7:00 am.", or null), `apps` (`{ name, minutes }`,
-names and minutes only) and `guardianNeeded` (`{ off: [steps] }`, or null).
+names and minutes only) and `guardianNeeded`, null while every step is on.
+
+`guardianNeeded` is `{ off, words }`: `off` the steps that are off, in
+setup order, and `words` beside it the engine's sentence for each, as the
+host gives it, so `words[i]` is said of `off[i]`:
+
+```
+{ "off":   ["phone", "battery"],
+  "words": ["Phone access is switched off, so a lock could hide a call.",
+            "Android may put LiMo to sleep to save battery."] }
+```
+
+The reader refuses an answer where the two lists do not line up (another
+length, a sentence that is not a string or is empty, `off` not a list). A
+step this app does not know is left out with its sentence, the rest are
+put in setup order, each once, and nothing left is null.
 
 **What the engine has and what it needs.** "1 h 12 min" is the engine's
 `time_left` span, "Open until 9:30 pm" and "No limit today" its time left
 words. The lines "48 min used of 2 h", "On this phone 31 min · on the PC
 17 min" and "Screens are off from 9:00 pm to 7:00 am.", a day's minutes per
-app, and the rules as words, are not in `phone/engine` yet: they belong in
-its `words.rs` and its view, so that Kotlin passes words through and never
-makes them.
+app, the rules as words, and the sentence for each step that is off, are
+not all in `phone/engine` yet: they belong in its `words.rs` and its view,
+so that Kotlin passes words through and never makes them.
 
 **Until Kotlin answers.** The child module answers only `about` today. A
 request it does not know is refused, and `childHost.pairing()` takes that as
@@ -503,9 +545,10 @@ the exact word `"on"`.
 `npm run preview` writes a static page of every screen in every state,
 from the app's own code, through react-native-web, driven by the mock host
 (`src/mock/childMock.ts`): the drawings' screens at 390 by 844 and at 360
-by 640, the states the drawings do not show (each step on, other times
-left, no limit, open until), and a long name with long app names at 1.3
-and 2 times the text size. Taps work: opening a step's Android screen
+by 640, the states the drawings do not show (each step on, the Battery
+step on a phone that is not a Samsung, three steps off on Today, other
+times left, no limit, open until), and a long name with long app names at
+1.3 and 2 times the text size. Taps work: opening a step's Android screen
 switches the step on after a moment, as a guardian would.
 
 Open `dist/preview/index.html` from disk, in any browser; there is no
@@ -513,7 +556,7 @@ server. Expo's web export names its script and pictures from the root of a
 web server, which from disk would be the root of the drive, so
 `scripts/preview.mjs` makes those names relative and stops if any is left;
 it copies the three fonts and their licences beside the page. Add
-`#one=S4b&size=390` (or `360`, and `&scale=1.3` for larger text) to the
+`#one=S5b&size=390` (or `360`, and `&scale=1.3` for larger text) to the
 address for one phone alone, for a picture.
 
 It is a development tool. `App.web.tsx` is its page: Metro takes it only
@@ -528,16 +571,16 @@ itself.
 
 ## Tests
 
-`npm test` runs 65 tests with jest (Expo's preset for Android), against the
+`npm test` runs 102 tests with jest (Expo's preset for Android), against the
 mock host. Nothing in them runs on a phone.
 
 | File | What |
 | --- | --- |
-| `tests/setup.test.tsx` | S0, also as the app shows it with no native side; S0 moving on when the PC pairs; Continue switched off until the box is ticked; each step not on yet and then on; a step shown on only when the host says so, and asked again when the app is back in front; Android's screen not opening; done; the introduction to Today |
-| `tests/app.test.tsx` | Today in the engine's words, never "counting"; times kept whole; other times left; asking for more time; the banner and putting it right; How it works; every tab keeping its size; long names |
-| `tests/seam.test.ts` | the readers of what Kotlin sends; the app's host with no child module: not paired, nothing else answered |
-| `tests/access.test.tsx` | a role, a label and 48 of height for everything to tap; headings; the reading order |
-| `tests/release.test.ts` | no screen names a native module, the network or a link out; only `src/host.ts` reaches the child module; the app's imports, as Android resolves them from `index.ts`, never reach the mock, the preview or the tests |
+| `tests/setup.test.tsx` | S0, also as the app shows it with no native side; S0 moving on when the PC pairs; six steps in their order; Continue switched off until the box is ticked; each step not on yet and then on; the Phone step's words and note; a step shown on only when the host says so, and asked again when the app is back in front; Android's screen not opening; the Samsung note on a Samsung only, and not when the maker is unknown; each of the six steps offering to go on after two tries still off, and setup going on; a try counted only when it comes back off; the way on turning into Next; tries kept when going back; done; the introduction to Today, whose banner names the step gone past |
+| `tests/app.test.tsx` | Today in the engine's words, never "counting"; times kept whole; other times left; asking for more time; the banner in the host's words only, with one, two and three steps off, and putting each right; going on past a step from the banner; How it works; every tab keeping its size; long names |
+| `tests/seam.test.ts` | the readers of what Kotlin sends, the steps a guardian is needed for and their sentences lining up among them, and who made the phone; the app's host with no child module: not paired, nothing else answered |
+| `tests/access.test.tsx` | a role, a label and 48 of height for everything to tap, the way on and the banner with three off among them; headings; the reading order |
+| `tests/release.test.ts` | no screen names a native module, the network or a link out, or holds the engine's sentences for a step that is off; only `src/host.ts` reaches the child module; the app's imports, as Android resolves them from `index.ts`, never reach the mock, the preview or the tests |
 
 `npm run check:release-js` shows the last on the bundles themselves: it
 makes each form's JavaScript as Gradle's release build does (`expo
@@ -640,6 +683,16 @@ chosen: the tab bar is solid where the drawing is glass (Android cannot
 blur), and "17 MIN" stays on one line at 360 where the drawing leaves "MIN"
 alone. Android itself was not run: no Gradle build was made for this.
 
+With six steps, the engine's sentences in the banner, the phone's maker and
+the way on past a step (20 Nov 2026), all on the PC: `npm run typecheck`
+had no errors; `npm test` ran its 102 tests, all passing; `npm run
+check:release-js` passed for both forms, with its control. S1, the six
+steps (S3 to S8, S5b done, S6c still off), S9 and T were pictured from the
+preview and from the redrawn sheet at 390 by 844, two pixels per point:
+under a tenth of a percent of the pixels differ on each, the smoothing of
+letters, and a quarter of a percent on S9, the phase of its five dashed
+dividers. No Gradle build was made.
+
 ## Versions, and why
 
 - **Expo SDK 57**: expo 57.0.33, React Native 0.86.3, React 19.2.3, Hermes,
@@ -727,8 +780,8 @@ follow Expo's blank template (0BSD).
 - **For the pieces that fill the folders:** the foreground service type
   (`specialUse` now; Android also has `systemExempted` for device admin and
   device owner apps), exact alarms, leaving battery optimisation, and how
-  `watch/` learns of a call without `READ_PHONE_STATE` (the audio mode, and
-  the dialler in front, need no permission). Each adds a line to the
+  `watch/` learns of a call (the owner decided on 20 Nov 2026 that setup
+  asks for Android's Phone permission, for this only). Each adds a line to the
   module's manifest when it is decided. And an accessibility overlay draws
   above every activity, so the cover has to step aside while
   `WaysOutActivity` is open.
@@ -755,15 +808,21 @@ follow Expo's blank template (0BSD).
 - **For the engine:** the words Today and How it works need that it does
   not have yet (see [The child's seam](#the-childs-seam)), and a day's
   minutes per app, which the core keeps only until they are reported.
-- **Not drawn, decided here for the lead to look at:** the banner's words
-  for the four steps other than accessibility; the line "Android did not
-  open it. Try again." under a step's stamp; Today with no limit or open
-  until (the engine's words take the time's place, without "Left today");
-  How it works leaving out a rule with nothing in it; the list of apps left
-  out with no app used today.
-- **A step that cannot be turned on.** Setup has no way past a step: on a
-  phone whose maker hides a setting, a guardian is stuck at it. The Samsung
-  note shows on every phone; the seam does not say the phone's maker.
+- **Not drawn, decided here for the lead to look at:** the line "Android
+  did not open it. Try again." under a step's stamp (S6c draws the line
+  for a step still off after two tries); the banner with more
+  than one step off ("And 2 more" under the first sentence); Today with no
+  limit or open until (the engine's words take the time's place, without
+  "Left today"); How it works leaving out a rule with nothing in it; the
+  list of apps left out with no app used today.
+- **For the child module (Kotlin), from the six steps:** answer `child.maker`
+  with `Build.MANUFACTURER`; `child.steps` with `phone`; `child.openStep`
+  for `phone` with Android's own question for the Phone permission, which
+  needs `READ_PHONE_STATE` in the module's manifest (not declared yet); and
+  `guardianNeeded` with the engine's sentences beside the steps.
+- **On a small phone** the way on past a step sits under the stamp, inside
+  the card, so on the longer steps at 360 by 640 the guardian scrolls to
+  it, as to the stamp itself. The screen does not scroll by itself.
 - **App tiles** on Today show the app's first letter, as the drawing does;
   the seam carries names only, not Android's icons.
 - **Both forms carry the child form's JavaScript**, because `App.tsx`
