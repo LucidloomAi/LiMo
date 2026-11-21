@@ -149,6 +149,8 @@ export type DeviceToday = {
   readonly needs: readonly DeviceNeed[] | null;
   /** How a phone stands, from its notes: null for the PC's own device, or a phone whose notes cannot be read. */
   readonly standing: Standing | null;
+  /** What a phone said it is; null for the PC's own device. */
+  readonly phoneFacts: PhoneFacts | null;
 };
 
 /** One of a phone's six setup steps: on, off, or null while no note said; and since when, by the phone's clock. */
@@ -216,6 +218,8 @@ export type DeviceInfo = {
   readonly platform: string;
   readonly pairedAt: number;
   readonly lastHeardAt: number | null;
+  /** What a phone said it is; null for the PC's own device. */
+  readonly phoneFacts: PhoneFacts | null;
 };
 
 /** Time used on one device over some days, app by app (`usage`). An app the device could not name has an empty id. */
@@ -231,7 +235,75 @@ export type DeviceUsage = {
 export type PcSettings = { readonly idleMinutes: number; readonly unlinkedAccounts: 'free' | 'locked' };
 
 /** A one time code, as the door makes it: the code as shown, in two groups of four. */
-export type OneTimeCode = { readonly shown: string; readonly minutes: number; readonly deviceId: string };
+/** A one time code, and how many more the device can be given today, when the door says. */
+export type OneTimeCode = { readonly shown: string; readonly minutes: number; readonly deviceId: string; readonly codesLeftToday: number | null };
+
+/** What a phone said it is (`phone_facts`): each null until it said it. `android` is Android's API level. */
+export type PhoneFacts = { readonly model: string | null; readonly android: number | null; readonly limoVersion: string | null };
+
+/** An app a child's rules or day name (`app_names`): the name a device gave it, or null, and the devices whose list has it. */
+export type AppName = { readonly appId: string; readonly name: string | null; readonly devices: readonly { readonly deviceId: string; readonly name: string }[] };
+
+/** One device's apps (`device_apps`): a phone's list as it sent it, or the PC's programs seen running in the child's accounts. */
+export type DeviceApps = {
+  readonly deviceId: string;
+  readonly source: 'phone_list' | 'seen_running';
+  readonly apps: readonly { readonly appId: string; readonly name: string }[];
+  /** When a phone's list was kept; null for the PC, or a phone that has sent none yet. */
+  readonly keptAt: number | null;
+  readonly total: number;
+  /** There were more than the answer holds. */
+  readonly cut: boolean;
+};
+
+/** One device as `device` gives it, with how it stands. */
+export type DeviceAndStanding = DeviceInfo & { readonly standing: Standing | null };
+
+/** A step of adding a phone started, or not needed: done already. */
+export type Started = { readonly started: boolean };
+
+/** The cable strip's case (console/README.md, "The look"). */
+export type CableCase = 'looking' | 'none' | 'off' | 'driver' | 'connecting' | 'allow' | 'ok' | 'trouble';
+export const CABLE_CASES: readonly CableCase[] = ['looking', 'none', 'off', 'driver', 'connecting', 'allow', 'ok', 'trouble'];
+export type InstallStage = 'not_asked' | 'not_needed' | 'sending' | 'installing' | 'done' | 'refused' | 'failed' | 'no_app';
+export const INSTALL_STAGES: readonly InstallStage[] = ['not_asked', 'not_needed', 'sending', 'installing', 'done', 'refused', 'failed', 'no_app'];
+export type PairStage = 'not_asked' | 'asking_the_service' | 'handing' | 'waiting' | 'paired' | 'failed';
+export const PAIR_STAGES: readonly PairStage[] = ['not_asked', 'asking_the_service', 'handing', 'waiting', 'paired', 'failed'];
+export type DebuggingStage = 'on' | 'switching_off' | 'off' | 'still_on';
+export const DEBUGGING_STAGES: readonly DebuggingStage[] = ['on', 'switching_off', 'off', 'still_on'];
+export type PhoneWay = 'cable' | 'home_network';
+
+/** A line for the screen, and what to do about it. */
+type Said = { readonly line: string | null; readonly advice: string | null };
+
+/** Where adding a phone stands: what `phone.look` answers, every line in the console's own words. */
+export type PhoneLook = {
+  readonly cable: { readonly case: CableCase; readonly line: string; readonly more: string };
+  /** The key's fingerprint as the phone shows it, only while the phone asks to allow this PC. */
+  readonly fingerprint: string | null;
+  readonly phone: {
+    readonly name: string;
+    readonly model: string;
+    readonly android: string;
+    readonly recentEnough: boolean;
+    /** Whether LiMo is on the phone: null until it was looked for. */
+    readonly limo: { readonly looked: boolean; readonly onIt: boolean | null; readonly version: string | null };
+    readonly thisPcCarries: string | null;
+  } | null;
+  readonly checks: readonly { readonly ok: boolean; readonly words: string }[];
+  /** `sent`: 0 to 1, how much of the app is on the phone; null where nothing is counted. */
+  readonly install: Said & { readonly stage: InstallStage; readonly sent: number | null };
+  readonly pairing: Said & {
+    readonly stage: PairStage;
+    readonly device: { readonly deviceId: string; readonly name: string } | null;
+    readonly ways: readonly PhoneWay[];
+  };
+  readonly debugging: Said & { readonly stage: DebuggingStage };
+  /** The call running now, or null. */
+  readonly busy: string | null;
+  /** True while the console holds the phone open. */
+  readonly held: boolean;
+};
 
 /** A guardian's answer to a request, as the door takes it. */
 export type RequestReply = { readonly grant: { readonly minutes: number } } | 'refuse';
@@ -278,6 +350,16 @@ export type DoorRequests = {
   change_password: { args: { old: string; new: string }; answer: Nothing };
   allow_removal: { args: { password: string }; answer: { readonly until: number } };
   delete_family: { args: { password: string }; answer: Nothing };
+  device: { args: { device: string }; answer: DeviceAndStanding };
+  app_names: { args: { child: string }; answer: readonly AppName[] };
+  device_apps: { args: { device: string }; answer: DeviceApps };
+  // Adding a phone: the console's own requests, answered by the window and
+  // never sent to the service (console/README.md, "Adding a phone").
+  'phone.look': { args: None; answer: PhoneLook };
+  'phone.install': { args: None; answer: Started };
+  'phone.pair': { args: { child: string }; answer: Started };
+  'phone.debugging_off': { args: None; answer: Started };
+  'phone.done': { args: None; answer: Nothing };
 };
 
 export type DoorName = keyof DoorRequests;
@@ -504,6 +586,7 @@ function readDevice(x: unknown, what: string): DeviceToday {
     clockOffBySecs: maybeWhole(o, 'clock_off_by_secs', what),
     needs: readDeviceNeeds(o.guardian_needed, `${what}.guardian_needed`),
     standing: readStanding(o, what),
+    phoneFacts: readPhoneFacts(o, what),
   };
 }
 
@@ -545,11 +628,80 @@ function readDeviceInfo(x: unknown, what = 'the device'): DeviceInfo {
     platform: str(o, 'platform', what),
     pairedAt: whole(o.paired_at, `${what}.paired_at`),
     lastHeardAt: maybeWhole(o, 'last_heard_at', what),
+    phoneFacts: readPhoneFacts(o, what),
   };
 }
 
 export function readDevices(x: unknown): DeviceInfo[] {
   return list(x, 'devices').map((d, i) => readDeviceInfo(d, `devices[${i}]`));
+}
+
+/** One device (`device`), with how it stands. */
+export function readDeviceAndStanding(x: unknown): DeviceAndStanding {
+  return { ...readDeviceInfo(x), standing: readStanding(obj(x, 'the device')) };
+}
+
+function maybeStr(o: Obj, key: string, what: string): string | null {
+  return o[key] === null || o[key] === undefined ? null : str(o, key, what);
+}
+
+/** A line and its advice; an empty line is no line. */
+function said(o: Obj, what: string): Said {
+  const line = maybeStr(o, 'line', what);
+  const advice = maybeStr(o, 'advice', what);
+  return { line: line === '' ? null : line, advice: advice === '' ? null : advice };
+}
+
+/** `phone.look`: where adding a phone stands, as the console's own look answers it. */
+export function readPhoneLook(x: unknown): PhoneLook {
+  const o = obj(x, 'the look');
+  const c = obj(o.cable, 'the look.cable');
+  const p = o.phone === null || o.phone === undefined ? null : obj(o.phone, 'the look.phone');
+  const i = obj(o.install, 'the look.install');
+  const pr = obj(o.pairing, 'the look.pairing');
+  const d = obj(o.debugging, 'the look.debugging');
+  const sent = i.sent === null || i.sent === undefined ? null : i.sent;
+  if (sent !== null && (typeof sent !== 'number' || sent < 0 || sent > 1)) throw new SeamError('the look.install.sent is not from 0 to 1');
+  const device = pr.device === null || pr.device === undefined ? null : obj(pr.device, 'the look.pairing.device');
+  const fingerprint = maybeStr(o, 'fingerprint', 'the look');
+  return {
+    cable: { case: oneOf(c, 'case', CABLE_CASES, 'the look.cable'), line: words(c, 'line', 'the look.cable'), more: str(c, 'more', 'the look.cable') },
+    fingerprint: fingerprint === '' ? null : fingerprint,
+    phone: p && {
+      name: words(p, 'name', 'the look.phone'),
+      model: str(p, 'model', 'the look.phone'),
+      android: str(p, 'android', 'the look.phone'),
+      recentEnough: bool(p, 'recent_enough', 'the look.phone'),
+      limo: (() => {
+        const l = obj(p.limo, 'the look.phone.limo');
+        return {
+          looked: bool(l, 'looked', 'the look.phone.limo'),
+          onIt: l.on_it === null || l.on_it === undefined ? null : bool(l, 'on_it', 'the look.phone.limo'),
+          version: maybeStr(l, 'version', 'the look.phone.limo'),
+        };
+      })(),
+      thisPcCarries: maybeStr(p, 'this_pc_carries', 'the look.phone'),
+    },
+    checks: list(o.checks, 'the look.checks').map((k, n) => {
+      const ok = obj(k, `the look.checks[${n}]`);
+      return { ok: bool(ok, 'ok', `the look.checks[${n}]`), words: words(ok, 'words', `the look.checks[${n}]`) };
+    }),
+    install: { stage: oneOf(i, 'stage', INSTALL_STAGES, 'the look.install'), sent, ...said(i, 'the look.install') },
+    pairing: {
+      stage: oneOf(pr, 'stage', PAIR_STAGES, 'the look.pairing'),
+      device: device && { deviceId: words(device, 'device_id', 'the look.pairing.device'), name: words(device, 'name', 'the look.pairing.device') },
+      // A way these screens do not know is left out.
+      ways: list(pr.ways, 'the look.pairing.ways').filter((w): w is PhoneWay => w === 'cable' || w === 'home_network'),
+      ...said(pr, 'the look.pairing'),
+    },
+    debugging: { stage: oneOf(d, 'stage', DEBUGGING_STAGES, 'the look.debugging'), ...said(d, 'the look.debugging') },
+    busy: maybeStr(o, 'busy', 'the look'),
+    held: bool(o, 'held', 'the look'),
+  };
+}
+
+export function readStarted(x: unknown): Started {
+  return { started: bool(obj(x, 'the answer'), 'started', 'the answer') };
 }
 
 /** A child's usage: each device, with each app's time. */
@@ -581,7 +733,60 @@ export function readPcSettings(x: unknown): PcSettings {
 
 export function readCode(x: unknown): OneTimeCode {
   const o = obj(x, 'the code');
-  return { shown: words(o, 'shown', 'the code'), minutes: count(o, 'minutes', 'the code'), deviceId: words(o, 'device_id', 'the code') };
+  return {
+    shown: words(o, 'shown', 'the code'),
+    minutes: count(o, 'minutes', 'the code'),
+    deviceId: words(o, 'device_id', 'the code'),
+    codesLeftToday: maybeCount(o, 'codes_left_today', 'the code'),
+  };
+}
+
+/** A phone's facts, null for the PC's own device or where the door says nothing of them. */
+export function readPhoneFacts(o: Obj, what: string): PhoneFacts | null {
+  if (o.phone_facts === undefined || o.phone_facts === null) return null;
+  const f = obj(o.phone_facts, `${what}.phone_facts`);
+  return {
+    model: maybeText(f, 'model', `${what}.phone_facts`),
+    android: maybeCount(f, 'android_version', `${what}.phone_facts`),
+    limoVersion: maybeText(f, 'limo_version', `${what}.phone_facts`),
+  };
+}
+
+function maybeText(o: Obj, key: string, what: string): string | null {
+  return o[key] === null || o[key] === undefined || o[key] === '' ? null : str(o, key, what);
+}
+
+/** `app_names`: each app a child's rules or day name. */
+export function readAppNames(x: unknown): AppName[] {
+  return list(x, 'app_names').map((a, i) => {
+    const what = `app_names[${i}]`;
+    const o = obj(a, what);
+    return {
+      appId: words(o, 'app_id', what),
+      name: maybeText(o, 'name', what),
+      devices: list(o.devices, `${what}.devices`).map((d, j) => {
+        const od = obj(d, `${what}.devices[${j}]`);
+        return { deviceId: words(od, 'device_id', `${what}.devices[${j}]`), name: str(od, 'name', `${what}.devices[${j}]`) };
+      }),
+    };
+  });
+}
+
+/** `device_apps`: one device's apps by name. */
+export function readDeviceApps(x: unknown): DeviceApps {
+  const o = obj(x, 'device_apps');
+  return {
+    deviceId: words(o, 'device_id', 'device_apps'),
+    source: oneOf(o, 'source', ['phone_list', 'seen_running'] as const, 'device_apps'),
+    apps: list(o.apps, 'device_apps.apps').map((a, i) => {
+      const oa = obj(a, `device_apps.apps[${i}]`);
+      const id = words(oa, 'app_id', `device_apps.apps[${i}]`);
+      return { appId: id, name: maybeText(oa, 'name', `device_apps.apps[${i}]`) ?? id };
+    }),
+    keptAt: maybeWhole(o, 'kept_at', 'device_apps'),
+    total: count(o, 'total', 'device_apps'),
+    cut: bool(o, 'cut', 'device_apps'),
+  };
 }
 
 function readUntil(x: unknown): { until: number } {
@@ -703,6 +908,14 @@ const READ: { [N in DoorName]: (x: unknown) => DoorRequests[N]['answer'] } = {
   change_password: readNothing,
   allow_removal: readUntil,
   delete_family: readNothing,
+  device: readDeviceAndStanding,
+  app_names: readAppNames,
+  device_apps: readDeviceApps,
+  'phone.look': readPhoneLook,
+  'phone.install': readStarted,
+  'phone.pair': readStarted,
+  'phone.debugging_off': readStarted,
+  'phone.done': () => ({}),
 };
 
 /** Said when an answer of the door cannot be read: something the screens were not built for. */

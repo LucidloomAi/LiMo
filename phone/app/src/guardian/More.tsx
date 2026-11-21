@@ -181,6 +181,11 @@ export function Code({
         <Txt style={[gtype.detail, styles.detail]} wrap="pretty">
           {W.code.read(child.name, device.kind === 'on_master' ? W.code.thisPcInSentence : device.name)}
         </Txt>
+        {made.codesLeftToday !== null ? (
+          <Txt style={[gtype.small, styles.small]} testID="codes-left">
+            {W.code.left(made.codesLeftToday, device.kind === 'on_master')}
+          </Txt>
+        ) : null}
         <View style={[styles.pinRow, styles.gap]}>
           <Btn label={W.code.another} onPress={() => setMade(null)} height={field} outer={styles.flex} testID="another" />
           <Btn label={W.code.done} look="go" onPress={onBack} height={field} outer={styles.flex} testID="code-done" />

@@ -266,13 +266,15 @@ describe('the first start (F1 to F8)', () => {
     expect(screen.queryByText(W.welcome.window)).toBeNull();
   });
 
-  it('Add the phone now leads to adding a phone, which says plainly that it comes next', async () => {
-    renderGuardian(guardianStates.withAsha(false, true), { route: { at: 'first', initial: { step: 7, child: { childId: 'child-asha', name: 'Asha', ageBand: 'ten_to_twelve' } } } });
+  it('Add the phone now leads to adding a phone, for the only child with no question, and Back leaves it for Devices', async () => {
+    const { door } = renderGuardian(guardianStates.withAsha(false, true), { route: { at: 'first', initial: { step: 7, child: { childId: 'child-asha', name: 'Asha', ageBand: 'ten_to_twelve' } } } });
     await press('Add Asha’s phone now');
-    expect(await screen.findByText(W.devices.addComing)).toBeOnTheScreen();
-    expect(screen.getByRole('tab', { name: W.tabs.devices })).toBeSelected();
-    await press(`Back to ${W.tabs.devices}`);
+    expect(await screen.findByTestId('screen-add-phone-1')).toBeOnTheScreen();
+    expect(await screen.findByText('Asha’s phone')).toBeOnTheScreen();
+    expect(screen.queryByText(W.addPhone.a1.whose)).toBeNull();
+    await press(W.steps.back);
     expect(await screen.findByTestId('screen-devices')).toBeOnTheScreen();
+    expect(door.calls.map((c) => c.name)).toContain('phone.done');
   });
 });
 

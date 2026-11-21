@@ -11,15 +11,16 @@
 // nothing done) comes back to sign in with a plain sentence; a refusal, at
 // any time, shows the sign in's refusal. Under a tab, a screen of its own
 // opens with Back (a one time code, the password and the PIN, About, and
-// each screen that asks for the password again). Deleting the family goes
-// back to the first start. Adding a phone is still being drawn: it says so
-// in one sentence.
+// each screen that asks for the password again, and adding a phone, A1 to
+// A9, which ends on Devices). Deleting the family goes back to the first
+// start.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { type AccountRow, ask, type GuardianDoor, hostOf, type RuleSet } from '../guardianSeam';
-import { AddPhoneComing, Devices } from './Devices';
+import { AddPhone } from './AddPhone';
+import { Devices } from './Devices';
 import { FirstStart, type FirstStartState } from './FirstStart';
 import type { TabKey } from './GuardianTabs';
 import { About, Code, DeleteFamily, MoreList, RemoveChild, RemoveLimo, RemovePhone, Secrets } from './More';
@@ -38,7 +39,7 @@ export type GuardianSub =
   | { readonly at: 'remove-limo' }
   | { readonly at: 'remove-child'; readonly child: { readonly childId: string; readonly name: string } }
   | { readonly at: 'remove-phone'; readonly device: { readonly deviceId: string; readonly name: string } }
-  | { readonly at: 'add-phone' };
+  | { readonly at: 'add-phone'; readonly step?: number; readonly child?: string };
 
 /** For the preview's pictures only: a screen in a state a guardian reaches by tapping. */
 export type GuardianShow = {
@@ -156,7 +157,7 @@ export function GuardianApp({ door, initial }: { door: GuardianDoor; initial?: G
             screen = <RemovePhone {...common} device={sub.device} onBack={back} onRemoved={back} />;
             break;
           case 'add-phone':
-            screen = <AddPhoneComing onBack={back} onTab={tab} />;
+            screen = <AddPhone {...common} initialStep={sub.step} initialChild={sub.child} onLeave={() => tab('devices')} onAdded={() => tab('devices')} />;
             break;
         }
       } else {

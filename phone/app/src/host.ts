@@ -226,6 +226,8 @@ async function askConsole<N extends RequestName>(name: N, args: Requests[N]['arg
     if (problem && name.startsWith('guardian.')) return problem as Requests[N]['answer'];
     throw new HostError('Failed', problem?.kind === 'problem' ? problem.words : String(e));
   }
+  // The window answers its own requests for a phone (phone.*) with the value itself, not a door's reply.
+  if (name === 'guardian.door' && sent.wire.startsWith('phone.')) answer = { outcome: 'done', value: answer };
   try {
     return READ[name](answer);
   } catch (e) {

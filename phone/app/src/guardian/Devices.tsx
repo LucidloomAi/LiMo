@@ -3,13 +3,14 @@
 // accounts and its two settings. On a phone one column, the phones first;
 // at the console's width this PC at the left and the phones at the right.
 //
-// A phone's card says only what the door says of it: whose it is, when it
-// was paired, when it was last heard, whether it is in use, its protection,
-// each of its six setup steps (left out when nothing is known of how it
-// stands), whether USB debugging is still on, and how far its clock is off.
-// The door has no model, Android version, LiMo version, or home and away for
-// a phone, so those drawn rows are left out, and switching USB debugging off
-// is done over the cable, which comes with Add a phone. The family's state is
+// A phone's card says only what the door says of it: whose it is, what it
+// said it is (its model and Android, and LiMo's version on it; nothing while
+// it has said nothing), when it was paired, when it was last heard, whether it
+// is in use, its protection, each of its six setup steps (left out when
+// nothing is known of how it stands), whether USB debugging is still on, and
+// how far its clock is off. The door has no home and away for a phone, so
+// that drawn row is left out, and switching USB debugging off is done over
+// the cable, in Add a phone. The family's state is
 // asked again every 5 seconds while Devices is in front, as on Today.
 
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
@@ -33,7 +34,7 @@ import { Txt } from '../ui/paper/text';
 import { useClock } from './clock';
 import { GuardianTabs, type TabKey } from './GuardianTabs';
 import { Page } from './Page';
-import { Btn, Card, Chip, Field, GroupLabel, Head2, Kvs, Label, Mark, Room, Stepper, SubHead, Tile, TopRow, useSizes } from './parts';
+import { Btn, Card, Chip, Field, GroupLabel, Head2, Kvs, Label, Mark, Room, Stepper, Tile, TopRow, useSizes } from './parts';
 import { gtype } from './text';
 import { dateLine, heardAgo, minutesInSentence, shortDate } from './time';
 import { ASK_AGAIN_MS } from './Today';
@@ -61,9 +62,9 @@ function Warn({ title, text, testID }: { title: string; text: string; testID?: s
 }
 
 /** The six steps of a phone's setup: a teal tick when on; a hollow ring and "Not on" in coral when off, or "Not yet" while no note said. */
-function Six({ steps }: { steps: readonly PhoneStep[] }) {
+export function Six({ steps, top = 10 }: { steps: readonly PhoneStep[]; top?: number }) {
   return (
-    <View style={styles.oks} testID="six">
+    <View style={{ marginTop: top }} testID="six">
       {steps.map(({ permission: p, on }, i) => {
         const word = on === true ? W.devices.on : on === false ? W.devices.notOn : W.devices.notYet;
         return (
@@ -105,6 +106,10 @@ function PhoneCard({
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const rows: { k: string; v: string; teal?: boolean }[] = [{ k: W.devices.child, v: child.name }];
+  // What the phone said it is: its model and Android; nothing while it has said nothing.
+  const facts = device.phoneFacts;
+  const what = [facts?.model, facts && facts.android !== null ? W.devices.android(facts.android) : null].filter((x): x is string => Boolean(x));
+  if (what.length) rows.push({ k: W.devices.phone, v: what.join(', ') });
   if (info) rows.push({ k: W.devices.paired, v: shortDate(info.pairedAt, clock) });
   if (device.lastHeardAt !== null) {
     rows.push({ k: W.devices.lastHeard, v: now - device.lastHeardAt < JUST_HEARD_SECS ? W.devices.justNow : heardAgo(now, device.lastHeardAt, clock) });
@@ -112,6 +117,7 @@ function PhoneCard({
   if (device.inUse) rows.push({ k: W.devices.now, v: W.devices.inUse, teal: true });
   const protection = device.standing?.protection;
   if (protection) rows.push({ k: W.devices.protection, v: W.devices.protectionLevel[protection], teal: protection !== 'off' });
+  if (facts?.limoVersion) rows.push({ k: W.devices.limoOnIt, v: facts.limoVersion });
   const off = device.clockOffBySecs;
   const clockSaid = off !== null && Math.abs(off) >= CLOCK_SAID_FROM_SECS;
   const span = minutesInSentence(Math.floor(Math.abs(off ?? 0) / 60));
@@ -442,38 +448,15 @@ export function Devices({
   );
 }
 
-/** Adding a phone over the cable is the next sheet's: one screen says so plainly. */
-export function AddPhoneComing({ onBack, onTab }: { onBack: () => void; onTab: (tab: TabKey) => void }) {
-  const { now: nowOf, clock } = useClock();
-  const now = nowOf();
-  return (
-    <Page testID="screen-add-phone" tabs={<GuardianTabs picked="devices" onPick={onTab} />}>
-      <TopRow right={<Label>{dateLine(now, clock)}</Label>} />
-      <View style={styles.column}>
-        <SubHead to={W.tabs.devices} onBack={onBack} />
-        <Card>
-          <Head2 icon="phone" title={W.devices.addPhone} />
-          <Txt style={[gtype.detail, styles.detail]} wrap="pretty" testID="add-phone-coming">
-            {W.devices.addComing}
-          </Txt>
-        </Card>
-      </View>
-    </Page>
-  );
-}
-
-
 const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   bold: { fontWeight: '600' },
   loadErr: { marginTop: 8, marginHorizontal: 2 },
-  column: { width: '100%', maxWidth: 560, alignSelf: 'center' },
   detail: { marginTop: 10 },
   devs: { gap: 14, marginTop: 10 },
   devsWide: { flexDirection: 'row', gap: 22, marginTop: 14, alignItems: 'flex-start' },
   stack: { gap: 14 },
   rename: { marginTop: 10 },
-  oks: { marginTop: 10 },
   ok: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 36 },
   okAfter: { minHeight: 34.5 },
   gap: { marginTop: 14 },

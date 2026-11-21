@@ -38,15 +38,17 @@ describe('Rules (R1 to R3)', () => {
     expect(screen.getByRole('button', { name: `${W.bedtime.to}, 7:00 am` })).toBeOnTheScreen();
     expect(screen.getByText('When Asha’s phone cannot reach this PC, it may use up to half of the day.')).toBeOnTheScreen();
     expect(screen.getByRole('radio', { name: 'Half' })).toBeChecked();
-    expect(within(screen.getByTestId('blocked')).getByText('Game Launcher')).toBeOnTheScreen();
-    // Offered from what Asha used today, less what is in a list already.
+    // Each app by its name, under each device whose list has it, as drawn.
+    expect(within(screen.getByTestId('blocked-on-pc-asha')).getByText('Game Launcher')).toBeOnTheScreen();
+    expect(within(screen.getByTestId('blocked-on-phone-asha')).getByText('Game Launcher')).toBeOnTheScreen();
+    // Offered once, under this PC: what Asha used on it today, less what is in a list already.
     expect(within(screen.getByTestId('offer')).getAllByRole('button').map((b) => b.props.accessibilityLabel)).toEqual([
       'Add from what Asha used today: Chrome',
       'Add from what Asha used today: Paint',
-      'Add from what Asha used today: Gallery',
     ]);
+    expect(within(screen.getByTestId('blocked-on-pc-asha')).getByTestId('offer')).toBeOnTheScreen();
     // The phone call app, never blocked, first among the always allowed on a child with a phone.
-    inOrder(textsInOrder(), [W.rules.allowed, W.rules.phoneApp, W.rules.neverBlockedMark, 'Calculator', 'Messages', 'Clock', 'Maps', W.rules.neverBlocked]);
+    inOrder(textsInOrder(), [W.rules.allowed, W.rules.onThisPc, 'Calculator', 'On Asha’s phone', W.rules.phoneApp, W.rules.neverBlockedMark, 'Messages', 'Clock', 'Maps', W.rules.neverBlocked]);
     inOrder(textsInOrder(), [W.rules.use, 'On this PC · 17 min', 'Chrome', '11 min', 'Paint', '6 min', 'On Asha’s phone · 31 min', 'Maps', '12 min']);
     expect(screen.getByText(W.rules.atMidnight)).toBeOnTheScreen();
     expect(screen.getByText('Asha, 10 to 12')).toBeOnTheScreen();
@@ -86,9 +88,10 @@ describe('Rules (R1 to R3)', () => {
 
   it('a problem with an app is outlined on its row, as drawn (R2)', async () => {
     renderGuardian(guardianStates.family(), {
-      route: { at: 'app', tab: 'rules', show: { rulesDraft: (r) => ({ ...r, blocked_apps: [...r.blocked_apps, 'Maps'] }), rulesSave: true } },
+      route: { at: 'app', tab: 'rules', show: { rulesDraft: (r) => ({ ...r, blocked_apps: [...r.blocked_apps, 'com.google.android.apps.maps'] }), rulesSave: true } },
     });
-    expect(await screen.findByTestId('rule-problem')).toHaveTextContent('Maps is both always allowed and blocked. Choose one.');
+    // The rules' own sentence, which names the app by its id.
+    expect(await screen.findByTestId('rule-problem')).toHaveTextContent('com.google.android.apps.maps is both always allowed and blocked. Choose one.');
     expect(within(screen.getByTestId('blocked')).getByTestId('rule-problem')).toBeOnTheScreen();
     expect(screen.getByTestId('not-saved')).toHaveTextContent('Not saved. One thing to fix.');
     // Taking it off again: the problem goes with it, and nothing is left to save.
@@ -98,6 +101,34 @@ describe('Rules (R1 to R3)', () => {
     });
     expect(screen.queryByTestId('rule-problem')).toBeNull();
     expect(screen.queryByTestId('save')).toBeNull();
+  });
+
+  it('Add an app: a device’s own list, and the PC’s says what it knows', async () => {
+    const { door } = renderGuardian(guardianStates.family(), { route: { at: 'app', tab: 'rules' } });
+    await screen.findByTestId('blocked');
+    await tap('add-blocked');
+    const picker = await screen.findByTestId('add-app');
+    // This PC first: the programs seen running in Asha's accounts, less those blocked already.
+    expect(await within(picker).findByTestId('pc-known')).toHaveTextContent(W.rules.pcKnown('Asha'));
+    expect(asked(door, 'device_apps')[0].args).toEqual({ device: 'pc-asha' });
+    expect(within(picker).queryByText('Game Launcher')).toBeNull();
+    await press(W.rules.addThis('Notepad'));
+    // Asha's phone: its own list, as it sent it.
+    await pick('Asha’s phone');
+    expect(await within(screen.getByTestId('add-app')).findByText('WhatsApp')).toBeOnTheScreen();
+    expect(within(screen.getByTestId('add-app')).queryByTestId('pc-known')).toBeNull();
+    await press(W.rules.addThis('WhatsApp'));
+    await tap('save');
+    expect(asked(door, 'replace_rules')[0].args).toMatchObject({ rules: { blocked_apps: ['gamelauncher.exe', 'com.example.gamelauncher', 'notepad.exe', 'com.whatsapp'] } });
+  });
+
+  it('an app no device names: its plain id, under no device', async () => {
+    const state = guardianStates.family();
+    state.children[0].rules = { ...state.children[0].rules, blocked_apps: [...state.children[0].rules.blocked_apps, 'oldgame.exe'] };
+    renderGuardian(state, { route: { at: 'app', tab: 'rules' } });
+    const nowhere = await screen.findByTestId('blocked-on-nowhere');
+    expect(within(nowhere).getByText(W.rules.onNoDevice)).toBeOnTheScreen();
+    expect(within(nowhere).getByText('oldgame.exe')).toBeOnTheScreen();
   });
 
   it('Undo changes puts back the rules kept', async () => {
@@ -119,7 +150,11 @@ describe('Rules (R1 to R3)', () => {
     await pick('A quarter');
     await tap('save');
     expect(asked(door, 'replace_rules')[0].args).toMatchObject({
-      rules: { blocked_apps: ['Game Launcher', 'Chrome'], always_allowed_apps: ['Messages', 'Clock', 'Maps'], away_share_percent: 25 },
+      rules: {
+        blocked_apps: ['gamelauncher.exe', 'com.example.gamelauncher', 'chrome.exe'],
+        always_allowed_apps: ['com.samsung.android.messaging', 'com.sec.android.app.clockpackage', 'com.google.android.apps.maps'],
+        away_share_percent: 25,
+      },
     });
     expect(screen.getByText('When Asha’s phone cannot reach this PC, it may use up to a quarter of the day.')).toBeOnTheScreen();
   });
@@ -212,7 +247,15 @@ describe('Devices (D1 and D2)', () => {
     renderGuardian(guardianStates.family(), { route: { at: 'app', tab: 'devices' } });
     const phone = await screen.findByTestId('phone-phone-asha');
     expect(within(phone).getByText('Asha’s phone')).toBeOnTheScreen();
-    for (const fact of [`${W.devices.child}: Asha`, `${W.devices.paired}: 21 Nov`, `${W.devices.lastHeard}: ${W.devices.justNow}`, `${W.devices.now}: ${W.devices.inUse}`, `${W.devices.protection}: On`]) {
+    for (const fact of [
+      `${W.devices.child}: Asha`,
+      `${W.devices.phone}: samsung SM-G988B, Android 13`,
+      `${W.devices.paired}: 21 Nov`,
+      `${W.devices.lastHeard}: ${W.devices.justNow}`,
+      `${W.devices.now}: ${W.devices.inUse}`,
+      `${W.devices.protection}: On`,
+      `${W.devices.limoOnIt}: 0.1.0`,
+    ]) {
       expect(within(within(phone).getByTestId('phone-facts')).getByLabelText(fact)).toBeOnTheScreen();
     }
     // All six on, said by the phone.
@@ -328,11 +371,12 @@ describe('Devices (D1 and D2)', () => {
     expect(screen.queryByTestId('phone-phone-asha')).toBeNull();
   });
 
-  it('Add a phone leads to one screen that says plainly it comes next', async () => {
+  it('Add a phone opens its first step, asking whose phone', async () => {
     renderGuardian(guardianStates.family(), { route: { at: 'app', tab: 'devices' } });
     await screen.findByTestId('this-pc');
     await tap('add-phone');
-    expect(await screen.findByText(W.devices.addComing)).toBeOnTheScreen();
+    expect(await screen.findByTestId('screen-add-phone-1')).toBeOnTheScreen();
+    expect(await screen.findByText(W.addPhone.a1.whose)).toBeOnTheScreen();
   });
 });
 
@@ -350,6 +394,8 @@ describe('a one time code (K1 and K2)', () => {
     expect(screen.getByText('4718')).toBeOnTheScreen();
     expect(screen.getByText('2093')).toBeOnTheScreen();
     expect(screen.getByText('Read it to Asha. It works once, today only, on Asha’s phone, when its time is used up.')).toBeOnTheScreen();
+    // How many more today, as the door says after the code.
+    expect(screen.getByTestId('codes-left')).toHaveTextContent('You can make 9 more for this phone today.');
     // Another, for this PC.
     await tap('another');
     await pick(W.devices.thisPc);
@@ -491,7 +537,7 @@ describe('for a finger and a screen reader', () => {
     );
   const SCREENS: [string, GuardianRoute, string][] = [
     ['R1', { at: 'app', tab: 'rules' }, 'time-a-day'],
-    ['R2', { at: 'app', tab: 'rules', show: { rulesDraft: (r) => ({ ...r, blocked_apps: [...r.blocked_apps, 'Maps'] }), rulesSave: true } }, 'rule-problem'],
+    ['R2', { at: 'app', tab: 'rules', show: { rulesDraft: (r) => ({ ...r, blocked_apps: [...r.blocked_apps, 'com.google.android.apps.maps'] }), rulesSave: true } }, 'rule-problem'],
     ['D1', { at: 'app', tab: 'devices' }, 'phone-phone-asha'],
     ['K1', { at: 'app', tab: 'more', sub: { at: 'code' } }, 'make-code'],
     ['K2', { at: 'app', tab: 'more', sub: { at: 'code' }, show: { codeMade: true } }, 'the-code'],

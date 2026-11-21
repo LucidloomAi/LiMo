@@ -128,6 +128,19 @@ export const gtype = StyleSheet.create({
   address: { ...mono('500', 14, 19.6), color: color.ink },
   /** A line that says a change was made, in teal. */
   done: { fontSize: 14, lineHeight: 20, fontWeight: '600', color: color.teal },
+  /** .cn-foot b, i: the cable's state at the foot of Add a phone. */
+  footLine: { fontSize: 15, lineHeight: 19.5, fontWeight: '600', color: color.ink },
+  footMore: { fontSize: 14, lineHeight: 18.2, color: color.inkSoft },
+  /** .cn-ol li, .sub, and its number. */
+  olItem: { fontSize: 16, lineHeight: 22.4, color: color.ink },
+  olSub: { fontSize: 14, lineHeight: 19.6, color: color.inkSoft },
+  olNumber: { ...mono('600', 13, 13), color: color.ink },
+  /** .cn-note p. */
+  note: { fontSize: 14, lineHeight: 19.6, color: color.ink },
+  /** .cn-finger: the key's fingerprint, to compare with the phone's. */
+  finger: { ...mono('600', 17, 27.2, 0.03), color: color.ink },
+  /** .cn-statusrow. */
+  status: { fontSize: 15, lineHeight: 21, color: color.inkSoft },
   /** .cn-maker span: "MADE BY". */
   makerWords: { ...mono('500', 12, 12, 0.12), textTransform: 'uppercase', color: color.inkSoft },
   /** .cn-maker b. */

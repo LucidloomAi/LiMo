@@ -238,6 +238,36 @@ describe('the console in the host seam', () => {
     ]);
   });
 
+  it('takes the window’s own answers for a phone as they come: the value itself, or {code, words}; a door’s reply still as before', async () => {
+    const calls: { command: string; args: Record<string, unknown> }[] = [];
+    const look = { cable: { case: 'none', line: 'No phone on a USB port.', more: '' } };
+    const noPhone = { code: 'no_phone', words: 'No phone is connected yet. Plug it in, unlocked, with USB debugging on.' };
+    (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (args.name === 'phone.look') return look;
+        if (args.name === 'phone.pair') return { started: true };
+        if (args.name === 'phone.install') throw noPhone;
+        if (args.name === 'family_state') return { outcome: 'done', value: { has_family: true } };
+        // A door's request answered with a bare value: not a reply.
+        return { has_family: true };
+      },
+    };
+    expect(await guardianHost.ask('phone.look', {})).toEqual({ kind: 'done', value: look });
+    expect(await guardianHost.ask('phone.pair', { child: 'child-1' })).toEqual({ kind: 'done', value: { started: true } });
+    expect(await guardianHost.ask('phone.install', {})).toEqual({ kind: 'problem', ...noPhone });
+    // A door's reply is read as before, and a door's answer that is not a reply is still refused.
+    expect(await guardianHost.ask('family_state', {})).toEqual({ kind: 'done', value: { has_family: true } });
+    expect((await guardianHost.ask('about', {})).kind).toBe('problem');
+    expect(calls).toEqual([
+      { command: 'request', args: { name: 'phone.look', args: {} } },
+      { command: 'request', args: { name: 'phone.pair', args: { child: 'child-1' } } },
+      { command: 'request', args: { name: 'phone.install', args: {} } },
+      { command: 'request', args: { name: 'family_state', args: {} } },
+      { command: 'request', args: { name: 'about', args: {} } },
+    ]);
+  });
+
   it('turns a reply it cannot read into words, never a sign in', async () => {
     (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke: async () => ({ answer: 'signed_in_maybe' }) };
     const outcome = await guardianHost.signIn('pw');

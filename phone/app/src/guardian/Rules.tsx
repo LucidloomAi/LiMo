@@ -10,17 +10,18 @@
 // page scrolls to the first such row as the drawing does. Saved, a notice
 // floats above the tab bar for a moment.
 //
-// The door's rules keep one list of blocked apps and one of always allowed
-// apps for all of a child's devices, by the names the devices give them, and
-// say nothing of which device an app is on: the lists are shown whole, not
-// under each device as drawn. Apps are offered from what the child used today
-// (`usage`).
+// The rules keep one list of blocked apps and one of always allowed apps,
+// by app id, for all of a child's devices. Each app is shown by the name a
+// device gave it, and under each device whose list has it, as drawn
+// (`app_names`); its plain id only when no device named it. Apps are offered
+// from what the child used today (`usage`), and Add an app offers a device's
+// own list (`device_apps`).
 
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, type ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ask, type Asked, type BlockedWindow, type ChildToday, type DeviceUsage, type GuardianDoor, type RuleProblem, type RuleSet, type Weekday, WEEKDAYS } from '../guardianSeam';
+import { type AppName, ask, type DeviceApps, type Asked, type BlockedWindow, type ChildToday, type DeviceUsage, type GuardianDoor, type RuleProblem, type RuleSet, type Weekday, WEEKDAYS } from '../guardianSeam';
 import { Icon } from '../icons/Icon';
 import { borderWidth, color } from '../theme';
 import { Dashed, Shadow } from '../ui/paper/parts';
@@ -94,6 +95,85 @@ function AppRow({
           {problem}
         </Txt>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * Add an app: one device's own list, a phone's as it sent it or the PC's
+ * programs seen running in the child's accounts (`device_apps`), each to add
+ * to this list with a tap. The PC's says plainly what it knows.
+ */
+function AddApp({
+  door,
+  child,
+  list,
+  onAdd,
+}: {
+  door: GuardianDoor;
+  child: ChildToday;
+  list: readonly string[];
+  onAdd: (id: string) => void;
+}) {
+  const [deviceId, setDeviceId] = useState<string | null>(child.devices[0]?.deviceId ?? null);
+  const [apps, setApps] = useState<DeviceApps | null>(null);
+  const [err, setErr] = useState('');
+  const [find, setFind] = useState('');
+  useEffect(() => {
+    if (!deviceId) return undefined;
+    let live = true;
+    setApps(null);
+    void ask(door, 'device_apps', { device: deviceId }).then((got) => {
+      if (!live) return;
+      if (got.kind === 'done') {
+        setApps(got.value);
+        setErr('');
+      } else setErr(got.words);
+    });
+    return () => {
+      live = false;
+    };
+  }, [door, deviceId]);
+  const device = child.devices.find((d) => d.deviceId === deviceId);
+  const inList = new Set(list.map((a) => a.toLowerCase()));
+  const looking = find.trim().toLowerCase();
+  const shown = (apps?.apps ?? []).filter((a) => !inList.has(a.appId.toLowerCase()) && (!looking || a.name.toLowerCase().includes(looking)));
+  const deviceName = (d: ChildToday['devices'][number]) => (d.kind === 'on_master' ? W.devices.thisPc : d.name);
+  return (
+    <View style={styles.adding} testID="add-app">
+      {child.devices.length > 1 ? (
+        <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel={W.rules.addApp}>
+          {child.devices.map((d) => (
+            <Chip key={d.deviceId} label={deviceName(d)} on={d.deviceId === deviceId} onPress={() => setDeviceId(d.deviceId)} testID={`apps-of-${d.deviceId}`} />
+          ))}
+        </View>
+      ) : null}
+      {apps?.source === 'seen_running' ? (
+        <Txt style={[gtype.small, styles.small]} wrap="pretty" testID="pc-known">
+          {W.rules.pcKnown(child.name)}
+        </Txt>
+      ) : null}
+      {apps && apps.source === 'phone_list' && apps.keptAt === null && device ? (
+        <Txt style={[gtype.small, styles.small]} wrap="pretty">
+          {W.rules.noList(device.name)}
+        </Txt>
+      ) : null}
+      {apps && apps.apps.length > 8 ? <Field testID="find-app" value={find} onChangeText={setFind} placeholder={W.rules.find} accessibilityLabel={W.rules.find} /> : null}
+      <View style={styles.pickList}>
+        {shown.map((a, i) => (
+          <View key={a.appId}>
+            {i > 0 ? <Dashed /> : null}
+            <View style={styles.app}>
+              <Letter name={a.name} />
+              <Txt style={[gtype.appName, styles.flex]}>{a.name}</Txt>
+              <Square mark={Mark.plus()} label={W.rules.addThis(a.name)} onPress={() => onAdd(a.appId)} testID={`add-${a.appId}`} />
+            </View>
+          </View>
+        ))}
+      </View>
+      {apps && apps.apps.length > 0 && shown.length === 0 && !looking ? <Txt style={[gtype.small, styles.small]}>{W.rules.allListed}</Txt> : null}
+      {apps?.cut ? <Txt style={[gtype.small, styles.small]}>{W.rules.cut(apps.apps.length, apps.total)}</Txt> : null}
+      {err ? <Txt style={[gtype.err, styles.problem]}>{err}</Txt> : null}
     </View>
   );
 }
@@ -209,7 +289,8 @@ export function Rules({
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(initialSaved);
   const [picking, setPicking] = useState<'from' | 'to' | 'day' | null>(null);
-  const [addNote, setAddNote] = useState(false);
+  const [names, setNames] = useState<ReadonlyMap<string, AppName>>(new Map());
+  const [adding, setAdding] = useState<AppList | null>(null);
   const [editName, setEditName] = useState(false);
   const [heights, setHeights] = useState<readonly number[]>([]);
   const scrollRef = useRef<ScrollView | null>(null);
@@ -274,7 +355,11 @@ export function Rules({
   useEffect(() => {
     if (!childId || day === undefined) return undefined;
     let current = true;
-    void Promise.all([ask(door, 'rules', { child: childId }), ask(door, 'usage', { child: childId, from_day: day, to_day: day })]).then(([rules, use]) => {
+    void Promise.all([
+      ask(door, 'rules', { child: childId }),
+      ask(door, 'usage', { child: childId, from_day: day, to_day: day }),
+      ask(door, 'app_names', { child: childId }),
+    ]).then(([rules, use, named]) => {
       if (!current || !live.current) return;
       if (rules.kind !== 'done') return setErr(said(rules));
       const first = !started.current;
@@ -286,6 +371,7 @@ export function Rules({
       setProblems([]);
       setErr('');
       setUsage(use.kind === 'done' ? use.value : []);
+      setNames(new Map(named.kind === 'done' ? named.value.map((a) => [a.appId.toLowerCase(), a] as const) : []));
       if (first && saveAtStart) void saveRef.current(childId, start);
     });
     return () => {
@@ -356,20 +442,31 @@ export function Rules({
       .map((p) => p.message)
       .join(' ');
   const firstProblem = problems[0];
-  const listed = new Set([...rules.blocked_apps, ...rules.always_allowed_apps]);
-  const offered = [...new Set(usage.flatMap((d) => d.apps.map((a) => a.appId)).filter((a) => a !== '' && !listed.has(a)))];
-  const hasPhone = child.devices.some((d) => d.kind === 'portable');
+  const listed = new Set([...rules.blocked_apps, ...rules.always_allowed_apps].map((a) => a.toLowerCase()));
   const deviceKind = (id: string) => child.devices.find((d) => d.deviceId === id)?.kind;
+  /** An app by the name a device gave it; its plain id only when no device named it. */
+  const nameOf = (id: string) => names.get(id.toLowerCase())?.name ?? id;
+  /** Where each device's list is said: "On this PC", "On Asha's phone". */
+  const groupOf = (deviceId: string, deviceName: string) => (deviceKind(deviceId) === 'on_master' ? W.rules.onThisPc : W.rules.onDevice(deviceName));
+  /** Apps used today on a device, not in either list: offered to block. */
+  const offerOn = (deviceId: string) =>
+    [...new Set((usage.find((u) => u.deviceId === deviceId)?.apps ?? []).map((a) => a.appId).filter((a) => a !== '' && !listed.has(a.toLowerCase())))];
+  // The drawing offers once: under the first device whose use today has something to offer.
+  const offerDevice = child.devices.find((d) => offerOn(d.deviceId).length)?.deviceId ?? null;
+  let badPlaced = false;
 
-  const appList = (list: AppList) =>
-    rules[list].map((app, i) => {
-      const problem = problems.find((p) => indexIn(p.field, list) === i)?.message;
-      const isFirst = firstProblem !== undefined && indexIn(firstProblem.field, list) === i;
+  /** One list, under each of the child's devices whose list has the app; apps no device names, after them. */
+  const appGroups = (list: AppList, afterHead: boolean) => {
+    const rows = rules[list].map((app, i) => ({ app, i, on: names.get(app.toLowerCase())?.devices.map((d) => d.deviceId) ?? [] }));
+    const row = (r: (typeof rows)[number], first: boolean) => {
+      const problem = problems.find((p) => indexIn(p.field, list) === r.i)?.message;
+      const isFirst = !badPlaced && firstProblem !== undefined && indexIn(firstProblem.field, list) === r.i;
+      if (isFirst) badPlaced = true;
       return (
         <AppRow
-          key={`${app} ${i}`}
-          name={app}
-          first={i === 0 && !(list === 'always_allowed_apps' && hasPhone)}
+          key={`${r.app} ${r.i}`}
+          name={nameOf(r.app)}
+          first={first}
           problem={problem}
           rowRef={
             isFirst
@@ -378,10 +475,55 @@ export function Rules({
                 }
               : undefined
           }
-          onOff={() => change({ ...rules, [list]: rules[list].filter((_, k) => k !== i) })}
+          onOff={() => change({ ...rules, [list]: rules[list].filter((_, k) => k !== r.i) })}
         />
       );
+    };
+    // Each group's label: 14 under the card's head, 18 after anything else.
+    let shown = 0;
+    const label = (words: string) => <GroupLabel first={afterHead && shown++ === 0}>{words}</GroupLabel>;
+    const groups: ReactNode[] = child.devices.map((d) => {
+      const mine = rows.filter((r) => r.on.includes(d.deviceId));
+      const phoneRow = list === 'always_allowed_apps' && d.kind === 'portable';
+      const offer = list === 'blocked_apps' && offerDevice === d.deviceId ? offerOn(d.deviceId) : [];
+      if (!mine.length && !phoneRow && !offer.length) return null;
+      return (
+        <View key={d.deviceId} testID={`${list === 'blocked_apps' ? 'blocked' : 'allowed'}-on-${d.deviceId}`}>
+          {label(groupOf(d.deviceId, d.name))}
+          {phoneRow ? <AppRow name={W.rules.phoneApp} first fixed={W.rules.neverBlockedMark} /> : null}
+          {mine.map((r, k) => row(r, k === 0 && !phoneRow))}
+          {offer.length ? (
+            <View style={styles.offer} testID="offer">
+              <Label>{W.rules.offer(name)}</Label>
+              <View style={styles.chips}>
+                {offer.map((app) => (
+                  <Chip
+                    key={app}
+                    add
+                    label={nameOf(app)}
+                    a11y={`${W.rules.offer(name)}: ${nameOf(app)}`}
+                    on={false}
+                    onPress={() => change({ ...rules, blocked_apps: [...rules.blocked_apps, app] })}
+                    testID={`offer-${nameOf(app)}`}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      );
     });
+    const nowhere = rows.filter((r) => !r.on.some((id) => child.devices.some((d) => d.deviceId === id)));
+    if (nowhere.length) {
+      groups.push(
+        <View key="nowhere" testID={`${list === 'blocked_apps' ? 'blocked' : 'allowed'}-on-nowhere`}>
+          {label(W.rules.onNoDevice)}
+          {nowhere.map((r, k) => row(r, k === 0))}
+        </View>,
+      );
+    }
+    return groups;
+  };
 
   const cards: { key: string; node: ReactNode }[] = [
     {
@@ -489,23 +631,9 @@ export function Rules({
       node: (
         <Card testID="blocked">
           <Head2 icon="block" title={W.rules.blocked} />
-          <View style={styles.list}>{appList('blocked_apps')}</View>
-          {offered.length ? (
-            <View style={styles.offer} testID="offer">
-              <Label>{W.rules.offer(name)}</Label>
-              <View style={styles.chips}>
-                {offered.map((app) => (
-                  <Chip key={app} add label={app} a11y={`${W.rules.offer(name)}: ${app}`} on={false} onPress={() => change({ ...rules, blocked_apps: [...rules.blocked_apps, app] })} testID={`offer-${app}`} />
-                ))}
-              </View>
-            </View>
-          ) : null}
-          <Btn label={W.rules.addApp} mono lead={Mark.plus()} onPress={() => setAddNote(true)} outer={styles.addApp} testID="add-blocked" />
-          {addNote ? (
-            <Txt style={[gtype.small, styles.small]} wrap="pretty" testID="add-app-note">
-              {W.rules.addAppComing}
-            </Txt>
-          ) : null}
+          {appGroups('blocked_apps', true)}
+          <Btn label={W.rules.addApp} mono lead={Mark.plus()} onPress={() => setAdding(adding === 'blocked_apps' ? null : 'blocked_apps')} outer={styles.addApp} testID="add-blocked" />
+          {adding === 'blocked_apps' ? <AddApp door={door} child={child} list={rules.blocked_apps} onAdd={(id) => change({ ...rules, blocked_apps: [...rules.blocked_apps, id] })} /> : null}
         </Card>
       ),
     },
@@ -517,14 +645,14 @@ export function Rules({
           <Txt style={[gtype.detail, styles.detail]} wrap="pretty">
             {W.rules.allowedLine(name)}
           </Txt>
-          <View style={styles.list}>
-            {hasPhone ? <AppRow name={W.rules.phoneApp} first fixed={W.rules.neverBlockedMark} /> : null}
-            {appList('always_allowed_apps')}
-          </View>
+          {appGroups('always_allowed_apps', false)}
           <Txt style={[gtype.small, styles.small]} wrap="pretty">
             {W.rules.neverBlocked}
           </Txt>
-          <Btn label={W.rules.addApp} mono lead={Mark.plus()} onPress={() => setAddNote(true)} outer={styles.addApp} testID="add-allowed" />
+          <Btn label={W.rules.addApp} mono lead={Mark.plus()} onPress={() => setAdding(adding === 'always_allowed_apps' ? null : 'always_allowed_apps')} outer={styles.addApp} testID="add-allowed" />
+          {adding === 'always_allowed_apps' ? (
+            <AddApp door={door} child={child} list={rules.always_allowed_apps} onAdd={(id) => change({ ...rules, always_allowed_apps: [...rules.always_allowed_apps, id] })} />
+          ) : null}
         </Card>
       ),
     },
@@ -543,9 +671,9 @@ export function Rules({
                   .map((a, j) => (
                     <View key={a.appId}>
                       {j > 0 ? <Dashed /> : null}
-                      <View style={styles.urow} accessible accessibilityLabel={`${a.appId}, ${usedSpan(a.secs)}`}>
-                        <Letter name={a.appId} small />
-                        <Txt style={[gtype.useName, styles.flex]}>{a.appId}</Txt>
+                      <View style={styles.urow} accessible accessibilityLabel={`${nameOf(a.appId)}, ${usedSpan(a.secs)}`}>
+                        <Letter name={nameOf(a.appId)} small />
+                        <Txt style={[gtype.useName, styles.flex]}>{nameOf(a.appId)}</Txt>
                         <Txt style={gtype.minutes}>{usedSpan(a.secs)}</Txt>
                       </View>
                     </View>
@@ -726,6 +854,8 @@ const styles = StyleSheet.create({
   problem: { marginTop: 6, marginBottom: 4, marginHorizontal: 2 },
   offer: { marginTop: 10, paddingTop: 10, paddingBottom: 12, paddingHorizontal: 12, borderWidth, borderStyle: 'dashed', borderColor: 'rgba(27,38,56,0.42)', borderRadius: 10 },
   addApp: { marginTop: 10 },
+  adding: { marginTop: 4 },
+  pickList: { marginTop: 6, maxHeight: 320, overflow: 'scroll' },
   urow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
   edit: { marginTop: 14 },
   pinRow: { flexDirection: 'row', gap: 10 },

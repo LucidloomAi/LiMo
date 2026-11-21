@@ -37,7 +37,7 @@ import { Dashed, Shadow } from '../ui/paper/parts';
 import { Txt } from '../ui/paper/text';
 import { useClock } from './clock';
 import { Column, Page } from './Page';
-import { Card, CardHead, Chip, Field, H1, Label, MakerMark, Mark, PickField, PinBtn, Room, Stepper, Tile, TopRow, usePlace, useSizes } from './parts';
+import { Card, CardHead, Chip, Field, H1, Label, MakerMark, Mark, PickField, PinBtn, Room, StepHead, Stepper, Tile, TopRow, usePlace, useSizes } from './parts';
 import { gtype } from './text';
 import { minutesFigure, minuteOfDay, timeADayWords } from './time';
 import * as W from './words';
@@ -127,31 +127,6 @@ function withBedtime(s: FirstStartState): RuleSet {
 }
 
 // ---------------------------------------------------------------------------
-
-/** Back at the left, its room kept empty on the first step; the counter at the right. */
-function StepHead({ at, onBack }: { at: number; onBack: () => void }) {
-  const { tap } = useSizes();
-  return (
-    <View style={[styles.steps, { minHeight: tap }]}>
-      {at > 0 ? (
-        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel={W.steps.back} testID="back" style={[styles.back, { height: tap }]}>
-          {Mark.left()}
-          <Txt style={gtype.button}>{W.steps.back}</Txt>
-        </Pressable>
-      ) : (
-        <View />
-      )}
-      <View style={styles.count}>
-        <Label>{W.steps.count(at + 1, STEP_COUNT)}</Label>
-        <View style={styles.dots} accessible accessibilityLabel={W.steps.dots(at + 1, STEP_COUNT)}>
-          {Array.from({ length: STEP_COUNT }, (_, i) => (
-            <View key={i} style={[styles.dot, i < at && styles.dotDone, i === at && styles.dotAt]} />
-          ))}
-        </View>
-      </View>
-    </View>
-  );
-}
 
 /** Half hours of a day, for a bedtime's ends. */
 const HALF_HOURS = Array.from({ length: 48 }, (_, i) => i * 30);
@@ -726,7 +701,7 @@ export function FirstStart({
     <Page testID={`first-${at + 1}`} pinned={pinned}>
       <TopRow />
       <Column>
-        <StepHead at={at} onBack={() => go(at - 1)} />
+        <StepHead at={at} total={STEP_COUNT} onBack={() => go(at - 1)} />
         {card}
       </Column>
       {at === 7 ? <MakerMark /> : null}
@@ -739,23 +714,6 @@ const styles = StyleSheet.create({
   flexMin: { flex: 1, minWidth: 0 },
   bold: { fontWeight: '600' },
   coral: { color: color.coral },
-  steps: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 14 },
-  back: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingLeft: 10,
-    paddingRight: 16,
-    backgroundColor: color.card,
-    borderWidth,
-    borderColor: color.ink,
-    borderRadius: 10,
-  },
-  count: { alignItems: 'flex-end', gap: 7 },
-  dots: { flexDirection: 'row', gap: 6 },
-  dot: { width: 10, height: 10, borderRadius: 5, borderWidth, borderColor: color.inkSoft },
-  dotDone: { backgroundColor: color.teal, borderColor: color.teal },
-  dotAt: { backgroundColor: color.marigold, borderColor: color.marigoldDeep },
   head: { marginBottom: 12, marginHorizontal: 2 },
   headTitle: { marginTop: 8 },
   list: { paddingVertical: 2, paddingHorizontal: 14 },

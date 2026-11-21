@@ -1,13 +1,13 @@
 // Every guardian screen the drawings draw (design/screens/console.html), each
 // from the made up family (src/mock/guardianMock.ts), by the drawings' own
 // ids: C0 to C0d, F1 to F8 with F5b and F7b, T1 to T3, and from the second
-// sheet R1 to R3, D1 and D2, K1 and K2, M1 to M4; A0 is the one screen
-// that says adding a phone comes next. Each is shown at the console's width
-// (1100 by 760) and at a phone's (390 by 844).
+// sheet R1 to R3, D1 and D2, A1 to A9, K1 and K2, M1 to M4. Each is shown at
+// the console's width (1100 by 760) and at a phone's (390 by 844).
 
 import type { GuardianRoute } from '../guardian/GuardianApp';
 import type { AccountRow, Weekday } from '../guardianSeam';
-import { type GuardianMockState, guardianStates, NOW, startingRules } from '../mock/guardianMock';
+import { type GuardianMockState, guardianStates, NEW_PHONE_ID, NOW, startingRules } from '../mock/guardianMock';
+import { connected, freshCable, GALAXY, type MockCable, PHONE_WORDS } from '../mock/phoneMock';
 
 export type GuardianFrame = {
   readonly id: string;
@@ -101,7 +101,7 @@ export const GUARDIAN_FRAMES: readonly GuardianFrame[] = [
     id: 'R2',
     title: 'R2 · Save found a problem: the rules’ own sentence beside the row',
     state: () => guardianStates.family(),
-    route: { at: 'app', tab: 'rules', show: { rulesDraft: (r) => ({ ...r, blocked_apps: [...r.blocked_apps, 'Maps'] }), rulesSave: true } },
+    route: { at: 'app', tab: 'rules', show: { rulesDraft: (r) => ({ ...r, blocked_apps: [...r.blocked_apps, 'com.google.android.apps.maps'] }), rulesSave: true } },
   },
   { id: 'R3', title: 'R3 · Saved', state: () => guardianStates.family(), route: { at: 'app', tab: 'rules', show: { rulesSaved: true } } },
   { id: 'D1', title: 'D1 · Devices', state: () => guardianStates.family(), route: { at: 'app', tab: 'devices' } },
@@ -112,8 +112,45 @@ export const GUARDIAN_FRAMES: readonly GuardianFrame[] = [
   { id: 'M2', title: 'M2 · The password and the PIN', state: () => guardianStates.family(), route: { at: 'app', tab: 'more', sub: { at: 'secrets' } } },
   { id: 'M3', title: 'M3 · About LiMo', state: () => guardianStates.family(), route: { at: 'app', tab: 'more', sub: { at: 'about' } } },
   { id: 'M4', title: 'M4 · Delete the family: the password again', state: () => guardianStates.family(), route: { at: 'app', tab: 'more', sub: { at: 'delete-family' } } },
-  { id: 'A0', title: 'Add a phone comes next', state: () => guardianStates.family(), route: { at: 'app', tab: 'devices', sub: { at: 'add-phone' } } },
+  ...ADD_FRAMES(),
 ];
+
+/** A1 to A9, each from the cable as the drawing has it, held still. */
+function ADD_FRAMES(): GuardianFrame[] {
+  const still = (change: Partial<MockCable>) => freshCable({ frozen: true, ...change });
+  const on = (change: Partial<MockCable>) => connected(GALAXY, { frozen: true, ...change });
+  const installed = { stage: 'done', sent: null, line: PHONE_WORDS.installed, advice: null };
+  const withLimo = { ...GALAXY, limo: { looked: true, on_it: true, version: GALAXY.this_pc_carries } };
+  const paired = (ways: string[]) => ({
+    stage: 'paired',
+    device: { device_id: NEW_PHONE_ID, name: 'Asha’s Galaxy S20 Ultra' },
+    ways,
+    line: ways.includes('home_network') ? PHONE_WORDS.overWifi : PHONE_WORDS.overCable,
+    advice: null,
+  });
+  const at = (step: number) => ({ at: 'app' as const, tab: 'devices' as const, sub: { at: 'add-phone' as const, step, child: 'child-asha' } });
+  const rows: [string, string, () => GuardianMockState, number][] = [
+    ['A1', 'Start: whose phone, and what is needed', () => guardianStates.adding(still({ case: 'none' })), 0],
+    ['A2', 'Switch on USB debugging', () => guardianStates.adding(still({ case: 'off' })), 1],
+    ['A3', 'Allow this PC on the phone, and compare its key', () => guardianStates.adding(still({ case: 'allow' })), 2],
+    ['A4', 'Checks, then putting LiMo on the phone', () => guardianStates.adding(on({ install: { stage: 'sending', sent: 0.62, line: PHONE_WORDS.sending, advice: null }, busy: 'installing' })), 3],
+    ['A5', 'Paired over the cable, and the phone’s name', () => guardianStates.adding(on({ phone: withLimo, install: installed, pairing: paired(['cable']) }), 0), 4],
+    ['A6', 'The phone’s own six steps, done on the phone', () => guardianStates.adding(on({ phone: withLimo, install: installed, pairing: paired(['cable']) }), 3), 5],
+    ['A7', 'At home: the phone reaches this PC over Wi-Fi', () => guardianStates.adding(on({ phone: withLimo, install: installed, pairing: paired(['cable', 'home_network']) }), 6), 6],
+    ['A8', 'Switch USB debugging off', () => guardianStates.adding(on({ phone: withLimo, install: installed, pairing: paired(['cable', 'home_network']) }), 6), 7],
+    [
+      'A9',
+      'Done',
+      () =>
+        guardianStates.adding(
+          on({ case: 'off', phone: withLimo, install: installed, pairing: paired(['cable', 'home_network']), debugging: { stage: 'off', line: PHONE_WORDS.isOff, advice: null } }),
+          6,
+        ),
+      8,
+    ],
+  ];
+  return rows.map(([id, title, state, step]) => ({ id, title: `${id} · ${title}`, state, route: at(step) }));
+}
 
 export function findGuardianFrame(id: string): GuardianFrame | undefined {
   return GUARDIAN_FRAMES.find((f) => f.id === id);

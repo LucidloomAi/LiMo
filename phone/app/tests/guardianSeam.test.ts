@@ -85,7 +85,7 @@ describe('the readers', () => {
       usedSecs: 2_880,
       leftSecs: 4_320,
       guardian: { mode: 'nothing' },
-      devices: [{ deviceId: 'dev-1', name: 'FAMILY-PC', kind: 'on_master', lastHeardAt: 1_800_000_000, inUse: false, usedSecs: 1_020, clockOffBySecs: null, needs: null, standing: null }],
+      devices: [{ deviceId: 'dev-1', name: 'FAMILY-PC', kind: 'on_master', lastHeardAt: 1_800_000_000, inUse: false, usedSecs: 1_020, clockOffBySecs: null, needs: null, standing: null, phoneFacts: null }],
     });
     // No limit today: no budget and no time left.
     expect(readFamilyToday([{ ...CHILD_TODAY, budget_secs: null, left_secs: null }])[0]).toMatchObject({ budgetSecs: null, leftSecs: null });

@@ -14,6 +14,7 @@
 
 import { type DoorName, type DoorOutcome, type GuardianDoor, readDoorAnswer, type RuleSet, type Weekday, WEEKDAYS } from '../guardianSeam';
 import { MOCK_MARK } from './childMock';
+import { answerPhone, freshCable, type MockCable } from './phoneMock';
 
 export { MOCK_MARK };
 
@@ -53,6 +54,10 @@ export type MockDevice = {
   paired_at: number;
   /** Today's use, app by app; its whole is used_secs. */
   apps?: { app_id: string; secs: number }[];
+  /** A phone's list of apps as it sent it, or the PC's programs seen running: app ids (src/mock/guardianMock.ts, APP_NAMES). */
+  list?: string[];
+  /** What a phone said it is, in the door's shape. */
+  phone_facts?: { form: string; model: string | null; android_version: number | null; limo_version: string | null } | null;
   /** How far its clock is from the PC's, when far (ahead is positive). */
   clock_off_by_secs?: number | null;
   /**
@@ -110,6 +115,8 @@ export type GuardianMockState = {
   idleMinutes: number;
   /** Until when LiMo may be removed, once a guardian allowed it. */
   removalUntil?: number | null;
+  /** The console's desk for a phone, and the cable (src/mock/phoneMock.ts). */
+  cable: MockCable;
 };
 
 export type GuardianMock = GuardianDoor & {
@@ -167,6 +174,8 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
   };
   const setting = (c: MockChild) => done({ version: 1, mode: c.guardian, set_at: now() });
   const pcSettings = () => done({ idle_minutes: state.idleMinutes, unlinked_accounts: state.unlinked });
+  /** One time codes made today, by device. */
+  const codesMade = new Map<string, number>();
   const deviceOf = (id: unknown) => {
     for (const c of state.children) {
       const d = c.devices.find((x) => x.device_id === id);
@@ -183,6 +192,63 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
     paired_at: d.paired_at,
     last_heard_at: d.last_heard_at,
   });
+
+  /** What the made up console's desk for a phone needs of the family. */
+  const family = {
+    pairPhone(childId: string, phoneName: string): string {
+      const c = child(childId);
+      ids += 1;
+      const id = `phone-new-${ids}`;
+      if (!c) return id;
+      c.devices.push({
+        device_id: id,
+        name: `${c.name}’s ${phoneName}`,
+        kind: 'portable',
+        platform: 'android',
+        last_heard_at: now(),
+        in_use: false,
+        used_secs: 0,
+        paired_at: now(),
+        guardian_needed: null,
+        setup_finished: false,
+        usb_debugging_on: true,
+        standing: {
+          steps: ['notifications', 'phone', 'usage_access', 'accessibility', 'battery', 'protection'].map((p) => ({ permission: p, on: null, since: null })),
+          steps_off: [],
+          setup_finished: false,
+          setup_finished_at: null,
+          protection: null,
+          usb_debugging: { on: true, since: now() },
+          clock: null,
+          clock_moved: null,
+          restarted_at: null,
+          guard_opened: null,
+          guarded_pages: [],
+          needs_guardian: true,
+        },
+      });
+      return id;
+    },
+    setUpOneMore(device: string) {
+      const found = deviceOf(device);
+      const s = found?.d.standing as { steps: { on: boolean | null; since: number | null }[]; setup_finished: boolean; setup_finished_at: number | null; protection: unknown } | undefined;
+      if (!found || !s || s.setup_finished) return;
+      const step = s.steps.find((x) => x.on !== true);
+      if (step) {
+        step.on = true;
+        step.since = now();
+      }
+      if (s.steps.every((x) => x.on === true)) {
+        s.setup_finished = true;
+        s.setup_finished_at = now();
+        s.protection = { level: 'base', since: now() };
+        found.d.setup_finished = true;
+      }
+    },
+    nameOf(device: string) {
+      return deviceOf(device)?.d.name ?? device;
+    },
+  };
 
   /** The password, at sign in or asked for again: wrong tries counted together, and a wait after too many. Null when it is right. */
   function passwordAgain(typed: unknown): DoorOutcome | null {
@@ -461,7 +527,8 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
       case 'make_code': {
         const found = deviceOf(args.device);
         if (!found) return problem('not_found', 'That device is not paired with this family. Pair it again.');
-        return done({ shown: '4718 2093', minutes: args.minutes, day: 0, device_id: found.d.device_id });
+        codesMade.set(found.d.device_id, (codesMade.get(found.d.device_id) ?? 0) + 1);
+        return done({ shown: '4718 2093', minutes: args.minutes, day: 0, device_id: found.d.device_id, codes_left_today: Math.max(0, 10 - (codesMade.get(found.d.device_id) ?? 0)) });
       }
       case 'change_password': {
         const wrong = passwordAgain(args.old);
@@ -476,6 +543,48 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
         if (wrong) return wrong;
         state.removalUntil = now() + 600;
         return done({ until: state.removalUntil });
+      }
+      case 'device': {
+        const found = deviceOf(args.device);
+        if (!found) return problem('not_found', 'That device is not paired with this family. Pair it again.');
+        const d = found.d;
+        return done({
+          ...info(found.c, d),
+          guardian_needed: d.guardian_needed ?? null,
+          setup_finished: d.kind === 'on_master' ? null : (d.setup_finished ?? null),
+          usb_debugging_on: d.kind === 'on_master' ? null : (d.usb_debugging_on ?? null),
+          standing: d.standing ?? null,
+          phone_facts: d.phone_facts ?? null,
+          codes_left_today: Math.max(0, 10 - (codesMade.get(d.device_id) ?? 0)),
+        });
+      }
+      case 'app_names': {
+        const c = child(args.child);
+        if (!c) return noChild();
+        const ids = [...new Set([...c.rules.blocked_apps, ...c.rules.always_allowed_apps, ...c.devices.flatMap((d) => (d.apps ?? []).map((a) => a.app_id))])];
+        return done(
+          ids.map((id) => {
+            const on = c.devices.filter((d) => (d.list ?? []).some((x) => x.toLowerCase() === id.toLowerCase()));
+            return { app_id: id, name: on.length ? (APP_NAMES[id] ?? id) : null, devices: on.map((d) => ({ device_id: d.device_id, name: d.name })) };
+          }),
+        );
+      }
+      case 'device_apps': {
+        const found = deviceOf(args.device);
+        if (!found) return problem('not_found', 'That device is not paired with this family. Pair it again.');
+        const d = found.d;
+        const phone = d.kind === 'portable';
+        const apps = (d.list ?? []).map((id) => ({ app_id: id, name: APP_NAMES[id] ?? id }));
+        return done({ device_id: d.device_id, kind: d.kind, source: phone ? 'phone_list' : 'seen_running', apps, kept_at: phone && d.list ? NOW - 3_600 : null, total: apps.length, max: 2000, cut: false });
+      }
+      case 'phone.look':
+      case 'phone.install':
+      case 'phone.pair':
+      case 'phone.debugging_off':
+      case 'phone.done': {
+        const got = answerPhone(state.cable, name, args, family);
+        // The console answers its own requests with the value, or {code, words}.
+        return got.ok ? { kind: 'done', value: got.value } : { kind: 'problem', code: got.code, words: got.words };
       }
       case 'delete_family': {
         const wrong = passwordAgain(args.password);
@@ -505,6 +614,35 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
 // ---------------------------------------------------------------------------
 // The family, in the drawings' states
 
+/** The made up family's apps: the id a device gives each, and the name a child knows it by. */
+export const APP_NAMES: Readonly<Record<string, string>> = {
+  'chrome.exe': 'Chrome',
+  'mspaint.exe': 'Paint',
+  'calc.exe': 'Calculator',
+  'gamelauncher.exe': 'Game Launcher',
+  'notepad.exe': 'Notepad',
+  'com.android.chrome': 'Chrome',
+  'com.google.android.apps.maps': 'Maps',
+  'com.sec.android.gallery3d': 'Gallery',
+  'com.sec.android.app.clockpackage': 'Clock',
+  'com.samsung.android.messaging': 'Messages',
+  'com.example.gamelauncher': 'Game Launcher',
+  'com.google.android.youtube': 'YouTube',
+  'com.whatsapp': 'WhatsApp',
+};
+
+/** Asha's phone's list of apps, as it sent it. */
+const PHONE_LIST = [
+  'com.android.chrome',
+  'com.sec.android.app.clockpackage',
+  'com.example.gamelauncher',
+  'com.sec.android.gallery3d',
+  'com.google.android.apps.maps',
+  'com.samsung.android.messaging',
+  'com.whatsapp',
+  'com.google.android.youtube',
+];
+
 const PC_OF = (child: string, used: number): MockDevice => ({
   device_id: `pc-${child}`,
   name: 'FAMILY-PC',
@@ -515,7 +653,8 @@ const PC_OF = (child: string, used: number): MockDevice => ({
   used_secs: used,
   paired_at: NOW - 3 * 86_400,
   // The drawings' afternoon on the PC: 11 minutes of Chrome and 6 of Paint.
-  apps: used === 17 * 60 ? [{ app_id: 'Chrome', secs: 660 }, { app_id: 'Paint', secs: 360 }] : [],
+  apps: used === 17 * 60 ? [{ app_id: 'chrome.exe', secs: 660 }, { app_id: 'mspaint.exe', secs: 360 }] : [],
+  list: ['chrome.exe', 'mspaint.exe', 'calc.exe', 'gamelauncher.exe', 'notepad.exe'],
 });
 
 const ASHA_PHONE = (inUse: boolean, heardSecsAgo: number): MockDevice => ({
@@ -528,12 +667,49 @@ const ASHA_PHONE = (inUse: boolean, heardSecsAgo: number): MockDevice => ({
   used_secs: 31 * 60,
   paired_at: NOW - 4 * 3_600,
   apps: [
-    { app_id: 'Maps', secs: 720 },
-    { app_id: 'Chrome', secs: 540 },
-    { app_id: 'Gallery', secs: 360 },
-    { app_id: 'Clock', secs: 240 },
+    { app_id: 'com.google.android.apps.maps', secs: 720 },
+    { app_id: 'com.android.chrome', secs: 540 },
+    { app_id: 'com.sec.android.gallery3d', secs: 360 },
+    { app_id: 'com.sec.android.app.clockpackage', secs: 240 },
   ],
+  list: PHONE_LIST,
+  phone_facts: { form: 'child', model: 'samsung SM-G988B', android_version: 33, limo_version: '0.1.0' },
 });
+
+/** The id the made up service gives a phone paired while adding one, in the preview. */
+export const NEW_PHONE_ID = 'phone-new-1';
+
+/** A phone just paired with Asha over the cable, with this many of its six steps on (6: set up). */
+const NEW_PHONE = (on: number): MockDevice => {
+  const setUp = on >= 6;
+  return {
+    device_id: NEW_PHONE_ID,
+    name: 'Asha’s Galaxy S20 Ultra',
+    kind: 'portable',
+    platform: 'android',
+    last_heard_at: NOW - 5,
+    in_use: false,
+    used_secs: 0,
+    paired_at: NOW - 120,
+    guardian_needed: null,
+    setup_finished: setUp,
+    usb_debugging_on: true,
+    standing: {
+      steps: ['notifications', 'phone', 'usage_access', 'accessibility', 'battery', 'protection'].map((p, i) => ({ permission: p, on: i < on ? true : null, since: i < on ? NOW - 60 : null })),
+      steps_off: [],
+      setup_finished: setUp,
+      setup_finished_at: setUp ? NOW - 30 : null,
+      protection: setUp ? { level: 'base', since: NOW - 30 } : null,
+      usb_debugging: { on: true, since: NOW - 120 },
+      clock: null,
+      clock_moved: null,
+      restarted_at: null,
+      guard_opened: null,
+      guarded_pages: [],
+      needs_guardian: true,
+    },
+  };
+};
 
 /** The engine's sentences for a step switched off, as the door gives them. */
 const OFF_WORDS: Readonly<Record<string, string>> = {
@@ -574,8 +750,8 @@ const ASHA_RULES = (): RuleSet => ({
   version: 4,
   budgets: { monday: { minutes: 90 }, tuesday: { minutes: 90 }, wednesday: { minutes: 90 }, thursday: { minutes: 90 }, friday: { minutes: 120 }, saturday: { minutes: 180 }, sunday: { minutes: 180 } },
   blocked_hours: [{ days: [...WEEKDAYS], start_minute: 1260, end_minute: 420 }],
-  blocked_apps: ['Game Launcher'],
-  always_allowed_apps: ['Calculator', 'Messages', 'Clock', 'Maps'],
+  blocked_apps: ['gamelauncher.exe', 'com.example.gamelauncher'],
+  always_allowed_apps: ['calc.exe', 'com.samsung.android.messaging', 'com.sec.android.app.clockpackage', 'com.google.android.apps.maps'],
 });
 
 const MIRA = (): MockChild => ({
@@ -619,6 +795,7 @@ const BASE: GuardianMockState = {
   requests: [],
   taps: [],
   idleMinutes: 3,
+  cable: freshCable(),
 };
 
 /** Each a fresh copy: the mock changes what it holds. */
@@ -674,6 +851,17 @@ export const guardianStates = {
     accounts: ACCOUNTS(false, true).map((a) => (a.name === 'mira' ? { ...a, link: 'child-mira' } : a)),
     requests: [{ child_id: 'child-mira', id: 'pc-mira/ask/1', device_id: 'pc-mira', minutes: 30, reason: 'To finish my science project', asked_at: NOW - 8 * 60 }],
   }),
+  /**
+   * Adding a phone for Asha: the second sheet's family before Asha's phone
+   * was added, the cable as given; with `paired`, the new phone paired, and
+   * this many of its six steps on (6: set up).
+   */
+  adding: (cable: MockCable = freshCable(), paired: number | null = null): GuardianMockState => {
+    const s = guardianStates.family();
+    s.children[0].devices = [PC_OF('asha', 17 * 60)];
+    if (paired !== null) s.children[0].devices.push(NEW_PHONE(paired));
+    return { ...s, cable };
+  },
   /**
    * The second sheet's family: Asha with her week, her apps and a phone,
    * and Mira; Asha's and Mira's accounts theirs. With `trouble`, Asha's

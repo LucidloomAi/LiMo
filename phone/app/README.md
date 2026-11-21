@@ -855,9 +855,26 @@ open them again."; a refusal, at any time, shows the sign in's refusal.
 | M1 to M4 | More: the one time code, the password and the PIN, About LiMo; removing a child, a phone or LiMo asks for the guardian password again |
 
 Each request goes by the door's own name. What the door does not send is
-left out, never made up: so an app shows by the name the door has for it,
-and a phone's model and versions are not shown yet. Adding a phone is the
-next piece; until then its place says so.
+left out, never made up: an app shows by the name a device gave for it, and
+by its plain identifier only when no device gave one; a phone's model, its
+Android version and LiMo's version show once the phone has said them. For
+this PC, "Add an app" can offer only the programs seen running in the
+child's accounts since the service started.
+
+**Add a phone** (A1 to A9 of the second sheet, `src/guardian/AddPhone.tsx`)
+is asked of the window itself, never of the service's door: `phone.look`
+once a second while the nine steps are open and at no other time, and
+`phone.done` when they are left, whichever way. The cable strip's words,
+the install's progress, the pairing and USB debugging are shown as the
+window gives them (`../../console/README.md`, "Adding a phone"). A step
+that waits for the phone moves on by itself; a failed install and an offer
+that ran out each have a way to try again; the last step offers to switch
+USB debugging off, saying why, with the way to do it by hand beside it.
+The flow ends on Devices, asked afresh, with the new phone there.
+
+The contract test reads two folders of real answers, never edited by hand:
+`tests/console-answers/` (the service's door) and `tests/window-answers/`
+(the window's own, for Add a phone).
 
 **Today asks again** every 5 seconds while it is open and the window is in
 front, and stops when it is not (Android's and the browser's own word that

@@ -13,9 +13,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ask, type DoorName, type DoorRequests, type GuardianDoor, readDoorAnswer, readStanding } from '../src/guardianSeam';
+import { ask, type DoorName, type DoorRequests, type GuardianDoor, type PhoneLook, readDoorAnswer, readDoorProblem, readStanding } from '../src/guardianSeam';
 
 const DIR = path.resolve(__dirname, 'console-answers');
+/** The window's own answers, for adding a phone, written by the console's tests. */
+const WINDOW_DIR = path.resolve(__dirname, 'window-answers');
 
 type AnswerFile = {
   request: string;
@@ -24,12 +26,26 @@ type AnswerFile = {
   answer: { say: string; reply?: unknown; message?: string };
 };
 
+/** One of the window's answers: the value itself, or the error {code, words}, as the page receives them. */
+type WindowFile = { request: string; case: string; asked: { name?: string; args?: Record<string, unknown> }; answer?: unknown; error?: unknown };
+
+function folder<T>(dir: string): Record<string, T> {
+  if (!fs.existsSync(dir)) return {};
+  return Object.fromEntries(
+    fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => [f.replace(/\.json$/, ''), JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as T]),
+  );
+}
+
+const read = { ...folder<AnswerFile | WindowFile>(DIR), ...folder<AnswerFile | WindowFile>(WINDOW_DIR) };
+/** The door's answers: a message as it left the door. */
 const files: Record<string, AnswerFile> = Object.fromEntries(
-  fs
-    .readdirSync(DIR)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => [f.replace(/\.json$/, ''), JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8')) as AnswerFile]),
-);
+  Object.entries(read).filter(([, f]) => !f.request.startsWith('phone.') && typeof (f as AnswerFile).answer?.say === 'string'),
+) as Record<string, AnswerFile>;
+/** The window's answers for a phone, wherever they were written. */
+const windowFiles = Object.entries(read).filter(([, f]) => f.request.startsWith('phone.')) as [string, WindowFile][];
 
 /** Every request the guardian's screens make, by the door's name. */
 const SCREENS_ASK: readonly DoorName[] = [
@@ -67,6 +83,9 @@ const SCREENS_ASK: readonly DoorName[] = [
   'change_password',
   'allow_removal',
   'delete_family',
+  'device',
+  'app_names',
+  'device_apps',
 ] satisfies readonly (keyof DoorRequests)[];
 
 /** A door that gives one reply, as the console hands it on. */
@@ -90,8 +109,8 @@ describe('the door’s answers (tests/console-answers)', () => {
     expect(() => readDoorAnswer(f.answer.reply)).not.toThrow();
   });
 
-  const read = answers.filter(([, f]) => (SCREENS_ASK as readonly string[]).includes(f.request));
-  it.each(read.map(([name, f]) => [name, f] as const))('%s: the screens read it with its own reader', async (_name, f) => {
+  const screens = answers.filter(([, f]) => (SCREENS_ASK as readonly string[]).includes(f.request));
+  it.each(screens.map(([name, f]) => [name, f] as const))('%s: the screens read it with its own reader', async (_name, f) => {
     const got = await readAs(f.request as DoorName, f);
     // A reader that disagrees with the door turns the answer into the screens' "cannot read" problem.
     expect(got.kind === 'problem' && got.code === 'misread' ? `${f.request} misread` : 'read').toBe('read');
@@ -113,7 +132,7 @@ describe('the door’s answers (tests/console-answers)', () => {
           leftSecs: 3_298,
           guardian: { mode: 'nothing' },
           // The PC's own device: no needs and no standing.
-          devices: [{ deviceId: 'device-0000000000000001', name: 'Family PC', kind: 'on_master', lastHeardAt: 1_794_998_128, inUse: true, usedSecs: 302, clockOffBySecs: null, needs: null, standing: null }],
+          devices: [{ deviceId: 'device-0000000000000001', name: 'Family PC', kind: 'on_master', lastHeardAt: 1_794_998_128, inUse: true, usedSecs: 302, clockOffBySecs: null, needs: null, standing: null, phoneFacts: null }],
         },
       ],
     });
@@ -206,7 +225,7 @@ describe('the door’s answers (tests/console-answers)', () => {
     expect(await readAs('rename_device', files['rename-device'])).toMatchObject({ kind: 'done', value: { name: 'Asha’s tablet', kind: 'portable' } });
     expect(await readAs('pc_settings', files['pc-settings'])).toEqual({ kind: 'done', value: { idleMinutes: 10, unlinkedAccounts: 'locked' } });
     expect(await readAs('set_idle_minutes', files['set-idle-minutes'])).toEqual({ kind: 'done', value: { idleMinutes: 10, unlinkedAccounts: 'free' } });
-    expect(await readAs('make_code', files['make-code'])).toEqual({ kind: 'done', value: { shown: '1234 5678', minutes: 15, deviceId: 'device-0000000000000001' } });
+    expect(await readAs('make_code', files['make-code'])).toEqual({ kind: 'done', value: { shown: '1234 5678', minutes: 15, deviceId: 'device-0000000000000001', codesLeftToday: 9 } });
     expect(await readAs('change_password', files['change-password-wrong'])).toMatchObject({ kind: 'wrong', triesBeforeWait: 4 });
     expect(await readAs('allow_removal', files['allow-removal'])).toEqual({ kind: 'done', value: { until: expect.any(Number) } });
     for (const [name, file] of [
@@ -250,6 +269,25 @@ describe('the door’s answers (tests/console-answers)', () => {
     expect(await read('device-pc')).toBeNull();
   });
 
+  it('reads the apps’ names, a device’s apps, a phone’s facts and the codes left', async () => {
+    const named = await readAs('app_names', files['app-names']);
+    expect(named).toEqual({
+      kind: 'done',
+      value: [
+        { appId: 'game.exe', name: null, devices: [] },
+        { appId: 'notes.exe', name: 'notes.exe', devices: [{ deviceId: 'device-0000000000000001', name: 'Family PC' }] },
+      ],
+    });
+    const phone = await readAs('device_apps', files['device-apps-phone']);
+    expect(phone).toMatchObject({ kind: 'done', value: { source: 'phone_list', keptAt: 1_794_998_226, total: 2, cut: false } });
+    expect(phone.kind === 'done' && phone.value.apps.map((a) => a.name)).toEqual(['Game', 'Maps']);
+    expect(await readAs('device_apps', files['device-apps-pc'])).toMatchObject({ kind: 'done', value: { source: 'seen_running', keptAt: null, apps: [{ appId: 'notes.exe', name: 'notes.exe' }] } });
+    const about = await readAs('device', files['device-phone-about']);
+    expect(about).toMatchObject({ kind: 'done', value: { phoneFacts: { model: 'samsung SM-S911B', android: 35, limoVersion: '0.4.0' } } });
+    const pc = await readAs('device', files['device-pc']);
+    expect(pc).toMatchObject({ kind: 'done', value: { phoneFacts: null } });
+  });
+
   it('takes the arguments the screens send, by the door’s own names', () => {
     // What the screens send for each request, beside what the door was sent.
     const SENT: Partial<Record<DoorName, readonly string[]>> = {
@@ -278,6 +316,9 @@ describe('the door’s answers (tests/console-answers)', () => {
       change_password: ['new', 'old'],
       allow_removal: ['password'],
       delete_family: ['password'],
+      device: ['device'],
+      app_names: ['child'],
+      device_apps: ['device'],
     };
     for (const [name, keys] of Object.entries(SENT)) {
       const theirs = answers.filter(([, f]) => f.request === name).map(([, f]) => Object.keys(f.asked.args ?? {}).sort());
@@ -286,5 +327,45 @@ describe('the door’s answers (tests/console-answers)', () => {
     }
     // A lock until lifted: the screens leave `until` out, which the door takes as none.
     expect(Object.keys(files['lock-now'].asked.args ?? {}).sort()).toEqual(['child', 'until']);
+  });
+});
+
+describe('the window’s answers for adding a phone (tests/window-answers)', () => {
+  /** What the page gets for a phone request: the window's value, read as a door that answered it. */
+  const asking = (f: WindowFile) =>
+    ask({ ask: async () => readDoorAnswer({ outcome: 'done', value: f.answer }) }, f.request as DoorName, (f.asked.args ?? {}) as never);
+
+  it('are there for each request of the window’s', () => {
+    expect(windowFiles.length).toBeGreaterThan(0);
+    const asked = new Set(windowFiles.map(([, f]) => f.request));
+    expect(['phone.look', 'phone.install', 'phone.pair', 'phone.debugging_off', 'phone.done'].filter((n) => !asked.has(n))).toEqual([]);
+  });
+
+  const values = windowFiles.filter(([, f]) => f.answer !== undefined);
+  // Each file its own test; while none is there, the test above says so.
+  if (values.length) it.each(values.map(([name, f]) => [name, f] as const))('%s: the screens read it with its own reader', async (_name, f) => {
+    const got = await asking(f);
+    expect(got.kind === 'problem' && got.code === 'misread' ? `${f.request} misread: ${got.words}` : got.kind).toBe('done');
+  });
+
+  const errors = windowFiles.filter(([, f]) => f.error !== undefined);
+  if (errors.length) it.each(errors.map(([name, f]) => [name, f] as const))('%s: its error comes through with its code and words', (_name, f) => {
+    const got = readDoorProblem(f.error);
+    expect(got).toMatchObject({ kind: 'problem', code: expect.any(String), words: expect.any(String) });
+  });
+
+  it('reads each case of the cable strip, each stage, and the key while the phone asks', async () => {
+    const looks: PhoneLook[] = [];
+    for (const [, f] of values.filter(([, w]) => w.request === 'phone.look')) {
+      const got = await asking(f);
+      if (got.kind === 'done') looks.push(got.value as PhoneLook);
+    }
+    const seen = (pick: (l: PhoneLook) => string) => [...new Set(looks.map(pick))].sort();
+    expect(seen((l) => l.cable.case)).toEqual(expect.arrayContaining(['allow', 'driver', 'none', 'off', 'ok', 'trouble']));
+    expect(seen((l) => l.install.stage)).toEqual(expect.arrayContaining(['done', 'installing', 'sending']));
+    expect(seen((l) => l.pairing.stage)).toEqual(expect.arrayContaining(['paired', 'waiting']));
+    expect(seen((l) => l.debugging.stage)).toEqual(expect.arrayContaining(['off', 'still_on', 'switching_off']));
+    for (const l of looks) expect(l.fingerprint === null || l.cable.case === 'allow').toBe(true);
+    expect(looks.some((l) => l.cable.case === 'allow' && l.fingerprint !== null)).toBe(true);
   });
 });

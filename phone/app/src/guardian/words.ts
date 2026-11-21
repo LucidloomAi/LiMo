@@ -240,7 +240,15 @@ export const rules = {
   neverBlockedMark: 'Never blocked',
   offer: (name: string) => `Add from what ${name} used today`,
   addApp: 'Add an app',
-  addAppComing: 'Choosing from all of a device’s apps comes in the next version of LiMo’s settings. Until then, add an app from what was used today.',
+  /** Add an app: a device's own list. */
+  pcKnown: (name: string) => `Only programs seen running in ${possessive(name)} accounts since LiMo last started are known.`,
+  noList: (device: string) => `${device} has not sent its list of apps yet.`,
+  find: 'Find an app',
+  addThis: (app: string) => `Add ${app}`,
+  allListed: 'Every app on this list is in the rules already.',
+  cut: (shown: number, total: number) => `Showing ${shown} of ${total}.`,
+  /** Apps in the rules that no device's list has. */
+  onNoDevice: 'On no device’s list yet',
   takeOff: 'Take it off',
   use: 'Today’s use',
   onThisPc: 'On this PC',
@@ -285,6 +293,13 @@ export const devices = {
   notYet: 'Not yet',
   protection: 'Protection',
   protectionLevel: { off: 'Off', base: 'On', strict: 'On, strict' } as const,
+  phone: 'Phone',
+  limoOnIt: 'LiMo on it',
+  /** Android's release from its API level, as a phone gives it: 33 is "Android 13". */
+  android: (api: number) => {
+    const release: Readonly<Record<number, string>> = { 26: '8.0', 27: '8.1', 28: '9', 29: '10', 30: '11', 31: '12', 32: '12L', 33: '13', 34: '14', 35: '15', 36: '16' };
+    return release[api] ? `Android ${release[api]}` : `Android, API level ${api}`;
+  },
   usbTitle: 'USB debugging is still on.',
   usbText: 'While it is on, any PC with a cable could stop LiMo on this phone.',
   clockAhead: (span: string) => `Its clock is ${span} ahead of this PC’s.`,
@@ -307,8 +322,6 @@ export const devices = {
   free: 'Used freely',
   lockedLine: 'It stays locked until a guardian says whose it is. An administrator’s account is never locked.',
   freeLine: 'It is used freely, and a guardian is told once a day. An administrator’s account is never locked.',
-  /** Add a phone is the next sheet's. */
-  addComing: 'Adding a phone over the cable comes in the next version of LiMo’s settings.',
 };
 
 export const code = {
@@ -323,6 +336,8 @@ export const code = {
   what: (device: string, span: string) => `${device} · ${span}`,
   read: (name: string, device: string) => `Read it to ${name}. It works once, today only, on ${device}, when its time is used up.`,
   thisPcInSentence: 'this PC',
+  /** How many more codes the device can be given today, when the door says. */
+  left: (n: number, onPc: boolean) => (n === 0 ? `You can make no more for this ${onPc ? 'PC' : 'phone'} today.` : `You can make ${n} more for this ${onPc ? 'PC' : 'phone'} today.`),
   another: 'Make another',
   done: 'Done',
   howMuchChoices: [
@@ -373,6 +388,88 @@ export const about = {
   readComing: 'Reading the licences here comes in the next version of LiMo’s settings.',
   moreInfo: 'More info on',
   address: 'https://lucidloom.ai',
+};
+
+/** Add a phone, A1 to A9: one step a screen, the cable's state at the foot. */
+export const addPhone = {
+  steps: 9,
+  phoneOf: (name: string) => `${possessive(name)} phone`,
+  start: 'Start',
+  next: 'Next',
+  done: 'Done',
+  tryAgain: 'Try again',
+  a1: {
+    heading: 'Add a phone',
+    whose: 'Whose phone',
+    youNeed: 'You need',
+    cable: 'Its USB cable',
+    cableText: 'One that moves files, ideally the one that came with it.',
+    time: 'About ten minutes',
+  },
+  a2: {
+    heading: 'Switch on USB debugging',
+    line: 'Only a person can switch it on, on the phone itself. On most phones:',
+    steps: [
+      ['Open Settings, then About phone.', 'On a Samsung phone, then Software information.'],
+      ['Tap Build number seven times.', 'The phone may ask for its own PIN, then says that developer mode is on.'],
+      ['Go back to Settings, open Developer options, and switch on USB debugging.', 'Developer options is near the end of Settings.'],
+      ['Plug the phone into this PC.', 'This screen moves on by itself when it sees USB debugging.'],
+    ] as const,
+    noteLabel: 'On a newer Samsung phone',
+    note: 'Also switch off Auto Blocker, in Settings, Security and privacy. It blocks installs over the cable.',
+  },
+  a3: {
+    heading: 'Allow this PC on the phone',
+    line: 'Unlock the phone. It asks: Allow USB debugging? Tick Always allow from this computer, then tap Allow.',
+    key: 'The phone shows this PC’s key',
+    same: 'It should read the same. If it does not, tap Cancel on the phone. The phone asks once; after that it knows this PC.',
+  },
+  a4: {
+    heading: (name: string) => `Put LiMo on ${possessive(name)} phone`,
+    putting: (name: string) => `Putting LiMo on ${possessive(name)} phone`,
+    asksNothing: 'Installing asks nothing on the phone.',
+  },
+  a5: {
+    heading: (name: string) => `This phone is now ${possessive(name)}.`,
+    pairing: (name: string) => `Pairing ${possessive(name)} phone`,
+    paired: 'Paired',
+    opened: (name: string) => `LiMo opened on the phone by itself, with ${possessive(name)} name on it.`,
+    itsName: 'Its name',
+  },
+  a6: {
+    heading: 'Now set up LiMo on the phone',
+    line: 'It asks for six things. Each one ticks here when the phone says it is on.',
+    byItself: 'This screen moves on by itself when the phone says it is set up.',
+  },
+  a7: {
+    heading: 'At home',
+    line: (name: string) => `Checking that ${possessive(name)} phone can reach this PC on the home Wi-Fi.`,
+    reached: 'Reached over the home Wi-Fi',
+    notYet: 'Not reached over the home Wi-Fi yet. Next goes on without it.',
+  },
+  a8: {
+    heading: 'Switch USB debugging off',
+    line: (name: string) => `While it is on, any PC with a cable could stop LiMo on ${possessive(name)} phone. LiMo can switch it off now, over the cable.`,
+    leave: 'Leave it on',
+    then: 'Then Devices says that it is still on.',
+    byHandLabel: 'By hand',
+    byHand: 'On the phone: Settings, Developer options, then switch off USB debugging.',
+    button: 'Switch it off for me',
+  },
+  a9: {
+    heading: (name: string) => `${possessive(name)} phone is added.`,
+    ticks: {
+      installed: 'LiMo is on the phone',
+      paired: 'Paired with this PC',
+      setUp: 'Set up on the phone, all six on',
+      setUpNot: 'Not set up on the phone yet',
+      home: 'Reached over the home Wi-Fi',
+      homeNot: 'Not reached over the home Wi-Fi yet',
+      off: 'USB debugging is off',
+      on: 'USB debugging is still on',
+    },
+    unplug: 'You can unplug the phone.',
+  },
 };
 
 /** Asking for the password again before something that cannot be undone: deleting the family is the drawn pattern for all four. */

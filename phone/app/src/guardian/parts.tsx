@@ -377,6 +377,34 @@ export function Square({ mark, label, onPress, testID }: { mark: ReactNode; labe
   );
 }
 
+/**
+ * Back at the left, its room kept empty on the first step unless that step
+ * can be left too; the counter at the right: "Step 3 of 9" over a row of dots.
+ */
+export function StepHead({ at, total, onBack, backOnFirst = false }: { at: number; total: number; onBack: () => void; backOnFirst?: boolean }) {
+  const { tap } = useSizes();
+  return (
+    <View style={[styles.steps, { minHeight: tap }]}>
+      {at > 0 || backOnFirst ? (
+        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel={W.steps.back} testID="back" style={[styles.back, { height: tap }]}>
+          {Mark.left()}
+          <Txt style={gtype.button}>{W.steps.back}</Txt>
+        </Pressable>
+      ) : (
+        <View />
+      )}
+      <View style={styles.count}>
+        <Label>{W.steps.count(at + 1, total)}</Label>
+        <View style={styles.dots} accessible accessibilityLabel={W.steps.dots(at + 1, total)}>
+          {Array.from({ length: total }, (_, i) => (
+            <View key={i} style={[styles.dot, i < at && styles.dotDone, i === at && styles.dotAt]} />
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The second sheet's parts
 
@@ -533,6 +561,12 @@ const styles = StyleSheet.create({
   head2: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   head2Title: { flex: 1, minWidth: 0 },
   subHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 14 },
+  steps: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 14 },
+  count: { alignItems: 'flex-end', gap: 7 },
+  dots: { flexDirection: 'row', gap: 6 },
+  dot: { width: 10, height: 10, borderRadius: 5, borderWidth, borderColor: color.inkSoft },
+  dotDone: { backgroundColor: color.teal, borderColor: color.teal },
+  dotAt: { backgroundColor: color.marigold, borderColor: color.marigoldDeep },
   back: {
     flexDirection: 'row',
     alignItems: 'center',
