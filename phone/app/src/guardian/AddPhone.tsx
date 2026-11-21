@@ -306,6 +306,9 @@ export function AddPhone({
               </View>
             </>
           ) : null}
+          <Txt style={[gtype.small, styles.small]} wrap="pretty" testID="childs-only">
+            {A.a1.childsOnly}
+          </Txt>
           <Label style={styles.gap}>{A.a1.youNeed}</Label>
           <View style={styles.needs}>
             {(

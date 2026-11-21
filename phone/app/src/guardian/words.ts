@@ -401,6 +401,7 @@ export const addPhone = {
   a1: {
     heading: 'Add a phone',
     whose: 'Whose phone',
+    childsOnly: 'This adds a child’s phone. A guardian’s own phone comes in a later version.',
     youNeed: 'You need',
     cable: 'Its USB cable',
     cableText: 'One that moves files, ideally the one that came with it.',

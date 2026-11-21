@@ -14,7 +14,7 @@ import { guardianStates } from '../src/mock/guardianMock';
 import { ASK_WAITS_SECS, connected, FINGERPRINT, freshCable, GALAXY, type MockCable, OLD_PHONE, PHONE_WORDS } from '../src/mock/phoneMock';
 import { GUARDIAN_FRAMES } from '../src/preview/guardianFrames';
 import { asked, press, renderGuardian } from './guardianRender';
-import type { TreeNode } from './render';
+import { inOrder, textsInOrder, type TreeNode } from './render';
 
 const A = W.addPhone;
 const route = (step = 0, child?: string): GuardianRoute => ({ at: 'app', tab: 'devices', sub: { at: 'add-phone', step, child } });
@@ -86,6 +86,9 @@ describe('the whole way', () => {
     expect(screen.getByRole('radio', { name: 'Asha' })).toBeChecked();
     expect(screen.getByText('Asha’s phone')).toBeOnTheScreen();
     expect(screen.getByText(A.a1.cableText)).toBeOnTheScreen();
+    // Under Whose phone: why it is a child's phone.
+    expect(screen.getByTestId('childs-only')).toHaveTextContent('This adds a child’s phone. A guardian’s own phone comes in a later version.');
+    inOrder(textsInOrder(), [A.a1.whose, 'Asha', 'Mira', A.a1.childsOnly, A.a1.youNeed]);
     expect(screen.getByText('Step 1 of 9')).toBeOnTheScreen();
     expect(strip()[0]).toBe('No phone on a USB port.');
     await go();
