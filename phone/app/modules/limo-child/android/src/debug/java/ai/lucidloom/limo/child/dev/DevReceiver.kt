@@ -2,6 +2,7 @@ package ai.lucidloom.limo.child.dev
 
 import ai.lucidloom.limo.child.host.Host
 import ai.lucidloom.limo.child.keep.Keeper
+import ai.lucidloom.limo.child.watch.Watch
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -18,9 +19,10 @@ import java.io.File
  *   make the engine from it, keep its state and the child's name, and
  *   start the keeper;
  * - [ACTION_FORGET]: wipe the kept state and stop the keeper;
- * - [ACTION_PROBE] with the boolean extra `on`: switch the probe of
- *   Settings' and the installer's page names on or off ([PageProbe]). A
- *   person at the PC sends it by hand (see dev/README.md).
+ * - [ACTION_PROBE] with the boolean extra `on`: switch the probe of the
+ *   guard's page names on or off ([PageProbe]); switched on, it first logs
+ *   what the package manager answered for the guard's intents. A person at
+ *   the PC sends it by hand (see dev/README.md).
  *
  * Only the adb shell and the system can send to it (it is guarded by
  * android.permission.DUMP, see src/debug/AndroidManifest.xml), and a release
@@ -38,6 +40,8 @@ class DevReceiver : BroadcastReceiver() {
         ACTION_PROBE -> {
           PageProbe.switch(intent.getBooleanExtra(EXTRA_ON, false))
           Log.i(TAG, if (PageProbe.on) "dev probe on" else "dev probe off")
+          // Switched on: first what the package manager answered for the guard's intents.
+          if (PageProbe.on) PageProbe.answered(Watch.get(app).pagesAnswered())
           pending.finish()
         }
         else -> pending.finish()

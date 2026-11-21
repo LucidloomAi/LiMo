@@ -31,7 +31,7 @@ internal val ALL_READINGS = listOf(
   "wall_clock", "elapsed", "boot_count", "utc_offset", "hours_24", "auto_time", "interactive",
   "keyguard_locked", "audio_mode", "telephony_call_state", "usage_access", "accessibility",
   "notifications", "phone_permission", "battery_exempt", "device_admin", "usage_events", "home", "diallers",
-  "in_call_screens", "emergency_dialler", "keyboards", "launchable", "label",
+  "in_call_screens", "emergency_dialler", "keyboards", "launchable", "label", "guard_pages",
 )
 
 /** A phone as the watch reads it. Each field is what Android says now. */
@@ -89,15 +89,29 @@ internal class TestPhone : PhoneSource {
   /** Events that happened but Android has not yet written where queryEvents finds them. */
   val heldBack = ArrayList<UsageEvent>()
 
+  /** The class of the activity each resumed event is about, as Android's record holds it, when the test gave one. */
+  private val activityOf = HashMap<UsageEvent, String>()
+
+  /** What the package manager answers for each of the guard's intents; none for one missing here. */
+  val answers = HashMap<PageIntent, IntentAnswer>()
+
+  /** Intents the package manager refuses to answer, one by one (all of them: "guard_pages" in [failing]). */
+  val refusedIntents = HashSet<PageIntent>()
+
+  /** The packages whose resumed activity's class was read from the record, in the order read: the watch asks for it as Android's own reading does. */
+  val classReads = ArrayList<String>()
+
   var usageReads = 0
   var labelReads = 0
+  var answerReads = 0
 
   fun pass(ms: Long) {
     wall += ms
     elapsed += ms
   }
 
-  fun resumed(pkg: String, late: Boolean = false) = happen(pkg, UsageKind.RESUMED, late)
+  /** An activity of [pkg] resumed; [activity] is its class, as Android's record holds it, when the test needs one. */
+  fun resumed(pkg: String, late: Boolean = false, activity: String? = null) = happen(pkg, UsageKind.RESUMED, late, activity)
 
   fun paused(pkg: String) = happen(pkg, UsageKind.PAUSED, false)
 
@@ -111,8 +125,9 @@ internal class TestPhone : PhoneSource {
     heldBack.clear()
   }
 
-  private fun happen(pkg: String, kind: UsageKind, late: Boolean) {
+  private fun happen(pkg: String, kind: UsageKind, late: Boolean, activity: String? = null) {
     val event = UsageEvent(pkg, kind, wall)
+    if (activity != null) activityOf[event] = activity
     if (late) heldBack.add(event) else record.add(event)
   }
 
@@ -144,11 +159,24 @@ internal class TestPhone : PhoneSource {
   override fun batteryExempt(): Boolean = battery.also { check("battery_exempt") }
   override fun deviceAdmin(): Boolean = admin.also { check("device_admin") }
 
-  override fun usageEvents(fromWallMs: Long, toWallMs: Long): List<UsageEvent>? {
+  override fun usageEvents(fromWallMs: Long, toWallMs: Long, reach: GuardReach): List<UsageEvent>? {
     check("usage_events")
     usageReads += 1
     if (!usageOn) return null
-    return record.filter { it.atWallMs >= fromWallMs && it.atWallMs < toWallMs }.sortedBy { it.atWallMs }
+    return record.filter { it.atWallMs >= fromWallMs && it.atWallMs < toWallMs }.sortedBy { it.atWallMs }.map { event ->
+      // As AndroidPhone reads it: a resumed activity's class only for a
+      // package the reach names, matched and dropped.
+      if (event.kind != UsageKind.RESUMED || !reach.readsResumedClassName(event.packageName)) return@map event
+      classReads += event.packageName
+      event.copy(page = reach.page(event.packageName, activityOf[event]))
+    }
+  }
+
+  override fun answerFor(intent: PageIntent): IntentAnswer {
+    check("guard_pages")
+    if (intent in refusedIntents) throw SecurityException("Mira's Secret Diary refused $intent")
+    answerReads += 1
+    return answers[intent] ?: IntentAnswer.NONE
   }
 
   override fun homePackages(): Set<String> = home.also { check("home") }
@@ -191,20 +219,34 @@ internal class Rig(val phone: TestPhone = TestPhone()) {
 
   /**
    * An app comes up as Android does it: the activity that was up pauses and
-   * stops, the new one resumes, and its window tells the service. Returns
-   * whether the watch said the front changed.
+   * stops, the new one resumes (of class [activity], when given), and its
+   * window tells the service. With [window] false no window event reaches
+   * the service, and half a second passes, so the host's next look reads
+   * Android's record again. Returns whether the watch said the front changed.
    */
-  fun open(pkg: String): Boolean {
+  fun open(pkg: String, activity: String? = null, window: Boolean = true): Boolean {
     up?.let {
       phone.pass(10)
       phone.paused(it)
       phone.stopped(it)
     }
     phone.pass(30)
-    phone.resumed(pkg)
+    phone.resumed(pkg, activity = activity)
     up = pkg
     phone.pass(20)
-    return core.windowEvent(pkg)
+    if (window) return window(pkg, activity)
+    phone.pass(WatchTimes.USAGE_FRESH_MS)
+    return false
+  }
+
+  /**
+   * A window event as the service hands it: the class name read only for a
+   * package the guard's reach names, matched and dropped. True when the
+   * front or the guarded page changed.
+   */
+  fun window(pkg: String?, className: String?): Boolean {
+    val reach = core.reachNow()
+    return core.windowEvent(pkg, if (reach.readsClassName(pkg)) reach.page(pkg, className) else null)
   }
 
   /** The handler's rechecks, as [Watch] runs them, until nothing waits. Returns how many ran. */

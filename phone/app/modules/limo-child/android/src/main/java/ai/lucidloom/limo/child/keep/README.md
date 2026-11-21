@@ -180,8 +180,13 @@ the admin's own description, so they live with it in
 the same page in a mode that switches the admin off and removes LiMo in one
 tap, and Android's source does not ask the receiver first on that way
 (`DeviceAdminAdd`, `mUninstalling`, then
-`uninstallPackageWithActiveAdmins`). Only the watch's guard by the page's
-name covers that way.
+`uninstallPackageWithActiveAdmins`). Only the watch's guard of the page
+itself covers that way: the page known by its class, as the package manager
+names the activity that handles `ACTION_ADD_DEVICE_ADMIN` on the phone (on
+Android's source the very activity App info's Uninstall and the list of
+device admin apps open), or as the fixed list of Android's own names has
+it; told by its window, or by Android's record of the activity that
+resumed, which needs no event at all (watch/README.md, "The guard").
 
 ## What Android refuses an active device admin
 
@@ -283,25 +288,31 @@ LiMo`:
    Samsung note on the Battery step) is needed for the alarm to come on time
    with the screen off.
 8. **The device admin asked to switch off.** Settings, Device admin apps,
-   LiMo, Deactivate, with `adb logcat -s LiMo LiMoWatch`. What the log says
-   depends on whether the page's name is on the watch's list:
-   - **On the list** (Android's own names): the page was guarded as it came
-     up (`guard now device_admin by=page package=com.android.settings`), so
-     Deactivate can be tapped only after a guardian's PIN opened it. Then
-     the log says `keep admin_off asked` and nothing more: the watch already
-     says the device admin's page is in front, so it writes no new guard
-     line, and the PIN's five minutes still stand, so Android's question
-     shows at once.
-   - **Not on the list** (a maker's own name): nothing covered the page.
-     Deactivate logs `guard now device_admin by=event
-     package=com.android.settings`, then `keep admin_off asked`, and the
-     guard is over Android's question at once. A guardian's PIN opens it.
+   LiMo, Deactivate, with `adb logcat -s LiMo LiMoWatch`. At LiMo's start
+   the log should already say `guard pages device_admin=named
+   package=com.android.settings`. What it says then depends on whether the
+   page is known by its class, as the package manager named it or on the
+   watch's list:
+   - **Known** (the usual case): the page was guarded as it came up
+     (`guard now device_admin by=page package=com.android.settings`, or
+     `by=usage` when no window event came), so Deactivate can be tapped
+     only after a guardian's PIN opened it. Then the log says `keep
+     admin_off asked` and nothing more: the watch already says the device
+     admin's page is in front, so it writes no new guard line, and the
+     PIN's five minutes still stand, so Android's question shows at once.
+   - **Not known** (`guard pages device_admin=not_named`, and a maker's own
+     name): nothing covered the page. Deactivate logs `guard now
+     device_admin by=event package=com.android.settings`, then `keep
+     admin_off asked`, and the guard is over Android's question at once. A
+     guardian's PIN opens it.
 
    Either way Android's question holds LiMo's words. Whether a quick tap
    can reach OK before the guard is drawn.
 9. **What One UI refuses** an active device admin: Force stop and Clear
    storage greyed out, as Android's own Settings does, or not; and
-   Uninstall from App info going to the device admin's page.
+   Uninstall from App info going to the device admin's page, covered as it
+   comes up (`guard now device_admin`), with no Deactivate and no `keep
+   admin_off asked` on that way.
 
 ## Left open
 

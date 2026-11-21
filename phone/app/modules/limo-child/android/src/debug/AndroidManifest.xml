@@ -7,7 +7,8 @@ dev/DevReceiver: how the development tool on the PC talks to the app over
 the USB cable, before the link exists. It takes three broadcasts: PAIR (take
 the test family's pairing file from files/limo-dev/pairing.json, then delete
 it), FORGET (wipe the kept state) and PROBE (switch on or off the probe that
-logs the class names of Settings' and the installer's windows, dev/PageProbe).
+logs the class names the guard reads and the package manager's answers for
+it, dev/PageProbe).
 It is exported so that adb can reach it, and guarded by
 android.permission.DUMP, which only the adb shell and the system hold: no app
 on the phone can send to it.

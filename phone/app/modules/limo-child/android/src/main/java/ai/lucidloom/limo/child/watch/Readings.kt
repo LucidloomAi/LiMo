@@ -1,6 +1,7 @@
 package ai.lucidloom.limo.child.watch
 
 import ai.lucidloom.limo.child.ffi.CallState
+import ai.lucidloom.limo.child.ffi.GuardedPage
 
 // What the watch reads from Android, and the small pure rules that turn a
 // reading into a fact. Nothing in this file calls Android: AndroidPhone does,
@@ -15,7 +16,11 @@ import ai.lucidloom.limo.child.ffi.CallState
  * No reading returns a window's title, its text, a class name or anything
  * else on the screen. A package name is the most any of them knows about an
  * app, and a label (the app's name under its icon) is only ever read for an
- * app, by its package.
+ * app, by its package. Two narrow exceptions, both for the guard: the
+ * package manager's answer for [PageIntent] names the activities that open
+ * those pages ([answerFor]); and for a resumed activity of a package the
+ * guard reads, [usageEvents] gives the guarded page its class matched, never
+ * the class itself.
  */
 internal interface PhoneSource {
   /** LiMo's own package. */
@@ -91,9 +96,21 @@ internal interface PhoneSource {
   /**
    * Android's usage events from [fromWallMs] up to [toWallMs] (not
    * including it), oldest first, only the kinds in [UsageKind]; null while
-   * usage access is off.
+   * usage access is off. For a resumed activity of a package [reach] reads
+   * ([GuardReach.readsResumedClassName]: Settings, and the package of the
+   * device admin's page Android named), its class is read, matched
+   * ([GuardReach.page]) and dropped: the event holds only the guarded page
+   * it is. No other app's class is ever read.
    */
-  fun usageEvents(fromWallMs: Long, toWallMs: Long): List<UsageEvent>?
+  fun usageEvents(fromWallMs: Long, toWallMs: Long, reach: GuardReach): List<UsageEvent>?
+
+  /**
+   * What the package manager answers for [intent]: the activity it opens
+   * and every one that handles it, each its package, its class and whether
+   * it is preinstalled. On Android 11 and later only the apps the manifest's
+   * `<queries>` for these intents let LiMo see.
+   */
+  fun answerFor(intent: PageIntent): IntentAnswer
 
   /** The home app: the one chosen, or every preinstalled one while none is. */
   fun homePackages(): Set<String>
@@ -137,10 +154,16 @@ internal enum class UsageKind {
 
 /**
  * One of Android's usage events as LiMo keeps it: the package, what
- * happened, and when, on the wall clock in milliseconds. Never the class
- * name of the activity.
+ * happened, and when, on the wall clock in milliseconds; and for a resumed
+ * activity of a package the guard reads, the guarded page its class matched
+ * ([page], null for every other). Never the class name of the activity.
  */
-internal data class UsageEvent(val packageName: String, val kind: UsageKind, val atWallMs: Long)
+internal data class UsageEvent(
+  val packageName: String,
+  val kind: UsageKind,
+  val atWallMs: Long,
+  val page: GuardedPage? = null,
+)
 
 /** The kind of a usage event from Android's number for it; null for the kinds LiMo does not read. */
 internal fun usageKindOf(type: Int): UsageKind? = when (type) {

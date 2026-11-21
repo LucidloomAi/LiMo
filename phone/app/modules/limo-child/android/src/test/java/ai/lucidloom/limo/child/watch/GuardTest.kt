@@ -10,6 +10,25 @@ import org.junit.Test
 /** A camera that opens over Android's lock screen. */
 private const val CAMERA = "org.example.camera"
 
+/** Settings' one activity for most of its pages (App info, a service's own page, Wi-Fi), as Android's source names it. */
+private const val SUB_SETTINGS = "com.android.settings.SubSettings"
+
+/** The device admin's page under a maker's own name, which no fixed list holds. */
+private const val MAKER_PAGE = "org.example.maker.AdminPage"
+
+/** A preinstalled activity, as the package manager names it. */
+internal fun preinstalled(pkg: String, cls: String, target: String? = null) = NamedActivity(pkg, cls, target, preinstalled = true)
+
+/** An activity of an app a person installed, as the package manager names it. */
+internal fun installed(pkg: String, cls: String) = NamedActivity(pkg, cls, null, preinstalled = false)
+
+/** The package manager's answer for an intent only these activities handle, the first one opening it. */
+internal fun answering(vararg activities: NamedActivity) = IntentAnswer(activities.firstOrNull(), activities.toList())
+
+/** A phone whose package manager names [page], in Settings, for the device admin's page. */
+private fun makerPhone(page: String = MAKER_PAGE) =
+  TestPhone().apply { answers[PageIntent.DEVICE_ADMIN] = answering(preinstalled(Guarded.SETTINGS, page)) }
+
 /**
  * The guard's PIN, typed on LiMo's own screen: [pkg]'s activity pauses,
  * LiMo's resumes, then LiMo's closes and the same activity of [pkg] resumes
@@ -32,10 +51,12 @@ private fun Rig.pinOnLimosScreen(pkg: String) {
 
 /**
  * The watch's part of the guard: which page that could switch LiMo off or
- * remove it is in front, by the page's name inside Settings, by Android's
- * event when its device admin is asked to switch off, and by a package
- * guarded whole; through real orders of window events and Android's usage
- * record, as on a phone.
+ * remove it is in front, by the page's name inside Settings (its window's,
+ * and its activity's in Android's usage record), by what the package
+ * manager names for the device admin's page and the accessibility settings,
+ * by Android's event when its device admin is asked to switch off, and by a
+ * package guarded whole; through real orders of window events and Android's
+ * usage record, as on a phone.
  */
 class GuardTest {
   private val settings = Guarded.SETTINGS
@@ -46,17 +67,17 @@ class GuardTest {
   /** One UI's accessibility settings. */
   private val oneUiAccessibility = "com.samsung.accessibility"
 
-  /** A window of Settings with [className], as the service hands it: matched against the list, the name dropped. */
-  private fun Rig.window(className: String?): Boolean = core.windowEvent(settings, Guarded.page(settings, className))
+  /** A window of Settings with [className], as the service hands it: matched, the name dropped. */
+  private fun Rig.settingsWindow(className: String?): Boolean = window(settings, className)
 
-  /** Another page of Settings comes up: its activity resumes, then its window says so with [className]. */
+  /** Another page of Settings comes up: its activity of [className] resumes, then its window says so. */
   private fun Rig.settingsPage(className: String): Boolean {
     phone.pass(10)
     phone.paused(settings)
     phone.pass(30)
-    phone.resumed(settings)
+    phone.resumed(settings, activity = className)
     phone.pass(20)
-    return window(className)
+    return settingsWindow(className)
   }
 
   private fun Rig.guarded(): GuardedPage? = facts().guarded
@@ -76,7 +97,7 @@ class GuardTest {
       Raised.BY_EVENT -> {
         // A device admin's page whose name is not on the list (another maker's), then Deactivate.
         open(settings)
-        settingsPage("org.example.maker.AdminPage")
+        settingsPage(MAKER_PAGE)
         phone.pass(2_000)
         core.adminOffAsked()
         settings to GuardedPage.DEVICE_ADMIN
@@ -218,7 +239,7 @@ class GuardTest {
         if (back != page) failed += "$how $away: $back"
 
         // Then another page of Settings, or another app, ends it as before.
-        if (pkg == settings) rig.settingsPage("com.android.settings.SubSettings") else rig.open(GAME)
+        if (pkg == settings) rig.settingsPage(SUB_SETTINGS) else rig.open(GAME)
         rig.phone.pass(WatchTimes.CONFIRM_GRACE_MS)
         assertNull("$how $away then elsewhere", rig.guarded())
       }
@@ -256,28 +277,141 @@ class GuardTest {
     assertFalse(plain.log.lines.any { it.startsWith("fact interactive") || it.startsWith("fact keyguard_locked") })
   }
 
+  /**
+   * App info's Uninstall, for an active device admin, opens the device
+   * admin's page in its removing form, whose one tap switches the admin off
+   * and removes LiMo, and Android asks LiMo's receiver nothing on that way.
+   * On a phone whose maker named that page otherwise, no fixed list knows
+   * it; the package manager's answer does.
+   */
   @Test
-  fun afterARestartOfLimosProcessAPackageIsGuardedAtOnceAndAPageOnlyWhenItTellsAgain() {
-    for (how in Raised.values()) {
-      val phone = TestPhone()
-      val (_, page) = Rig(phone).raise(how)
-      phone.pass(5_000)
-      // LiMo's process ends and starts again with the page still in front,
-      // which tells nothing: a new watch on the same phone.
-      val again = Rig(phone)
-      if (how == Raised.BY_PACKAGE) {
-        // Android's record says which package is in front: guarded at once.
-        assertEquals(page, again.guarded())
+  fun aDeviceAdminPageNamedOnNoListIsGuardedWhenAppInfosUninstallOpensItWithNoEventAtAll() {
+    val withAlias = TestPhone().apply {
+      answers[PageIntent.DEVICE_ADMIN] = answering(preinstalled(settings, "org.example.maker.AdminAlias", target = MAKER_PAGE))
+    }
+    for ((name, phone) in listOf("named" to makerPhone(), "named by an alias" to withAlias, "not asked" to TestPhone())) {
+      val rig = Rig(phone)
+      rig.open(LAUNCHER)
+      rig.open(settings, activity = "com.android.settings.Settings")
+      // Apps, LiMo: App info, a page of Settings' shared activity.
+      rig.open(settings, activity = SUB_SETTINGS)
+      assertNull(name, rig.guarded())
+      // Uninstall: the device admin's page resumes. No window event reaches
+      // LiMo (the service missed it), and Android asks LiMo's receiver nothing.
+      rig.phone.pass(2_000)
+      rig.open(settings, activity = MAKER_PAGE, window = false)
+      if (name == "not asked") {
+        // Without Android's answer, a name on no list is not guarded.
+        assertNull(name, rig.guarded())
         continue
       }
-      // What a new process cannot know: nothing of the raise outlives the
-      // process, and Android's record says only that Settings is in front.
-      assertNull("$how", again.guarded())
-      // Guarded again as soon as the page tells again: its window by name
-      // (its focus back after the shade, say), or Deactivate asking once more.
+      assertEquals(name, GuardedPage.DEVICE_ADMIN, rig.guarded())
+      assertTrue(name, rig.log.lines.contains("guard pages device_admin=named package=com.android.settings"))
+      assertTrue(name, rig.log.lines.contains("guard now device_admin by=usage package=com.android.settings"))
+      // Back to App info: another page, the guard ends.
+      rig.open(settings, activity = SUB_SETTINGS)
+      assertNull(name, rig.guarded())
+      assertFalse(name, rig.log.lines.any { it.contains("AdminPage") || it.contains("AdminAlias") || it.contains("SubSettings") })
+    }
+
+    // With usage access off, the page's own window says it, by the same answer.
+    val off = Rig(makerPhone())
+    off.phone.usageOn = false
+    off.look()
+    off.window(settings, SUB_SETTINGS)
+    assertNull(off.guarded())
+    off.window(settings, MAKER_PAGE)
+    assertEquals(GuardedPage.DEVICE_ADMIN, off.guarded())
+  }
+
+  @Test
+  fun aDeviceAdminPageInAMakersOwnPackageIsGuardedAndOnlyThatPackagesClassesAreRead() {
+    val security = "org.example.maker.security"
+    val page = "org.example.maker.security.AdminPage"
+    val phone = TestPhone().apply { answers[PageIntent.DEVICE_ADMIN] = answering(preinstalled(security, page)) }
+    val rig = Rig(phone)
+    rig.open(LAUNCHER)
+    rig.open(GAME, activity = "org.example.game.Main")
+    rig.open(security, activity = "org.example.maker.security.Home")
+    assertNull(rig.guarded())
+    rig.open(security, activity = page, window = false)
+    assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
+    assertTrue(rig.log.lines.contains("guard pages device_admin=named package=$security"))
+    rig.open(GAME, activity = page)
+    rig.phone.pass(WatchTimes.CONFIRM_GRACE_MS)
+    assertNull(rig.guarded())
+    // Its window by the same name, with usage access off.
+    rig.phone.usageOn = false
+    rig.core.permissionsChanged()
+    rig.look()
+    rig.window(security, page)
+    assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
+    // The classes read from the record: that package's and Settings', never the game's or the launcher's.
+    assertTrue(phone.classReads.contains(security))
+    assertTrue(phone.classReads.toString(), phone.classReads.all { it == security || it == settings })
+  }
+
+  /**
+   * A guard raised by Android's question alone used to end at Home, and
+   * back in Settings the question was still open, unguarded. Where
+   * the package manager names the page, it is guarded again on the way back
+   * by Android's record, with no window event; where Android names nothing
+   * and the name is on no list, it is still open, as the README says.
+   */
+  @Test
+  fun aGuardRaisedAtDeactivateHoldsOverAndroidsQuestionAfterHomeAndBack() {
+    for (named in listOf(true, false)) {
+      val phone = if (named) makerPhone() else TestPhone()
+      val rig = Rig(phone)
+      rig.open(LAUNCHER)
+      rig.open(settings, activity = SUB_SETTINGS)
+      rig.open(settings, activity = MAKER_PAGE)
+      assertEquals("named=$named", if (named) GuardedPage.DEVICE_ADMIN else null, rig.guarded())
+      // Deactivate: Android asks LiMo's receiver, then shows its question,
+      // a dialog over the page that resumes nothing.
       phone.pass(2_000)
-      if (how == Raised.BY_PAGE) again.window(adminPage) else again.core.adminOffAsked()
-      assertEquals("$how", page, again.guarded())
+      rig.core.adminOffAsked()
+      phone.pass(300)
+      rig.settingsWindow("android.app.AlertDialog")
+      phone.pass(5_000)
+      assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
+      // Home: the page and its question wait in Settings' task.
+      rig.open(LAUNCHER)
+      assertNull(rig.guarded())
+      // Back through the recent apps: the same page resumes with its
+      // question still up, and no window event reaches LiMo.
+      phone.pass(4_000)
+      rig.open(settings, activity = MAKER_PAGE, window = false)
+      val back = rig.guarded()
+      if (named) assertEquals(GuardedPage.DEVICE_ADMIN, back) else assertNull("left open where Android names nothing", back)
+    }
+  }
+
+  @Test
+  fun limosProcessStartingAgainWithAGuardedPageInFrontGuardsItAtItsFirstLook() {
+    for (how in Raised.values()) {
+      for (named in listOf(false, true)) {
+        val phone = if (named) makerPhone() else TestPhone()
+        val (_, page) = Rig(phone).raise(how)
+        phone.pass(5_000)
+        // LiMo's process ends and starts again with the page still in front,
+        // which tells nothing: a new watch on the same phone.
+        val again = Rig(phone)
+        val first = again.guarded()
+        if (how == Raised.BY_EVENT && !named) {
+          // A page known by Android's question alone, its name on no list
+          // and Android naming nothing: nothing of the raise outlived the
+          // process. Guarded again only when Deactivate asks once more.
+          assertNull("$how", first)
+          phone.pass(2_000)
+          again.core.adminOffAsked()
+          assertEquals("$how", page, again.guarded())
+          continue
+        }
+        // Android's record says which package is in front, and which page it
+        // is by its class: on the fixed list, or as Android named it.
+        assertEquals("$how named=$named", page, first)
+      }
     }
   }
 
@@ -287,7 +421,7 @@ class GuardTest {
     rig.open(LAUNCHER)
     rig.open(settings)
     assertNull(rig.guarded())
-    rig.settingsPage("com.android.settings.SubSettings")
+    rig.settingsPage(SUB_SETTINGS)
     assertNull(rig.guarded())
 
     // LiMo's row under Device admin apps: the device admin's page.
@@ -297,15 +431,15 @@ class GuardTest {
     // Android's own "Deactivate?" over it: a window of Settings with a
     // dialog's class, and nothing resumed. Still guarded, minutes later.
     rig.phone.pass(2_000)
-    rig.window("android.app.AlertDialog")
+    rig.settingsWindow("android.app.AlertDialog")
     rig.phone.pass(120_000)
     assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
 
     // Back to the list: another page of Settings resumed. Not guarded.
     rig.phone.pass(1_000)
-    rig.phone.resumed(settings)
+    rig.phone.resumed(settings, activity = "com.android.settings.Settings\$DeviceAdminSettingsActivity")
     rig.phone.pass(20)
-    assertTrue(rig.window("com.android.settings.Settings\$DeviceAdminSettingsActivity"))
+    assertTrue(rig.settingsWindow("com.android.settings.Settings\$DeviceAdminSettingsActivity"))
     assertNull(rig.guarded())
 
     // Android 8.0 to 9 name the same page otherwise: guarded too.
@@ -330,9 +464,9 @@ class GuardTest {
     // The device admin's page straight from a notification, Settings' resume
     // written after its window told the service: guarded at once all the same.
     rig.phone.pass(30)
-    rig.phone.resumed(settings, late = true)
+    rig.phone.resumed(settings, late = true, activity = adminPage)
     rig.phone.pass(20)
-    assertTrue(rig.window(adminPage))
+    assertTrue(rig.settingsWindow(adminPage))
     assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
     rig.phone.pass(300)
     rig.phone.catchUp()
@@ -346,7 +480,7 @@ class GuardTest {
     rig.open(LAUNCHER)
     assertNull(rig.guarded())
     rig.phone.pass(50)
-    rig.window(adminPage)
+    rig.settingsWindow(adminPage)
     assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
     rig.settle()
     rig.phone.pass(WatchTimes.CONFIRM_GRACE_MS)
@@ -362,12 +496,14 @@ class GuardTest {
     rig.settingsPage(adminPage)
     assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
 
-    // The guard's PIN, on LiMo's own screen: never guarded, never covered.
+    // The guard's PIN, on LiMo's own screen: never guarded, never covered,
+    // though Android's record still shows the page until LiMo's resume is read.
     phone.pass(500)
     phone.paused(settings)
     phone.pass(10)
-    phone.resumed(LIMO)
     rig.core.limoScreen(true)
+    assertNull(rig.guarded())
+    phone.resumed(LIMO)
     assertNull(rig.guarded())
     // Back, with no PIN: the same page resumes again, with or without a
     // window event, and is guarded again.
@@ -389,14 +525,14 @@ class GuardTest {
     assertNull(rig.guarded())
     phone.pass(5_000)
     phone.paused(SOS)
-    phone.resumed(settings)
+    phone.resumed(settings, activity = adminPage)
     phone.pass(20)
-    rig.window(adminPage)
+    rig.settingsWindow(adminPage)
     assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
 
     // Then another page of Settings: the guard ends.
     phone.pass(2_000)
-    rig.settingsPage("com.android.settings.SubSettings")
+    rig.settingsPage(SUB_SETTINGS)
     assertNull(rig.guarded())
   }
 
@@ -406,7 +542,7 @@ class GuardTest {
     rig.open(LAUNCHER)
     rig.open(settings)
     // A device admin's page whose name is not on the list (another maker's).
-    rig.settingsPage("org.example.maker.AdminPage")
+    rig.settingsPage(MAKER_PAGE)
     assertNull(rig.guarded())
     rig.phone.pass(4_000)
 
@@ -416,7 +552,7 @@ class GuardTest {
     assertTrue(rig.log.lines.contains("guard now device_admin by=event package=com.android.settings"))
     // Android's question over the page resumes nothing: guarded until it is answered.
     rig.phone.pass(500)
-    rig.window("android.app.AlertDialog")
+    rig.settingsWindow("android.app.AlertDialog")
     rig.phone.pass(60_000)
     assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
     // Home: the guard ends.
@@ -453,13 +589,154 @@ class GuardTest {
     rig.core.windowEvent(GAME)
     assertNull(rig.guarded())
     // And a page of Settings named on the list, until another app's window.
-    rig.window(adminPage)
+    rig.settingsWindow(adminPage)
     assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
-    rig.window("android.app.AlertDialog")
+    rig.settingsWindow("android.app.AlertDialog")
     rig.phone.pass(30_000)
     assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
     rig.core.windowEvent(GAME)
     assertNull(rig.guarded())
+  }
+
+  @Test
+  fun theAccessibilitySettingsAreGuardedWholeWhereAndroidOpensThemInAPackageOfTheirOwn() {
+    val access = "org.example.maker.accessibility"
+    val phone = TestPhone().apply {
+      answers[PageIntent.ACCESSIBILITY] = answering(preinstalled(access, "org.example.maker.accessibility.Main"))
+      answers[PageIntent.SETTINGS] = answering(preinstalled(settings, "com.android.settings.Settings"))
+    }
+    val rig = Rig(phone)
+    rig.open(LAUNCHER)
+    assertEquals(GuardScope(deviceAdminNamed = false, accessibility = AccessibilityPlace.OWN_PACKAGE), rig.look().guardScope)
+    assertTrue(rig.log.lines.contains("guard pages accessibility=own_package package=$access"))
+    // In front: guarded whole, by what Android answered, with no maker's name held anywhere.
+    rig.open(access, activity = "org.example.maker.accessibility.Main")
+    assertEquals(GuardedPage.ACCESSIBILITY, rig.guarded())
+    assertTrue(rig.log.lines.contains("guard now accessibility by=package package=$access"))
+    rig.open(GAME)
+    assertNull(rig.guarded())
+    // Its classes are never read: a package guarded whole needs none.
+    assertFalse(phone.classReads.contains(access))
+    // After a restart of LiMo's process with it in front: guarded at the first look.
+    rig.open(access)
+    phone.pass(5_000)
+    assertEquals(GuardedPage.ACCESSIBILITY, Rig(phone).guarded())
+  }
+
+  @Test
+  fun accessibilitySettingsInsideAndroidsSettingsAreReportedAsTheyAreAndNotGuarded() {
+    // Android's own source: the action opens an activity of Settings, and
+    // LiMo's switch is on a page in Settings' shared activity.
+    val aosp = TestPhone().apply {
+      answers[PageIntent.ACCESSIBILITY] = answering(preinstalled(settings, "com.android.settings.Settings\$AccessibilitySettingsActivity"))
+      answers[PageIntent.SETTINGS] =
+        answering(preinstalled(settings, "com.android.settings.Settings", target = "com.android.settings.homepage.SettingsHomepageActivity"))
+    }
+    val rig = Rig(aosp)
+    rig.open(LAUNCHER)
+    assertEquals(AccessibilityPlace.IN_SETTINGS, rig.look().guardScope.accessibility)
+    assertTrue(rig.log.lines.contains("guard pages accessibility=in_settings package=com.android.settings"))
+    rig.open(settings, activity = "com.android.settings.Settings\$AccessibilitySettingsActivity")
+    assertNull(rig.guarded())
+    rig.open(settings, activity = SUB_SETTINGS)
+    assertNull(rig.guarded())
+
+    // A maker whose Settings app is a package of its own, the accessibility
+    // settings inside it: that Settings is never guarded whole.
+    val makerSettings = "org.example.maker.settings"
+    val maker = TestPhone().apply {
+      answers[PageIntent.ACCESSIBILITY] = answering(preinstalled(makerSettings, "org.example.maker.settings.Accessibility"))
+      answers[PageIntent.SETTINGS] = answering(preinstalled(makerSettings, "org.example.maker.settings.Home"))
+    }
+    val inMaker = Rig(maker)
+    inMaker.open(LAUNCHER)
+    assertEquals(AccessibilityPlace.IN_SETTINGS, inMaker.look().guardScope.accessibility)
+    inMaker.open(makerSettings)
+    assertNull(inMaker.guarded())
+
+    // Android's Settings could not be asked: no package can be told from
+    // Settings, so none is guarded whole; the fixed list alone.
+    val refused = TestPhone().apply {
+      answers[PageIntent.ACCESSIBILITY] = answering(preinstalled(makerSettings, "org.example.maker.settings.Accessibility"))
+      refusedIntents += PageIntent.SETTINGS
+    }
+    val unsure = Rig(refused)
+    unsure.open(LAUNCHER)
+    assertEquals(AccessibilityPlace.NOT_NAMED, unsure.look().guardScope.accessibility)
+    unsure.open(makerSettings)
+    assertNull(unsure.guarded())
+    unsure.open(oneUiAccessibility)
+    assertEquals(GuardedPage.ACCESSIBILITY, unsure.guarded())
+
+    // Android named nothing: the fixed list alone, said as it is.
+    val bare = Rig()
+    bare.open(LAUNCHER)
+    assertEquals(GuardScope(), bare.look().guardScope)
+    assertTrue(bare.log.lines.contains("guard pages device_admin=not_named"))
+    assertTrue(bare.log.lines.contains("guard pages accessibility=not_named"))
+  }
+
+  @Test
+  fun androidsAnswerIsKeptForTheProcessAndAskedAgainWhenAppsChangeOrAfterARefusal() {
+    val phone = makerPhone()
+    val rig = Rig(phone)
+    rig.open(LAUNCHER)
+    val once = phone.answerReads
+    assertEquals(PageIntent.values().size, once)
+    repeat(30) {
+      phone.pass(1_000)
+      rig.look()
+    }
+    assertEquals("kept, not asked at every look", once, phone.answerReads)
+
+    // An update renames the page: Android says an app changed, and the
+    // package manager is asked again.
+    val renamed = "org.example.maker.NewAdminPage"
+    phone.answers[PageIntent.DEVICE_ADMIN] = answering(preinstalled(settings, renamed))
+    rig.core.appsChanged()
+    rig.open(settings, activity = renamed, window = false)
+    assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
+    assertEquals(2 * once, phone.answerReads)
+    rig.open(settings, activity = MAKER_PAGE, window = false)
+    assertNull("the old name is no page now", rig.guarded())
+
+    // Refused: the last good answer holds, logged once, asked again a minute later.
+    phone.failing += "guard_pages"
+    rig.core.appsChanged()
+    rig.look()
+    assertEquals(setOf(settings to renamed), rig.core.reachNow().adminPages)
+    assertEquals(1, rig.log.lines.count { it.startsWith("fact guard_pages unreadable error=SecurityException fallback_used") })
+    phone.failing.clear()
+    phone.answers[PageIntent.DEVICE_ADMIN] = answering(preinstalled(settings, MAKER_PAGE))
+    phone.pass(30_000)
+    rig.look()
+    assertEquals(setOf(settings to renamed), rig.core.reachNow().adminPages)
+    phone.pass(31_000)
+    rig.look()
+    assertEquals(setOf(settings to MAKER_PAGE), rig.core.reachNow().adminPages)
+
+    // A new process that Android refuses from the first: the fixed lists
+    // alone, Android's own names still guarded.
+    val refusing = TestPhone().apply { failing += "guard_pages" }
+    val fresh = Rig(refusing)
+    fresh.open(LAUNCHER)
+    fresh.open(settings, activity = adminPage, window = false)
+    assertEquals(GuardedPage.DEVICE_ADMIN, fresh.guarded())
+    assertEquals(GuardScope(), fresh.look().guardScope)
+  }
+
+  @Test
+  fun anActivityThatAlsoOpensSettingsOwnPagesIsNeverTakenForTheDeviceAdminsPage() {
+    val phone = TestPhone().apply {
+      answers[PageIntent.DEVICE_ADMIN] = answering(preinstalled(settings, "com.android.settings.Settings"))
+      answers[PageIntent.SETTINGS] = answering(preinstalled(settings, "com.android.settings.Settings"))
+    }
+    val rig = Rig(phone)
+    rig.open(LAUNCHER)
+    rig.open(settings, activity = "com.android.settings.Settings")
+    assertNull(rig.guarded())
+    assertTrue(rig.log.lines.contains("guard pages device_admin=not_named"))
+    assertEquals(GuardScope(), rig.look().guardScope)
   }
 
   @Test
@@ -478,8 +755,16 @@ class GuardTest {
     assertNull(Guarded.page(oneUiAccessibility, adminPage))
     assertEquals(GuardedPage.DEVICE_ADMIN, Guarded.page(settings, adminPage))
     assertEquals(GuardedPage.DEVICE_ADMIN, Guarded.page(settings, "com.android.settings.DeviceAdminAdd"))
-    assertNull(Guarded.page(settings, "com.android.settings.SubSettings"))
+    assertNull(Guarded.page(settings, SUB_SETTINGS))
     assertNull(Guarded.page(settings, null))
     assertNull(Guarded.page("com.android.packageinstaller", adminPage))
+    // The fixed lists alone read the same.
+    val fixed = GuardReach.FIXED
+    for (pkg in Guarded.CLASS_NAME_PACKAGES) assertTrue(fixed.readsClassName(pkg))
+    assertEquals(setOf(settings), Guarded.CLASS_NAME_PACKAGES.filter { fixed.readsResumedClassName(it) }.toSet())
+    assertEquals(GuardedPage.DEVICE_ADMIN, fixed.page(settings, adminPage))
+    assertNull(fixed.page(GAME, adminPage))
+    assertEquals(GuardedPage.ACCESSIBILITY, fixed.wholePackage(oneUiAccessibility))
+    assertNull(fixed.wholePackage(settings))
   }
 }

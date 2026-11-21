@@ -98,6 +98,18 @@ class Watch private constructor(context: Context) : PhoneWatch {
   // From the service, the receivers and the signals. Each is guarded, so no
   // failure here can stop the service or a receiver.
 
+  /**
+   * How far the guard reaches now, for the service: which packages' window
+   * class names it may read, and what they are matched against. The package
+   * manager is asked at the first need in this process and again when apps
+   * changed. Never throws: a refused answer keeps the last good one, and with
+   * none the fixed lists hold.
+   */
+  internal fun reach(): GuardReach = synchronized(lock) { core.reachNow() }
+
+  /** The package manager's last answers for the guard's intents, for the debug build's probe (dev/PageProbe). */
+  internal fun pagesAnswered(): Map<PageIntent, IntentAnswer> = synchronized(lock) { core.pagesAnswered() }
+
   internal fun windowEvent(packageName: String?, page: GuardedPage?) = guard("window_event") {
     val changed = synchronized(lock) { core.windowEvent(packageName, page) }
     scheduleRecheck()

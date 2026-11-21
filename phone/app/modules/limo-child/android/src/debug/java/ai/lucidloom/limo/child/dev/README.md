@@ -39,7 +39,7 @@ adb shell am broadcast -a ai.lucidloom.limo.child.dev.PROBE  -n ai.lucidloom.lim
 | --- | --- |
 | `ai.lucidloom.limo.child.dev.PAIR` | Reads the pairing file and deletes it at once, whatever it held (to try again, push it again: it is never read twice). Makes the engine from it through the host (`PhoneHost.pair`, with the child's name), which keeps the new state before anything else, then the name, replacing any state and name kept before; fills the welcome and the secret with zeros; starts the keeper. |
 | `ai.lucidloom.limo.child.dev.FORGET` | Deletes the kept state (`files/limo/state`) and the child's name (`files/limo/child.json`), takes any cover away, stops the keeper. |
-| `ai.lucidloom.limo.child.dev.PROBE`, with the boolean extra `on` | Switches the page probe on (true) or off (false) (below). With no extra, off. |
+| `ai.lucidloom.limo.child.dev.PROBE`, with the boolean extra `on` | Switches the page probe on (true) or off (false) (below); switched on, it first logs the package manager's answers the watch holds for the guard. With no extra, off. |
 
 The receiver is exported so that adb can reach it, and guarded by
 `android.permission.DUMP`, which only the adb shell and the system hold: no
@@ -59,28 +59,41 @@ the file held:
 ## The page probe
 
 The guard covers pages that could switch LiMo off or remove it
-(watch/README.md, "The guard"). Inside Android's Settings and the package
-installer, the only thing that tells such a page apart is the class name
-of its window, and the list of those names (watch/Guarded.kt) was read in
-Android's source, not on a phone. The probe is how the real names are
-learned, once, on a real phone.
+(watch/README.md, "The guard"). Inside Android's Settings, the only thing
+that tells such a page apart is its class: the class of its window, and
+the class of the activity Android's usage record shows resumed. The watch
+knows the device admin's page by the package manager's answer on the phone
+(the activity that handles `ACTION_ADD_DEVICE_ADMIN`) and by a fixed list
+read in Android's source (watch/Guarded.kt). The probe is how a real phone
+is checked against both, once.
 
-**What it does.** While it is on, each window event of Android's Settings
-or the installer (`com.android.settings`, `com.android.packageinstaller`,
-`com.google.android.packageinstaller`) logs one line, tag `LiMoWatch`:
+**What it does.** Switched on, it first logs the package manager's answers
+the watch holds for its three intents (`device_admin`, `accessibility`,
+`settings`), tag `LiMoWatch`: `opens=` the activity each opens, as its
+package, its class, an alias's `target=` and whether it is preinstalled,
+then a `handler=` line for every activity that handles it (`unread` for an
+intent never answered). Then, while it is on, each window event of the
+packages the guard reads windows of (Settings, the installer and the
+package the answer names for the device admin's page) logs one line, and
+each resumed activity in Android's usage record of the packages it reads
+that record of (Settings and that package) one line, once for each class
+since the probe was switched on:
 
 ```
+probe answered intent=device_admin opens=com.android.settings/com.android.settings.applications.specialaccess.deviceadmin.DeviceAdminAdd preinstalled
 probe window package=com.android.settings class=com.android.settings.applications.specialaccess.deviceadmin.DeviceAdminAdd
+probe resumed package=com.android.settings class=com.android.settings.applications.specialaccess.deviceadmin.DeviceAdminAdd
 ```
 
-It sees exactly the events whose class name a release build reads and
-matches, nothing more: never another app's class name, never any text or
-anything on the screen. The watch's `WindowPage` hands the name over in a
-debug build only: `src/debug/watch` holds the debug copy, which calls
-`PageProbe.window` and then matches as a release build does, and
+It sees exactly what a release build reads and matches, nothing more:
+never another app's class name, never any text or anything on the screen.
+The watch's `WindowPage` hands the names over in a debug build only:
+`src/debug/watch` holds the debug copy, which calls `PageProbe.window` and
+`PageProbe.resumed` and then matches as a release build does, and
 `src/release/java` the release copy, which only matches (the module's
-`build.gradle` adds `src/debug/watch` to the debug source set). The class
-name is cut at 200 characters and keeps only letters, digits, dots,
+`build.gradle` adds `src/debug/watch` to the debug source set); the
+receiver asks the watch for its answers when the probe is switched on. A
+class name is cut at 200 characters and keeps only letters, digits, dots,
 underscores and dollar signs.
 
 **Off by default**, and off again whenever LiMo's process starts: the
@@ -93,7 +106,8 @@ build installed and paired (phone/TESTING.md, parts C and D), and setup
 finished on the phone:
 
 1. In one terminal, the log: `adb logcat -s LiMo:V LiMoWatch:V`.
-2. In another, the probe on; the log says `probe on` and `dev probe on`:
+2. In another, the probe on; the log says `probe on`, `dev probe on`, and
+   the `probe answered` lines:
 
    ```
    adb shell am broadcast -a ai.lucidloom.limo.child.dev.PROBE -n ai.lucidloom.limo.child/ai.lucidloom.limo.child.dev.DevReceiver --ez on true
@@ -118,11 +132,16 @@ finished on the phone:
    adb shell am broadcast -a ai.lucidloom.limo.child.dev.PROBE -n ai.lucidloom.limo.child/ai.lucidloom.limo.child.dev.DevReceiver --ez on false
    ```
 
-5. Copy the log. Each `probe window` line gives a page's real package and
-   class; each `front now app package=` line the package in front, the
-   installer's among them; each `guard now` line what was guarded. A page
-   that switches LiMo off whose class is not in watch/Guarded.kt, or the
-   installer under another package than the three above, is what to add.
+5. Copy the log. The `probe answered` lines give what the package manager
+   named; each `probe window` and `probe resumed` line a page's real
+   package and class; each `front now app package=` line the package in
+   front, the installer's among them; each `guard now` line what was
+   guarded, and how. The device admin's page, reached from its row in the
+   list and from App info's Uninstall, should show the class the answer
+   named for `device_admin`, in its window and in its resume. A way to it
+   that shows another class, a page that switches LiMo off whose class is
+   neither the answer's nor in watch/Guarded.kt, or the installer under
+   another package than the two in watch/Guarded.kt, is what to add.
 
 ## The debug build
 
@@ -147,10 +166,13 @@ that are not right, each refused by its word, deleted, and never quoted,
 among them one with no name, a name that is not text, and names that are
 nothing once cleaned; strings with escapes and a nested welcome read as
 the very text they are; a name cleaned (a direction mark dropped, cut at
-40 characters). `PageProbeTest`: off until switched on; then Settings' and
-the installer's windows logged, and never another app's, whatever its
-class; a name cut and kept to what a class name can hold; nothing once
-off. The debug copy of the watch's `WindowPage` is not compiled into
+40 characters). `PageProbeTest`: off until switched on; then the windows
+of Settings, the installer and a maker's package the answer named, and
+never another app's, whatever its class; resumed activities of Settings
+and that package only, each once, and once more after the probe is
+switched on again; the package manager's answers as the watch holds them;
+a name cut and kept to what a class name can hold; nothing once off. The
+debug copy of the watch's `WindowPage` is not compiled into
 those tests (only `src/debug/java` is); the watch's house rules check its
 text (watch/README.md, "Tests").
 
@@ -163,7 +185,7 @@ src/debug/
     README.md
     DevReceiver.kt       the three broadcasts
     DevPairing.kt        the pairing file, taken once, and a small strict JSON reader for it
-    PageProbe.kt         the page probe: its switch, and a line for each window of Settings and the installer
+    PageProbe.kt         the page probe: its switch, the package manager's answers, and a line for each window and resumed activity the guard reads
   watch/ai/lucidloom/limo/child/watch/
     WindowPage.kt        the watch's debug copy: hands the class name to the probe, then matches it
 src/test/java/ai/lucidloom/limo/child/dev/DevPairingTest.kt, PageProbeTest.kt

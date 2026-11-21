@@ -34,6 +34,7 @@ import ai.lucidloom.limo.child.ffi.PhonePermissions
  * | the front | unknown, why in [WatchLook.unknownBecause] |
  * | a label | none |
  * | the roles | as last asked (none at first) |
+ * | the guard's reach | each intent's last answer; with none, the fixed lists alone |
  */
 internal class WatchCore(private val phone: PhoneSource, private val log: WatchLog) {
   private class Remembered<T : Any>(val fact: String, val default: T) {
@@ -77,6 +78,15 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
   private var lastPick: Pick? = null
   private var lastGuarded: GuardedPage? = null
 
+  // How far the guard reaches: the package manager's answers for the
+  // guard's intents, asked at the first need in this process, again when
+  // apps change, and a minute after any of them was refused. Memory only.
+  private val answers = HashMap<PageIntent, IntentAnswer>()
+  private var reach = GuardReach.FIXED
+  private var reachAtMs: Long? = null
+  private var reachWhole = false
+  private var reachLogged: GuardReach? = null
+
   /**
    * **The facts now: the one place they are assembled.** Reads every fact,
    * reads usage when the last read is half a second old or more, and says
@@ -114,7 +124,7 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
       guarded = guarded,
     )
     val beside = front.alsoVisible(roles, phone.stopsReported).map(::toFront)
-    return WatchLook(facts, beside, permissions, pick.unknownBecause)
+    return WatchLook(facts, beside, permissions, pick.unknownBecause, reach.scope())
   }
 
   /**
@@ -150,10 +160,27 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
   }
 
   /**
+   * How far the guard reaches now: the fixed lists, and the package
+   * manager's answers for the guard's intents, asked first if they are due.
+   * The service asks it before it reads a window's class name, so that it
+   * reads one only for the packages this names.
+   */
+  fun reachNow(): GuardReach {
+    refreshReach(elapsedNow())
+    return reach
+  }
+
+  /** The package manager's last answers for the guard's intents, for the debug build's probe. Memory only. */
+  fun pagesAnswered(): Map<PageIntent, IntentAnswer> {
+    refreshReach(elapsedNow())
+    return HashMap(answers)
+  }
+
+  /**
    * A window event from the accessibility service: its package, and [page],
-   * what its class name matched in [Guarded.PAGES] (only ever for Settings
-   * and the installer, null for anything else). True when what is in front,
-   * or the guarded page in front, changed.
+   * what its class name matched ([GuardReach.page], only ever for the
+   * packages the guard reads, null for anything else). True when what is in
+   * front, or the guarded page in front, changed.
    */
   fun windowEvent(packageName: String?, page: GuardedPage? = null): Boolean {
     val now = elapsedNow()
@@ -253,10 +280,15 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
     permissionsAtMs = null
   }
 
-  /** An app was installed, removed or changed: ask the roles again, and forget the labels. */
+  /**
+   * An app was installed, removed or changed: ask the roles again, forget
+   * the labels, and ask the package manager again which activities open the
+   * guarded pages (an update may have renamed them).
+   */
   fun appsChanged() {
     rolesAtMs = null
     launchableAtMs = null
+    reachAtMs = null
     labels.clear()
   }
 
@@ -297,8 +329,46 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
   }
 
   /** The guarded page in front now, as [GuardWatch] says from what the front watch knows and whether the phone is [putDown]. */
-  private fun guardedNow(pick: Pick, nowMs: Long, putDown: Boolean): GuardedPage? =
-    guard.now(pick, front.track.frontSinceWallMs, front.lastWindow, front.usage == UsageState.ON, putDown, nowMs)
+  private fun guardedNow(pick: Pick, nowMs: Long, putDown: Boolean): GuardedPage? {
+    val usageOn = front.usage == UsageState.ON
+    return guard.now(
+      pick = pick,
+      frontSinceWallMs = front.track.frontSinceWallMs,
+      frontPage = front.track.frontPage.takeIf { usageOn },
+      lastWindow = front.lastWindow,
+      usageOn = usageOn,
+      putDown = putDown,
+      nowMs = nowMs,
+      reach = reach,
+    )
+  }
+
+  /**
+   * Asks the package manager which activities open the guarded pages
+   * ([PageIntent]), when that is due: at the first need in this process,
+   * after [appsChanged], and a minute after any answer was refused. A
+   * refused answer keeps the last good one of the same intent. One pair of
+   * log lines when what the guard reaches changes, naming packages only.
+   */
+  private fun refreshReach(now: Long) {
+    val at = reachAtMs
+    if (at != null && (reachWhole || now - at < WatchTimes.ROLES_EVERY_MS)) return
+    reachAtMs = now
+    var whole = true
+    for (intent in PageIntent.values()) {
+      val answer = optional("guard_pages") { phone.answerFor(intent) }
+      if (answer == null) whole = false else answers[intent] = answer
+    }
+    reachWhole = whole
+    reach = GuardReach.from(answers[PageIntent.DEVICE_ADMIN], answers[PageIntent.ACCESSIBILITY], answers[PageIntent.SETTINGS])
+    if (reach != reachLogged) {
+      reachLogged = reach
+      val admin = reach.adminPackages.sorted().joinToString(",")
+      log.line(if (admin.isEmpty()) "guard pages device_admin=not_named" else "guard pages device_admin=named package=$admin")
+      val where = reach.accessibilityIn.sorted().joinToString(",").let { if (it.isEmpty()) "" else " package=$it" }
+      log.line("guard pages accessibility=${reach.accessibility.name.lowercase()}$where")
+    }
+  }
 
   /** The phone put down: its screen off, or Android's lock screen up, read now. */
   private fun putDownNow(now: Long): Boolean =
@@ -324,10 +394,13 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
     labels.get(pkg) { cleanLabel(optional("label") { phone.label(it) }, it) }
 
   private fun readUsage(now: Long, wallMs: Long) {
+    // What the guard reaches first: a resumed activity's class is matched
+    // as it is read, so a new process knows the page in front at its first read.
+    refreshReach(now)
     usageReadAtMs = now
     val window = front.track.window(wallMs)
     val events = try {
-      phone.usageEvents(window.fromWallMs, window.toWallMs)
+      phone.usageEvents(window.fromWallMs, window.toWallMs, reach)
     } catch (e: Exception) {
       failed("usage_events", e)
       front.usageUnreadable()

@@ -95,6 +95,24 @@ ai.lucidloom.limo.child: .watch.WatchService, .keep.AdminReceiver.
         <intent>
             <action android:name="com.android.phone.EmergencyDialer.DIAL" />
         </intent>
+        <!--
+        The guard (watch/Guarded.kt): which activity opens each page that could
+        switch LiMo off, asked of the package manager on the phone itself. Each
+        lets LiMo see only the apps that answer it; only preinstalled ones are
+        believed. The device admin's page, which App info's Uninstall also
+        opens for an active device admin.
+        -->
+        <intent>
+            <action android:name="android.app.action.ADD_DEVICE_ADMIN" />
+        </intent>
+        <!-- The accessibility settings' own entry page: a package of its own on some makers (One UI's). -->
+        <intent>
+            <action android:name="android.settings.ACCESSIBILITY_SETTINGS" />
+        </intent>
+        <!-- Android's Settings app itself, so that a maker's Settings is never guarded whole. -->
+        <intent>
+            <action android:name="android.settings.SETTINGS" />
+        </intent>
     </queries>
 
     <application>

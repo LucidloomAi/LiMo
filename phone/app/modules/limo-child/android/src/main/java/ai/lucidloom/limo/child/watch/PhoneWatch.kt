@@ -123,7 +123,36 @@ data class WatchLook(
   val permissions: LimoPermissions,
   /** Why the front is unknown, when it is. */
   val unknownBecause: UnknownBecause?,
+  /** How far the guard reaches on this phone, as Android answered: never a class name. */
+  val guardScope: GuardScope = GuardScope(),
 )
+
+/**
+ * How far the guard reaches on this phone, as the package manager answered
+ * when the watch asked which activities open the pages it guards
+ * (watch/README.md, "The guard"). Never a class name.
+ */
+data class GuardScope(
+  /** Android named the device admin's page: it is known by its class, beside the fixed list of names. */
+  val deviceAdminNamed: Boolean = false,
+  /** Where the accessibility settings open. */
+  val accessibility: AccessibilityPlace = AccessibilityPlace.NOT_NAMED,
+)
+
+/** Where the accessibility settings open on this phone, as Android answered. */
+enum class AccessibilityPlace {
+  /** In a package of their own (as One UI's): guarded whole while in front. */
+  OWN_PACKAGE,
+
+  /**
+   * Inside Android's Settings: LiMo's own switch there is a page no name
+   * tells apart from most other pages of Settings, so it is not guarded.
+   */
+  IN_SETTINGS,
+
+  /** Android named no preinstalled app for them, or could not be asked: the fixed list alone. */
+  NOT_NAMED,
+}
 
 /** Why the watch cannot say what is in front. */
 enum class UnknownBecause {

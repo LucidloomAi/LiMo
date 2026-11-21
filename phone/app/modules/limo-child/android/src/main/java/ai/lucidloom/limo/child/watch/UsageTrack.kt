@@ -1,5 +1,7 @@
 package ai.lucidloom.limo.child.watch
 
+import ai.lucidloom.limo.child.ffi.GuardedPage
+
 /**
  * Android's record of activities (usage events), as LiMo follows it: which
  * app's activity was resumed last, and which apps still have one on the
@@ -61,6 +63,14 @@ internal class UsageTrack(
    */
   val frontSinceWallMs: Long? get() = frontAtWallMs.takeIf { front != null }
 
+  /**
+   * The guarded page the activity in front is, by its class in Android's
+   * record ([UsageEvent.page], only ever given for the packages the guard
+   * reads); null for any other activity, and when none was seen.
+   */
+  var frontPage: GuardedPage? = null
+    private set
+
   private val latest = HashMap<String, Seen>()
   private var readTo: Long? = null
   private val nearEdge = HashSet<UsageEvent>()
@@ -89,14 +99,17 @@ internal class UsageTrack(
     val before = front
     taken.clear()
     // A stable sort keeps Android's own order for events with the same time.
-    val fresh = events.filter { it.atWallMs >= window.fromWallMs && it !in nearEdge }.sortedBy { it.atWallMs }
+    val fresh = events.filter { it.atWallMs >= window.fromWallMs && seenAs(it) !in nearEdge }.sortedBy { it.atWallMs }
     for (event in fresh) apply(event, isOverlay)
     readTo = window.toWallMs
     val edge = window.toWallMs - overlapMs
     nearEdge.removeAll { it.atWallMs < edge }
-    for (event in events) if (event.atWallMs >= edge) nearEdge.add(event)
+    for (event in events) if (event.atWallMs >= edge) nearEdge.add(seenAs(event))
     return front != before
   }
+
+  /** An event as it is known when read twice: its package, kind and time, whatever page the guard matched. */
+  private fun seenAs(event: UsageEvent): UsageEvent = if (event.page == null) event else event.copy(page = null)
 
   /**
    * Apps with an activity still on the screen: resumed, or paused but not
@@ -110,6 +123,7 @@ internal class UsageTrack(
   /** Forgets the record: the next [window] reads it again from [lookbackMs] back. */
   fun forget() {
     front = null
+    frontPage = null
     frontAtWallMs = Long.MIN_VALUE
     latest.clear()
     readTo = null
@@ -123,6 +137,7 @@ internal class UsageTrack(
       // The phone started: nothing from before is on the screen any more.
       if (event.atWallMs >= frontAtWallMs) {
         front = null
+        frontPage = null
         frontAtWallMs = event.atWallMs
       }
       latest.entries.removeAll { it.value.atWallMs <= event.atWallMs }
@@ -132,6 +147,7 @@ internal class UsageTrack(
     if (seen == null || event.atWallMs >= seen.atWallMs) latest[event.packageName] = Seen(event.kind, event.atWallMs)
     if (event.kind == UsageKind.RESUMED && !isOverlay(event.packageName) && event.atWallMs >= frontAtWallMs) {
       front = event.packageName
+      frontPage = event.page
       frontAtWallMs = event.atWallMs
       resumes += 1
       taken.add(event.packageName)

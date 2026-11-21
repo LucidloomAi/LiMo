@@ -8,11 +8,13 @@ import android.view.accessibility.AccessibilityEvent
 /**
  * The accessibility service. It is told when a window comes to the front,
  * and reads of each event its package name, and, **only for Android's
- * Settings and the package installer** ([Guarded.CLASS_NAME_PACKAGES]), the
- * name of the window's class, only to match it against a fixed list of pages
- * that could switch LiMo off or remove it ([Guarded.PAGES]). That class name
- * is never read for any other app, never logged in a release build, never
- * kept and never sent. Never the event's text, its content description, its
+ * Settings, the package installer and the package Android named for the
+ * device admin's page** ([GuardReach.readsClassName]), the name of the
+ * window's class, only to match it against the pages that could switch LiMo
+ * off or remove it ([GuardReach.page]: the fixed list, and the activities
+ * Android named for them). That class name is never read for any other app,
+ * never logged in a release build, never kept and never sent. Never the
+ * event's text, its content description, its
  * source or any node of the screen; and Android gives it none, since its
  * settings (res/xml/limo_watch_service.xml) ask for window state changes only
  * and no window content. That is the promise the setup screens make: LiMo is
@@ -38,10 +40,12 @@ class WatchService : AccessibilityService() {
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {
     guard("window_event") {
       if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return@guard
+      val watch = Watch.get(this)
       val packageName = event.packageName?.toString()
-      // The class name: for Settings and the installer only, matched and dropped (WindowPage).
-      val page = if (Guarded.readsClassName(packageName)) WindowPage.of(packageName, event.className?.toString()) else null
-      Watch.get(this).windowEvent(packageName, page)
+      val reach = watch.reach()
+      // The class name: for the packages the guard reads only, matched and dropped (WindowPage).
+      val page = if (reach.readsClassName(packageName)) WindowPage.of(reach, packageName, event.className?.toString()) else null
+      watch.windowEvent(packageName, page)
     }
   }
 

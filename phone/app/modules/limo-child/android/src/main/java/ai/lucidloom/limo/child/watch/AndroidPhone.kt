@@ -12,6 +12,7 @@ import android.content.ComponentName
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.media.AudioManager
@@ -34,9 +35,10 @@ import java.util.TimeZone
  *
  * Package visibility (Android 11 and later): LiMo sees only the apps its
  * manifest's `<queries>` name (launchable apps, home apps, diallers,
- * keyboards). An app it cannot see has no label here, and cannot be found
- * as an in call screen or an emergency dialler; [FrontWatch] learns those
- * from what comes to the front instead.
+ * keyboards, and the apps that answer the guard's three intents). An app it
+ * cannot see has no label here, and cannot be found as an in call screen or
+ * an emergency dialler; [FrontWatch] learns those from what comes to the
+ * front instead.
  */
 internal class AndroidPhone(private val context: Context) : PhoneSource {
   override val ownPackage: String = context.packageName
@@ -112,7 +114,7 @@ internal class AndroidPhone(private val context: Context) : PhoneSource {
 
   // usage
 
-  override fun usageEvents(fromWallMs: Long, toWallMs: Long): List<UsageEvent>? {
+  override fun usageEvents(fromWallMs: Long, toWallMs: Long, reach: GuardReach): List<UsageEvent>? {
     // With usage access off Android answers with no events rather than a
     // refusal, so ask first.
     if (!usageAccess()) return null
@@ -121,13 +123,42 @@ internal class AndroidPhone(private val context: Context) : PhoneSource {
     val event = UsageEvents.Event()
     while (events.hasNextEvent()) {
       if (!events.getNextEvent(event)) break
-      // Only these three are read: the kind, the package and the time.
+      // The kind, the package and the time; and the class of a resumed
+      // activity of a package the guard reads only, matched and dropped
+      // (WindowPage): never any other app's.
       val kind = usageKindOf(event.eventType) ?: continue
       val pkg = event.packageName ?: continue
-      out.add(UsageEvent(pkg, kind, event.timeStamp))
+      val page = if (kind == UsageKind.RESUMED && reach.readsResumedClassName(pkg)) WindowPage.resumed(reach, pkg, event.className) else null
+      out.add(UsageEvent(pkg, kind, event.timeStamp, page))
     }
     return out
   }
+
+  // the guard's pages
+
+  /**
+   * The package manager's answer for one of the guard's intents: what
+   * `resolveActivity` opens, and every activity `queryIntentActivities`
+   * finds, each its package, its class (an alias's target too) and whether
+   * it is preinstalled. On Android 11 and later the manifest's `<queries>`
+   * for these three intents let LiMo see the apps that answer them.
+   */
+  @Suppress("DEPRECATION")
+  override fun answerFor(intent: PageIntent): IntentAnswer {
+    val asked = Intent(
+      when (intent) {
+        PageIntent.DEVICE_ADMIN -> DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN
+        PageIntent.ACCESSIBILITY -> Settings.ACTION_ACCESSIBILITY_SETTINGS
+        PageIntent.SETTINGS -> Settings.ACTION_SETTINGS
+      },
+    )
+    val opens = pm.resolveActivity(asked, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.let(::named)
+    val handlers = pm.queryIntentActivities(asked, 0).mapNotNull { it.activityInfo?.let(::named) }
+    return IntentAnswer(opens, handlers)
+  }
+
+  private fun named(info: ActivityInfo): NamedActivity =
+    NamedActivity(info.packageName, info.name, info.targetActivity, isPreinstalled(info.applicationInfo))
 
   // the roles
 
