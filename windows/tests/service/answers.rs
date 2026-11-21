@@ -484,6 +484,23 @@ fn a_small_family_through_the_real_door_writes_each_answer_the_screens_read() {
     a.done(p, c, "device-phone-step-off", "a phone with one step switched off: accessibility", Request::Device {
         device: phone_device.clone(),
     });
+    // The sentence of a step that is off reads word for word as the answer
+    // files have it: the words have one home, in the core, and moving them
+    // there changed no file. A sentence changed on purpose is a change of
+    // this file: delete it and run again.
+    if let Some(kept) = std::fs::read_to_string(answers_folder().join("device-phone-step-off.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+    {
+        let now: Value = serde_json::from_str(&a.files["device-phone-step-off"]).unwrap();
+        let needed = |file: &Value| file["answer"]["reply"]["value"]["guardian_needed"].clone();
+        assert_eq!(needed(&now), needed(&kept), "the words of a step that is off are not the answer file's");
+        assert_eq!(
+            needed(&now)["off"][0]["words"],
+            PhonePermission::Accessibility.off_words(),
+            "the door's words are the core's"
+        );
+    }
     a.done(p, c, "family-today-phone-step-off", "every child's day, with accessibility off on Asha's phone", Request::FamilyToday);
     phone.note(PhoneNote::PermissionOn { permission: PhonePermission::Accessibility, at: at + 180 });
     phone.note(PhoneNote::UsbDebugging { on: true, at: at + 240 });

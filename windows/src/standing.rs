@@ -122,7 +122,8 @@ pub struct Standing {
 pub struct SwitchedOff {
     /// Which, by the core's name.
     pub permission: PhonePermission,
-    /// What it costs, in one sentence.
+    /// What it costs, in one sentence: the core's own words for it
+    /// ([`PhonePermission::off_words`]), the same the phone shows the child.
     pub words: String,
 }
 
@@ -133,21 +134,6 @@ pub struct SwitchedOff {
 pub struct GuardianNeeded {
     /// The steps switched off, in setup order.
     pub off: Vec<SwitchedOff>,
-}
-
-/// What a step switched off costs, in one sentence: the words the phone's
-/// engine shows the child (`limo_phone::Permission::off_words`), held here
-/// too until they have one home that both crates reach; a test of the
-/// engine's crate cannot be run from here, so keep the two the same.
-pub fn off_words(permission: PhonePermission) -> &'static str {
-    match permission {
-        PhonePermission::Notifications => "Notifications are switched off, so LiMo cannot show the time left or a warning.",
-        PhonePermission::Phone => "Phone access is switched off, so a lock could hide a call.",
-        PhonePermission::UsageAccess => "Usage access is switched off, so LiMo cannot count the time in each app.",
-        PhonePermission::Accessibility => "Accessibility is switched off, so LiMo cannot see which app is open.",
-        PhonePermission::Battery => "Android may put LiMo to sleep to save battery.",
-        PhonePermission::Protection => "Protection is switched off, so LiMo can be removed.",
-    }
 }
 
 impl Standing {
@@ -219,7 +205,7 @@ impl Standing {
             .steps
             .iter()
             .filter(|s| s.on == Some(false))
-            .map(|s| SwitchedOff { permission: s.permission, words: off_words(s.permission).to_string() })
+            .map(|s| SwitchedOff { permission: s.permission, words: s.permission.off_words().to_string() })
             .collect();
         (!off.is_empty()).then_some(GuardianNeeded { off })
     }

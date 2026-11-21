@@ -399,6 +399,20 @@ report: a phone newer than its PC still reports. A field the reader does not
 know inside a known kind is passed over. A report that carries no notes is
 written exactly as before, with no field for them.
 
+**What is switched off, in words.** `PhonePermission::off_words` gives the
+one sentence for each permission while it is off: the phone shows it on
+the child's Today, and the PC shows it to the guardian, so both say the
+same and the words live here only.
+
+| Permission | Words |
+| --- | --- |
+| `notifications` | Notifications are switched off, so LiMo cannot show the time left or a warning. |
+| `phone` | Phone access is switched off, so a lock could hide a call. |
+| `usage_access` | Usage access is switched off, so LiMo cannot count the time in each app. |
+| `accessibility` | Accessibility is switched off, so LiMo cannot see which app is open. |
+| `battery` | Android may put LiMo to sleep to save battery. |
+| `protection` | Protection is switched off, so LiMo can be removed. |
+
 The core makes no notes and keeps none on the device side: the phone's
 engine makes them and keeps them with its own state, and puts them in the
 report (`../phone/engine`).
@@ -970,7 +984,7 @@ Rules for callers:
 
 | File | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | Unit tests: day and weekday from unix seconds and offset, negative offsets, a day start not at midnight, far past and far future dates, splitting at day boundaries, validation, blocked windows, the master's books, slice numbers read from ids, absurd figures and far times; known answers for codes and PIN hashes (worked out separately in Python), codes bound to their device and day, PIN shapes (6 to 8 digits new, a 4 digit record made earlier still verifying), the waits after wrong guesses, which lock or unlock is in force, spending order, secrets kept out of `Debug`, note numbers read from ids, and the six permissions once each in setup order | 51 |
+| `src/*.rs` | Unit tests: day and weekday from unix seconds and offset, negative offsets, a day start not at midnight, far past and far future dates, splitting at day boundaries, validation, blocked windows, the master's books, slice numbers read from ids, absurd figures and far times; known answers for codes and PIN hashes (worked out separately in Python), codes bound to their device and day, PIN shapes (6 to 8 digits new, a 4 digit record made earlier still verifying), the waits after wrong guesses, which lock or unlock is in force, spending order, secrets kept out of `Debug`, note numbers read from ids, the six permissions once each in setup order, and the sentence for each one switched off | 52 |
 | `tests/cases.toml` with `tests/cases.rs` | The file of cases a product owner can read and extend (89 cases, 34 of them for the ways out, and 4 rules checks), a check that a wrong expectation fails with the case's name, and the file's reader | 3 tests |
 | `tests/accounting.rs` | The shared budget as short stories: the worked day above, a phone at home giving its share to the PC, a phone that then leaves, a phone away that gives nothing, a lowering grant that is lost, two phones at home, a lowered phone that left, a need that lapses, a larger share that must not reach a phone late into a spent day, new rules that start a day, and JSON round trips of every message and state (including state saved before the latest fields) | 24 |
 | `tests/ways_out.rs` | The ways out as stories: extra time given twice with one id; a request made at school, answered at home, and seen on every device; a request too late or answered twice; a code used at school and counted once at home; the same code on the PC; a code from yesterday; all ten codes of a day; the PIN adding time with no network; wrong guesses and the growing wait across a restart and a clock set back; a changed and a removed PIN; a lock from the master and lifting it; an unlock from the master that keeps counting; a PIN unlock over a lock from the master; state saved by the first piece still loading; secrets kept out of `Debug` and errors; JSON round trips of the new fields. One more, not run by default, measures the PIN hash on the machine it runs on | 16, and 1 |
@@ -1147,7 +1161,8 @@ core/
     decide.rs     Holding (what a device holds), decide, Decision, locks and warnings
     messages.rs   Slice, Report, Grant
     notes.rs      every kind of note for the guardian, SentNote, reading a
-                  report's notes from a newer device
+                  report's notes from a newer device, the words for each
+                  permission switched off
     device.rs     DeviceState: the device side, with codes, the PIN, requests
                   and the other devices' use
     master.rs     MasterBook: the pool, reservations, grants, marks and counted

@@ -2,7 +2,9 @@
 //! them: Today (the time left, the time used, where it went, the hours
 //! screens are off, the minutes of each app, and whether a guardian is
 //! needed) and the rules in words, for How it works. Both are in the view
-//! ([`crate::PhoneView`]); the sentences themselves are in `words.rs`.
+//! ([`crate::PhoneView`]); the sentences themselves are in `words.rs`,
+//! except what each permission switched off costs, which the core says
+//! (`limo_core::PhonePermission::off_words`) so that the PC says the same.
 //!
 //! **An app is its package name here, never its label.** The Android side
 //! puts each app's name in before the screens show it.
@@ -170,7 +172,7 @@ pub(crate) fn guardian_needed(permissions: Option<PhonePermissions>) -> Option<G
     let off: Vec<SwitchedOff> = permissions?
         .off()
         .into_iter()
-        .map(|permission| SwitchedOff { permission, words: permission.off_words().to_string() })
+        .map(|permission| SwitchedOff { permission, words: permission.for_master().off_words().to_string() })
         .collect();
     (!off.is_empty()).then_some(GuardianNeeded { off })
 }

@@ -1,4 +1,6 @@
-//! Every sentence the phone shows, in one place.
+//! Every sentence the phone shows, in one place, but one kind: what each
+//! permission switched off costs is said by the core
+//! (`limo_core::PhonePermission::off_words`), so that the PC says the same.
 //!
 //! They are the PC's own sentences (the agent's lock reasons and warnings,
 //! the lock screen's answers to a code or a PIN, its wait and its ways out),
@@ -16,7 +18,6 @@ use limo_core::{
     TryOutcome, WarningCause, Weekday,
 };
 
-use crate::facts::Permission;
 use crate::orders::{LockWhy, Way};
 use crate::today::LeftKind;
 
@@ -711,23 +712,6 @@ pub(crate) fn screens_off(rules: &RuleSet, now: i64, clock: PhoneClock) -> Optio
     Some(capitalised(&parts.join("; ")))
 }
 
-impl Permission {
-    /// What it costs while it is switched off, in one sentence: for the
-    /// child's Today screen, which then says a guardian is needed.
-    pub fn off_words(self) -> &'static str {
-        match self {
-            Permission::Notifications => {
-                "Notifications are switched off, so LiMo cannot show the time left or a warning."
-            }
-            Permission::Phone => "Phone access is switched off, so a lock could hide a call.",
-            Permission::UsageAccess => "Usage access is switched off, so LiMo cannot count the time in each app.",
-            Permission::Accessibility => "Accessibility is switched off, so LiMo cannot see which app is open.",
-            Permission::Battery => "Android may put LiMo to sleep to save battery.",
-            Permission::Protection => "Protection is switched off, so LiMo can be removed.",
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1051,21 +1035,5 @@ mod tests {
         assert_eq!(days_words(&[Weekday::Friday, Weekday::Saturday, Weekday::Sunday, Weekday::Monday]).as_deref(), Some("from Friday to Monday"));
         assert_eq!(days_words(&[Weekday::Friday]).as_deref(), Some("on Friday"));
         assert_eq!(days_words(&[]), None);
-    }
-
-    #[test]
-    fn what_each_permission_switched_off_costs() {
-        let said: Vec<&str> = Permission::ALL.iter().map(|p| p.off_words()).collect();
-        assert_eq!(
-            said,
-            [
-                "Notifications are switched off, so LiMo cannot show the time left or a warning.",
-                "Phone access is switched off, so a lock could hide a call.",
-                "Usage access is switched off, so LiMo cannot count the time in each app.",
-                "Accessibility is switched off, so LiMo cannot see which app is open.",
-                "Android may put LiMo to sleep to save battery.",
-                "Protection is switched off, so LiMo can be removed.",
-            ]
-        );
     }
 }

@@ -465,7 +465,9 @@ the check in every test.
 
 ## The words
 
-Every sentence the phone shows comes from the engine, in `src/words.rs`.
+Every sentence the phone shows comes from the engine, in `src/words.rs`,
+but one kind: what each permission switched off costs is the core's
+(`limo_core::PhonePermission::off_words`), so that the PC says the same.
 They are the PC's own sentences (the agent's lock reasons and warnings, the
 lock screen's ways out, its answers to a code or a PIN, its wait, the time
 left display), with "PC" changed to "phone" and "programs" to "apps";
@@ -582,7 +584,8 @@ PIN, "These settings are open until 9:52 pm."; a wrong one, the lock's
 own answers ("That PIN is not right. 4 more tries before a wait.").
 
 What is switched off, one sentence each, settled by the lead, in the order
-setup asks for them:
+setup asks for them. They are the core's (`PhonePermission::off_words`),
+and Today takes them from there:
 
 | Permission | Today says |
 | --- | --- |
@@ -876,7 +879,7 @@ extra time, less use beyond what a device held under an unlock.
 | Where | What | Count |
 | --- | --- | --- |
 | `src/counts.rs` | The rule of what counts, a call in progress no way around it, and what is never covered | 5 |
-| `src/words.rs` | Times on the phone's clock; spans and the time left; every lock's short title beside its message; warnings with the time actually left, away or not, with hints and when; the answers to a code or a PIN; the guard's words, its row and until when a right PIN opens it; a request and its answer; the block screen naming the app by its label, cleaned and cut; Today's time left, the time used and its part, where it went in its three forms; the hours screens are off today, on the phone's clock and zone, joined, several, all day; the rules in words, by days, across the week's end; the six sentences for what is switched off | 12 |
+| `src/words.rs` | Times on the phone's clock; spans and the time left; every lock's short title beside its message; warnings with the time actually left, away or not, with hints and when; the answers to a code or a PIN; the guard's words, its row and until when a right PIN opens it; a request and its answer; the block screen naming the app by its label, cleaned and cut; Today's time left, the time used and its part, where it went in its three forms; the hours screens are off today, on the phone's clock and zone, joined, several, all day; the rules in words, by days, across the week's end | 11 |
 | `src/kept.rs` | The check catching a change anywhere in the kept state; notes kept up to the limit; notes for the master given ids as they first go, kept in their own JSON with the id beside, dropped once confirmed, the others staying; counting going on told from any other change; each app's use added up for one day, the nameless left out, a later day starting afresh, bounded | 5 |
 | `tests/phone/day.rs` | The core README's worked day with the PC beside the phone; the away time used up, warned of as away, opening again at home; a plain day at home to zero with each warning once, the home screen covered, the 24 hour clock and when to call again; a warning that waits for the screen and says the time actually left; a prod from the master, only in reach; a master that does not answer asked again every ten seconds | 6 |
 | `tests/phone/covers.rs` | Allowed apps usable under the lock and recorded without counting; never a cover over a ringing call, the diallers, LiMo, the keyguard or a dark screen, and during a call in progress the same cover as with no call, through every mix of those facts; with the time used up and a call on, the game and the home screen covered with the way back to the call, the dialler not; a call left open not stopping the count in a game, nor a block, nor the lock; a blocked app covered, named by its label, sent home, never counted, noted once a day and across a restart; what counts, case by case | 6 |
@@ -929,7 +932,7 @@ phone/engine/
     counts.rs     what counts on a phone, and what is never covered
     orders.rs     PhoneOrders, Cover, LockScreen, GuardScreen, LockWhy, the ways out,
                   TimeLeft, WarningShown, TryAnswer, GrantTaken, PhoneNote
-    words.rs      every sentence the phone shows
+    words.rs      every sentence the phone shows, but what is switched off
     today.rs      the child's own screens: Today and the rules in words
     kept.rs       the kept state: the stretch, the look, LiMo's clock, the
                   notes and their ids, each app's use today, setup, and the

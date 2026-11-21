@@ -576,10 +576,9 @@ measure of its clock. The master PC's own device has all four null.
 
 A note's time is by the phone's own clock; the clock's `since` is by the
 master's. A phone whose notes cannot be read has all four null, rather than
-the whole answer failing. The sentences are the phone engine's
-(`limo_phone::Permission::off_words`); `windows/` does not depend on the
-engine, so they are held in `src/standing.rs` too until they have one home
-both crates reach.
+the whole answer failing. The sentences are the core's
+(`PhonePermission::off_words`), the same the phone shows the child, written
+in that one place.
 
 `accounts` lists every normal account of the PC that is not switched off
 (`NetUserEnum`, then `NetUserGetInfo` at level 23 for its full name and

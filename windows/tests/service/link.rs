@@ -671,7 +671,7 @@ fn a_phones_notes_reach_the_doors_answers_as_how_it_stands_now() {
             answer["guardian_needed"],
             serde_json::json!({ "off": [{
                 "permission": "accessibility",
-                "words": "Accessibility is switched off, so LiMo cannot see which app is open."
+                "words": PhonePermission::Accessibility.off_words()
             }] }),
             "{answer}"
         );

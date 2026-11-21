@@ -48,6 +48,23 @@ impl PhonePermission {
         PhonePermission::Battery,
         PhonePermission::Protection,
     ];
+
+    /// What it costs while it is switched off, in one sentence: the words
+    /// the child's phone shows on Today, which then says a guardian is
+    /// needed, and the words the PC shows the guardian for that phone. They
+    /// are kept here only, so that both say the same.
+    pub fn off_words(self) -> &'static str {
+        match self {
+            PhonePermission::Notifications => {
+                "Notifications are switched off, so LiMo cannot show the time left or a warning."
+            }
+            PhonePermission::Phone => "Phone access is switched off, so a lock could hide a call.",
+            PhonePermission::UsageAccess => "Usage access is switched off, so LiMo cannot count the time in each app.",
+            PhonePermission::Accessibility => "Accessibility is switched off, so LiMo cannot see which app is open.",
+            PhonePermission::Battery => "Android may put LiMo to sleep to save battery.",
+            PhonePermission::Protection => "Protection is switched off, so LiMo can be removed.",
+        }
+    }
 }
 
 /// How well LiMo holds on a phone.
@@ -220,5 +237,24 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted, PhonePermission::ALL.to_vec());
+    }
+
+    #[test]
+    fn what_each_permission_switched_off_costs() {
+        let settled = [
+            (PhonePermission::Notifications, "Notifications are switched off, so LiMo cannot show the time left or a warning."),
+            (PhonePermission::Phone, "Phone access is switched off, so a lock could hide a call."),
+            (PhonePermission::UsageAccess, "Usage access is switched off, so LiMo cannot count the time in each app."),
+            (PhonePermission::Accessibility, "Accessibility is switched off, so LiMo cannot see which app is open."),
+            (PhonePermission::Battery, "Android may put LiMo to sleep to save battery."),
+            (PhonePermission::Protection, "Protection is switched off, so LiMo can be removed."),
+        ];
+        assert_eq!(settled.map(|(permission, _)| permission), PhonePermission::ALL);
+        for (permission, words) in settled {
+            assert_eq!(permission.off_words(), words, "{permission:?}");
+            // Plain ASCII, one sentence, no dash.
+            assert!(words.is_ascii() && words.ends_with('.'), "{words}");
+            assert!(!words.contains(" - ") && !words.contains("--"), "{words}");
+        }
     }
 }
