@@ -1,0 +1,14 @@
+{
+  "request": "phone.pair",
+  "case": "asked again while the pairing goes on",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "phone.pair"
+  },
+  "error": {
+    "code": "busy",
+    "words": "The phone is busy with another step. Wait a moment, then try again."
+  }
+}

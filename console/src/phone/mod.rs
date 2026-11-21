@@ -26,8 +26,8 @@
 
 #![forbid(unsafe_code)]
 
-mod look;
-mod worker;
+pub(crate) mod look;
+pub(crate) mod worker;
 
 #[cfg(windows)]
 mod counted;

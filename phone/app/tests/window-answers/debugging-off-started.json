@@ -1,0 +1,10 @@
+{
+  "request": "phone.debugging_off",
+  "case": "USB debugging switched off",
+  "asked": {
+    "name": "phone.debugging_off"
+  },
+  "answer": {
+    "started": true
+  }
+}

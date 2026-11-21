@@ -1,0 +1,12 @@
+{
+  "request": "phone.pair",
+  "case": "pairing asked without the child",
+  "asked": {
+    "args": {},
+    "name": "phone.pair"
+  },
+  "error": {
+    "code": "unknown_request",
+    "words": "phone.pair takes the child, as {\"child\": \"<its id>\"}, and nothing else"
+  }
+}

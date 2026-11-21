@@ -1,0 +1,37 @@
+{
+  "request": "phone.look",
+  "case": "a phone whose debugging side has no working driver",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "busy": null,
+    "cable": {
+      "case": "driver",
+      "line": "No working driver for this phone.",
+      "more": "Install its maker’s USB driver for Windows, such as Samsung’s Android USB Driver."
+    },
+    "checks": [],
+    "debugging": {
+      "advice": null,
+      "line": null,
+      "stage": "on"
+    },
+    "fingerprint": null,
+    "held": false,
+    "install": {
+      "advice": null,
+      "line": null,
+      "sent": null,
+      "stage": "not_asked"
+    },
+    "pairing": {
+      "advice": null,
+      "device": null,
+      "line": null,
+      "stage": "not_asked",
+      "ways": []
+    },
+    "phone": null
+  }
+}

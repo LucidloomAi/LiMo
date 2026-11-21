@@ -1,0 +1,13 @@
+{
+  "request": "phone.pair",
+  "case": "pairing the phone with Asha",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "phone.pair"
+  },
+  "answer": {
+    "started": true
+  }
+}

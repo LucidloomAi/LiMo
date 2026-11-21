@@ -137,6 +137,24 @@ pub fn check_server(seen: &ServerSeen, must: &ServerMustBe) -> Result<ImageCheck
     }
 }
 
+/// What the console saw of a server it refused, against what it looks for:
+/// a line for the window's own log, which takes out whatever names an
+/// account (`crate::console_log`).
+pub fn seen_words(seen: &ServerSeen, must: &ServerMustBe) -> String {
+    let session = seen.session.map_or("a session Windows would not say".to_string(), |s| format!("session {s}"));
+    let owner = seen.owner.clone().unwrap_or_else(|| "an owner Windows would not say".to_string());
+    let image = seen.image.clone().unwrap_or_else(|| "a program file this account may not read".to_string());
+    let owners = if must.owner.eq_ignore_ascii_case(LOCAL_SYSTEM) {
+        format!("{LOCAL_SYSTEM} or {ADMINISTRATORS}")
+    } else {
+        must.owner.clone()
+    };
+    format!(
+        "what served the pipe: process {} in {session}, the pipe owned by {owner}, {image}; LiMo's service runs in session {}, its pipe owned by {owners}, from {}",
+        seen.pid, must.session, must.image
+    )
+}
+
 /// True when two Windows paths name the same file as written: case does
 /// not matter, either slash will do, and a `\\?\` in front is ignored.
 pub fn same_path(a: &str, b: &str) -> bool {
@@ -228,7 +246,7 @@ mod connection {
     use std::collections::VecDeque;
     use std::time::{Duration, Instant};
 
-    use super::{DoorProblem, DoorReply, ImageCheck, MAX_SENT_PER_SECOND, ServerMustBe, ServerSeen, check_server};
+    use super::{DoorProblem, DoorReply, ImageCheck, MAX_SENT_PER_SECOND, ServerMustBe, ServerSeen, check_server, seen_words};
     use crate::protocol::{Decoder, FromDoor, PROTOCOL_VERSION, PageRequest, encode, hello};
     use crate::win::Owned;
     use crate::win::pipe::{CLIENT_ACCESS, OpenProblem, open_client, read_some, server_seen, waiting_bytes, write_all};
@@ -368,6 +386,7 @@ mod connection {
                 ),
                 Err(why) => {
                     self.notes.push(format!("nothing was sent to the pipe: {why}"));
+                    self.notes.push(seen_words(&seen, &self.must));
                     return Err(DoorProblem::NotTheService(why));
                 }
             }

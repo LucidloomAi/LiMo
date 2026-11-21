@@ -1,0 +1,62 @@
+{
+  "request": "phone.look",
+  "case": "the phone refused LiMo: one of another maker is on it",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "busy": null,
+    "cable": {
+      "case": "ok",
+      "line": "Connected: Galaxy S20 Ultra 5G.",
+      "more": "Android 13."
+    },
+    "checks": [
+      {
+        "ok": true,
+        "words": "One phone plugged in"
+      },
+      {
+        "ok": true,
+        "words": "Android 13, recent enough for LiMo"
+      },
+      {
+        "ok": true,
+        "words": "LiMo 0.2.0 is on it, and this PC carries 0.3.0"
+      }
+    ],
+    "debugging": {
+      "advice": null,
+      "line": null,
+      "stage": "on"
+    },
+    "fingerprint": null,
+    "held": true,
+    "install": {
+      "advice": "This phone holds a LiMo that was not made by the same maker as the LiMo on this PC (it was signed with another key). LiMo on this PC leaves it as it is: whoever put it there can remove it on the phone, and then LiMo can be put on again.",
+      "line": "The phone did not take LiMo.",
+      "sent": null,
+      "stage": "refused"
+    },
+    "pairing": {
+      "advice": null,
+      "device": null,
+      "line": null,
+      "stage": "not_asked",
+      "ways": []
+    },
+    "phone": {
+      "android": "13",
+      "limo": {
+        "looked": true,
+        "on_it": true,
+        "version": "0.2.0"
+      },
+      "maker": "samsung",
+      "model": "SM-G988B",
+      "name": "Galaxy S20 Ultra 5G",
+      "recent_enough": true,
+      "this_pc_carries": "0.3.0"
+    }
+  }
+}

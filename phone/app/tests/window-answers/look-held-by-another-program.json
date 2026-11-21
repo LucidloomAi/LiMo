@@ -1,0 +1,37 @@
+{
+  "request": "phone.look",
+  "case": "another program on the PC holds the phone",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "busy": null,
+    "cable": {
+      "case": "trouble",
+      "line": "Another program on this PC holds the phone’s connection (Android Studio, or Google’s adb).",
+      "more": "Close it, then unplug the phone and plug it in again."
+    },
+    "checks": [],
+    "debugging": {
+      "advice": null,
+      "line": null,
+      "stage": "on"
+    },
+    "fingerprint": null,
+    "held": false,
+    "install": {
+      "advice": null,
+      "line": null,
+      "sent": null,
+      "stage": "not_asked"
+    },
+    "pairing": {
+      "advice": null,
+      "device": null,
+      "line": null,
+      "stage": "not_asked",
+      "ways": []
+    },
+    "phone": null
+  }
+}

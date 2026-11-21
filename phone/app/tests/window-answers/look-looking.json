@@ -1,0 +1,37 @@
+{
+  "request": "phone.look",
+  "case": "before the first look at the USB ports",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "busy": null,
+    "cable": {
+      "case": "looking",
+      "line": "Looking at this PC’s USB ports.",
+      "more": ""
+    },
+    "checks": [],
+    "debugging": {
+      "advice": null,
+      "line": null,
+      "stage": "on"
+    },
+    "fingerprint": null,
+    "held": false,
+    "install": {
+      "advice": null,
+      "line": null,
+      "sent": null,
+      "stage": "not_asked"
+    },
+    "pairing": {
+      "advice": null,
+      "device": null,
+      "line": null,
+      "stage": "not_asked",
+      "ways": []
+    },
+    "phone": null
+  }
+}

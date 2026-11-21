@@ -103,7 +103,9 @@ impl Failure {
 }
 
 const LOST: &str = "The phone\u{2019}s connection ended.";
-const PLUG_IN_AGAIN: &str = "Plug the phone in again, unlocked, then try again.";
+pub(crate) const PLUG_IN_AGAIN: &str = "Plug the phone in again, unlocked, then try again.";
+/// Said when LiMo was being put on the phone and its connection ended.
+pub(crate) const INSTALL_LOST: &str = "The phone\u{2019}s connection ended while LiMo was being put on it.";
 const TRY_AGAIN: &str = "Try again; if it happens again, unplug the phone and plug it in again.";
 const APP_MISSING: &str = "LiMo\u{2019}s app for phones is missing from this PC.";
 const APP_NOT_OURS: &str = "The app for phones beside this program is not LiMo\u{2019}s own.";
@@ -475,7 +477,7 @@ impl Worker {
                 }
                 Err(InstallError::Call(CallError::Lost(_))) => {
                     s.install.stage = InstallStage::Failed;
-                    s.install.words = failed("The phone\u{2019}s connection ended while LiMo was being put on it.", PLUG_IN_AGAIN);
+                    s.install.words = failed(INSTALL_LOST, PLUG_IN_AGAIN);
                     lost = true;
                 }
                 Err(InstallError::Call(CallError::Timeout(_))) => {

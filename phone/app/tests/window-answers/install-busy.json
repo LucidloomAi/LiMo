@@ -1,0 +1,11 @@
+{
+  "request": "phone.install",
+  "case": "asked again while LiMo goes on the phone",
+  "asked": {
+    "name": "phone.install"
+  },
+  "error": {
+    "code": "busy",
+    "words": "The phone is busy with another step. Wait a moment, then try again."
+  }
+}

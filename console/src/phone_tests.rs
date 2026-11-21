@@ -35,9 +35,9 @@ const PASSWORD: &str = "Mira's long sentence";
 const NO_LINK: &str = "The link for phones is not running on this PC, so no phone can pair with it now. The service’s log says why.";
 
 /// The fake phone's cable, held as the console holds the real one.
-struct FakeCable(Arc<Mutex<FakePhone>>);
+pub(crate) struct FakeCable(Arc<Mutex<FakePhone>>);
 
-fn phone_of(phone: &Mutex<FakePhone>) -> MutexGuard<'_, FakePhone> {
+pub(crate) fn phone_of(phone: &Mutex<FakePhone>) -> MutexGuard<'_, FakePhone> {
     phone.lock().unwrap_or_else(|p| p.into_inner())
 }
 
@@ -51,13 +51,13 @@ impl ConsoleCable for FakeCable {
 }
 
 /// The service as an in memory family, answering as the stand in does.
-struct InMemory(Mutex<Family>);
+pub(crate) struct InMemory(Mutex<Family>);
 
 impl InMemory {
-    fn new(port: u16) -> Arc<InMemory> {
+    pub(crate) fn new(port: u16) -> Arc<InMemory> {
         Arc::new(InMemory(Mutex::new(Family { port, ..Family::default() })))
     }
-    fn family(&self) -> MutexGuard<'_, Family> {
+    pub(crate) fn family(&self) -> MutexGuard<'_, Family> {
         self.0.lock().unwrap_or_else(|p| p.into_inner())
     }
 }
@@ -73,7 +73,7 @@ impl Service for InMemory {
 }
 
 /// LiMo's key for the tests, made once in a folder of the test run's own.
-fn key_folder() -> PathBuf {
+pub(crate) fn key_folder() -> PathBuf {
     static FOLDER: OnceLock<PathBuf> = OnceLock::new();
     FOLDER
         .get_or_init(|| {
@@ -85,20 +85,20 @@ fn key_folder() -> PathBuf {
         .clone()
 }
 
-fn fingerprint() -> String {
+pub(crate) fn fingerprint() -> String {
     AdbKey::load_or_make(&key_folder()).unwrap().fingerprint()
 }
 
 /// A listener on a port Windows picks on the loopback, as the service's
 /// link: never LiMo's own port, never 8081.
-fn link_listener() -> (TcpListener, u16) {
+pub(crate) fn link_listener() -> (TcpListener, u16) {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     assert!(port != LINK_PORT && port != 8081, "{port}");
     (listener, port)
 }
 
-fn quick() -> Pace {
+pub(crate) fn quick() -> Pace {
     Pace {
         look_every: Duration::from_millis(20),
         retry_after: Duration::from_millis(200),
@@ -110,8 +110,8 @@ fn quick() -> Pace {
 }
 
 /// The fake phone, its cable in a desk, and every answer the desk gave.
-struct Rig {
-    phone: Arc<Mutex<FakePhone>>,
+pub(crate) struct Rig {
+    pub(crate) phone: Arc<Mutex<FakePhone>>,
     /// The fake phone's own state, which a test changes as a person would.
     fake: Arc<Mutex<FakeState>>,
     desk: PhoneDesk,
@@ -120,23 +120,23 @@ struct Rig {
     _dir: tempfile::TempDir,
 }
 
-struct RigSetup {
-    app: AppKind,
-    pace: Pace,
+pub(crate) struct RigSetup {
+    pub(crate) app: AppKind,
+    pub(crate) pace: Pace,
 }
 
-enum AppKind {
+pub(crate) enum AppKind {
     Limo,
     Other,
     Missing,
 }
 
 impl Rig {
-    fn new(change: impl FnOnce(&mut FakeState), service: Arc<dyn Service>, link_port: u16) -> Rig {
+    pub(crate) fn new(change: impl FnOnce(&mut FakeState), service: Arc<dyn Service>, link_port: u16) -> Rig {
         Rig::with(change, service, link_port, RigSetup { app: AppKind::Limo, pace: quick() })
     }
 
-    fn with(change: impl FnOnce(&mut FakeState), service: Arc<dyn Service>, link_port: u16, setup: RigSetup) -> Rig {
+    pub(crate) fn with(change: impl FnOnce(&mut FakeState), service: Arc<dyn Service>, link_port: u16, setup: RigSetup) -> Rig {
         let dir = tempfile::tempdir().unwrap();
         let app = match setup.app {
             AppKind::Limo => apk_in(dir.path(), PACKAGE, false),
@@ -161,18 +161,18 @@ impl Rig {
 
     /// The fake phone's state, locked: plug it in, unplug it, switch USB
     /// debugging on, allow or not.
-    fn state(&self) -> MutexGuard<'_, FakeState> {
+    pub(crate) fn state(&self) -> MutexGuard<'_, FakeState> {
         self.fake.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    fn ask(&self, name: &str, args: Value) -> Result<Value, Value> {
+    pub(crate) fn ask(&self, name: &str, args: Value) -> Result<Value, Value> {
         let answer = self.desk.request(name, args);
         self.answers.lock().unwrap().push(format!("{answer:?}"));
         answer
     }
 
     /// Asks `phone.look`, as the screens do, until `test` holds.
-    fn until(&self, what: &str, test: impl Fn(&Value) -> bool) -> Value {
+    pub(crate) fn until(&self, what: &str, test: impl Fn(&Value) -> bool) -> Value {
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
             let look = self.ask("phone.look", Value::Null).unwrap();
@@ -207,11 +207,11 @@ fn accept(listener: &TcpListener) -> TcpStream {
     }
 }
 
-fn a_paired_phone() -> Value {
+pub(crate) fn a_paired_phone() -> Value {
     json!({ "device_id": "d7", "child_id": "c1", "name": "SM-G988B", "kind": "portable", "platform": "android", "paired_at": 1_800_000_000, "last_heard_at": null })
 }
 
-fn a_session(way: &str) -> Value {
+pub(crate) fn a_session(way: &str) -> Value {
     json!({ "way": way, "opened_at": 1_800_000_000, "last_report_at": null })
 }
 

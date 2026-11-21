@@ -1,0 +1,37 @@
+{
+  "request": "phone.look",
+  "case": "no phone on a USB port (a cable that only charges)",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "busy": null,
+    "cable": {
+      "case": "none",
+      "line": "No phone on a USB port.",
+      "more": "If it is plugged in, the cable may only charge it. Try the one that came with the phone."
+    },
+    "checks": [],
+    "debugging": {
+      "advice": null,
+      "line": null,
+      "stage": "on"
+    },
+    "fingerprint": null,
+    "held": false,
+    "install": {
+      "advice": null,
+      "line": null,
+      "sent": null,
+      "stage": "not_asked"
+    },
+    "pairing": {
+      "advice": null,
+      "device": null,
+      "line": null,
+      "stage": "not_asked",
+      "ways": []
+    },
+    "phone": null
+  }
+}

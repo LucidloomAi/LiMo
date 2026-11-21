@@ -1,0 +1,10 @@
+{
+  "request": "phone.debugging_off",
+  "case": "asked again once it is off",
+  "asked": {
+    "name": "phone.debugging_off"
+  },
+  "answer": {
+    "started": false
+  }
+}

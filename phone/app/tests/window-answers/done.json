@@ -1,0 +1,10 @@
+{
+  "request": "phone.done",
+  "case": "Add a phone closed: the phone let go",
+  "asked": {
+    "name": "phone.done"
+  },
+  "answer": {
+    "done": true
+  }
+}

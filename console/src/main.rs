@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use limo_console::console_log::{self, ConsoleLog};
 use limo_console::door::{Door, DoorProblem, DoorReply, ServerMustBe};
 use limo_console::phone::{self, ConsoleCable, CountedCable, DoorService, LINK_PORT, Pace, PhoneDesk, PhoneSetup};
 use limo_console::protocol::{PageRequest, wipe};
@@ -140,6 +141,8 @@ struct Console {
     /// The door, shared with the desk for a phone, which asks on the same
     /// signed in connection.
     door: Arc<Mutex<Door>>,
+    /// The window's own log of the door's notes and problems.
+    log: Arc<ConsoleLog>,
     phone: PhoneDesk,
     check: Option<Arc<SelfCheck>>,
     doors: Option<Doors>,
@@ -185,7 +188,10 @@ fn phone_request(console: &Console, name: &str, mut args: Value) -> Result<Value
 /// reply as it came (`{"outcome":"done",...}` or `{"outcome":"problem",...}`),
 /// `{"outcome":"refused","message":...}` when the door does not open for
 /// this account, or, when the door could not be asked, an error
-/// `{code, words}` with the sentence the screen shows.
+/// `{code, words, log}` with the sentence the screen shows and the place of
+/// the window's own log, which says what the console saw. The door's notes
+/// and every request that could not be asked (by its name, never its
+/// arguments) go into that log.
 fn ask_door(console: &Console, name: &str, args: Value) -> Result<Value, Value> {
     let asked = PageRequest::from_page(name, args).map_err(|why| problem("unknown_request", &why))?;
     let shown = asked.name().to_string();
@@ -195,9 +201,17 @@ fn ask_door(console: &Console, name: &str, args: Value) -> Result<Value, Value> 
         let answer = door.ask(asked);
         (answer, door.take_notes())
     };
+    for note in &notes {
+        console.log.write(&format!("door: {note}"));
+    }
+    match &answer {
+        Err(p) => console.log.write(&format!("{shown}: not asked: {p}")),
+        Ok(DoorReply::Refused(_)) => console.log.write(&format!("{shown}: the door does not open for this account")),
+        Ok(DoorReply::Reply(_)) => {}
+    }
     if let Some(check) = &console.check {
         for note in notes {
-            check.log("door", &note);
+            check.log("door", &console_log::without_accounts(&note));
         }
         let said = match &answer {
             Ok(DoorReply::Reply(r)) if r["outcome"] == "done" => "done".to_string(),
@@ -210,7 +224,7 @@ fn ask_door(console: &Console, name: &str, args: Value) -> Result<Value, Value> 
     match answer {
         Ok(DoorReply::Reply(reply)) => Ok(reply),
         Ok(DoorReply::Refused(message)) => Ok(json!({ "outcome": "refused", "message": message })),
-        Err(p) => Err(problem(p.code(), p.words())),
+        Err(p) => Err(json!({ "code": p.code(), "words": p.words(), "log": console_log::SHOWN_PLACE })),
     }
 }
 
@@ -386,9 +400,16 @@ fn main() {
     // when the Add a phone screens first look; the door the page uses; LiMo's
     // app for phones beside this program.
     let door = Arc::new(Mutex::new(door));
+    // The window's own log: the account's own, or in a self check beside
+    // the self check's log, never in the builder's AppData.
+    let log = Arc::new(match &options.self_check {
+        Some(path) => ConsoleLog::at(&path.parent().map_or_else(|| PathBuf::from(console_log::LOG_FILE), |p| p.join(console_log::LOG_FILE))),
+        None => ConsoleLog::for_this_account(),
+    });
+    log.write(&format!("limo-console {} opened", env!("CARGO_PKG_VERSION")));
     let phone = PhoneDesk::new(PhoneSetup {
         cable: Arc::new(|| Box::new(CountedCable::default()) as Box<dyn ConsoleCable>),
-        service: Arc::new(DoorService::new(Arc::clone(&door))),
+        service: Arc::new(DoorService::with_log(Arc::clone(&door), Arc::clone(&log))),
         app: std::env::current_exe().ok().and_then(|program| phone::app_beside(&program)),
         key_folder: None,
         link_port: LINK_PORT,
@@ -397,6 +418,7 @@ fn main() {
     });
     let console = Console {
         door,
+        log,
         phone,
         check: check.clone(),
         doors,

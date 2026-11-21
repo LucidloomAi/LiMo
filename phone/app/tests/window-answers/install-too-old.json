@@ -1,0 +1,11 @@
+{
+  "request": "phone.install",
+  "case": "the phone’s Android is too old",
+  "asked": {
+    "name": "phone.install"
+  },
+  "error": {
+    "code": "too_old",
+    "words": "This phone has Android 7.1. LiMo needs Android 8.0 or later."
+  }
+}

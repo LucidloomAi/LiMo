@@ -1,0 +1,14 @@
+{
+  "request": "phone.pair",
+  "case": "pairing asked before LiMo is on the phone",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "phone.pair"
+  },
+  "error": {
+    "code": "not_yet",
+    "words": "LiMo is not on the phone yet."
+  }
+}

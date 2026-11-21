@@ -1,0 +1,62 @@
+{
+  "request": "phone.look",
+  "case": "connected and looked at: LiMo not on the phone yet",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "busy": null,
+    "cable": {
+      "case": "ok",
+      "line": "Connected: Galaxy S20 Ultra 5G.",
+      "more": "Android 13."
+    },
+    "checks": [
+      {
+        "ok": true,
+        "words": "One phone plugged in"
+      },
+      {
+        "ok": true,
+        "words": "Android 13, recent enough for LiMo"
+      },
+      {
+        "ok": true,
+        "words": "LiMo is not on it yet"
+      }
+    ],
+    "debugging": {
+      "advice": null,
+      "line": null,
+      "stage": "on"
+    },
+    "fingerprint": null,
+    "held": true,
+    "install": {
+      "advice": null,
+      "line": null,
+      "sent": null,
+      "stage": "not_asked"
+    },
+    "pairing": {
+      "advice": null,
+      "device": null,
+      "line": null,
+      "stage": "not_asked",
+      "ways": []
+    },
+    "phone": {
+      "android": "13",
+      "limo": {
+        "looked": true,
+        "on_it": false,
+        "version": null
+      },
+      "maker": "samsung",
+      "model": "SM-G988B",
+      "name": "Galaxy S20 Ultra 5G",
+      "recent_enough": true,
+      "this_pc_carries": "0.3.0"
+    }
+  }
+}

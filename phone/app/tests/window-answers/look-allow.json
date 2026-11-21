@@ -1,0 +1,37 @@
+{
+  "request": "phone.look",
+  "case": "the phone asks to allow this PC, with the key’s fingerprint",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "busy": "connecting",
+    "cable": {
+      "case": "allow",
+      "line": "A phone is plugged in.",
+      "more": "Waiting for Allow on the phone."
+    },
+    "checks": [],
+    "debugging": {
+      "advice": null,
+      "line": null,
+      "stage": "on"
+    },
+    "fingerprint": "3C:91:5A:07:E2:4B:D8:16:AF:62:0C:B9:75:18:4E:D3",
+    "held": false,
+    "install": {
+      "advice": null,
+      "line": null,
+      "sent": null,
+      "stage": "not_asked"
+    },
+    "pairing": {
+      "advice": null,
+      "device": null,
+      "line": null,
+      "stage": "not_asked",
+      "ways": []
+    },
+    "phone": null
+  }
+}

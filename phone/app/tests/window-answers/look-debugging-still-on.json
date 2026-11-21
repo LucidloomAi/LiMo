@@ -1,0 +1,68 @@
+{
+  "request": "phone.look",
+  "case": "paired, USB debugging did not switch off",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "busy": null,
+    "cable": {
+      "case": "ok",
+      "line": "Connected: Galaxy S20 Ultra 5G.",
+      "more": "Android 13."
+    },
+    "checks": [
+      {
+        "ok": true,
+        "words": "One phone plugged in"
+      },
+      {
+        "ok": true,
+        "words": "Android 13, recent enough for LiMo"
+      },
+      {
+        "ok": true,
+        "words": "LiMo 0.3.0 is on it already"
+      }
+    ],
+    "debugging": {
+      "advice": "Switch it off on the phone: Settings, Developer options, USB debugging.",
+      "line": "USB debugging is still on.",
+      "stage": "still_on"
+    },
+    "fingerprint": null,
+    "held": true,
+    "install": {
+      "advice": null,
+      "line": "LiMo is on the phone.",
+      "sent": null,
+      "stage": "done"
+    },
+    "pairing": {
+      "advice": null,
+      "device": {
+        "device_id": "device-0000000000000002",
+        "name": "Asha’s phone"
+      },
+      "line": "Over the cable, with this PC.",
+      "stage": "paired",
+      "ways": [
+        "cable",
+        "home_network"
+      ]
+    },
+    "phone": {
+      "android": "13",
+      "limo": {
+        "looked": true,
+        "on_it": true,
+        "version": "0.3.0"
+      },
+      "maker": "samsung",
+      "model": "SM-G988B",
+      "name": "Galaxy S20 Ultra 5G",
+      "recent_enough": true,
+      "this_pc_carries": "0.3.0"
+    }
+  }
+}

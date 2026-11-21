@@ -202,18 +202,30 @@ console asks Windows who serves the pipe it reached:
 1. the serving process runs in session 0, where only services run
    (`GetNamedPipeServerSessionId`);
 2. the pipe belongs to LocalSystem (`S-1-5-18`), the account the service
-   runs as (its owner, from its security descriptor);
+   runs as, or to the Administrators group (`S-1-5-32-544`) (its owner,
+   from its security descriptor). Windows gives what a LocalSystem
+   process makes to that group, not to LocalSystem itself, because the
+   group is the default owner in LocalSystem's token: the installed
+   service's door reads back as the group's. That was found in the owner's
+   first run against the installed service, 21 Nov 2026, when the window
+   refused the real service; the group is taken for LocalSystem only
+   (`ServerMustBe::owner_fits`);
 3. the serving process's program file is `limo.exe` in LiMo's folder under
    Windows' own Program Files folder (`GetNamedPipeServerProcessId`, then
    the image path; the folder from `SHGetKnownFolderPath`, never from an
    environment variable).
 
 The first two are what a program in a child's account, or in any account
-that is not an administrator, cannot fake. The third is checked whenever
-Windows lets the guardian's account read the service's program file; a
-standard account may not be allowed to look into a LocalSystem process,
-and then the first two decide and the log says so. If a check fails the
-console closes the pipe having written nothing, and the screen says:
+that is not an administrator, cannot fake: making a process in session 0,
+or a pipe that belongs to LocalSystem or to the Administrators group,
+takes an administrator who has said yes to Windows' own question. The
+third is checked whenever Windows lets the guardian's account read the
+service's program file. It often does not: a standard account may not
+look into a LocalSystem process, and **neither may an administrator's
+account that is not elevated** (seen in the same run), so there the first
+two decide, and the window's own log says so. If a check fails the
+console closes the pipe having written nothing, writes in its log what it
+saw (see [The window's own log](#the-windows-own-log)), and the screen says:
 "Something that is not LiMo’s service answered, so the console sent it
 nothing. Your password was not sent." The console opens the pipe asking
 for read, write data and write attributes only (`0x12018b`, within the
@@ -235,9 +247,45 @@ a new one, signed out.
 | `lost` | the door closed, answered with something that is not its own, answered another request's number, or nothing within 5 s of hello or 20 s of a request (a sign in is hashed slowly on purpose) | "LiMo’s service stopped answering. Try again: the console asks it afresh, and you sign in again." |
 | `too_fast` | the console's own limit | "The settings asked LiMo’s service too often at once. Try again in a moment." |
 
-Everything else the screen shows is the service's own sentence: a wrong
-password with the tries left, a wait, `busy` for a second password within
-a second, a child's account refused, signed out after fifteen idle minutes.
+Each of these comes to the page as `{ "code", "words", "log" }`, `log`
+being where the window's own log is (`%LOCALAPPDATA%\LiMo\console.log`),
+for a screen that has room to say so. Everything else the screen shows is
+the service's own sentence: a wrong password with the tries left, a wait,
+`busy` for a second password within a second, a child's account refused,
+signed out after fifteen idle minutes.
+
+### The window's own log
+
+`src/console_log.rs`. When the window says the door cannot be asked, the
+reason is in **`%LOCALAPPDATA%\LiMo\console.log`**, the signed in account's
+own file (beside LiMo's key for phones), which that account can read and no
+other standard account can. It holds, each line with its time in UTC:
+
+- the window opening, with its version;
+- the door's notes: what served the pipe when the check refused it (its
+  process, its session, the pipe's owner, its program file, against what
+  LiMo's service is), a program file this account may not read, a refusal
+  at hello, a connection dropped and why;
+- each request that could not be asked, by its name only, and why (the
+  service not running, lost, busy, too fast, not LiMo's service);
+- the same for the requests the console asks for a phone.
+
+Never a request's arguments, a password or a PIN: no line is made from
+them. Before a line is written, anything of an account is taken out: a
+security identifier that is not a well known one becomes "(an account's
+own identifier)" (LocalSystem's, the Administrators group's and the like
+stay, as they name no person), a folder under `\Users\` becomes
+`\Users\(an account)\`, and this account's and this PC's names are taken
+out wherever they are. It is kept short: past about 96 KB only its last
+300 lines are kept. Writing it never stops the window. The self check
+writes its own beside its log, never in the builder's AppData.
+
+**On the screen.** The sign in shows the console's sentence (the table
+above) in the line under the field, which keeps room for two lines; at a
+phone's width "Something that is not LiMo’s service answered..." already
+fills both, and a third would move the button (as the first proof found).
+So the screen is left as drawn, and the answer carries `log` for a drawing
+that makes room for it.
 
 ## Adding a phone
 
@@ -445,6 +493,45 @@ holds the phone open.
   typographic apostrophe the drawings use. No answer holds a secret: never
   an offer, never the key, only its fingerprint.
 
+### The answers as files, for the screens' tests
+
+`src/phone_answers.rs` writes the answers of the five requests, as the page
+gets them, into `../phone/app/tests/window-answers/`, one file per request
+and case (`look-none.json`, `look-allow.json`, `install-started.json` and so
+on): the answers the window itself gives, as against the door's in
+`console-answers/`, with a README of its own there. Each holds
+`request` (`phone.look` and so on), `case` (in a few words), `asked` (the
+name and the arguments), and `answer` (what the request resolved with) or
+`error` (what it was rejected with, `{code, words}`). It is a test with the
+console's others (`cargo test --no-default-features`, on Windows), or
+alone:
+
+```
+cargo test --no-default-features phone_answers
+```
+
+It plays limo-cable's fake phone through the console's real desk and
+writes each answer as it came: no phone, USB debugging off, no driver, the
+phone asking (with the key's fingerprint), not allowed in time, connected,
+LiMo put on, paired over the cable, then over the home Wi-Fi too, USB
+debugging switched off, done; LiMo there already, older, of another maker;
+no app on this PC, an Android too old, another program holding the phone,
+the phone unplugged; the service making no offer, an offer that runs out;
+and the requests' own answers and errors (started, not needed, busy, no
+phone, not yet, no child, too old, no app, arguments a request does not
+take). The moments too short for the fake phone to hold (looking,
+connecting, two phones, sending, installing, asking the service, handing,
+switching off, USB debugging still on, an install whose connection ended)
+come from the same answer code
+(`phone::look`), given that moment's state.
+
+A run with no change writes no file: what would differ is a fixed sample,
+the door's own where it has one (the key's fingerprint as the drawing has
+it, the child `child-0000000000000001`, the phone
+`device-0000000000000002`, "Asha’s phone"). No file holds an offer, a key,
+a password or anything of this PC, and the test checks so. A `.json` file
+in that folder that a run did not write is removed; its README is left.
+
 ## A first run on a real phone
 
 For the lead, with the Galaxy S20 Ultra (Android 13) and LiMo for Windows
@@ -572,10 +659,13 @@ minutes:
 
 1. From the guardian's own Windows account, open `limo-console.exe`: the
    sign in shows, a wrong password gets the door's words, the right one
-   opens. Try it from a standard guardian account too, if there is one: a
-   standard account may not be allowed to read the service's program file,
-   and the console then opens on the session and the owner alone, which is
-   what this shows.
+   opens. From an administrator's account that is not elevated (the usual
+   way of signing in to Windows), and from a standard guardian account if
+   there is one, Windows does not let the console read the service's
+   program file: the console then opens on the session and the owner alone,
+   and its log says "the door's program file could not be read from this
+   account; its session and its owner decided". Seen in the owner's first
+   run, 21 Nov 2026, from an administrator's account.
 2. From the child's account (`asha`): the door's refusal, no password field.
 3. Stop the service (`sc stop LiMo` from an administrator's window): the
    next sign in says the service stopped answering, and then that it is not
@@ -583,6 +673,19 @@ minutes:
 4. In the console's window, press F5, Ctrl+R, Ctrl+P, Ctrl+F, F12,
    Ctrl+Shift+I, Ctrl and the plus key, Alt and the left arrow, and right
    click the page and the field: nothing may happen but typing in the field.
+5. **The window's own log.** After any of these, open
+   `%LOCALAPPDATA%\LiMo\console.log` (type it into Explorer's address bar):
+   a line for the window opening, the door's notes and every request that
+   could not be asked, by name; no password, no account's own identifier,
+   no user's name or folder. When the window says something that is not
+   LiMo's service answered, the line "what served the pipe: ..." there says
+   what it saw (the owner's first run would have read "the pipe owned by
+   S-1-5-32-544" there).
+
+The owner's first run found that the installed service's pipe belongs to
+the Administrators group, not to LocalSystem, and that the window
+refused it for that: fixed (see [The door](#the-door)), and the reason
+the window now has a log a person can read.
 ## The first proof
 
 What the console's technology had to show before the shell was built on
@@ -761,9 +864,9 @@ MiB). The control: the debug exe, built without the remapping, holds the user na
 
 ## Tests
 
-`cargo test --no-default-features`: 53 tests, no window and no page,
-about three and a half seconds once built (three runs in a row, 21 Nov
-2026, all passed). They open named pipes and loopback sockets in the
+`cargo test --no-default-features`: 59 tests, no window and no page,
+about nine seconds once built (21 Nov 2026, all passed; the answers for
+the screens take most of it). They open named pipes and loopback sockets in the
 test's own account, under names of their own
 (`limo.console.test.<process>.<n>`), never LiMo's own door, and nothing
 else. No test reaches a real phone or a real service.
@@ -806,6 +909,8 @@ never 8081:
   a child made through the door, no offer while its link for phones is not
   running, in its own words, and nothing reaching the phone; a page may not
   ask for an offer.
+
+The window's own log (`console_log.rs`): nothing of an account written and well known identifiers kept; what a refused server was, logged with nothing of an account; the log keeping its last lines and never growing past its limit; a log with no place writing nothing. The answers for the screens (`phone_answers.rs`, see [The answers as files](#the-answers-as-files-for-the-screens-tests)): 46 files, the same in every run.
 
 And in `phone/`: each drawn case's words, the fingerprint only while the
 phone asks, the install's progress from the cable's count (`look.rs`); the
@@ -887,6 +992,8 @@ src/
   real_door_tests.rs        against LiMo for Windows' own door, in the test's process
   door_tests.rs, stand_in.rs  against a stand in that misbehaves (tests only)
   phone_tests.rs, test_apk.rs  adding a phone against the fake phone and a throwaway app (tests only)
+  phone_answers.rs          the requests for a phone's answers, as files for the screens' tests (tests only)
+  console_log.rs            the window's own log, with nothing of an account in it
   win/                      every call into Windows, and all the unsafe code
     pipe.rs  token.rs  net.rs  webview2.rs  keys.rs  shell.rs
 support/

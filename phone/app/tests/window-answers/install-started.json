@@ -1,0 +1,10 @@
+{
+  "request": "phone.install",
+  "case": "LiMo put on the phone",
+  "asked": {
+    "name": "phone.install"
+  },
+  "answer": {
+    "started": true
+  }
+}

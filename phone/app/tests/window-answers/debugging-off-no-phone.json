@@ -1,0 +1,11 @@
+{
+  "request": "phone.debugging_off",
+  "case": "no phone is connected",
+  "asked": {
+    "name": "phone.debugging_off"
+  },
+  "error": {
+    "code": "no_phone",
+    "words": "No phone is connected yet. Plug it in, unlocked, with USB debugging on."
+  }
+}

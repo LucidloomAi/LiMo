@@ -1,0 +1,14 @@
+{
+  "request": "phone.look",
+  "case": "asked with arguments it does not take",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "phone.look"
+  },
+  "error": {
+    "code": "unknown_request",
+    "words": "phone.look takes nothing"
+  }
+}

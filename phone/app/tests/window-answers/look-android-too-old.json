@@ -1,0 +1,58 @@
+{
+  "request": "phone.look",
+  "case": "a phone with an Android older than LiMo needs",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "busy": null,
+    "cable": {
+      "case": "trouble",
+      "line": "This phone has Android 7.1. LiMo needs Android 8.0 or later.",
+      "more": "Unplug the phone."
+    },
+    "checks": [
+      {
+        "ok": true,
+        "words": "One phone plugged in"
+      },
+      {
+        "ok": false,
+        "words": "Android 7.1, older than the Android 8.0 LiMo needs"
+      }
+    ],
+    "debugging": {
+      "advice": null,
+      "line": null,
+      "stage": "on"
+    },
+    "fingerprint": null,
+    "held": false,
+    "install": {
+      "advice": null,
+      "line": null,
+      "sent": null,
+      "stage": "not_asked"
+    },
+    "pairing": {
+      "advice": null,
+      "device": null,
+      "line": null,
+      "stage": "not_asked",
+      "ways": []
+    },
+    "phone": {
+      "android": "7.1",
+      "limo": {
+        "looked": false,
+        "on_it": null,
+        "version": null
+      },
+      "maker": "samsung",
+      "model": "SM-G988B",
+      "name": "Galaxy S20 Ultra 5G",
+      "recent_enough": false,
+      "this_pc_carries": "0.3.0"
+    }
+  }
+}

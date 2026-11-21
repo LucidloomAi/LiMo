@@ -1,0 +1,11 @@
+{
+  "request": "phone.install",
+  "case": "no phone is connected",
+  "asked": {
+    "name": "phone.install"
+  },
+  "error": {
+    "code": "no_phone",
+    "words": "No phone is connected yet. Plug it in, unlocked, with USB debugging on."
+  }
+}

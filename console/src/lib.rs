@@ -10,6 +10,9 @@
 //! - [`protocol`]: what crosses the door, and how: LiMo for Windows' own
 //!   frames and messages, a page's request forwarded by its name and its
 //!   arguments, wiped once written.
+//! - [`console_log`]: the window's own log of the door's notes and
+//!   problems, in the account's own folder, with nothing of an account in
+//!   it.
 //! - [`door`]: the console's half. Before it says anything it checks that
 //!   the pipe is served by LiMo's service: session 0, owned by
 //!   LocalSystem, LiMo's own program file. Then hello, and one numbered
@@ -36,6 +39,7 @@
 
 #![warn(missing_docs)]
 
+pub mod console_log;
 pub mod door;
 pub mod measure;
 pub mod phone;
@@ -59,6 +63,9 @@ mod test_apk;
 
 #[cfg(all(test, windows))]
 mod phone_tests;
+
+#[cfg(all(test, windows))]
+mod phone_answers;
 
 /// The version of this crate, for example "0.1.0".
 pub fn console_version() -> String {

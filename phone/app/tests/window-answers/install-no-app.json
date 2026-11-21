@@ -1,0 +1,11 @@
+{
+  "request": "phone.install",
+  "case": "this PC’s app for phones is missing",
+  "asked": {
+    "name": "phone.install"
+  },
+  "error": {
+    "code": "no_app",
+    "words": "LiMo’s app for phones is missing from this PC."
+  }
+}

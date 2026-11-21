@@ -1,0 +1,37 @@
+{
+  "request": "phone.look",
+  "case": "a phone with USB debugging on, being connected",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "busy": "connecting",
+    "cable": {
+      "case": "connecting",
+      "line": "A phone is plugged in.",
+      "more": "Connecting to it."
+    },
+    "checks": [],
+    "debugging": {
+      "advice": null,
+      "line": null,
+      "stage": "on"
+    },
+    "fingerprint": null,
+    "held": false,
+    "install": {
+      "advice": null,
+      "line": null,
+      "sent": null,
+      "stage": "not_asked"
+    },
+    "pairing": {
+      "advice": null,
+      "device": null,
+      "line": null,
+      "stage": "not_asked",
+      "ways": []
+    },
+    "phone": null
+  }
+}
