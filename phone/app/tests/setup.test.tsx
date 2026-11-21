@@ -1,15 +1,22 @@
 // Setting up a child's phone (S0 to S9) and the child's introduction (C1 to
 // C3), against the mock host.
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { AppState, type AppStateStatus, DeviceEventEmitter } from 'react-native';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { AppState, type AppStateStatus, DeviceEventEmitter, StyleSheet } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 
 import { ChildApp, TRIES_BEFORE_GOING_ON } from '../src/child/ChildApp';
 import { ChildHostProvider } from '../src/child/HostContext';
 import * as W from '../src/child/words';
 import { STEP_IDS, type StepId } from '../src/childSeam';
-import { ALL_ON, CHILD, ENGINE_OFF, mockHost, NOT_SAMSUNG, states, stepsOnUpTo } from '../src/mock/childMock';
-import { inPhone, renderChild } from './render';
+import { Icon } from '../src/icons/Icon';
+import { ALL_ON, CHILD, ENGINE_OFF, type MockState, mockHost, NOT_SAMSUNG, states, stepsOnUpTo } from '../src/mock/childMock';
+import { color, monoFamily } from '../src/theme';
+import { type } from '../src/ui/paper/text';
+import { inOrder, inPhone, renderChild, textsInOrder, type TreeNode } from './render';
 
 describe('not set up (S0)', () => {
   it('shows only how to start from the PC, with nothing to tap', async () => {
@@ -24,6 +31,31 @@ describe('not set up (S0)', () => {
     // No provider: the child form asks the real host, which finds no child module here.
     render(inPhone(<ChildApp />));
     expect(await screen.findByText(W.notSetUp.heading)).toBeOnTheScreen();
+  });
+
+  it('keeps LiMo’s name at the top and stands the card in the middle, above the maker’s mark', async () => {
+    renderChild(states.notPaired);
+    await screen.findByText(W.notSetUp.heading);
+    inOrder(textsInOrder(), ['LiMo', W.notSetUp.heading, 'Made by', 'LucidLoom AI']);
+
+    // The middle takes all the room between the top row and the maker's mark
+    // and centres the card in it, under the drawing's 20 of padding.
+    const middle = screen.getByTestId('not-set-up-middle');
+    expect(StyleSheet.flatten(middle.props.style)).toEqual({ flexGrow: 1, justifyContent: 'center', paddingTop: 20 });
+    expect(within(middle).getByText(W.notSetUp.heading)).toBeOnTheScreen();
+    expect(within(middle).queryByText('LiMo')).toBeNull();
+    expect(within(middle).queryByLabelText('Made by LucidLoom AI')).toBeNull();
+
+    // The card sits in it with no margin of its own, so its middle is the middle's.
+    const card = middle.findAll((n: TreeNode) => typeof n.type === 'string' && n !== middle)[0];
+    const look = StyleSheet.flatten(card.props.style) ?? {};
+    expect(look.marginTop ?? 0).toBe(0);
+    expect(look.marginBottom ?? 0).toBe(0);
+
+    // The middle is the page's only part that grows, besides what holds it: the maker's mark stays at the bottom.
+    const grows = (n: TreeNode) => typeof n.type === 'string' && (StyleSheet.flatten(n.props.style)?.flexGrow ?? 0) > 0;
+    const others = (screen.root.findAll(grows) as TreeNode[]).filter((n) => n !== middle);
+    expect(others.every((n) => n.findAll((m) => m === middle).length > 0)).toBe(true);
   });
 
   it('moves on to the welcome once the PC pairs the phone', async () => {
@@ -153,6 +185,13 @@ describe('the six steps (S3 to S8)', () => {
     expect(screen.getByTestId('stamp-not-on-yet')).toBeOnTheScreen();
   });
 
+  it('protection: says why in words that are true of the base protection', async () => {
+    renderChild({ ...states.agreed, steps: stepsOnUpTo(5) }, { route: { at: 'step', step: 'protection' } });
+    expect(await screen.findByText('Protection')).toBeOnTheScreen();
+    expect(screen.getByText('So a guardian’s PIN is needed to switch this off, and LiMo cannot be removed while it is on.')).toBeOnTheScreen();
+    expect(screen.queryByText(/without the guardian PIN/)).toBeNull();
+  });
+
   it('starts at the first step that is not on', async () => {
     renderChild({ ...states.agreed, steps: stepsOnUpTo(4) });
     expect(await screen.findByText('Battery')).toBeOnTheScreen();
@@ -168,6 +207,15 @@ describe('the Samsung note on the Battery step', () => {
     expect(await screen.findByText('On a Samsung phone')).toBeOnTheScreen();
     expect(screen.getByText(W.steps.battery.note!.text)).toBeOnTheScreen();
     expect(host.calls).toContain('maker');
+  });
+
+  it('names the path as newer and older Samsung phones have it', async () => {
+    renderChild(battery, { route: { at: 'step', step: 'battery' } });
+    expect(
+      await screen.findByText(
+        'Also open Settings, then Battery (on some phones Battery and device care, then Battery), then Background usage limits, then Never sleeping apps, and add LiMo there.',
+      ),
+    ).toBeOnTheScreen();
   });
 
   it('does not show on another maker’s phone', async () => {
@@ -288,8 +336,11 @@ describe('a step Android will not turn on', () => {
     fireEvent.press(await screen.findByRole('button', { name: 'Next' }));
     fireEvent.press(await screen.findByRole('button', { name: 'Next' }));
     expect(await screen.findByText(W.done.heading)).toBeOnTheScreen();
-    expect(screen.getByLabelText('Accessibility')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Accessibility, Not on')).toBeOnTheScreen();
     expect(screen.queryByLabelText('Accessibility, On')).toBeNull();
+    expect(screen.getByTestId('done-off-line')).toHaveTextContent(
+      'Accessibility is not on yet. Mira’s Today screen shows a guardian how to turn it on.',
+    );
     fireEvent.press(screen.getByRole('button', { name: 'Show Mira how it works' }));
     fireEvent.press(await screen.findByRole('button', { name: 'Next' }));
     fireEvent.press(await screen.findByRole('button', { name: 'Next' }));
@@ -340,8 +391,183 @@ describe('done, and the child’s introduction (S8, C1 to C3)', () => {
   it('ticks only the steps Android says are on now', async () => {
     renderChild({ ...states.allOn, steps: { ...ALL_ON, battery: 'off' } }, { route: { at: 'done' } });
     await screen.findByText(W.done.heading);
-    expect(screen.getByLabelText('Battery')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Battery, Not on')).toBeOnTheScreen();
     expect(screen.queryByLabelText('Battery, On')).toBeNull();
     expect(screen.getByLabelText('Usage access, On')).toBeOnTheScreen();
+  });
+});
+
+describe('the redrawn words, word for word as the drawing has them', () => {
+  const drawing = fs.readFileSync(path.resolve(__dirname, '..', '..', '..', 'design', 'screens', 'phone-setup.js'), 'utf8');
+
+  it.each([
+    ['the Samsung note on Battery', W.steps.battery.note!.text],
+    ['why Protection', W.steps.protection.why('Mira')],
+    ['NOT ON', `>${W.done.notOn}<`],
+    ['how many are off', ' steps are not on yet. '],
+    ['one that is off', ' is not on yet. '],
+    ['where to turn them on', '’s Today screen shows a guardian how to turn '],
+    ['the About box', `<p>${W.how.more}<span class="su-addr">${W.how.site}</span></p>`],
+  ])('%s', (_what, words) => {
+    expect(drawing).toContain(words);
+  });
+
+  it('neither holds the old words any more', () => {
+    for (const old of ['without the guardian PIN', 'Free and open source, under the Apache 2.0 licence.', 'github.com/LucidloomAi/LiMo']) {
+      expect(drawing).not.toContain(old);
+    }
+  });
+});
+
+describe('done with a step still off (S9b)', () => {
+  const offOnDone = (off: readonly StepId[], state: MockState = states.allOn) => {
+    const steps = { ...ALL_ON };
+    for (const id of off) steps[id] = 'off';
+    return renderChild({ ...state, steps }, { route: { at: 'done' } });
+  };
+  /** The ring's one circle, inside a row's mark. */
+  const ringIn = (id: StepId) => within(screen.getByTestId(`done-${id}-off`)).UNSAFE_getByType(Circle);
+
+  it('one off: a hollow ink ring in place of its tick, NOT ON at its end, and one sentence before the hand over', async () => {
+    offOnDone(['phone']);
+    await screen.findByText(W.done.heading);
+
+    // The title and the big tick stay: the phone works.
+    expect(screen.getByText('This phone is set up.')).toBeOnTheScreen();
+    expect(screen.UNSAFE_getAllByType(Icon).map((i) => i.props.name)).toContain('check');
+
+    // The ring, in the tick's own room, and no tick there.
+    expect(screen.queryByTestId('done-phone-on')).toBeNull();
+    const ring = ringIn('phone');
+    expect(ring.props).toMatchObject({ cx: 9, cy: 9, r: 5.5, stroke: color.ink, strokeWidth: 2 });
+    expect(within(screen.getByTestId('done-phone-off')).UNSAFE_getByType(Svg).props.fill).toBe('none');
+    for (const id of STEP_IDS.filter((s) => s !== 'phone')) {
+      expect(screen.getByTestId(`done-${id}-on`)).toBeOnTheScreen();
+      expect(screen.queryByTestId(`done-${id}-off`)).toBeNull();
+    }
+
+    // NOT ON at the row's end: mono capitals in coral, said plainly, no box.
+    const notOn = within(screen.getByTestId('done-phone')).getByTestId('done-not-on');
+    expect(notOn).toHaveTextContent('Not on');
+    expect(screen.getAllByTestId('done-not-on')).toHaveLength(1);
+    const look = StyleSheet.flatten(notOn.props.style);
+    expect(look).toMatchObject({ fontFamily: monoFamily, fontSize: 12, textTransform: 'uppercase', color: color.coral, marginLeft: 'auto' });
+    expect(look.borderWidth).toBeUndefined();
+    expect(screen.getByLabelText('Phone, Not on')).toBeOnTheScreen();
+
+    // One sentence, after the rows and before the hand over.
+    expect(screen.getByTestId('done-off-line')).toHaveTextContent('Phone is not on yet. Mira’s Today screen shows a guardian how to turn it on.');
+    inOrder(textsInOrder(), [
+      'Protection',
+      'Phone is not on yet. Mira’s Today screen shows a guardian how to turn it on.',
+      'Hand the phone to Mira. The next three screens are Mira’s.',
+    ]);
+    expect(StyleSheet.flatten(screen.getByTestId('done-off-line').props.style)).toMatchObject({ fontSize: 16, lineHeight: 22.4, color: color.ink, marginTop: 10 });
+  });
+
+  it('two off: a ring and NOT ON on each, and the sentence counts them in words', async () => {
+    offOnDone(['phone', 'battery']);
+    await screen.findByText(W.done.heading);
+    expect(ringIn('phone')).toBeTruthy();
+    expect(ringIn('battery')).toBeTruthy();
+    expect(screen.getAllByTestId('done-not-on')).toHaveLength(2);
+    expect(screen.getByTestId('done-off-line')).toHaveTextContent('Two steps are not on yet. Mira’s Today screen shows a guardian how to turn them on.');
+  });
+
+  it('says the number in words up to six', () => {
+    const words = ['Two', 'Three', 'Four', 'Five', 'Six'];
+    words.forEach((word, i) => {
+      expect(W.done.offLine(STEP_IDS.slice(0, i + 2), 'Asha')).toBe(
+        `${word} steps are not on yet. Asha’s Today screen shows a guardian how to turn them on.`,
+      );
+    });
+    expect(W.done.offLine(['usage'], 'Asha')).toBe('Usage access is not on yet. Asha’s Today screen shows a guardian how to turn it on.');
+  });
+
+  it('with every step off, still says the phone is set up, and six', async () => {
+    offOnDone([...STEP_IDS]);
+    await screen.findByText(W.done.heading);
+    expect(screen.getAllByTestId('done-not-on')).toHaveLength(6);
+    expect(screen.getByTestId('done-off-line')).toHaveTextContent('Six steps are not on yet. Mira’s Today screen shows a guardian how to turn them on.');
+  });
+
+  it('with no name kept, says “your child” as the hand over does, with a capital where the sentence starts', async () => {
+    // The child module answers so when the pairing keeps no name (tests/seam-answers/pairing-no-name.json).
+    offOnDone(['battery'], { ...states.allOn, pairing: { paired: true, childName: 'your child' } });
+    await screen.findByText(W.done.heading);
+    expect(screen.getByTestId('done-off-line')).toHaveTextContent('Battery is not on yet. Your child’s Today screen shows a guardian how to turn it on.');
+    expect(screen.getByText('Hand the phone to your child. The next three screens are your child’s.')).toBeOnTheScreen();
+    expect(W.done.offLine(['battery', 'protection'], 'your child')).toBe(
+      'Two steps are not on yet. Your child’s Today screen shows a guardian how to turn them on.',
+    );
+  });
+
+  it('keeps every row the same height whether ticked or not', async () => {
+    offOnDone(['phone', 'protection']);
+    await screen.findByText(W.done.heading);
+    const rowStyle = (id: StepId) => StyleSheet.flatten(screen.getByTestId(`done-${id}`).props.style);
+    const markStyle = (id: StepId) => StyleSheet.flatten(screen.getByTestId(`done-${id}-${id === 'phone' || id === 'protection' ? 'off' : 'on'}`).props.style);
+    for (const id of STEP_IDS) {
+      expect(rowStyle(id)).toEqual(rowStyle('notifications'));
+      // The tick and the ring stand in the same 18 by 18.
+      expect(markStyle(id)).toEqual({ width: 18, height: 18 });
+    }
+    // NOT ON is never taller than the step's name beside it, so it adds no height.
+    const notOn = StyleSheet.flatten(screen.getAllByTestId('done-not-on')[0].props.style);
+    expect(notOn.lineHeight).toBeLessThanOrEqual(type.app.lineHeight as number);
+  });
+
+  it('with all six on, is as it was: six ticks, no ring, no NOT ON, no sentence', async () => {
+    renderChild(states.allOn, { route: { at: 'done' } });
+    await screen.findByText(W.done.heading);
+    for (const id of STEP_IDS) {
+      expect(screen.getByTestId(`done-${id}-on`)).toBeOnTheScreen();
+      expect(within(screen.getByTestId(`done-${id}`)).UNSAFE_queryAllByType(Circle)).toHaveLength(0);
+    }
+    expect(screen.queryByTestId('done-not-on')).toBeNull();
+    expect(screen.queryByTestId('done-off-line')).toBeNull();
+    // Every word on the screen, in order: the same as before a step could be off.
+    expect(textsInOrder()).toEqual([
+      'LiMo',
+      'This phone is set up.',
+      'Notifications',
+      'Phone',
+      'Usage access',
+      'Accessibility',
+      'Battery',
+      'Protection',
+      'Hand the phone to Mira. The next three screens are Mira’s.',
+      'Made by',
+      'LucidLoom AI',
+      'Show Mira how it works',
+    ]);
+  });
+
+  it('waits for Android’s first answer, and marks nothing when the host cannot say', async () => {
+    const waiting = mockHost({ ...states.allOn, steps: { ...ALL_ON, phone: 'off' } });
+    const never = Object.assign(Object.create(waiting) as typeof waiting, { steps: () => new Promise<never>(() => undefined) });
+    const { unmount } = render(
+      inPhone(
+        <ChildHostProvider host={never}>
+          <ChildApp initial={{ at: 'done' }} />
+        </ChildHostProvider>,
+      ),
+    );
+    await act(async () => {});
+    expect(screen.queryByText(W.done.heading)).toBeNull();
+    unmount();
+
+    const failing = Object.assign(Object.create(waiting) as typeof waiting, { steps: () => Promise.reject(new Error('no answer')) });
+    render(
+      inPhone(
+        <ChildHostProvider host={failing}>
+          <ChildApp initial={{ at: 'done' }} />
+        </ChildHostProvider>,
+      ),
+    );
+    expect(await screen.findByText(W.done.heading)).toBeOnTheScreen();
+    for (const id of STEP_IDS) expect(screen.getByTestId(`done-${id}-none`)).toBeOnTheScreen();
+    expect(screen.queryByTestId('done-not-on')).toBeNull();
+    expect(screen.queryByTestId('done-off-line')).toBeNull();
   });
 });

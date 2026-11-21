@@ -117,8 +117,8 @@ export const type = StyleSheet.create({
   aboutTitle: { fontSize: 16, fontWeight: '600', lineHeight: 20.8 },
   /** .su-about p. */
   aboutText: { fontSize: 14, lineHeight: 19.6, color: color.inkSoft },
-  /** .su-repo: the address, as plain text. */
-  repo: { fontFamily: monoFamily, fontWeight: '500', fontSize: 14, lineHeight: 18.2 },
+  /** .su-addr: an address, as plain text in mono, inside a line of .su-about p. */
+  address: { fontFamily: monoFamily, fontWeight: '500', fontSize: 14, lineHeight: 19.6, color: color.ink },
   /** .ph-maker span: "MADE BY". */
   makerWords: LABEL,
   /** .ph-maker b: the maker's name. */

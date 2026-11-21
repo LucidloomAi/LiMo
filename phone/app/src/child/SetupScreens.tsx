@@ -6,7 +6,7 @@
 // These are plain screens: they show what they are given and say what was
 // tapped. ChildApp decides which one shows and asks the host.
 
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 
 import { STEP_IDS, type StepId, type StepState, type StepStates } from '../host';
 import { Icon } from '../icons/Icon';
@@ -22,6 +22,7 @@ import {
   plain,
   type Rich,
   RichText,
+  Ring,
   Shadow,
   Stamp,
   Tail,
@@ -32,10 +33,22 @@ import {
 import { Txt, type } from '../ui/paper/text';
 import * as W from './words';
 
-/** A card that opens a screen: the icon, then the words. */
-function IconCard({ icon, eyebrow, heading, text }: { icon: W.IntroWords['icon']; eyebrow?: string; heading: string; text: Rich }) {
+/** A card that opens a screen: the icon, then the words. Under the top row, unless `outer` says otherwise. */
+function IconCard({
+  icon,
+  eyebrow,
+  heading,
+  text,
+  outer = styles.afterTop,
+}: {
+  icon: W.IntroWords['icon'];
+  eyebrow?: string;
+  heading: string;
+  text: Rich;
+  outer?: ViewStyle;
+}) {
   return (
-    <Card outer={styles.afterTop}>
+    <Card outer={outer}>
       <Icon name={icon} size={64} />
       {eyebrow ? <Label style={styles.eyebrow}>{eyebrow}</Label> : null}
       <Heading style={eyebrow ? styles.headingAfterEyebrow : styles.heading}>{heading}</Heading>
@@ -48,12 +61,18 @@ function IconCard({ icon, eyebrow, heading, text }: { icon: W.IntroWords['icon']
 
 // ---------- S0. Not set up ----------
 
-/** Only on a phone the PC has not paired. Nothing on the phone can set it up alone: no button. */
+/**
+ * Only on a phone the PC has not paired. Nothing on the phone can set it up
+ * alone: no button. LiMo's name stays at the top, and the card stands in the
+ * middle of the screen, between the top row and the maker's mark.
+ */
 export function NotSetUp() {
   return (
     <Page testID="screen-not-set-up">
       <TopRow />
-      <IconCard icon="usb" heading={W.notSetUp.heading} text={W.notSetUp.text} />
+      <View style={styles.middle} testID="not-set-up-middle">
+        <IconCard icon="usb" heading={W.notSetUp.heading} text={W.notSetUp.text} outer={styles.inMiddle} />
+      </View>
       <Tail />
     </Page>
   );
@@ -246,7 +265,18 @@ export function Step({
 
 // ---------- S9. Done ----------
 
+/**
+ * Done, with every step on or with some still off. The phone works either
+ * way, so the title and the big tick stay. A step that is off has a hollow
+ * ring in its tick's place and NOT ON at the end of its row, said plainly and
+ * not stamped, and one sentence under the rows says where a guardian can turn
+ * it on. Every row keeps its height either way: the ring is the tick's size,
+ * and NOT ON is shorter than the step's name. With `steps` null (the host
+ * could not say) no row is marked either way.
+ */
 export function Done({ name, steps, onShow }: { name: string; steps: StepStates | null; onShow: () => void }) {
+  // Only what Android says now: a tick where a step is on, a ring where it is not.
+  const off = steps ? STEP_IDS.filter((id) => steps[id] !== 'on') : [];
   return (
     <Page testID="screen-done" pinned={<Button kind="go" label={W.done.button(name)} onPress={onShow} testID="main-button" />}>
       <TopRow />
@@ -255,19 +285,32 @@ export function Done({ name, steps, onShow }: { name: string; steps: StepStates 
         <Heading style={styles.heading}>{W.done.heading}</Heading>
         <View style={styles.oks}>
           {STEP_IDS.map((id, i) => {
-            // A tick only where Android says the step is on now.
-            const on = steps?.[id] === 'on';
+            const title = W.steps[id].title;
+            const mark = !steps ? 'none' : off.includes(id) ? 'off' : 'on';
+            const label = mark === 'on' ? `${title}, ${W.step.on}` : mark === 'off' ? `${title}, ${W.done.notOn}` : title;
             return (
               <View key={id} style={styles.okRow}>
                 {i > 0 ? <Dashed /> : null}
-                <View style={styles.ok} accessible accessibilityLabel={on ? `${W.steps[id].title}, ${W.step.on}` : W.steps[id].title}>
-                  {on ? <Tick tint={color.teal} /> : <View style={styles.noTick} />}
-                  <Txt style={type.app}>{W.steps[id].title}</Txt>
+                <View style={styles.ok} accessible accessibilityLabel={label} testID={`done-${id}`}>
+                  <View style={styles.okMark} testID={`done-${id}-${mark}`}>
+                    {mark === 'on' ? <Tick tint={color.teal} /> : mark === 'off' ? <Ring tint={color.ink} /> : null}
+                  </View>
+                  <Txt style={[type.app, styles.okTitle]}>{title}</Txt>
+                  {mark === 'off' ? (
+                    <Txt style={[type.stamp, styles.notOn]} numberOfLines={1} testID="done-not-on">
+                      {W.done.notOn}
+                    </Txt>
+                  ) : null}
                 </View>
               </View>
             );
           })}
         </View>
+        {off.length ? (
+          <Txt style={[type.line, styles.offLine]} wrap="pretty" testID="done-off-line">
+            {W.done.offLine(off, name)}
+          </Txt>
+        ) : null}
         <Txt style={[type.detail, styles.detail, styles.after]} wrap="pretty">
           {W.done.after(name)}
         </Txt>
@@ -354,9 +397,16 @@ const styles = StyleSheet.create({
   noteWords: { marginTop: 6 },
   state: { marginTop: 16, alignItems: 'flex-start' },
   stateLine: { minHeight: 20, marginTop: 8 },
+  // S0: the card in the middle of the room between the top row and the maker's mark.
+  middle: { flexGrow: 1, justifyContent: 'center', paddingTop: 20 },
+  inMiddle: {},
   oks: { marginTop: 12 },
   okRow: { minHeight: 38 },
   ok: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 36.5 },
-  noTick: { width: 18, height: 18 },
+  okMark: { width: 18, height: 18 },
+  // A long name wraps before NOT ON is pushed off the row.
+  okTitle: { flexShrink: 1 },
+  notOn: { marginLeft: 'auto', flexShrink: 0, color: color.coral },
+  offLine: { marginTop: 10 },
   after: { paddingTop: 4 },
 });

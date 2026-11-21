@@ -27,6 +27,18 @@ export function keepTimesWhole(text: string): string {
   return text.replace(/(\d) (am|pm|min|minutes?|h|hours?)\b/g, '$1\u00a0$2');
 }
 
+/** The word joiner: no line may break beside it. It is never drawn. */
+export const WORD_JOINER = '⁠';
+
+/**
+ * An address never breaks inside: with a word joiner between each two of its
+ * characters, a line can break only before it, so on a phone too narrow for
+ * the whole line it moves to a line of its own.
+ */
+export function unbroken(text: string): string {
+  return Array.from(text).join(WORD_JOINER);
+}
+
 // ---------- E and T. Today ----------
 
 export function Today({
@@ -155,11 +167,15 @@ export function HowItWorks({ name, rules, version }: { name: string; rules: Rule
       <Label style={styles.sec} header>{W.how.does}</Label>
       <SetupRows rows={W.intro.map((c) => ({ icon: c.icon, title: c.title, text: c.text }))} />
       <Label style={styles.sec} header>{W.how.about}</Label>
-      <Card>
+      <Card testID="about">
         <Txt style={type.aboutTitle}>{W.how.name(version ?? '')}</Txt>
-        <Txt style={[type.aboutText, styles.aboutText]}>{W.how.licence}</Txt>
         {/* The address is plain text: nothing on this screen opens a browser. */}
-        <Txt style={[type.repo, styles.repo]}>{W.how.repo}</Txt>
+        <View style={styles.aboutText} accessible accessibilityLabel={`${W.how.more}${W.how.site}`}>
+          <Txt style={type.aboutText}>
+            {W.how.more}
+            <Txt style={type.address}>{unbroken(W.how.site)}</Txt>
+          </Txt>
+        </View>
       </Card>
       <Tail />
     </>
@@ -211,5 +227,4 @@ const styles = StyleSheet.create({
   ruleLabel: { flexShrink: 0, maxWidth: '50%' },
   ruleValue: { flexShrink: 1, minWidth: 0 },
   aboutText: { marginTop: 4 },
-  repo: { marginTop: 10 },
 });

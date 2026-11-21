@@ -96,14 +96,14 @@ export const steps: Readonly<Record<StepId, StepWords>> = {
     button: 'Allow',
     note: {
       label: 'On a Samsung phone',
-      text: 'Also open Settings, then Battery, then Background usage limits, then Never sleeping apps, and add LiMo there.',
+      text: 'Also open Settings, then Battery (on some phones Battery and device care, then Battery), then Background usage limits, then Never sleeping apps, and add LiMo there.',
       only: 'samsung',
     },
   },
   protection: {
     icon: 'key',
     title: 'Protection',
-    why: () => 'So LiMo cannot be switched off or removed without the guardian PIN.',
+    why: () => 'So a guardian’s PIN is needed to switch this off, and LiMo cannot be removed while it is on.',
     what: ['Android asks you to make LiMo a device admin app. Choose ', { strong: 'Activate' }, '.'],
     button: 'Turn on protection',
   },
@@ -124,8 +124,26 @@ export const step = {
   next: 'Next',
 };
 
+/** How many steps, in words, as the drawings say it ("Two"): there are six, and past six the number itself. */
+const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'];
+export const countInWords = (count: number) => COUNT[count] ?? String(count);
+
+/**
+ * A sentence starts with a capital, also when it starts with the child's
+ * name and the phone keeps no name: then the name is "your child".
+ */
+const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
 export const done = {
   heading: 'This phone is set up.',
+  /** At the end of the row of a step Android does not say is on. */
+  notOn: 'Not on',
+  /** Under the rows when steps are off, in setup order: which, or how many, and where a guardian can turn them on. */
+  offLine: (off: readonly StepId[], name: string) => {
+    const one = off.length === 1;
+    const what = one ? `${steps[off[0]].title} is not on yet.` : `${countInWords(off.length)} steps are not on yet.`;
+    return `${what} ${sentence(possessive(name))} Today screen shows a guardian how to turn ${one ? 'it' : 'them'} on.`;
+  },
   after: (name: string) => `Hand the phone to ${name}. The next three screens are ${possessive(name)}.`,
   button: (name: string) => `Show ${name} how it works`,
 };
@@ -182,6 +200,7 @@ export const how = {
   does: 'What LiMo does',
   about: 'About',
   name: (version: string) => `LiMo ${version}`,
-  licence: 'Free and open source, under the Apache 2.0 licence.',
-  repo: 'github.com/LucidloomAi/LiMo',
+  /** Then the maker's address, as plain text: the design's own (design/tokens.json, maker.site). */
+  more: 'More info on ',
+  site: 'https://lucidloom.ai',
 };

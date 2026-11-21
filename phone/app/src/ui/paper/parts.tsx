@@ -1,14 +1,15 @@
 // The parts every phone screen is built from, as the drawings draw them
 // (design/screens/phone.css and phone-setup.css): the card with its hard
-// shadow, buttons, labels, stamps, tiles, the dashed divider, the top row
-// with LiMo's mark, the dot counter and the maker's mark.
+// shadow, buttons, labels, stamps, tiles, the dashed divider, the tick and
+// the ring, the top row with LiMo's mark, the dot counter and the maker's
+// mark.
 //
 // Rule 3 of the theme holds in each: nothing changes size when it is picked,
 // pressed or switched off.
 
 import { type ReactNode, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
-import Svg, { Line, Path } from 'react-native-svg';
+import Svg, { Circle, Line, Path } from 'react-native-svg';
 
 import logo from '../../generated/lucidloom-logo.png';
 import { Icon, type IconName } from '../../icons/Icon';
@@ -203,6 +204,15 @@ export function Tick({ tint, size = 18 }: { tint: string; size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 18 18" fill="none" importantForAccessibility="no-hide-descendants">
       <Path d="M3.5 9.5l3.6 3.6L14.5 5" stroke={tint} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+/** In a tick's place, for something that is not on: the same room, a hollow ring. A plain stroke too. */
+export function Ring({ tint, size = 18 }: { tint: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 18 18" fill="none" importantForAccessibility="no-hide-descendants">
+      <Circle cx={9} cy={9} r={5.5} stroke={tint} strokeWidth={2} />
     </Svg>
   );
 }

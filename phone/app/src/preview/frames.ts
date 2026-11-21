@@ -4,7 +4,7 @@
 
 import { type Route, TRIES_BEFORE_GOING_ON } from '../child/ChildApp';
 import { STEP_IDS } from '../childSeam';
-import { type MockState, states, stepsOnUpTo } from '../mock/childMock';
+import { ALL_ON, type MockState, states, stepsOnUpTo } from '../mock/childMock';
 
 export type Frame = {
   readonly id: string;
@@ -69,6 +69,20 @@ export const FRAMES: readonly Frame[] = [
   { id: 'S2b', title: 'S2b · Ticked', note: 'Continue switched on', state: states.fresh, route: { at: 'agree', ticked: true } },
   ...stepFrames(),
   { id: 'S9', title: 'S9 · Done', note: 'button pinned', state: states.allOn },
+  {
+    id: 'S9b',
+    title: 'S9b · Done, Phone still off',
+    note: 'button pinned · a ring and NOT ON',
+    state: { ...states.allOn, steps: { ...ALL_ON, phone: 'off' } },
+    route: { at: 'done' },
+  },
+  {
+    id: 'S9-two',
+    title: 'S9 · Done, two steps still off',
+    note: 'not drawn: how many, in words',
+    state: { ...states.allOn, steps: { ...ALL_ON, phone: 'off', battery: 'off' } },
+    route: { at: 'done' },
+  },
   { id: 'C1', title: 'C1 · What LiMo counts', note: '1 of 3', state: states.allOn, route: { at: 'intro', index: 0 } },
   { id: 'C2', title: 'C2 · What LiMo never looks at', note: '2 of 3', state: states.allOn, route: { at: 'intro', index: 1 } },
   { id: 'C3', title: 'C3 · How to ask for more time', note: '3 of 3', state: states.allOn, route: { at: 'intro', index: 2 } },
@@ -91,6 +105,7 @@ export const STRESS: readonly Frame[] = [
   { id: 'L-S6', title: 'S6 · still off, a long name', note: '', state: { ...states.longNames, steps: stepsOnUpTo(3) }, route: { at: 'step', step: 'accessibility', triedOff: TRIES_BEFORE_GOING_ON } },
   { id: 'L-S7', title: 'S7 · a long name', note: '', state: { ...states.longNames, steps: stepsOnUpTo(4) }, route: { at: 'step', step: 'battery' } },
   { id: 'L-S9', title: 'S9 · a long name', note: '', state: { ...states.longNames, introSeen: false, steps: stepsOnUpTo(6) }, route: { at: 'done' } },
+  { id: 'L-S9b', title: 'S9b · a step off, a long name', note: '', state: { ...states.longNames, introSeen: false }, route: { at: 'done' } },
   { id: 'L-C1', title: 'C1 · a long name', note: '', state: states.longNames, route: { at: 'intro', index: 0 } },
   { id: 'L-T', title: 'T · long names', note: '', state: states.longNames, route: { at: 'app', tab: 'today' } },
   { id: 'L-T3', title: 'T · three off, long names', note: '', state: { ...states.longNames, steps: states.threeOff.steps }, route: { at: 'app', tab: 'today' } },

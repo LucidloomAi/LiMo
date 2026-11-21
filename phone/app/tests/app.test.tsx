@@ -1,15 +1,20 @@
 // The child's own app: Today (E), its banner (T), How it works (H), the
 // floating tab bar, and long names.
 
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
+import { unbroken, WORD_JOINER } from '../src/child/AppScreens';
 import { ChildApp } from '../src/child/ChildApp';
 import { ChildHostProvider } from '../src/child/HostContext';
 import * as W from '../src/child/words';
 import { ALL_ON, ENGINE_OFF, LONG_CHILD, mockHost, states, TODAY } from '../src/mock/childMock';
+import { color, monoFamily } from '../src/theme';
 import { tabStyles } from '../src/ui/paper/Tabs';
-import { inPhone, renderChild } from './render';
+import { inPhone, renderChild, textsInOrder, type TreeNode } from './render';
 
 describe('Today (E)', () => {
   it('shows the engine’s words as they come, and never says counting', async () => {
@@ -156,9 +161,44 @@ describe('How it works (H) and the tab bar', () => {
     expect(screen.getByLabelText('Not allowed: Game Launcher')).toBeOnTheScreen();
     expect(screen.getByText('What LiMo never looks at')).toBeOnTheScreen();
     expect(await screen.findByText('LiMo 0.1.0')).toBeOnTheScreen();
-    expect(screen.getByText(W.how.repo)).toBeOnTheScreen();
     expect(screen.getByRole('tab', { name: W.tabs.how })).toBeSelected();
     expect(screen.getByRole('tab', { name: W.tabs.today })).not.toBeSelected();
+  });
+
+  it('says where to read more in the About box, and nothing of the licence or the repository', async () => {
+    renderChild(states.childApp, { route: { at: 'app', tab: 'how' } });
+    expect(await screen.findByText('LiMo 0.1.0')).toBeOnTheScreen();
+    const about = screen.getByTestId('about');
+
+    // One line under the version, read as one, with the maker's address the design gives.
+    const line = within(about).getByLabelText('More info on https://lucidloom.ai');
+    expect(line).toBeOnTheScreen();
+    const design = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '..', '..', 'design', 'tokens.json'), 'utf8'));
+    expect(W.how.site).toBe(design.maker.site);
+    // Every text in the box: the version, the line, and the address inside the line.
+    const plain = (n: { props: { children?: unknown } }): string =>
+      [n.props.children].flat().map((c) => (typeof c === 'string' ? c : c && typeof c === 'object' && 'props' in c ? plain(c as never) : '')).join('');
+    const texts = about.findAll((n: TreeNode) => n.type === 'Text').map((t: TreeNode) => plain(t).replaceAll(WORD_JOINER, ''));
+    expect(texts).toEqual(['LiMo 0.1.0', 'More info on https://lucidloom.ai', 'https://lucidloom.ai']);
+
+    // The address in mono, in ink, inside the line, and never broken inside:
+    // a word joiner between each two of its characters leaves a break only before it.
+    const address = within(about).getByText(unbroken(W.how.site));
+    expect(StyleSheet.flatten(address.props.style)).toMatchObject({ fontFamily: monoFamily, fontSize: 14, color: color.ink });
+    expect(unbroken(W.how.site).split(WORD_JOINER)).toEqual(Array.from('https://lucidloom.ai'));
+
+    // It opens nothing: nothing in the box can be pressed.
+    expect(within(about).queryAllByRole('button')).toHaveLength(0);
+    expect(within(about).queryAllByRole('link')).toHaveLength(0);
+    expect(about.findAll((n: TreeNode) => typeof n.props.onPress === 'function')).toHaveLength(0);
+
+    // The licence line and the repository's address are gone, from the screen and from the screens' source.
+    const everything = textsInOrder().join(' | ');
+    const source = ['words.ts', 'AppScreens.tsx'].map((f) => fs.readFileSync(path.resolve(__dirname, '..', 'src', 'child', f), 'utf8')).join('\n');
+    for (const gone of ['Apache', 'licence', 'open source', 'github', 'LucidloomAi/LiMo']) {
+      expect(everything).not.toContain(gone);
+      expect(source).not.toContain(gone);
+    }
   });
 
   it('keeps every tab the same size, picked or not: only colours change', async () => {

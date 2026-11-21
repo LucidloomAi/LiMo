@@ -5,8 +5,8 @@ import { screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { type Route, TRIES_BEFORE_GOING_ON } from '../src/child/ChildApp';
-import { type MockState, states, stepsOnUpTo } from '../src/mock/childMock';
-import { renderChild } from './render';
+import { ALL_ON, type MockState, states, stepsOnUpTo } from '../src/mock/childMock';
+import { inOrder, renderChild, textsInOrder } from './render';
 
 const SCREENS: [string, MockState, Route | undefined, string][] = [
   ['S1', states.fresh, undefined, 'This phone is now Mira’s.'],
@@ -21,46 +21,12 @@ const SCREENS: [string, MockState, Route | undefined, string][] = [
   ],
   ['S7', { ...states.agreed, steps: stepsOnUpTo(4) }, { at: 'step', step: 'battery' }, 'Battery'],
   ['S9', states.allOn, undefined, 'This phone is set up.'],
+  ['S9b', { ...states.allOn, steps: { ...ALL_ON, phone: 'off' } }, { at: 'done' }, 'This phone is set up.'],
   ['C3', states.allOn, { at: 'intro', index: 2 }, 'How to ask for more time'],
   ['T', states.guardianNeeded, undefined, '1 h 12 min'],
   ['T, three off', states.threeOff, undefined, 'And 2 more'],
   ['H', states.childApp, { at: 'app', tab: 'how' }, 'Your rules'],
 ];
-
-/** Every string the screen shows, in the order a screen reader meets it. */
-function textsInOrder(): string[] {
-  const out: string[] = [];
-  const walk = (node: ReturnType<typeof screen.toJSON>) => {
-    if (!node) return;
-    if (typeof node === 'string') {
-      out.push(node);
-      return;
-    }
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-      return;
-    }
-    if (node.type === 'Text') {
-      const text = flat(node);
-      if (text) out.push(text);
-      return;
-    }
-    (node.children ?? []).forEach(walk);
-  };
-  const flat = (node: ReturnType<typeof screen.toJSON>): string =>
-    !node ? '' : typeof node === 'string' ? node : Array.isArray(node) ? node.map(flat).join('') : (node.children ?? []).map(flat).join('');
-  walk(screen.toJSON());
-  return out.map((t) => t.replace(/\s+/g, ' '));
-}
-
-function inOrder(texts: string[], wanted: string[]) {
-  let at = -1;
-  for (const w of wanted) {
-    const i = texts.findIndex((t, k) => k > at && t === w);
-    if (i < 0) throw new Error(`"${w}" is not after "${texts[at] ?? 'the start'}" in: ${texts.join(' | ')}`);
-    at = i;
-  }
-}
 
 describe.each(SCREENS)('%s', (_id, state, route, heading) => {
   it('gives everything to tap a role, a label and at least 48 of height', async () => {
@@ -110,6 +76,26 @@ describe('reading order', () => {
       'Go on without it',
       'Open Android’s settings',
     ]);
+  });
+
+  it('S9b: the rows, the step that is off as NOT ON in its row, the sentence, the hand over, then the button', async () => {
+    renderChild({ ...states.allOn, steps: { ...ALL_ON, phone: 'off' } }, { route: { at: 'done' } });
+    await screen.findByText('This phone is set up.');
+    inOrder(textsInOrder(), [
+      'LiMo',
+      'This phone is set up.',
+      'Notifications',
+      'Phone',
+      'Not on',
+      'Usage access',
+      'Protection',
+      'Phone is not on yet. Mira’s Today screen shows a guardian how to turn it on.',
+      'Hand the phone to Mira. The next three screens are Mira’s.',
+      'Show Mira how it works',
+    ]);
+    // A row is read as one: its step and where it stands.
+    expect(screen.getByLabelText('Phone, Not on')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Notifications, On')).toBeOnTheScreen();
   });
 
   it('T: LiMo, the name, the banner, the time left, the bedtime line, asking, the apps, then the tabs', async () => {

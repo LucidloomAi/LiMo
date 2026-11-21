@@ -135,7 +135,7 @@
       what: 'Android asks once. Choose <strong class="su-name">Allow</strong>.', button: 'Allow',
       note: ['On a Samsung phone', 'Also open Settings, then Battery (on some phones Battery and device care, then Battery), then Background usage limits, then Never sleeping apps, and add LiMo there.'] },
     { icon: 'key', title: 'Protection',
-      why: 'So LiMo cannot be switched off or removed without the guardian PIN.',
+      why: 'So a guardian’s PIN is needed to switch this off, and LiMo cannot be removed while it is on.',
       what: 'Android asks you to make LiMo a device admin app. Choose <strong class="su-name">Activate</strong>.', button: 'Turn on protection' }
   ];
 

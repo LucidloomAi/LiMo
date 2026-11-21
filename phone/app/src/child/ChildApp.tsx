@@ -276,9 +276,13 @@ function StepRoute({
 // nothing and covers nothing (the time the guardian spends on Android's own
 // pages is not the child's). The introduction comes either way; the phone is
 // told again when the child has seen it, in case this request was lost.
+//
+// The screen waits for Android's first answer, so the sentence about a step
+// that is off never comes in late and moves the words under it.
 function DoneRoute({ name, onShow }: { name: string; onShow: () => void }) {
   const host = useChildHost();
   const steps = useHostValue((h) => h.steps(), ['steps'], { whenBackInFront: true });
+  if (steps.state === 'waiting') return <Page>{null}</Page>;
   return (
     <Done
       name={name}
