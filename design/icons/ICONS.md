@@ -2,7 +2,7 @@
 
 Written by `node export.js`. Do not edit by hand: change `shapes.js` and run it again.
 
-46 icons.
+47 icons.
 
 | Name | Icon | Colour | What it is for |
 | --- | --- | --- | --- |
@@ -48,6 +48,7 @@ Written by `node export.js`. Do not edit by hand: change `shapes.js` and run it 
 | `sync` | <img src="svg/sync.svg" width="32" height="32" alt=""> | teal | Up to date |
 | `chart` | <img src="svg/chart.svg" width="32" height="32" alt=""> | ink | Usage over the week |
 | `list` | <img src="svg/list.svg" width="32" height="32" alt=""> | ink | What happened, in order |
+| `rules` | <img src="svg/rules.svg" width="32" height="32" alt=""> | ink | A child’s rules, and the Rules tab |
 | `gear` | <img src="svg/gear.svg" width="32" height="32" alt=""> | ink | Settings |
 | `edit` | <img src="svg/edit.svg" width="32" height="32" alt=""> | ink | Change a name or a rule |
 | `trash` | <img src="svg/trash.svg" width="32" height="32" alt=""> | coral | Delete for good |

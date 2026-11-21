@@ -26,6 +26,8 @@
   .pair { margin-top: 30px; }
   .pair > .cap { margin: 0 0 10px; font: 600 13px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
   .two { display: flex; align-items: flex-start; gap: 32px; width: max-content; }
+  /* Each column is as wide as its frame; a long caption wraps. */
+  .two > div, .wholes > div { width: min-content; }
   .sz { min-height: 1.45em; margin: 0 0 8px; font: 500 12px/1.45 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
   .wholes { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px; }
 
@@ -45,8 +47,8 @@
 <main>
 <section class="part" id="sheet-a">
   <div class="eyebrow">LiMo · design · the guardian’s console</div>
-  <h1>The guardian’s screens: sign in, the first start and Today</h1>
-  <p class="lead">What a guardian sees in LiMo, in the Paper and Ink theme. A guardian opens these screens in a window on the family PC, and later the same screens run on a guardian’s phone. They are one set of screens arranged by the width they get, never two designs: every frame is drawn twice, side by side, at its real size in CSS pixels. The window is 1100 by 760 and its top 32 is Windows’ own title bar. The phone is 390 by 844, with Android’s status bar in its top 32 and its gesture bar in its bottom 24.</p>
+  <h1>The guardian’s screens</h1>
+  <p class="lead">What a guardian sees in LiMo, in the Paper and Ink theme: sign in, the first start and Today, then Rules, Devices, Add a phone, a one time code and More. A guardian opens these screens in a window on the family PC, and later the same screens run on a guardian’s phone. They are one set of screens arranged by the width they get, never two designs: every frame is drawn twice, side by side, at its real size in CSS pixels. The window is 1100 by 760 and its top 32 is Windows’ own title bar. The phone is 390 by 844, with Android’s status bar in its top 32 and its gesture bar in its bottom 24.</p>
   <div class="card" id="order"></div>
 
   <h2>C0. Sign in</h2>
@@ -68,6 +70,47 @@
   <h3>Unrolled: the frames that scroll</h3>
   <p class="lead">Each frame that does not fit its window, drawn at its full length, with the tab bar at the end where it rests when the page is scrolled to the bottom.</p>
   <div class="wholes" id="today-whole"></div>
+</section>
+
+<section class="part" id="sheet-2a">
+  <h2>R. A child’s rules</h2>
+  <p class="lead">Everything a family sets for one child, the child chosen at the top. On a phone the cards are one column. At the console’s width they run down two columns in the same order. Programs on the PC are offered from what the child really used; apps on a phone are listed by the names the phone gives them. When something is changed, the tab bar gives way to Undo and Save, pinned to the bottom. Save checks the rules first, and a problem is said in the rules’ own sentence beside the row it is about. Saved, a notice floats above the tab bar for a moment.</p>
+  <div id="rules"></div>
+  <h3>Unrolled: the frames that scroll</h3>
+  <p class="lead">Each frame that does not fit its window, drawn at its full length.</p>
+  <div class="wholes" id="rules-whole"></div>
+
+  <h2>D. Devices</h2>
+  <p class="lead">What each device is and how it stands. At the console’s width this PC is at the left and the phones at the right; on a phone the phones come first, because a phone is what may need a guardian. Coral marks what does: a step switched off on the phone, USB debugging left on, a clock far off.</p>
+  <div id="devices"></div>
+  <h3>Unrolled: the frames that scroll</h3>
+  <p class="lead">Each frame that does not fit its window, drawn at its full length.</p>
+  <div class="wholes" id="devices-whole"></div>
+</section>
+
+<section class="part" id="sheet-2b">
+  <h2>A1 to A9. Add a phone</h2>
+  <p class="lead">One step a screen, as in the first start, with the cable’s state live at the foot of every step: read once a second, beside the main button on the PC and above it on a phone. A step that waits for the phone keeps its button switched off and moves on by itself. The phone asks once to allow this PC’s key, and the screen shows the key so a guardian can compare it. Installing asks nothing on the phone. The phone’s own six steps are done on the phone while this screen shows which are on. At the end LiMo offers to switch USB debugging off again.</p>
+  <div id="add"></div>
+  <h3>The cable’s state, in each case</h3>
+  <p class="lead">Only the pinned strip. The PC tells these apart: no phone on any USB port, so the cable probably only charges; a phone with USB debugging off; a phone whose debugging side has no working driver on Windows; a phone that has not allowed this PC yet; and connected.</p>
+  <div id="cable"></div>
+  <h3>Unrolled: the frames that scroll</h3>
+  <p class="lead">Each frame that does not fit its window, drawn at its full length.</p>
+  <div class="wholes" id="add-whole"></div>
+</section>
+
+<section class="part" id="sheet-2c">
+  <h2>K. A one time code</h2>
+  <p class="lead">For a child whose device is out of reach or locked, read out over a call. Choose the child, the device and how much; the code is shown large, in two groups of four. Codes work on the day they were made, ten a day for each device.</p>
+  <div id="code"></div>
+
+  <h2>M1 to M4. More</h2>
+  <p class="lead">A one time code, the password and the PIN, and About. At the console’s width the password and the PIN stand side by side, as in the first start. About ends with the maker’s mark. Deleting the family, removing a child, removing a phone and removing LiMo each ask for the password again; deleting the family is drawn as the pattern for all four.</p>
+  <div id="more"></div>
+  <h3>Unrolled: the frames that scroll</h3>
+  <p class="lead">Each frame that does not fit its window, drawn at its full length.</p>
+  <div class="wholes" id="more-whole"></div>
 
   <h2>For the build</h2>
   <div class="card" id="notes"></div>
@@ -78,6 +121,8 @@
   var C = window.LIMO_CONSOLE;
   function byId(id) { return document.getElementById(id); }
 
+  // Each frame: its id, its name, the screen, and { scrollTo: a selector
+  // the page is drawn scrolled to, noWhole: not unrolled when it scrolls }.
   var FRAMES = {
     sign: [
       ['C0', 'Sign in', C.signIn('ready')],
@@ -101,61 +146,125 @@
       ['T1', 'Right after the first start', C.today('first')],
       ['T2', 'One child', C.today('one')],
       ['T3', 'Two children, a request waiting, a phone that needs a guardian', C.today('two')]
+    ],
+    rules: [
+      ['R1', 'Asha’s rules', C.rules('view')],
+      ['R2', 'Save found a problem: the rules’ own sentence beside the row', C.rules('problem'), { scrollTo: '.cn-app.bad', noWhole: true }],
+      ['R3', 'Saved', C.rules('saved'), { noWhole: true }]
+    ],
+    devices: [
+      ['D1', 'Devices', C.devices(false)],
+      ['D2', 'A phone that needs a guardian', C.devices(true), { scrollTo: '.cn-warn' }]
+    ],
+    add: [
+      ['A1', 'Start: whose phone, and what is needed', C.addPhone(0)],
+      ['A2', 'Switch on USB debugging', C.addPhone(1)],
+      ['A3', 'Allow this PC on the phone, and compare its key', C.addPhone(2)],
+      ['A4', 'Checks, then putting LiMo on the phone', C.addPhone(3)],
+      ['A5', 'Paired over the cable, and the phone’s name', C.addPhone(4)],
+      ['A6', 'The phone’s own six steps, done on the phone', C.addPhone(5)],
+      ['A7', 'At home: the phone reaches this PC over Wi-Fi', C.addPhone(6)],
+      ['A8', 'Switch USB debugging off', C.addPhone(7)],
+      ['A9', 'Done', C.addPhone(8)]
+    ],
+    code: [
+      ['K1', 'A one time code: for whom, on what, how much', C.code(false)],
+      ['K2', 'The code, to read out', C.code(true)]
+    ],
+    more: [
+      ['M1', 'More', C.more()],
+      ['M2', 'The password and the PIN', C.secrets()],
+      ['M3', 'About LiMo', C.about()],
+      ['M4', 'Delete the family: the password again', C.deleteFamily()]
     ]
   };
+  // Where each group's unrolled frames go.
+  var WHOLE = { sign: 'first', first: 'first', today: 'today', rules: 'rules', devices: 'devices', add: 'add', code: 'more', more: 'more' };
 
   function pair(f) {
+    var o = f[3] || {};
+    var sub = o.scrollTo ? ' · drawn scrolled' : '';
     return '<div class="pair" id="pair-' + f[0] + '"><div class="cap">' + f[0] + ' · ' + f[1] + '</div><div class="two">' +
-      '<div><div class="sz" data-sz="' + f[0] + '-1100">1100 by 760</div>' + C.frame(f[2], 'pc', { id: f[0] + '-1100' }) + '</div>' +
-      '<div><div class="sz" data-sz="' + f[0] + '-390">390 by 844</div>' + C.frame(f[2], 'phone', { id: f[0] + '-390' }) + '</div>' +
+      '<div><div class="sz" data-sz="' + f[0] + '-1100" data-sub="' + sub + '">1100 by 760</div>' + C.frame(f[2], 'pc', { id: f[0] + '-1100', scrollTo: o.scrollTo }) + '</div>' +
+      '<div><div class="sz" data-sz="' + f[0] + '-390" data-sub="' + sub + '">390 by 844</div>' + C.frame(f[2], 'phone', { id: f[0] + '-390', scrollTo: o.scrollTo }) + '</div>' +
       '</div></div>';
   }
   Object.keys(FRAMES).forEach(function (k) { byId(k).innerHTML = FRAMES[k].map(pair).join(''); });
+
+  // The cable's state in each case: only the pinned strip, at both widths.
+  byId('cable').innerHTML = [
+    ['none', 'No phone on any USB port'],
+    ['off', 'A phone, with USB debugging off'],
+    ['driver', 'A phone whose debugging side has no working driver'],
+    ['allow', 'A phone that has not allowed this PC yet'],
+    ['ok', 'Connected']
+  ].map(function (c) {
+    var s = C.cableStrip(c[0]);
+    return '<div class="pair"><div class="cap">The cable · ' + c[1] + '</div><div class="two">' +
+      '<div><div class="sz">1100 wide</div>' + C.strip(s, 'pc', { id: 'A-cable-' + c[0] + '-1100' }) + '</div>' +
+      '<div><div class="sz">390 wide</div>' + C.strip(s, 'phone', { id: 'A-cable-' + c[0] + '-390' }) + '</div></div></div>';
+  }).join('');
 
   byId('order').innerHTML = [
     ['C0 to C0d', 'Sign in: the screen, a wrong password, the wait after too many wrong tries, and what a child’s account sees.'],
     ['F1 to F8', 'The first start, one step a screen: welcome, the password, the PIN, the child, time a day, bedtime, the Windows accounts, done. F5b and F7b are second states of F5 and F7.'],
     ['T1 to T3', 'Today, the home screen: right after the first start, one child, and two children with a request waiting and a phone that needs a guardian.'],
-    ['Two widths', 'At the console’s width nothing stretches to fill the window. Sign in and every step of the first start sit in one column 560 wide in the middle, with the step counter above. Today uses the width for two columns. At 390 everything is one column.']
+    ['R1 to R3', 'A child’s rules: as they stand, after Save found a problem, and saved.'],
+    ['D1 and D2', 'Devices: this PC and Asha’s phone, then the same phone when it needs a guardian.'],
+    ['A1 to A9', 'Add a phone, one step a screen, with the cable’s state at the foot of every step, and the foot in each of its cases.'],
+    ['K1 and K2', 'A one time code: what it is for, then the code.'],
+    ['M1 to M4', 'More: the list, the password and the PIN, About, and deleting the family.'],
+    ['Two widths', 'At the console’s width nothing stretches to fill the window. Sign in, every step of the first start and of Add a phone, and the screens under More sit in one column 560 wide in the middle. Today, Rules and Devices use the width for two columns. At 390 everything is one column.']
   ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
 
   byId('notes').innerHTML = [
-    ['Widths', 'One markup for each screen. Below 700 wide it takes the phone’s arrangement, from 700 up the console’s. The forms keep a column of 560 at most; Today’s right column is 340 and the children take the rest.'],
-    ['Size', 'Reading text 16, small text 14, mono labels 12 and never smaller, headings 28 in Fraunces (30 at the console’s width). Anything to tap is at least 48 high on a phone and 40 at the console’s width; fields and pinned buttons are 48 and 44.'],
-    ['Pinned', 'The main button is pinned to the bottom on a strip of the page, so nothing shows through it. On a phone it is as wide as the screen; at the console’s width it stands at the right of the column. Done pins two: Later, and Add the phone now in the main button’s place.'],
-    ['Steps', 'Eight, with Back at the left and the counter at the right. Done ones teal, this one marigold, later ones outlined; every dot keeps its size. Back keeps what was typed.'],
-    ['Messages', 'A message under a field has two lines of room kept when there is none. The rules’ own sentence for a bedtime or a time a day that does not fit goes in that room.'],
-    ['Accounts', 'LiMo changes no Windows account itself. An account left for later is locked once the first start ends; an administrator’s account never is.'],
+    ['Widths', 'One markup for each screen. Below 700 wide it takes the phone’s arrangement, from 700 up the console’s. The forms keep a column of 560 at most; Today’s right column is 340 and the children take the rest; Rules runs its cards down two columns in the same order; Devices puts this PC at the left.'],
+    ['Size', 'Reading text 16, small text 14, mono labels 12 and never smaller, headings 28 in Fraunces (30 at the console’s width), card headings 22. Anything to tap is at least 48 high on a phone and 40 at the console’s width; fields and pinned buttons are 48 and 44.'],
+    ['Pinned', 'The main button is pinned to the bottom on a strip of the page, so nothing shows through it. On a phone it is as wide as the screen; at the console’s width it stands at the right of the column. In Add a phone the cable’s state shares the strip. In Rules, Undo and Save take the tab bar’s place while a change is not saved.'],
+    ['Steps', 'Eight in the first start and nine in Add a phone, with Back at the left and the counter at the right. Done ones teal, this one marigold, later ones outlined; every dot keeps its size. Back keeps what was typed.'],
+    ['Messages', 'A message under a field has two lines of room kept when there is none. A problem Save finds in the rules is the rules’ own sentence, beside the row it is about, and the strip says Not saved.'],
+    ['Accounts', 'LiMo changes no Windows account itself. An account left for later is locked once the first start ends; an administrator’s account never is. Devices can set accounts not told about to be used freely instead.'],
+    ['The cable', 'Read once a second while Add a phone is open. Five cases, each with its own words. LiMo never switches USB debugging on; only a person can. The key shown in A3 is the one the phone shows in its own question.'],
     ['Today', 'Times come from the service as numbers and are written in the engine’s words, such as 1 h 12 min. The screen asks again every few seconds while it is open. Lift is switched off unless a guardian’s lock or unlock is in force.'],
     ['Tabs', 'Today, Rules, Devices, More. On a phone the bar is set in 14 from the sides and the bottom; at the console’s width it keeps a width of 440 in the middle, 14 above the window’s edge. Where the window cannot blur, the bar is the card colour at nearly full strength.'],
-    ['Icons', 'From the set, at 24 in a tab and a row, 32 on a tile, 48 beside a heading, 64 on sign in. Rules uses the edit icon: the set has no icon of its own for rules.'],
-    ['Maker', 'The LucidLoom AI logo and name with the words made by, once, at the end of Done: 26 at the console’s width, 22 on a phone. It is not a link.'],
-    ['Not here', 'No screenshots, no window titles, no web addresses. Today shows device names, minutes and states only.']
+    ['Icons', 'From the set, at 24 in a tab and a row, 32 on a tile, 48 beside a heading, 64 on sign in. Rules has its own icon, a clipboard of ticked rows. An app’s first letter on a tile stands for its own icon, which the real screens show.'],
+    ['Maker', 'The LucidLoom AI logo and name with the words made by, once, at the end of the first start’s Done and of About: 26 at the console’s width, 22 on a phone. It is not a link, and the address on About is plain text.'],
+    ['Not here', 'No screenshots, no window titles, no web addresses. Today and Rules show device names, app names, minutes and states only.']
   ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
 
   // Once the fonts have set the heights: say under each frame whether it
-  // fits, and draw each frame that scrolls again, unrolled.
+  // fits, draw each frame that scrolls again, unrolled, and draw scrolled
+  // the frames that are meant to be.
   function measure() {
     var screens = {};
     Object.keys(FRAMES).forEach(function (k) { FRAMES[k].forEach(function (f) { screens[f[0]] = [k, f]; }); });
-    var whole = { first: '', today: '' };
+    var whole = {};
     Array.prototype.forEach.call(document.querySelectorAll('.cn-frame[data-id]'), function (fr) {
       var page = fr.querySelector('.cn-page');
+      if (!page) { return; }
       var over = page.scrollHeight - page.clientHeight;
       var id = fr.getAttribute('data-id');
       var pc = /-1100$/.test(id);
-      var what = fr.classList.contains('tabbed') ? 'under the tab bar' : fr.classList.contains('pinned') ? 'above the pinned button' : '';
+      var what = fr.classList.contains('tabbed') ? 'under the tab bar' : fr.classList.contains('pinned') ? 'above the pinned strip' : '';
       var cap = document.querySelector('[data-sz="' + id + '"]');
-      cap.textContent = (pc ? '1100 by 760' : '390 by 844') + ' · ' + (over > 1 ? 'scrolls ' + over + ' ' + what : 'fits, no scroll');
+      cap.textContent = (pc ? '1100 by 760' : '390 by 844') + ' · ' + (over > 1 ? 'scrolls ' + over + ' ' + what : 'fits, no scroll') + cap.getAttribute('data-sub');
       var key = id.replace(/-(1100|390)$/, '');
       var s = screens[key];
-      if (over > 1 && s && whole[s[0]] !== undefined) {
-        whole[s[0]] += '<div><div class="sz">' + key + ' · ' + (pc ? '1100' : '390') + ' wide · unrolled</div>' +
+      var o = (s && s[1][3]) || {};
+      if (over > 1 && s && !o.noWhole) {
+        var to = WHOLE[s[0]];
+        whole[to] = (whole[to] || '') + '<div><div class="sz">' + key + ' · ' + (pc ? '1100' : '390') + ' wide · unrolled</div>' +
           C.frame(s[1][2], pc ? 'pc' : 'phone', { whole: true, id: key + '-' + (pc ? '1100' : '390') + '-whole' }) + '</div>';
       }
     });
-    byId('first-whole').innerHTML = whole.first || '<p class="lead">None: every step fits at both widths.</p>';
-    byId('today-whole').innerHTML = whole.today || '<p class="lead">None.</p>';
+    ['first', 'today', 'rules', 'devices', 'add', 'more'].forEach(function (k) {
+      byId(k + '-whole').innerHTML = whole[k] || '<p class="lead">None: every frame here fits at both widths.</p>';
+    });
+    // A frame drawn scrolled: its target 120 below the top of the page.
+    Array.prototype.forEach.call(document.querySelectorAll('[data-scroll-to]'), function (page) {
+      var to = page.querySelector(page.getAttribute('data-scroll-to'));
+      if (to) { page.scrollTop += to.getBoundingClientRect().top - page.getBoundingClientRect().top - 120; }
+    });
     fit();
     document.documentElement.setAttribute('data-ready', '1');
   }

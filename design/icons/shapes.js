@@ -489,6 +489,16 @@
         ['line', 'path', { d: 'M21.2 14.6 H32.8 M21.2 24 H32.8 M21.2 33.4 H28.6', 'stroke-width': 3.1 }],
       ],
     },
+    // A clipboard of ticked rows: the rules a family has set.
+    rules: {
+      clay: 'ink', use: 'A child’s rules, and the Rules tab',
+      shapes: [
+        ['body', 'rect', { x: 7.5, y: 8, width: 33, height: 36, rx: 7.5 }],
+        ['top', 'rect', { x: 15.5, y: 4, width: 17, height: 9.5, rx: 3.6 }],
+        ['line', 'path', { d: 'M13.4 23.6 L16.6 26.8 L22 20.6 M13.4 35 L16.6 38.2 L22 32', 'stroke-width': 3.2 }],
+        ['line', 'path', { d: 'M26.4 24.2 H34.2 M26.4 35.6 H34.2', 'stroke-width': 3.1 }],
+      ],
+    },
     gear: {
       clay: 'ink', use: 'Settings',
       shapes: [

@@ -396,3 +396,165 @@
   font: 600 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft);
 }
 .cn-tab.on { color: var(--ink); background: rgba(27,38,56,.09); }
+
+/* ---------- Sheet two: Rules, Devices, Add a phone, a code, More ---------- */
+
+/* The other pinned strips. With the cable's state (Add a phone): the state
+   above the button on a phone, beside it on the PC. With a line over the
+   buttons (Rules, not saved yet). */
+.cn-frame.pinfoot .cn-view > * { --pin: 132px; }
+.cn-frame.pinsave .cn-view > * { --pin: 96px; }
+@container view (min-width: 700px) {
+  .cn-frame.pinfoot .cn-view > * { --pin: 88px; }
+  .cn-frame.pinsave .cn-view > * { --pin: 68px; }
+  .cn-pin-in { align-items: center; }
+  .cn-pin-in > .cn-foot, .cn-pin-in > .cn-pinmsg { flex: 1 1 auto; }
+  .cn-pin-in.wide { max-width: none; }
+}
+.cn-pinmsg { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--coral); }
+.cn-pinrow { display: flex; gap: 10px; }
+.cn-pinrow .cn-btn, .cn-pin .cn-pinrow .cn-btn { flex: 1 1 0; width: auto; min-width: 0; min-height: var(--field); }
+@container view (min-width: 700px) {
+  .cn-pin .cn-pinrow .cn-btn { flex: none; min-width: 180px; }
+}
+
+/* The cable's state: what the PC sees on its USB ports, said plainly.
+   Teal when connected, coral when Windows has no driver for the phone. */
+.cn-foot { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cn-foot b { display: block; font-size: 15px; font-weight: 600; line-height: 1.3; }
+.cn-foot i { display: block; font-style: normal; font-size: 14px; line-height: 1.3; color: var(--ink-soft); text-wrap: pretty; }
+.cn-foot.teal b { color: var(--teal); }
+.cn-foot.coral b { color: var(--coral); }
+
+/* Only the pinned strip, to show each case of the cable. */
+.cn-frame.strip { height: auto; border-radius: 14px; }
+.cn-frame.strip .cn-view { position: relative; top: 0; bottom: auto; height: 132px; }
+.cn-frame.strip.pc .cn-view { height: 88px; }
+.cn-frame.strip .cn-pin { background-position: 0 0; }
+
+.cn-gap { margin-top: 14px; }
+.cn-first { margin-top: 14px; }
+.cn-label.grp { margin: 18px 0 4px; }
+.cn-head2 + .cn-label.grp { margin-top: 14px; }
+
+/* A card's head on a screen with tabs. */
+.cn-head2 { display: flex; align-items: center; gap: 12px; }
+.cn-head2 .cn-btn { margin-left: auto; }
+.cn-h2 { margin: 0; font: 600 22px/1.15 var(--display); letter-spacing: -.008em; text-wrap: balance; }
+.cn-stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* The child the rules are for, at the right of the top row. */
+.cn-chips.cn-who { margin-top: 0; flex-wrap: nowrap; }
+
+/* Rules: one column on a phone; two at the console's width, the cards
+   flowing down the first column and on into the second, in the same order. */
+.cn-cols { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }
+@container view (min-width: 700px) {
+  .cn-cols { display: block; columns: 2; column-gap: 22px; margin-top: 14px; }
+  .cn-cols > .cn-card { break-inside: avoid; margin: 0 4px 18px 0; }
+}
+
+/* An app or program in a list: its first letter on a tile, its name, and
+   a way to take it off. A row that has a problem is outlined in coral,
+   with the rules' own sentence under it. */
+.cn-app { display: flex; align-items: center; gap: 12px; padding: 5px 0; border-top: 1.5px dashed var(--border); }
+.cn-label.grp + .cn-app { border-top: 0; }
+.cn-app .nm { flex: 1; min-width: 0; font-size: 16px; line-height: 1.3; }
+.cn-app.bad { margin-top: 4px; padding: 5px 5px 5px 8px; border: 1.5px solid var(--coral); border-radius: 10px; background: rgba(207,67,38,.06); }
+.cn-problem { margin: 6px 2px 4px; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--coral); text-wrap: pretty; }
+.cn-fixed { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--teal); white-space: nowrap; }
+.cn-letter {
+  flex: none; display: grid; place-items: center; width: 36px; height: 36px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 9px; font: 600 15px/1 var(--mono);
+}
+.cn-letter.sm { width: 30px; height: 30px; border-radius: 8px; font-size: 13px; }
+.cn-offer { margin-top: 10px; padding: 10px 12px 12px; border: 1.5px dashed var(--dash); border-radius: 10px; }
+.cn-offer .cn-label { line-height: 1.4; }
+.cn-chip.add { display: inline-flex; align-items: center; gap: 6px; padding: 0 14px 0 10px; }
+.cn-addapp { margin-top: 10px; }
+.cn-addapp, .cn-btn.wide .mk { flex: none; }
+.cn-urow { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-top: 1.5px dashed var(--border); }
+.cn-label.grp + .cn-urow { border-top: 0; }
+.cn-urow .nm { flex: 1; min-width: 0; font-size: 16px; }
+.cn-urow .min { font: 500 14px/1 var(--mono); white-space: nowrap; }
+
+/* Facts: the name in mono, the value, and what can be done about it. */
+.cn-kvs { margin-top: 10px; }
+.cn-kv { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 5px 0; border-top: 1.5px dashed var(--border); }
+.cn-kv:first-child { border-top: 0; }
+.cn-kv .k { flex: none; width: 104px; font: 500 12px/1.35 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+.cn-kv .v { flex: 1; min-width: 0; font-size: 16px; line-height: 1.35; }
+.cn-kv .v.teal { color: var(--teal); font-weight: 600; }
+.cn-kv .cn-btn { flex: none; }
+@container view (min-width: 700px) { .cn-kv .k { width: 128px; } }
+
+/* Saved: a solid notice that floats above the tab bar for a moment. */
+.cn-saved {
+  position: absolute; z-index: 5; left: 14px; right: 14px; bottom: 96px; display: flex; align-items: center; gap: 12px; padding: 10px 14px 10px 10px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--shadow);
+}
+.cn-saved p { margin: 0; font-size: 15px; line-height: 1.4; text-wrap: pretty; }
+@container view (min-width: 700px) { .cn-saved { left: calc(50% - 220px); right: calc(50% - 220px); } }
+
+/* Devices: one column on a phone, the phones first; at the console's
+   width this PC at the left and the phones at the right. */
+.cn-devs2 { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }
+@container view (min-width: 700px) {
+  .cn-devs2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "pcs ph"; gap: 22px; align-items: start; margin-top: 14px; }
+  .cn-devs2 .ph { grid-area: ph; }
+  .cn-devs2 .pcs { grid-area: pcs; }
+}
+.cn-six .cn-ok { min-height: 36px; }
+.cn-okst { margin-left: auto; font: 600 12px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+.cn-okst.teal { color: var(--teal); }
+.cn-okst.coral { color: var(--coral); }
+.cn-okst.ink { color: var(--ink-soft); }
+.cn-ok .ring { color: var(--ink); }
+.cn-warn-act { margin: 10px 0 0 34px; }
+.cn-update { padding: 12px 14px 14px; border: 1.5px dashed var(--dash); border-radius: 10px; }
+.cn-update p { margin: 6px 0 10px; font-size: 15px; line-height: 1.4; }
+.cn-acc { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1.5px dashed var(--border); }
+.cn-acc:first-child { border-top: 0; }
+.cn-acc .who { flex: 1; min-width: 0; }
+.cn-acc .who b { display: block; font-size: 16px; font-weight: 600; line-height: 1.25; }
+.cn-acc .who .cn-label { margin-top: 4px; line-height: 1.4; letter-spacing: .08em; }
+.cn-acc .whose { display: block; margin-top: 3px; font-size: 15px; line-height: 1.3; }
+.cn-stepline { display: flex; margin-top: 8px; }
+.cn-stepline .cn-stepper { gap: 8px; }
+
+/* Add a phone. */
+.cn-need-list { margin-top: 6px; }
+.cn-need-list .cn-li { padding: 8px 0; align-items: center; }
+.cn-need-list .cn-li:first-child { border-top: 0; }
+/* Steps on the phone, numbered in mono circles. */
+.cn-ol { list-style: none; margin: 10px 0 0; padding: 0; counter-reset: s; }
+.cn-ol li { counter-increment: s; position: relative; padding: 9px 0 9px 40px; border-top: 1.5px dashed var(--border); font-size: 16px; line-height: 1.4; }
+.cn-ol li:first-child { border-top: 0; }
+.cn-ol li::before {
+  content: counter(s); position: absolute; left: 0; top: 8px; width: 28px; height: 28px;
+  display: grid; place-items: center; border: 1.5px solid var(--ink); border-radius: 50%; font: 600 13px/1 var(--mono);
+}
+.cn-ol .sub { display: block; margin-top: 2px; font-size: 14px; line-height: 1.4; color: var(--ink-soft); }
+@container view (min-width: 700px) { .cn-ol li { padding: 7px 0 7px 40px; } .cn-ol li::before { top: 6px; } }
+.cn-note { margin-top: 12px; padding: 10px 12px 11px; border: 1.5px dashed var(--dash); border-radius: 10px; }
+.cn-note p { margin: 6px 0 0; font-size: 14px; line-height: 1.4; text-wrap: pretty; }
+/* The key's fingerprint, as the phone shows it, to compare. */
+.cn-finger { margin-top: 8px; padding: 12px 14px; border: 1.5px solid var(--ink); border-radius: 10px; background: var(--paper); font: 600 17px/1.6 var(--mono); letter-spacing: .03em; }
+.cn-progress { margin-top: 16px; padding-top: 14px; border-top: 1.5px dashed var(--border); }
+.cn-prog { height: 12px; margin-top: 10px; border: 1.5px solid var(--ink); border-radius: 999px; overflow: hidden; background: var(--paper); }
+.cn-prog i { display: block; height: 100%; background: var(--teal); border-right: 1.5px solid var(--ink); }
+.cn-statusrow { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; font-size: 15px; color: var(--ink-soft); }
+
+/* A one time code, large, in two groups of four. */
+.cn-code { display: flex; justify-content: center; gap: 24px; margin: 10px 0 4px; padding: 16px 0; border-top: 1.5px dashed var(--border); border-bottom: 1.5px dashed var(--border); font: 600 44px/1 var(--mono); letter-spacing: .08em; }
+
+/* More. */
+.cn-moretop { margin-top: 12px; }
+.cn-menu .cn-li { align-items: center; min-height: 64px; }
+.cn-menu .cn-li > span:nth-child(2) { flex: 1; min-width: 0; }
+.cn-col.wide { max-width: none; }
+.cn-pair2 { display: grid; gap: 14px; }
+@container view (min-width: 700px) { .cn-pair2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: start; } }
+.cn-pair2 .cn-btn { margin-top: 2px; }
+.cn-btn.danger { background: var(--coral); color: var(--card); }
+.cn-addr { font: 500 14px/1.4 var(--mono); color: var(--ink); white-space: nowrap; }

@@ -22,7 +22,9 @@
   }
   var MARK = {
     left: stroke(16, 16, '<path d="M10 3L5 8l5 5"/>'),
+    right: stroke(16, 16, '<path d="M6 3l5 5-5 5"/>'),
     down: stroke(16, 16, '<path d="M3.5 6l4.5 4.5L12.5 6"/>'),
+    cross: stroke(18, 18, '<path d="M5 5l8 8M13 5l-8 8"/>', '', 2),
     plus: stroke(18, 18, '<path d="M9 3.5v11M3.5 9h11"/>', '', 2),
     minus: stroke(18, 18, '<path d="M3.5 9h11"/>', '', 2),
     tick: stroke(18, 18, '<path d="M3.5 9.5l3.6 3.6L14.5 5"/>', 'tk', 2)
@@ -80,19 +82,34 @@
       guardian's phone, 390 by 844, with Android's status bar and gesture
       bar. The screen's own markup is the same in both. With whole, the
       page is drawn unrolled, at its full length. */
+  /** screen: { page, pin, pins, pinCls ('pinfoot' with the cable's state,
+      'pinsave' with a line above the buttons), pinWide (the strip as wide
+      as the page, not the reading column), tabs, over (something floating
+      above the page) }. opt: { id, whole, scrollTo (a selector the page is
+      drawn scrolled to) }. */
   function frame(screen, width, opt) {
     opt = opt || {};
     var pc = width === 'pc';
     var cls = 'cn-frame ' + (pc ? 'pc' : 'ph') + (screen.pin ? ' pinned' : '') + (screen.pins === 2 ? ' pin2' : '') +
-      (screen.tabs ? ' tabbed' : '') + (opt.whole ? ' whole' : '');
+      (screen.pinCls ? ' ' + screen.pinCls : '') + (screen.tabs ? ' tabbed' : '') + (opt.whole ? ' whole' : '');
     var chrome = pc
       ? '<div class="cn-win"><span class="nm">' + icon('hourglass', 16) + 'LiMo</span><span class="ctl">' + WIN_CONTROLS + '</span></div>'
       : '<div class="cn-status">' + CLOCK + '</div>';
     return nb('<div class="' + cls + '"' + (opt.id ? ' data-id="' + opt.id + '"' : '') + '>' + chrome +
-      '<div class="cn-view"><div class="cn-page">' + screen.page + '</div>' +
-      (screen.pin ? '<div class="cn-pin"><div class="cn-pin-in">' + screen.pin + '</div></div>' : '') +
-      (screen.tabs || '') + '</div>' +
+      '<div class="cn-view"><div class="cn-page"' + (opt.scrollTo && !opt.whole ? ' data-scroll-to="' + opt.scrollTo + '"' : '') + '>' + screen.page + '</div>' +
+      (screen.pin ? '<div class="cn-pin"><div class="cn-pin-in' + (screen.pinWide ? ' wide' : '') + '">' + screen.pin + '</div></div>' : '') +
+      (screen.over || '') + (screen.tabs || '') + '</div>' +
       (pc ? '' : '<div class="cn-gesture"><i></i></div>') + '</div>');
+  }
+
+  /** Only the pinned strip of a screen, as wide as the window or the
+      phone: to show the cable's state in each of its cases. */
+  function strip(screen, width, opt) {
+    opt = opt || {};
+    var pc = width === 'pc';
+    return nb('<div class="cn-frame strip ' + (pc ? 'pc' : 'ph') + ' pinned ' + (screen.pinCls || '') + '"' +
+      (opt.id ? ' data-id="' + opt.id + '"' : '') + '><div class="cn-view">' +
+      '<div class="cn-pin"><div class="cn-pin-in">' + screen.pin + '</div></div></div></div>');
   }
 
   // ---------- C0. Sign in ----------
@@ -128,21 +145,24 @@
 
   /** Back at the left (its room kept empty on the first step), the counter
       at the right: done ones teal, this one marigold, later ones outlined. */
-  function stepHead(at) {
+  function stepHead(at, total) {
+    total = total || STEPS;
     var d = '';
-    for (var i = 0; i < STEPS; i += 1) {
+    for (var i = 0; i < total; i += 1) {
       d += '<span class="cn-dot' + (i < at ? ' done' : i === at ? ' at' : '') + '"></span>';
     }
     return '<div class="cn-steps">' + (at > 0 ? '<span class="cn-back">' + MARK.left + 'Back</span>' : '<span></span>') +
-      '<div class="cn-count">' + label('Step ' + (at + 1) + ' of ' + STEPS) +
-      '<span class="cn-dots" aria-label="' + (at + 1) + ' of ' + STEPS + '">' + d + '</span></div></div>';
+      '<div class="cn-count">' + label('Step ' + (at + 1) + ' of ' + total) +
+      '<span class="cn-dots" aria-label="' + (at + 1) + ' of ' + total + '">' + d + '</span></div></div>';
   }
   /** A step: the top row, Back and the counter, the card, and `end` (the
-      maker's mark) at the end of the scrolling part. */
-  function step(at, inner, pin, pins, end) {
+      maker's mark) at the end of the scrolling part. `more` sets the
+      total of steps and the kind of pinned strip. */
+  function step(at, inner, pin, pins, end, more) {
+    more = more || {};
     return {
-      page: '<div class="cn-wrap">' + top() + '<div class="cn-col">' + stepHead(at) + inner + '</div>' + (end || '') + '</div>',
-      pin: pin, pins: pins
+      page: '<div class="cn-wrap">' + top() + '<div class="cn-col">' + stepHead(at, more.total) + inner + '</div>' + (end || '') + '</div>',
+      pin: pin, pins: pins, pinCls: more.pinCls
     };
   }
   function cardHead(iconName, title) {
@@ -276,7 +296,7 @@
   // ---------- T. Today ----------
 
   function tabs(picked) {
-    return '<nav class="cn-tabs">' + [['today', 'sun', 'Today'], ['rules', 'edit', 'Rules'], ['devices', 'devices', 'Devices'], ['more', 'gear', 'More']]
+    return '<nav class="cn-tabs">' + [['today', 'sun', 'Today'], ['rules', 'rules', 'Rules'], ['devices', 'devices', 'Devices'], ['more', 'gear', 'More']]
       .map(function (t) { return '<span class="cn-tab' + (t[0] === picked ? ' on' : '') + '">' + icon(t[1], 24) + t[2] + '</span>'; }).join('') + '</nav>';
   }
 
@@ -351,11 +371,359 @@
     };
   }
 
+  // ---------- Shared parts of the screens with tabs ----------
+
+  /** A card's head on a screen with tabs: the icon on a tile, the heading,
+      and what stands at its right. */
+  function head2(iconName, title, right) {
+    return '<div class="cn-head2"><span class="cn-tile">' + icon(iconName, 32) + '</span><h2 class="cn-h2">' + title + '</h2>' + (right || '') + '</div>';
+  }
+  /** Back, and the place it goes back to. */
+  function subHead(to) {
+    return '<div class="cn-steps"><span class="cn-back">' + MARK.left + 'Back</span>' + label(to) + '</div>';
+  }
+  /** A fact: its name in mono, its value, and what can be done about it. */
+  function kv(k, v, after, vcls) {
+    return '<div class="cn-kv"><span class="k">' + k + '</span><span class="v' + (vcls ? ' ' + vcls : '') + '">' + v + '</span>' + (after || '') + '</div>';
+  }
+  function letter(name, sm) {
+    return '<span class="cn-letter' + (sm ? ' sm' : '') + '">' + name.charAt(0) + '</span>';
+  }
+  function tabbed(picked, inner, more) {
+    more = more || {};
+    return {
+      page: '<div class="cn-wrap tabbed">' + top(more.right === undefined ? label(DATE) : more.right) + inner + (more.end || '') + '</div>',
+      tabs: more.noTabs ? '' : tabs(picked), over: more.over,
+      pin: more.pin, pinCls: more.pinCls, pinWide: more.pinWide
+    };
+  }
+
+  // ---------- R. A child's rules ----------
+
+  /** An app or program in a list: its first letter on a tile (the real
+      screen shows its own icon), its name, and a way to take it off. */
+  function appRow(name, opt) {
+    opt = opt || {};
+    return '<div class="cn-app' + (opt.bad ? ' bad' : '') + '">' + letter(name) + '<span class="nm">' + name + '</span>' +
+      (opt.fixed ? '<span class="cn-fixed">' + opt.fixed + '</span>' : '<span class="cn-sq" aria-label="Take it off">' + MARK.cross + '</span>') +
+      '</div>' + (opt.bad ? '<p class="cn-problem">' + opt.bad + '</p>' : '');
+  }
+  function addChip(name) { return '<span class="cn-chip add">' + MARK.plus + name + '</span>'; }
+  function useRows(list) {
+    return list.map(function (u) {
+      return '<div class="cn-urow">' + letter(u[0], true) + '<span class="nm">' + u[0] + '</span><span class="min">' + u[1] + '</span></div>';
+    }).join('');
+  }
+
+  /** state: 'view', 'problem' (Save found something wrong) or 'saved'. */
+  function rules(state) {
+    var problem = state === 'problem';
+    var time = '<div class="cn-card">' + head2('calendar', 'Time a day') +
+      '<div class="cn-chips cn-first"><span class="cn-chip">Every day</span><span class="cn-chip on">Each day on its own</span></div>' +
+      '<div class="cn-days">' + WEEK.map(function (d) {
+        return '<div class="cn-day"><span>' + d[0] + '</span>' + stepper(d[1]) + '</div>';
+      }).join('') + '</div></div>';
+    var bed = '<div class="cn-card">' + head2('moon', 'Bedtime') +
+      chips([['every', 'Every day'], ['school', 'School nights only'], ['none', 'No bedtime']], 'every', 'cn-first') +
+      '<div class="cn-times"><div>' + label('From') + field('<span class="val">9:00 pm</span>' + MARK.down) + '</div>' +
+      '<div>' + label('To') + field('<span class="val">7:00 am</span>' + MARK.down) + '</div></div>' +
+      '<div class="cn-err"></div></div>';
+    var blocked = '<div class="cn-card cn-blocked">' + head2('block', 'Blocked') +
+      label('On this PC', 'grp') + appRow('Game Launcher') +
+      '<div class="cn-offer">' + label('Add from what Asha used today') +
+        '<div class="cn-chips">' + addChip('Chrome') + addChip('Paint') + '</div></div>' +
+      label('On Asha’s phone', 'grp') + appRow('Game Launcher') +
+      (problem ? appRow('Maps', { bad: 'Maps is both always allowed and blocked. Choose one.' }) : '') +
+      btn(MARK.plus + 'Add an app', 'mono wide cn-addapp') + '</div>';
+    var allowed = '<div class="cn-card">' + head2('star', 'Always allowed') +
+      '<p class="cn-detail">They never use up Asha’s time, and stay open when Asha’s devices are locked.</p>' +
+      label('On this PC', 'grp') + appRow('Calculator') +
+      label('On Asha’s phone', 'grp') + appRow('Phone', { fixed: 'Never blocked' }) + appRow('Messages') + appRow('Clock') + appRow('Maps') +
+      '<p class="cn-small">The phone call app and emergency calls are never blocked.</p>' +
+      btn(MARK.plus + 'Add an app', 'mono wide cn-addapp') + '</div>';
+    var away = '<div class="cn-card">' + head2('away', 'Away from home') +
+      '<p class="cn-detail">When Asha’s phone cannot reach this PC, it may use up to half of the day.</p>' +
+      chips([['0', 'None'], ['25', 'A quarter'], ['50', 'Half'], ['100', 'All']], '50', 'cn-first') + '</div>';
+    var use = '<div class="cn-card">' + head2('chart', 'Today’s use') +
+      label('On this PC · 17 min', 'grp') + useRows([['Chrome', '11 min'], ['Paint', '6 min']]) +
+      label('On Asha’s phone · 31 min', 'grp') + useRows([['Maps', '12 min'], ['Chrome', '9 min'], ['Gallery', '6 min'], ['Clock', '4 min']]) + '</div>';
+    var more = '<div class="cn-card">' + head2('gear', 'More for Asha') +
+      '<div class="cn-kvs">' + kv('A new day starts', 'At midnight', btn('Change', 'mono')) +
+      kv('Name and age', 'Asha, 10 to 12', btn('Change', 'mono')) + '</div>' +
+      btn('Remove Asha', 'coral wide cn-gap') + '<p class="cn-small">Asks for the password again.</p></div>';
+    var who = chips([['a', 'Asha'], ['m', 'Mira']], 'a', 'cn-who');
+    // The time rules first, then the apps, then today's use and the rest.
+    var page = '<div class="cn-cols">' + time + bed + away + blocked + allowed + use + more + '</div>';
+    if (problem) {
+      return tabbed('rules', page, {
+        right: who, noTabs: true, pinCls: 'pinsave', pinWide: true,
+        pin: '<div class="cn-pinmsg">Not saved. One thing to fix.</div><div class="cn-pinrow">' + btn('Undo changes') + go('Save') + '</div>'
+      });
+    }
+    return tabbed('rules', page, {
+      right: who,
+      over: state === 'saved' ? '<div class="cn-saved"><span class="cn-tile">' + icon('check', 32) + '</span>' +
+        '<p>Saved. Asha’s devices have the new rules within a minute.</p></div>' : ''
+    });
+  }
+
+  // ---------- D. Devices ----------
+
+  var SIX = ['Notifications', 'Phone', 'Usage access', 'Accessibility', 'Battery', 'Protection'];
+  var RING = stroke(18, 18, '<circle cx="9" cy="9" r="5.5"/>', 'ring', 2);
+
+  /** The six steps of a phone's setup: a teal tick when on, a hollow ring
+      and a word at the end when not. */
+  function six(off, word) {
+    return '<div class="cn-oks cn-six">' + SIX.map(function (s, i) {
+      var isOff = off.indexOf(i) >= 0;
+      return '<div class="cn-ok">' + (isOff ? RING : MARK.tick) + '<span>' + s + '</span>' +
+        '<span class="cn-okst ' + (isOff ? word[1] : 'teal') + '">' + (isOff ? word[0] : 'On') + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function warn(title, text, after) {
+    return '<div class="cn-warn cn-gap"><div class="cn-warn-top">' + icon('alert', 24) + '<p><b>' + title + '</b> ' + text + '</p></div>' + (after || '') + '</div>';
+  }
+
+  function phoneCard(trouble) {
+    return '<div class="cn-card">' + head2('phone', 'Asha’s phone', btn('Rename', 'mono')) +
+      '<div class="cn-kvs">' +
+        kv('Child', 'Asha') + kv('Phone', 'Galaxy S20 Ultra, Android 13') + kv('Paired', '21 Nov') +
+        (trouble ? kv('Last heard', '2 h ago') + kv('Where', 'Away from home')
+          : kv('Last heard', 'Just now') + kv('Now', 'In use, at home', '', 'teal')) +
+        kv('Protection', 'On', '', 'teal') + kv('LiMo on it', '0.1.0') +
+      '</div>' +
+      label('What LiMo needs on it', 'grp') + six(trouble ? [3] : [], ['Not on', 'coral']) +
+      (trouble
+        ? warn('USB debugging is still on.', 'While it is on, any PC with a cable could stop LiMo on this phone.',
+            '<div class="cn-warn-act">' + btn('Switch it off', 'mono') + '</div>') +
+          warn('Its clock is 9 min ahead of this PC’s.', 'LiMo keeps its own count, so no time is gained.') +
+          '<div class="cn-update cn-gap">' + label('A newer LiMo') + '<p>This PC carries LiMo 0.2.0 for phones.</p>' +
+            btn('Update LiMo on this phone', 'wide') + '</div>'
+        : '') +
+      btn('Remove this phone', 'coral wide cn-gap') +
+      '<p class="cn-small">Asks for the password again. The phone is told at its next contact, lets go of its limits, and says LiMo can be removed.</p>' +
+      '</div>';
+  }
+
+  function pcCard() {
+    var accts = [
+      ['Guardian', 'Administrator · signed in now', 'A guardian’s, no limit'],
+      ['Asha', 'Standard', 'Asha’s'],
+      ['Mira', 'Standard', 'Mira’s']
+    ];
+    return '<div class="cn-card">' + head2('pc', 'This PC') +
+      label('Windows accounts', 'grp') +
+      '<div class="cn-accs">' + accts.map(function (a) {
+        return '<div class="cn-acc"><span class="cn-tile">' + icon('account', 32) + '</span>' +
+          '<span class="who"><b>' + a[0] + '</b>' + label(a[1]) + '<span class="whose">' + a[2] + '</span></span>' +
+          btn('Change', 'mono') + '</div>';
+      }).join('') + '</div>' +
+      label('Pause the count', 'grp') +
+      '<div class="cn-stepline">' + stepper('3 min') + '</div>' +
+      '<p class="cn-small">After this long with no keyboard or mouse input, unless something plays: in full screen, with sound, or keeping the screen awake.</p>' +
+      label('An account LiMo was not told about', 'grp') +
+      chips([['locked', 'Locked'], ['free', 'Used freely']], 'locked') +
+      '<p class="cn-small">It stays locked until a guardian says whose it is. An administrator’s account is never locked.</p>' +
+      '</div>';
+  }
+
+  /** trouble: the phone needs a guardian. */
+  function devices(trouble) {
+    return tabbed('devices',
+      '<div class="cn-devs2"><div class="cn-stack ph">' + phoneCard(trouble) +
+        btn(MARK.plus + 'Add a phone', 'wide') + '</div>' +
+      '<div class="cn-stack pcs">' + pcCard() + '</div></div>');
+  }
+
+  // ---------- A. Add a phone ----------
+
+  var ADD_STEPS = 9;
+
+  // The cable's state, read once a second while these screens are open.
+  var CABLE = {
+    none: ['', 'No phone on a USB port.', 'If it is plugged in, the cable may only charge it. Try the one that came with the phone.'],
+    off: ['', 'A phone is plugged in.', 'USB debugging is off on it.'],
+    driver: ['coral', 'No working driver for this phone.', 'Install its maker’s USB driver for Windows, such as Samsung’s Android USB Driver.'],
+    allow: ['', 'A phone is plugged in.', 'Waiting for Allow on the phone.'],
+    ok: ['teal', 'Connected: Galaxy S20 Ultra.', 'Android 13.']
+  };
+  function foot(c) {
+    var f = CABLE[c];
+    return '<div class="cn-foot' + (f[0] ? ' ' + f[0] : '') + '"><span class="cn-tile">' + icon('usb', 32) + '</span>' +
+      '<span><b>' + f[1] + '</b><i>' + f[2] + '</i></span></div>';
+  }
+  /** One step of Add a phone: its card, the cable's state at the foot, and
+      the main button beside it (under it on a phone). */
+  function addStep(at, iconName, title, body, button, cable, off) {
+    return step(at, '<div class="cn-card">' + cardHead(iconName, title) + body + '</div>',
+      foot(cable) + go(button, off), 1, '', { total: ADD_STEPS, pinCls: 'pinfoot' });
+  }
+  function ol(items) {
+    return '<ol class="cn-ol">' + items.map(function (i) {
+      return '<li>' + i[0] + (i[1] ? '<span class="sub">' + i[1] + '</span>' : '') + '</li>';
+    }).join('') + '</ol>';
+  }
+  function oks(list) {
+    return '<div class="cn-oks">' + list.map(function (m) { return '<div class="cn-ok">' + MARK.tick + '<span>' + m + '</span></div>'; }).join('') + '</div>';
+  }
+
+  function addPhone(at) {
+    switch (at) {
+      case 0:
+        return addStep(0, 'phone', 'Add a phone',
+          label('Whose phone', 'gap') + chips([['a', 'Asha'], ['m', 'Mira']], 'a') +
+          label('You need', 'gap') +
+          '<div class="cn-need-list">' +
+            '<div class="cn-li"><span class="cn-tile">' + icon('phone', 32) + '</span><span><b>Asha’s phone</b></span></div>' +
+            '<div class="cn-li"><span class="cn-tile">' + icon('usb', 32) + '</span><span><b>Its USB cable</b><i>One that moves files, ideally the one that came with it.</i></span></div>' +
+            '<div class="cn-li"><span class="cn-tile">' + icon('clock', 32) + '</span><span><b>About ten minutes</b></span></div>' +
+          '</div>',
+          'Start', 'none');
+      case 1:
+        return addStep(1, 'usb', 'Switch on USB debugging',
+          '<p class="cn-detail">Only a person can switch it on, on the phone itself. On most phones:</p>' +
+          ol([
+            ['Open Settings, then About phone.', 'On a Samsung phone, then Software information.'],
+            ['Tap Build number seven times.', 'The phone may ask for its own PIN, then says that developer mode is on.'],
+            ['Go back to Settings, open Developer options, and switch on USB debugging.', 'Developer options is near the end of Settings.'],
+            ['Plug the phone into this PC.', 'This screen moves on by itself when it sees USB debugging.']
+          ]) +
+          '<div class="cn-note">' + label('On a newer Samsung phone') +
+            '<p>Also switch off Auto Blocker, in Settings, Security and privacy. It blocks installs over the cable.</p></div>',
+          'Next', 'off', true);
+      case 2:
+        return addStep(2, 'key', 'Allow this PC on the phone',
+          '<p class="cn-detail">Unlock the phone. It asks: Allow USB debugging? Tick Always allow from this computer, then tap Allow.</p>' +
+          label('The phone shows this PC’s key', 'gap') +
+          '<div class="cn-finger">3C:91:5A:07:E2:4B:D8:16:<br>AF:62:0C:B9:75:18:4E:D3</div>' +
+          '<p class="cn-small">It should read the same. If it does not, tap Cancel on the phone. The phone asks once; after that it knows this PC.</p>',
+          'Next', 'allow', true);
+      case 3:
+        return addStep(3, 'install', 'Put LiMo on Asha’s phone',
+          oks(['One phone plugged in', 'Android 13, recent enough for LiMo', 'LiMo is not on it yet']) +
+          '<div class="cn-progress">' + label('Putting LiMo on Asha’s phone') +
+            '<div class="cn-prog"><i style="width:62%"></i></div></div>' +
+          '<p class="cn-small">Installing asks nothing on the phone.</p>',
+          'Next', 'ok', true);
+      case 4:
+        return addStep(4, 'link', 'This phone is now Asha’s.',
+          '<div class="cn-statusrow"><span class="cn-st teal">Paired</span><span>Over the cable, with this PC.</span></div>' +
+          '<p class="cn-detail">LiMo opened on the phone by itself, with Asha’s name on it.</p>' +
+          label('Its name', 'gap') + field('<span class="typed">Asha’s Galaxy S20 Ultra</span>' + CARET, 'at'),
+          'Next', 'ok');
+      case 5:
+        return addStep(5, 'phone', 'Now set up LiMo on the phone',
+          '<p class="cn-detail">It asks for six things. Each one ticks here when the phone says it is on.</p>' +
+          six([3, 4, 5], ['Not yet', 'ink']) +
+          '<p class="cn-small">This screen moves on by itself when the phone says it is set up.</p>',
+          'Next', 'ok', true);
+      case 6:
+        return addStep(6, 'wifi', 'At home',
+          '<p class="cn-detail">Checking that Asha’s phone can reach this PC on the home Wi-Fi.</p>' +
+          '<div class="cn-statusrow"><span class="cn-st teal">Reached over the home Wi-Fi</span></div>',
+          'Next', 'ok');
+      case 7:
+        return addStep(7, 'usb', 'Switch USB debugging off',
+          '<p class="cn-detail">While it is on, any PC with a cable could stop LiMo on Asha’s phone. LiMo can switch it off now, over the cable.</p>' +
+          btn('Leave it on', 'wide cn-gap') +
+          '<p class="cn-small">Then Devices says that it is still on.</p>',
+          'Switch it off for me', 'ok');
+      default:
+        return addStep(8, 'check', 'Asha’s phone is added.',
+          oks(['LiMo is on the phone', 'Paired with this PC', 'Set up on the phone, all six on', 'Reached over the home Wi-Fi', 'USB debugging is off']) +
+          '<p class="cn-detail">You can unplug the phone.</p>',
+          'Done', 'off');
+    }
+  }
+  /** Only the pinned strip of Add a phone, in one case of the cable. */
+  function cableStrip(c) {
+    return { pin: foot(c) + go('Next', c !== 'ok'), pinCls: 'pinfoot' };
+  }
+
+  // ---------- K. A one time code ----------
+
+  function code(made) {
+    var card = made
+      ? '<div class="cn-card">' + cardHead('code', 'The code') +
+          label('Asha’s phone · 30 min', 'gap') +
+          '<div class="cn-code"><span>4718</span><span>2093</span></div>' +
+          '<p class="cn-detail">Read it to Asha. It works once, today only, on Asha’s phone, when its time is used up.</p>' +
+          '<p class="cn-small">You can make 9 more for this phone today.</p>' +
+          '<div class="cn-pinrow cn-gap">' + btn('Make another') + go('Done') + '</div></div>'
+      : '<div class="cn-card">' + cardHead('code', 'A one time code') +
+          '<p class="cn-detail">Time for a child whose device is out of reach or locked, read out over a call.</p>' +
+          label('For', 'gap') + chips([['a', 'Asha'], ['m', 'Mira']], 'a') +
+          label('On', 'gap') + chips([['pc', 'This PC'], ['ph', 'Asha’s phone']], 'ph') +
+          label('How much', 'gap') + chips([['15', '15 min'], ['30', '30 min'], ['60', '1 hour']], '30') +
+          '<div class="cn-gap">' + btn('Make a code', 'go wide') + '</div>' +
+          '<p class="cn-small">A guardian who goes out can note a code now and read it out later today.</p></div>';
+    return tabbed('more', '<div class="cn-col">' + subHead('More') + card + '</div>');
+  }
+
+  // ---------- M. More ----------
+
+  function more() {
+    var rows = [
+      ['code', 'A one time code', 'Time for a child out of reach, read out over a call.'],
+      ['key', 'Password and PIN', 'Change either one.'],
+      ['info', 'About LiMo', 'Its version, its licences, and removing it.']
+    ];
+    return tabbed('more', '<div class="cn-col cn-moretop"><div class="cn-card cn-list cn-menu">' + rows.map(function (r) {
+      return '<div class="cn-li"><span class="cn-tile">' + icon(r[0], 32) + '</span><span><b>' + r[1] + '</b><i>' + r[2] + '</i></span>' + MARK.right + '</div>';
+    }).join('') + '</div></div>');
+  }
+
+  function secrets() {
+    return tabbed('more', '<div class="cn-col wide">' + subHead('More') + '<div class="cn-pair2">' +
+      '<div class="cn-card">' + head2('key', 'The guardian password') +
+        '<p class="cn-detail">' + PASSWORD_LINE + '</p>' +
+        label('The one you use now', 'gap') + field(dots(10)) +
+        label('A new one', 'gap', '8 or more characters') + field(dots(12)) +
+        label('The same again', 'gap') + field(dots(4) + CARET, 'at') +
+        '<div class="cn-err"></div>' + btn('Change the password', 'wide') + '</div>' +
+      '<div class="cn-card">' + head2('pin', 'The guardian PIN') +
+        '<p class="cn-detail">' + PIN_LINE + '</p>' +
+        '<p class="cn-small">Choose one your child does not know.</p>' +
+        label('A new PIN', 'gap', '6 to 8 digits') + field('') +
+        label('The same again', 'gap') + field('') +
+        '<div class="cn-err"></div>' + btn('Change the PIN', 'wide') + '</div>' +
+      '</div></div>');
+  }
+
+  function about() {
+    return tabbed('more', '<div class="cn-col">' + subHead('More') +
+      '<div class="cn-card">' + head2('info', 'About LiMo') +
+        '<div class="cn-kvs">' + kv('For Windows', '0.1.0') + kv('For phones', '0.1.0') + '</div>' +
+        '<p class="cn-small">This PC carries LiMo for phones, and puts it on a phone over the cable.</p></div>' +
+      '<div class="cn-card cn-gap">' + head2('list', 'Licences') +
+        '<div class="cn-kvs">' + kv('LiMo', 'Apache License 2.0', btn('Read', 'mono')) +
+        kv('Others', 'Third party notices', btn('Read', 'mono')) + '</div>' +
+        '<p class="cn-detail">More info on <span class="cn-addr">https://lucidloom.ai</span></p></div>' +
+      '<div class="cn-card cn-gap">' + head2('trash', 'Remove') +
+        btn('Remove LiMo from this PC', 'wide cn-first') +
+        '<p class="cn-small">Asks for the password, then opens Windows’ own uninstaller.</p>' +
+        btn('Delete the family', 'coral wide cn-gap') +
+        '<p class="cn-small">Asks for the password again.</p></div>' +
+      '</div>', { end: MAKER });
+  }
+
+  function deleteFamily() {
+    return tabbed('more', '<div class="cn-col">' + subHead('About LiMo') +
+      '<div class="cn-card">' + cardHead('trash', 'Delete the family?') +
+        '<p class="cn-detail">Everything LiMo keeps on this PC is deleted: Asha and Mira, their rules, their time and their devices. It cannot be undone.</p>' +
+        '<p class="cn-small">Asha’s phone is told at its next contact, lets go of its limits, and says LiMo can be removed. LiMo stays on this PC and starts again from the first step.</p>' +
+        label('Guardian password', 'gap') + field(CARET, 'at') +
+        '<div class="cn-err"></div>' + btn('Delete the family', 'danger wide') + '</div></div>');
+  }
+
   root.LIMO_CONSOLE = {
-    frame: frame,
+    frame: frame, strip: strip,
     signIn: signIn,
     welcome: welcome, password: password, pin: pin, child: child, timeADay: timeADay,
     bedtime: bedtime, accounts: accounts, done: done,
-    today: today
+    today: today,
+    rules: rules, devices: devices, addPhone: addPhone, cableStrip: cableStrip,
+    code: code, more: more, secrets: secrets, about: about, deleteFamily: deleteFamily
   };
 }(typeof window !== 'undefined' ? window : this));

@@ -22,6 +22,9 @@ screens/
   lock.html          the lock screen at its real size; it can be used
   time-left.html     the time left display on a plain desktop
   pc.js, pc.css      what those pages draw
+  phone.html         the child's screens on a phone, and phone.js, phone.css
+  phone-setup.html   setting up a phone, and phone-setup.js, phone-setup.css
+  console.html       the guardian's screens, and console.js, console.css
 ```
 
 ![The LiMo icon set on its review sheet](icons/preview.png)
@@ -229,6 +232,70 @@ text is smaller than 12, and nothing to tap is lower than 48.
 
 The real screens are native Android views drawn by the app, not by a
 browser, and have to match these drawings.
+
+## The guardian's screens
+
+What a guardian sees in LiMo: sign in, the first start that makes the
+family, and Today. Open `screens/console.html` for every state, each drawn
+twice at its real size: in the console's window on the family PC, 1100 by
+760, and on a guardian's phone, 390 by 844.
+
+**One set of screens, arranged by the width it gets.** A guardian opens
+these screens in a window on the PC, and later the same screens run on a
+guardian's phone. They are never two designs. Each screen has one markup,
+and the width of the part LiMo draws decides its arrangement: under 700 wide
+it takes the phone's, from 700 up the console's.
+
+- **Nothing stretches to fill a wide window.** Sign in is one card 440 wide
+  in the middle. Each step of the first start sits in one column at most 560
+  wide, with Back at its left and the step counter at its right, above the
+  card. On the first step Back's room is kept empty, so the counter never
+  moves.
+- **The main button is pinned to the bottom,** on a strip of the page. On a
+  phone it is as wide as the screen; on the PC it stands at the right of the
+  column.
+- **Today uses the width.** On the PC it has two columns: the children at the
+  left, and what waits for a guardian at the right. On a phone it is one
+  column, and what waits comes first. A child's card puts the time left
+  beside the devices when it has room, and stacks them when it has not.
+- **The tab bar floats, in glass, at both widths:** Today, Rules, Devices,
+  More. On a phone it is set in 14 from the sides and the bottom. On the PC
+  it keeps 440 wide in the middle, 14 above the window's edge.
+
+**Two secrets, and why they are two.** The guardian password opens LiMo's
+settings on the PC, where the rules are changed. The guardian PIN is typed
+on a child's locked PC or phone to give time or open it. They are two
+because they are typed in different places: the PIN is typed on the child's
+own devices, where a child may be watching, so it opens a lock but never the
+settings. The PIN step of the first start sets them side by side, one plain
+line each, because a family meets both on the first day. A forgotten password
+cannot be found again, because LiMo keeps it nowhere but the PC; the sign in
+screen says so, and that an administrator of the PC can set a new one.
+
+**One tap answers.** A request waiting says who asks, on which device, how
+much, the child's own reason and when, and it is answered with one tap:
+"Give 30 min" (what was asked, in marigold), "Give 15 min", or "No". Each
+child's card has the quick actions: "+15 min", "+30 min", "Lock now" in
+coral, "Open until", and "Lift", which is switched off unless a guardian's
+lock or unlock is in force.
+
+**The sentence about the window.** The console's window is drawn by
+WebView2, a part of Windows that contacts Microsoft by itself when it
+starts. The first step of the first start says so in one honest sentence:
+"This window is drawn by a part of Windows that contacts Microsoft when it
+starts. LiMo itself sends nothing anywhere." It is said only on the PC,
+where it is true, and a phone leaves it out.
+
+- Coral marks what needs a guardian: a phone with a step switched off, and a
+  child's Windows account that is an administrator. LiMo changes no Windows
+  account itself; the screen gives the steps.
+- The maker's mark comes once, at the end of the first start's last step:
+  26 high on the PC, 22 on a phone.
+- No text is smaller than 12. Anything to tap is at least 48 high on a phone
+  and 40 on the PC; fields and pinned buttons are 48 and 44.
+
+The real screens are drawn by the console and, later, by the guardian's
+app, and have to match these drawings.
 
 ## The icons
 
