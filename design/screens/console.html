@@ -115,6 +115,30 @@
   <h2>For the build</h2>
   <div class="card" id="notes"></div>
 </section>
+<section class="part" id="sheet-3">
+  <div class="eyebrow">LiMo · design · the guardian’s console · sheet three</div>
+  <h2>W1 to W3. Guardians, by name</h2>
+  <p class="lead">The family’s guardians become named people, as its children are. They still share one password and one PIN, so nothing about signing in changes: the window cannot tell which guardian typed the password, and it never claims to. A name says who did something only where that is known, from a guardian’s own phone. The first start asks the first guardian’s name after the password, and a family made before is asked once, after sign in. More gains Guardians.</p>
+  <div id="guardians"></div>
+  <h3>Unrolled: the frames that scroll</h3>
+  <p class="lead">Each frame that does not fit its window, drawn at its full length.</p>
+  <div class="wholes" id="guardians-whole"></div>
+
+  <h2>W4 to W8. Add a guardian’s phone</h2>
+  <p class="lead">Over the cable, as a child’s phone is added, in Add a phone’s nine steps, so a guardian who has added a child’s phone knows it already. The family’s PC puts LiMo Guardian on the phone and pairs it over the cable, and the cable’s state is at the foot of every step. Only the steps that differ from Add a phone are drawn here: the start, putting LiMo Guardian on the phone, the phone’s own part, and Done, which says plainly what the phone can do and what stays on the PC.</p>
+  <div class="card"><div class="line"><span class="k">W7, not drawn</span><span>Steps 2, 3, 5, 7 and 8 are Add a phone’s A2, A3, A5, A7 and A8 as drawn, with step 3’s Ask the phone and its help when the phone shows nothing, with Devi’s name and phone in place of Asha’s.</span></div></div>
+  <div id="gphone"></div>
+  <h3>Unrolled: the frames that scroll</h3>
+  <p class="lead">Each frame that does not fit its window, drawn at its full length.</p>
+  <div class="wholes" id="gphone-whole"></div>
+
+  <h2>W9 to W12. Where a guardian’s phone shows</h2>
+  <p class="lead">Devices lists a guardian’s phone with its guardian, what it is, when it was last seen and the codes it keeps, and removes it with the password again. Today says who gave time or answered a request when it was done from a guardian’s phone. Add a phone, which is for a child’s phone, says where a guardian’s own phone is added. A one time code says how many codes are left for the device today, here and kept for a guardian’s phone.</p>
+  <div id="gelse"></div>
+  <h3>Unrolled: the frames that scroll</h3>
+  <p class="lead">Each frame that does not fit its window, drawn at its full length.</p>
+  <div class="wholes" id="gelse-whole"></div>
+</section>
 </main>
 <script src="console.js"></script>
 <script>
@@ -176,10 +200,29 @@
       ['M2', 'The password and the PIN', C.secrets()],
       ['M3', 'About LiMo', C.about()],
       ['M4', 'Delete the family: the password again', C.deleteFamily()]
+    ],
+    guardians: [
+      ['W1', 'The first start: your name, after the password', C.yourName()],
+      ['W1b', 'Your name, asked once on a family made before', C.nameOnce()],
+      ['W2a', 'More, with Guardians', C.moreGuardians()],
+      ['W2', 'Guardians: each guardian and their phones', C.guardians()],
+      ['W3', 'Add a guardian', C.addGuardian()]
+    ],
+    gphone: [
+      ['W4', 'Add a guardian’s phone, step 1: whose phone, and what goes on it', C.gStart()],
+      ['W5', 'Step 4: LiMo Guardian goes on the phone', C.gInstall()],
+      ['W6', 'Step 6: the phone’s own part, done on the phone', C.gOwn()],
+      ['W8', 'Step 9: done, what the phone can do, and what stays here', C.gDone()]
+    ],
+    gelse: [
+      ['W9', 'Devices: a guardian’s phone', C.devicesGuardian()],
+      ['W10', 'Today: who did it, from which phone', C.todayWho()],
+      ['W11', 'Add a phone, step 1: where a guardian’s own phone is added', C.addPhoneWhose()],
+      ['W12', 'A one time code, and the codes left', C.codeLeft()]
     ]
   };
   // Where each group's unrolled frames go.
-  var WHOLE = { sign: 'first', first: 'first', today: 'today', rules: 'rules', devices: 'devices', add: 'add', code: 'more', more: 'more' };
+  var WHOLE = { sign: 'first', first: 'first', today: 'today', rules: 'rules', devices: 'devices', add: 'add', code: 'more', more: 'more', guardians: 'guardians', gphone: 'gphone', gelse: 'gelse' };
 
   function pair(f) {
     var o = f[3] || {};
@@ -214,6 +257,9 @@
     ['A1 to A9', 'Add a phone, one step a screen, with the cable’s state at the foot of every step, and the foot in each of its cases.'],
     ['K1 and K2', 'A one time code: what it is for, then the code.'],
     ['M1 to M4', 'More: the list, the password and the PIN, About, and deleting the family.'],
+    ['W1 to W3', 'Guardians by name: the first guardian’s name in the first start, asked once on a family made before, and Guardians in More.'],
+    ['W4 to W8', 'Add a guardian’s phone, over the cable in Add a phone’s nine steps: the start, LiMo Guardian going on the phone, the phone’s own part, and Done; the other steps are Add a phone’s.'],
+    ['W9 to W12', 'A guardian’s phone in Devices, who did it on Today, where a guardian’s own phone is added, and the codes left.'],
     ['Two widths', 'At the console’s width nothing stretches to fill the window. Sign in, every step of the first start and of Add a phone, and the screens under More sit in one column 560 wide in the middle. Today, Rules and Devices use the width for two columns. At 390 everything is one column.']
   ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
 
@@ -229,6 +275,7 @@
     ['Tabs', 'Today, Rules, Devices, More. On a phone the bar is set in 14 from the sides and the bottom; at the console’s width it keeps a width of 440 in the middle, 14 above the window’s edge. Where the window cannot blur, the bar is the card colour at nearly full strength.'],
     ['Icons', 'From the set, at 24 in a tab and a row, 32 on a tile, 48 beside a heading, 64 on sign in. Rules has its own icon, a clipboard of ticked rows. An app’s first letter on a tile stands for its own icon, which the real screens show.'],
     ['Maker', 'The LucidLoom AI logo and name with the words made by, once, at the end of the first start’s Done and of About: 26 at the console’s width, 22 on a phone. It is not a link, and the address on About is plain text.'],
+    ['Guardians', 'One password and one PIN for the family, whoever types them. A guardian’s name says who did something only from their own phone; the window never guesses who is at the PC. A guardian’s phone opens behind its own screen lock for everyday answers, asks the password for rules, and never changes anything at family level.'],
     ['Not here', 'No screenshots, no window titles, no web addresses. Today and Rules show device names, app names, minutes and states only.']
   ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
 
@@ -257,7 +304,7 @@
           C.frame(s[1][2], pc ? 'pc' : 'phone', { whole: true, id: key + '-' + (pc ? '1100' : '390') + '-whole' }) + '</div>';
       }
     });
-    ['first', 'today', 'rules', 'devices', 'add', 'more'].forEach(function (k) {
+    ['first', 'today', 'rules', 'devices', 'add', 'more', 'guardians', 'gphone', 'gelse'].forEach(function (k) {
       byId(k + '-whole').innerHTML = whole[k] || '<p class="lead">None: every frame here fits at both widths.</p>';
     });
     // A frame drawn scrolled: its target 120 below the top of the page.

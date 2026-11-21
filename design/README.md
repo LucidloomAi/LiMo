@@ -294,6 +294,33 @@ where it is true, and a phone leaves it out.
 - No text is smaller than 12. Anything to tap is at least 48 high on a phone
   and 40 on the PC; fields and pinned buttons are 48 and 44.
 
+**Guardians by name, and a guardian's own phone (the third sheet, W1 to
+W12).** The family's guardians are named people, as its children are, and
+they still share one password and one PIN, so signing in does not change.
+The window never guesses which guardian is at the PC: a name says who did
+something only when it was done from a guardian's own phone, as Today does
+with "+30 min from Devi's phone". The first start asks the first guardian's
+name after the password, so it has nine steps; a family made before is asked
+once, after sign in, with Later. More gains Guardians: each guardian with
+their phones, Add a guardian, and Add a guardian's phone.
+
+- **Add a guardian's phone goes over the cable,** as a child's phone does,
+  in Add a phone's nine steps, so a guardian who has added a child's phone
+  knows it already. The family's PC puts LiMo Guardian on the phone and
+  pairs it over the cable. Only the steps that differ are drawn: the start,
+  putting LiMo Guardian on the phone, the phone's own part (its own screen
+  lock, and the choice Tell me of requests at home), and Done. The other
+  steps are Add a phone's, with the guardian's name.
+- **What a guardian's phone can do is said plainly,** at Done and in
+  Devices: behind its own screen lock it sees the day and answers it
+  (requests, time, lock, open, a one time code); with the password it
+  changes rules and names; everything at family level stays on the PC.
+- The icon `guardianphone` is new: a phone with the guardian's shield at
+  its foot.
+- To change with the build: the first sheet's F1 to F8 still count eight
+  steps. Once this sheet is approved, the first start has nine, with the
+  name after the password.
+
 The real screens are drawn by the console and, later, by the guardian's
 app, and have to match these drawings.
 

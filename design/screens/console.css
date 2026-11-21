@@ -558,3 +558,14 @@
 .cn-pair2 .cn-btn { margin-top: 2px; }
 .cn-btn.danger { background: var(--coral); color: var(--card); }
 .cn-addr { font: 500 14px/1.4 var(--mono); color: var(--ink); white-space: nowrap; }
+
+/* ---------- Sheet three: guardians by name, and a guardian's own phone ---------- */
+
+/* Under a child's time: who did what, from which phone. */
+.cn-who { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; font-size: 14px; line-height: 1.35; color: var(--ink-soft); }
+/* A guardian, then each of their phones set in under them. */
+.cn-gds { margin-top: 10px; }
+.cn-acc.cn-sub { margin-left: 26px; padding-left: 14px; border-top: 0; border-left: 1.5px dashed var(--border); }
+.cn-acc .whose.live { color: var(--teal); font-weight: 600; }
+/* A list with an icon for its mark, such as what stays on the PC. */
+.cn-okic { display: grid; place-items: center; width: 20px; }.cn-who .nw { white-space: nowrap; }

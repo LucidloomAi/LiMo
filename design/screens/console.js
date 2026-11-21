@@ -145,13 +145,13 @@
 
   /** Back at the left (its room kept empty on the first step), the counter
       at the right: done ones teal, this one marigold, later ones outlined. */
-  function stepHead(at, total) {
+  function stepHead(at, total, backFirst) {
     total = total || STEPS;
     var d = '';
     for (var i = 0; i < total; i += 1) {
       d += '<span class="cn-dot' + (i < at ? ' done' : i === at ? ' at' : '') + '"></span>';
     }
-    return '<div class="cn-steps">' + (at > 0 ? '<span class="cn-back">' + MARK.left + 'Back</span>' : '<span></span>') +
+    return '<div class="cn-steps">' + (at > 0 || backFirst ? '<span class="cn-back">' + MARK.left + 'Back</span>' : '<span></span>') +
       '<div class="cn-count">' + label('Step ' + (at + 1) + ' of ' + total) +
       '<span class="cn-dots" aria-label="' + (at + 1) + ' of ' + total + '">' + d + '</span></div></div>';
   }
@@ -161,7 +161,7 @@
   function step(at, inner, pin, pins, end, more) {
     more = more || {};
     return {
-      page: '<div class="cn-wrap">' + top() + '<div class="cn-col">' + stepHead(at, more.total) + inner + '</div>' + (end || '') + '</div>',
+      page: '<div class="cn-wrap">' + top() + '<div class="cn-col">' + stepHead(at, more.total, more.backFirst) + inner + '</div>' + (end || '') + '</div>',
       pin: pin, pins: pins, pinCls: more.pinCls
     };
   }
@@ -314,7 +314,7 @@
       '<div class="cn-kid-head"><b>' + k.name + '</b>' + (k.stamp ? '<span class="cn-st coral">' + k.stamp + '</span>' : '') + '</div>' +
       '<div class="cn-kid-time"><b class="cn-big">' + k.left + '</b>' + label('Left today') +
         '<div class="cn-bar"><i' + (k.pct > 0 && k.pct < 100 ? ' class="part"' : '') + ' style="width:' + k.pct + '%"></i></div>' +
-        '<p class="cn-used">' + k.used + '</p></div>' +
+        '<p class="cn-used">' + k.used + '</p>' + (k.who ? '<p class="cn-who">' + icon('guardianphone', 20) + '<span>' + k.who + '</span></p>' : '') + '</div>' +
       '<div class="cn-devs">' + k.devices.map(device).join('') +
         (k.addPhone ? '<div class="cn-dev missing"><span class="cn-tile">' + icon('phone', 32) + '</span>' +
           '<p>Asha’s phone is not added yet.</p>' + btn('Add Asha’s phone') + '</div>' : '') + '</div>' +
@@ -717,6 +717,217 @@
         '<div class="cn-err"></div>' + btn('Delete the family', 'danger wide') + '</div></div>');
   }
 
+  // ---------- Sheet three: guardians by name, and a guardian's own phone ----------
+
+  var GUARDIAN = 'Devi';
+  var GPHONE = 'Devi’s Pixel';
+  var GMODEL = 'Google Pixel 8, Android 15';
+
+  /** A list of things a phone can do, or where they stay: each its mark and its words. */
+  function marks(list, iconName) {
+    return '<div class="cn-oks">' + list.map(function (m) {
+      return '<div class="cn-ok">' + (iconName ? '<span class="cn-okic">' + icon(iconName, 20) + '</span>' : MARK.tick) + '<span>' + m + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  // W1. The first start gains a step after the password: the first
+  // guardian's name. Nine steps now.
+  function yourName() {
+    return step(2, '<div class="cn-card">' + cardHead('guardian', 'Your name') +
+      '<p class="cn-detail">As the family says it. LiMo shows it beside what is done from your phone, such as “+30 min from Devi’s phone”.</p>' +
+      label('Name', 'gap') + field('<span class="typed">Devi</span>' + CARET, 'at') +
+      '<div class="cn-err"></div>' +
+      '<p class="cn-small">Another guardian can be added later, in More.</p></div>',
+      go('Continue'), 1, '', { total: 9 });
+  }
+
+  // W1b. A family made before guardians had names: asked once, after sign in.
+  function nameOnce() {
+    return {
+      page: '<div class="cn-wrap">' + top() + '<div class="cn-col cn-moretop"><div class="cn-card">' + cardHead('guardian', 'What is your name?') +
+        '<p class="cn-detail">LiMo now keeps the family’s guardians by name. Yours shows beside what is done from your phone, such as “+30 min from Devi’s phone”.</p>' +
+        label('Your name', 'gap') + field('<span class="typed">Devi</span>' + CARET, 'at') +
+        '<div class="cn-err"></div>' +
+        '<p class="cn-small">Later asks again the next time you sign in.</p></div></div></div>',
+      pin: btn('Later') + go('Save'), pins: 2
+    };
+  }
+
+  // W2a. More gains a row: Guardians.
+  function moreGuardians() {
+    var rows = [
+      ['guardian', 'Guardians', 'Who looks after Asha and Mira, and their phones.'],
+      ['code', 'A one time code', 'Time for a child out of reach, read out over a call.'],
+      ['key', 'Password and PIN', 'Change either one.'],
+      ['info', 'About LiMo', 'Its version, its licences, and removing it.']
+    ];
+    return tabbed('more', '<div class="cn-col cn-moretop"><div class="cn-card cn-list cn-menu">' + rows.map(function (r) {
+      return '<div class="cn-li"><span class="cn-tile">' + icon(r[0], 32) + '</span><span><b>' + r[1] + '</b><i>' + r[2] + '</i></span>' + MARK.right + '</div>';
+    }).join('') + '</div></div>');
+  }
+
+  // W2. Guardians: each guardian, their phones, and the two ways to add.
+  function guardians() {
+    return tabbed('more', '<div class="cn-col">' + subHead('More') +
+      '<div class="cn-card">' + head2('family', 'Guardians') +
+        '<p class="cn-detail">The people who look after Asha and Mira. They share the family’s one password and one PIN.</p>' +
+        '<div class="cn-gds">' +
+          '<div class="cn-acc"><span class="cn-tile">' + icon('guardian', 32) + '</span>' +
+            '<span class="who"><b>' + GUARDIAN + '</b>' + label('A guardian · 1 phone') + '</span>' + btn('Rename', 'mono') + '</div>' +
+          '<div class="cn-acc cn-sub"><span class="cn-tile">' + icon('guardianphone', 32) + '</span>' +
+            '<span class="who"><b>' + GPHONE + '</b>' + label('Google Pixel 8') + '<span class="whose live">At home now</span></span>' +
+            btn('See it', 'mono') + '</div>' +
+        '</div>' +
+        btn(MARK.plus + 'Add a guardian’s phone', 'wide cn-gap') +
+        btn(MARK.plus + 'Add a guardian', 'wide cn-addapp') +
+        '<p class="cn-small">A guardian’s phone answers requests and gives time behind its own screen lock. Rules ask the password there; the family’s settings stay on this PC.</p>' +
+      '</div></div>');
+  }
+
+  // W3. Add a guardian: a name, and what a guardian is in LiMo.
+  function addGuardian() {
+    return tabbed('more', '<div class="cn-col">' + subHead('Guardians') +
+      '<div class="cn-card">' + cardHead('guardian', 'Add a guardian') +
+        '<p class="cn-detail">Someone else who looks after Asha and Mira, such as another parent or a grandparent.</p>' +
+        label('Name', 'gap') + field(CARET, 'at') +
+        '<div class="cn-two">' +
+          '<div><span class="cn-tile">' + icon('key', 32) + '</span><p><b>One password</b>The family has one. Every guardian types it to open these settings on this PC.</p></div>' +
+          '<div><span class="cn-tile">' + icon('pin', 32) + '</span><p><b>One PIN</b>The family has one. Every guardian types it on a child’s locked PC or phone.</p></div>' +
+        '</div>' +
+        '<p class="cn-small">Tell the new guardian both, or add their phone next: it answers requests without either.</p>' +
+        '<div class="cn-gap">' + btn('Add the guardian', 'go wide') + '</div></div></div>');
+  }
+
+  // W4 to W8. Add a guardian's phone: over the cable, as a child's phone is
+  // added, in Add a phone's nine steps, so a guardian who added a child's
+  // phone knows it already. Only the steps that differ are drawn: the start,
+  // putting LiMo Guardian on the phone, the phone's own part, and Done. The
+  // others are Add a phone's A2, A3, A5, A7 and A8, with Devi's name and
+  // phone in place of Asha's.
+
+  // The cable's state with Devi's phone connected.
+  CABLE.gok = ['teal', 'Connected: Pixel 8.', 'Android 15.'];
+
+  // W4. The start: whose phone, what is needed, and what goes on it.
+  function gStart() {
+    return addStep(0, 'guardianphone', 'Add a guardian’s phone',
+      label('Whose phone', 'gap') +
+      '<div class="cn-chips"><span class="cn-chip on">' + GUARDIAN + '</span><span class="cn-chip add">' + MARK.plus + 'Another guardian</span></div>' +
+      '<p class="cn-small">This puts LiMo Guardian on it: LiMo for a guardian, not the one for a child.</p>' +
+      label('You need', 'gap') +
+      '<div class="cn-need-list">' +
+        '<div class="cn-li"><span class="cn-tile">' + icon('guardianphone', 32) + '</span><span><b>Devi’s own Android phone</b></span></div>' +
+        '<div class="cn-li"><span class="cn-tile">' + icon('usb', 32) + '</span><span><b>Its USB cable</b><i>One that moves files, ideally the one that came with it.</i></span></div>' +
+        '<div class="cn-li"><span class="cn-tile">' + icon('clock', 32) + '</span><span><b>About ten minutes</b></span></div>' +
+      '</div>',
+      'Start', 'none');
+  }
+
+  // W5. Step 4: LiMo Guardian goes on the phone, as A4.
+  function gInstall() {
+    return addStep(3, 'install', 'Put LiMo Guardian on Devi’s phone',
+      oks(['One phone plugged in', 'Android 15, recent enough for LiMo', 'LiMo Guardian is not on it yet']) +
+      '<div class="cn-progress">' + label('Putting LiMo Guardian on Devi’s phone') +
+        '<div class="cn-prog"><i style="width:62%"></i></div></div>' +
+      '<p class="cn-small">Installing asks nothing on the phone.</p>',
+      'Next', 'gok', true);
+  }
+
+  // W6. Step 6: the phone's own part, done on the phone, ticking as A6 does.
+  function gOwn() {
+    var rows = [['Its own screen lock', 'Set', true], ['Tell me of requests at home', 'Not yet', false]];
+    return addStep(5, 'guardianphone', 'Now set up LiMo Guardian on the phone',
+      '<p class="cn-detail">It asks for two things. Each one ticks here when the phone says it is done.</p>' +
+      '<div class="cn-oks cn-six">' + rows.map(function (r) {
+        return '<div class="cn-ok">' + (r[2] ? MARK.tick : RING) + '<span>' + r[0] + '</span>' +
+          '<span class="cn-okst ' + (r[2] ? 'teal' : 'ink') + '">' + r[1] + '</span></div>';
+      }).join('') + '</div>' +
+      '<p class="cn-small">LiMo Guardian opens behind the phone’s own screen lock, so the phone needs one. Tell me of requests at home is Devi’s choice: on, a request reaches the phone within a minute at home; off, only while LiMo Guardian is open.</p>' +
+      '<p class="cn-small">This screen moves on by itself when the phone says it is set up.</p>',
+      'Next', 'gok', true);
+  }
+
+  // W8. Step 9: done, what the phone can do, and what stays on this PC.
+  function gDone() {
+    return addStep(8, 'check', 'Devi’s phone is a guardian’s phone now.',
+      label('On the phone, behind its own screen lock', 'gap') +
+      marks(['See Today, Devices and requests', 'Answer a request, give time, lock and open', 'Make a one time code, at home or away']) +
+      label('On the phone, with the password', 'gap') +
+      marks(['Change a child’s rules', 'Rename a child or a device']) +
+      label('Only on this PC', 'gap') +
+      marks(['The password and the PIN', 'Adding or removing a child, a device or a guardian', 'Windows accounts and this PC’s settings', 'Removing LiMo'], 'pc') +
+      '<p class="cn-detail">You can unplug the phone.</p>',
+      'Done', 'off');
+  }
+
+  // W9. Devices: a guardian's phone, how it stands, and removing it.
+  function gPhoneCard() {
+    return '<div class="cn-card">' + head2('guardianphone', GPHONE, btn('Rename', 'mono')) +
+      '<div class="cn-kvs">' +
+        kv('Guardian', GUARDIAN) + kv('Phone', GMODEL) + kv('Paired', '21 Nov') + kv('Last seen', '2 h ago') +
+        kv('LiMo Guardian', '0.1.0') + kv('Codes kept', '3 a day for each child’s device') +
+      '</div>' +
+      '<p class="cn-small">It answers requests and gives time behind its own screen lock. Rules ask the password. The family’s settings stay on this PC.</p>' +
+      btn('Remove this phone', 'coral wide cn-gap') +
+      '<p class="cn-small">Asks for the password again. The phone is refused at its next contact and forgets the family; the codes it kept stop working.</p>' +
+      '</div>';
+  }
+  function devicesGuardian() {
+    return tabbed('devices',
+      '<div class="cn-devs2"><div class="cn-stack ph">' + gPhoneCard() + phoneCard(false) +
+        btn(MARK.plus + 'Add a phone', 'wide') + '</div>' +
+      '<div class="cn-stack pcs">' + pcCard() + '</div></div>');
+  }
+
+  // W10. Today says who did what from a phone.
+  function todayWho() {
+    var kids = [
+      { name: 'Asha', left: '1 h 42 min', pct: 32, used: '48 min used of 2 h 30 min', who: '+30 min from Devi’s phone<span class="nw"> · 6:02 pm</span>',
+        devices: ASHA.devices },
+      { name: 'Mira', left: '30 min', pct: 67, used: '1 h used of 1 h 30 min',
+        devices: [{ icon: PC, name: 'This PC', st: 'In use', live: true, min: '1 h' }] }
+    ];
+    var aside = label('Answered', 'cn-sec') +
+      '<div class="cn-card cn-req"><div class="cn-req-top"><span class="cn-tile lg">' + icon('hand', 32) + '</span>' +
+        '<span><b>Mira asked for 30 min</b>' + label('On this PC · 6:04 pm') + '</span></div>' +
+        '<p class="cn-quote">“To finish my science project”</p>' +
+        '<div class="cn-statusrow"><span class="cn-st teal">Given 30 min</span><span>Answered from Devi’s phone · 6:05 pm</span></div></div>' +
+      '<div class="cn-quiet"><b>Nothing else is waiting.</b></div>';
+    return {
+      page: '<div class="cn-wrap tabbed">' + top(label(DATE)) +
+        '<div class="cn-today"><div class="cn-aside">' + aside + '</div>' +
+        '<div class="cn-kids">' + kids.map(kid).join('') + '</div></div></div>',
+      tabs: tabs('today')
+    };
+  }
+
+  // W11. Add a phone, step 1: says where a guardian's own phone is added.
+  function addPhoneWhose() {
+    return addStep(0, 'phone', 'Add a phone',
+      label('Whose phone', 'gap') + chips([['a', 'Asha'], ['m', 'Mira']], 'a') +
+      '<p class="cn-small">This adds a child’s phone. For your own, use Add a guardian’s phone in More.</p>' +
+      label('You need', 'gap') +
+      '<div class="cn-need-list">' +
+        '<div class="cn-li"><span class="cn-tile">' + icon('phone', 32) + '</span><span><b>Asha’s phone</b></span></div>' +
+        '<div class="cn-li"><span class="cn-tile">' + icon('usb', 32) + '</span><span><b>Its USB cable</b><i>One that moves files, ideally the one that came with it.</i></span></div>' +
+        '<div class="cn-li"><span class="cn-tile">' + icon('clock', 32) + '</span><span><b>About ten minutes</b></span></div>' +
+      '</div>',
+      'Start', 'none');
+  }
+
+  // W12. A one time code, and the codes left: here, and kept for a guardian's phone.
+  function codeLeft() {
+    var card = '<div class="cn-card">' + cardHead('code', 'A one time code') +
+      '<p class="cn-detail">Time for a child whose device is out of reach or locked, read out over a call.</p>' +
+      label('For', 'gap') + chips([['a', 'Asha'], ['m', 'Mira']], 'a') +
+      label('On', 'gap') + chips([['pc', 'This PC'], ['ph', 'Asha’s phone']], 'ph') +
+      '<p class="cn-small">For Asha’s phone today: 7 codes left here, and 3 kept for Devi’s phone.</p>' +
+      label('How much', 'gap') + chips([['15', '15 min'], ['30', '30 min'], ['60', '1 hour']], '30') +
+      '<div class="cn-gap">' + btn('Make a code', 'go wide') + '</div>' +
+      '<p class="cn-small">A guardian who goes out can note a code now and read it out later today, or make one on their own phone.</p></div>';
+    return tabbed('more', '<div class="cn-col">' + subHead('More') + card + '</div>');
+  }
+
   root.LIMO_CONSOLE = {
     frame: frame, strip: strip,
     signIn: signIn,
@@ -724,6 +935,9 @@
     bedtime: bedtime, accounts: accounts, done: done,
     today: today,
     rules: rules, devices: devices, addPhone: addPhone, cableStrip: cableStrip,
-    code: code, more: more, secrets: secrets, about: about, deleteFamily: deleteFamily
+    code: code, more: more, secrets: secrets, about: about, deleteFamily: deleteFamily,
+    yourName: yourName, nameOnce: nameOnce, moreGuardians: moreGuardians, guardians: guardians, addGuardian: addGuardian,
+    gStart: gStart, gInstall: gInstall, gOwn: gOwn, gDone: gDone, devicesGuardian: devicesGuardian,
+    todayWho: todayWho, addPhoneWhose: addPhoneWhose, codeLeft: codeLeft
   };
 }(typeof window !== 'undefined' ? window : this));
