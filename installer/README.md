@@ -27,6 +27,7 @@ shows](#unsigned-what-windows-shows)).
 - [Unsigned: what Windows shows](#unsigned-what-windows-shows)
 - [The owner's run](#the-owners-run)
 - [On a PC that never had LiMo](#on-a-pc-that-never-had-limo)
+- [Publishing](#publishing)
 - [Tools, and what the build fetches](#tools-and-what-the-build-fetches)
 - [Layout](#layout)
 - [Left open](#left-open)
@@ -461,6 +462,140 @@ about 90 minutes with Add a phone:
 - **An upgrade over it** (when the next version exists) and **a removal**,
   as above.
 
+## Publishing
+
+LiMo's installers are kept by the download service of thedumbstuff.page
+(the owner's decision of 19 Nov 2026), as a row of their own there,
+`limo`: one system, Windows, the installer `LiMo_<version>_x64-setup.exe`
+kept in its version's folder and offered under a name that never changes,
+`/downloads/limo/current/LiMo-setup.exe`, with no update feed (LiMo has no
+updater). The LucidLoom website's LiMo page reads
+`https://thedumbstuff.page/downloads/limo/current/release.json` and shows
+the download by itself. `release.ps1` is the one way it gets there.
+
+**The order:**
+
+1. **The download site deployed with LiMo's row.** That is the site's own
+   step, in its repository (its `docs/installer.md`, "Publishing LiMo",
+   and `docs/deploy.md`). Before it, the site answers an upload for LiMo
+   with "not found": `release.ps1` says to deploy the site first, and
+   nothing is published.
+2. **The installer built for release**: `build.ps1 -ChildApk <the signed
+   release APK>` (see [Building it](#building-it)).
+3. **`publish`**: what it would send, and where. Nothing is sent.
+4. **`publish --yes`**: sent, published, read back.
+5. **`check`**, and the LucidLoom page.
+
+From the repository's folder, in PowerShell:
+
+```
+powershell -ExecutionPolicy Bypass -File installer\release.ps1 publish          # what it would send; sends nothing
+powershell -ExecutionPolicy Bypass -File installer\release.ps1 publish --yes    # sends it, publishes it, reads it back
+powershell -ExecutionPolicy Bypass -File installer\release.ps1 check            # reads what the site offers, and checks it
+```
+
+`--file <installer>` names another installer than
+`installer\target\LiMo_<version>_x64-setup.exe` (the version
+`windows\Cargo.toml`'s); `--site <address>`, or `LIMO_DOWNLOADS_SITE`,
+another site than `https://thedumbstuff.page` (a preview: `http` only for
+this PC itself); `--token-file <file>` the token's file (below).
+
+**Before anything is sent**, `publish` stops, with a sentence saying why,
+unless:
+
+| What | How |
+| --- | --- |
+| it is not a dry build | a name that says so is refused; only `LiMo_<version>_x64-setup.exe`, of this checkout's version |
+| it is the file `build.ps1` wrote | the SHA-256 in the `.sha256` beside it is the file's |
+| it is a Windows program the site takes | it starts with `MZ`; at most 100 MB (one request) |
+| the phone app inside is LiMo's child form, a release build | 7-Zip takes `phone\limo-child.apk` out (into `installer\target\release-look`, removed after); `app_facts`, the check `build.ps1` makes: the package `ai.lucidloom.limo.child`, not debuggable |
+| and it is release signed | an APK signing block before the zip's central directory, without Android's debug certificate (`CN=Android Debug`). A dry build's throwaway app has no signing block, so a dry build renamed by hand is refused too |
+| the site has not got this version | what `current/release.json` offers now: the same version, as this file or another, is refused (a version, once published, is never replaced: a fix is a new version, built again); an older one than offered too |
+
+The signing check says the app is signed, and not with Android's debug
+key; it does not say with which key, as nothing in the repository pins
+the release certificate (a phone holding LiMo refuses an update signed
+with another key, as Android does).
+
+Then it says what it will send:
+
+```
+[release] what would be sent:
+[release]   the file:     installer\target\LiMo_0.1.0_x64-setup.exe
+[release]   its size:     20,806,157 bytes (19.8 MB)
+[release]   its SHA-256:  c31ed1d2... (the same as in LiMo_0.1.0_x64-setup.exe.sha256)
+[release]   the version:  LiMo 0.1.0 for Windows; inside, LiMo's child form 0.1.0, a release build, signed with a key of its own
+[release]   where to:     https://thedumbstuff.page
+[release]                 PUT  /api/downloads/limo/0.1.0/LiMo_0.1.0_x64-setup.exe   (the upload token)
+[release]                 POST /api/downloads/limo/0.1.0/publish   (it becomes the current download)
+[release]   then:         https://thedumbstuff.page/downloads/limo/current/LiMo-setup.exe, which the LucidLoom website's LiMo page offers
+[release] the site offers no LiMo yet: this will be the first
+```
+
+**With `--yes`** it reads the token, uploads the file whole (one PUT;
+the site says the size and SHA-256 it holds, which must be the file's),
+publishes it (POST, no notes), then reads `current/release.json` back:
+the version, the size, the SHA-256 and the name that never changes must
+be the file sent, and every field what the LucidLoom page takes (below).
+It ends with `done: https://thedumbstuff.page offers LiMo <version> for
+Windows ...`.
+
+**The token** is the download service's upload token, the one its other
+products' tools send: `DOWNLOADS_UPLOAD_TOKEN` in the environment, or a
+one line file named with `--token-file` (the download site's own
+`docs/installer.md`, "The upload token", says where the publishing PC
+keeps it). It is read only with `--yes`, after every check, and sent only
+in the Authorization header of the upload and the publish. It is never
+printed, never written anywhere, never in an error or on a command line.
+
+**When the site refuses**, it says so and publishes nothing:
+
+| It says | What it means |
+| --- | --- |
+| `LiMo <version> is published already (this same file)` or `(another file)` | the site offers this version: a fix is a new version (`windows\Cargo.toml` and `console\Cargo.toml`), built again |
+| `... published already, with other bytes, and the site refused it` | the service's own refusal (409 `published`) |
+| `the site offers LiMo <x>, newer than <y>` | an older version is never published over a newer |
+| `the site does not take LiMo yet` | the site is not deployed with LiMo's row: step 1 |
+| `the site refused the token` | not the token the site holds; ten wrong ones lock this PC's address out for ten minutes |
+| `uploads are not switched on at the site` | the site holds no upload token |
+| `not as the downloads service does (Cloudflare may have refused it ...)` | Cloudflare, not the service, answered: the download site's `docs/installer.md`, "If Cloudflare refuses the upload" |
+| `the site did not answer` | no connection; nothing more was sent. Run it again |
+
+**`check`** only reads: `current/release.json`, its Windows entry, and
+each field as the LucidLoom page checks it. It ends with `every field as
+the LucidLoom page checks it: it offers this download`, or stops saying
+which field it would not take, or that nothing is published (404).
+
+**What the LucidLoom page then shows.** Its LiMo page
+(`/products/limo`) asks its own server, which reads `release.json` (kept
+five minutes, so within five minutes of the publish) and passes on the
+Windows entry only when every field is sound: `file` a plain path under
+`/downloads/limo/`, `sha256` 64 hex characters, `size` a positive whole
+number, `version` like 1.2.3. Its download box then shows "Download LiMo
+for Windows", linking to
+`https://thedumbstuff.page/downloads/limo/current/LiMo-setup.exe`, with
+"Version 0.1.0", the size (20.8 MB), the label ("Windows 11, 64-bit,
+early test build"), the day, the SHA-256 to compare, and "The file comes
+from thedumbstuff.page, where LucidLoom keeps its downloads." Until then
+it says "No installer yet". Nothing is deployed for that.
+
+**Tested** (`node --test release.test.mjs` here, or `npm test`): 12 tests
+against a fake of the service's three calls on this PC, with installers
+made for them from the throwaway app (unsigned, signed with a key of the
+test's own, and with the debug certificate's name), each in a 7-Zip self
+extracting program: what it says without `--yes` and that it sends
+nothing; the very bytes sent with the token, the publish, the read back;
+the token from a file, and a short one; no token; a dry build, another
+version, another name; an unsigned app, a debug signed one, no app; the
+`.sha256`, and not a program; a version published already (the same file,
+another, a newer one); each refusal of the service; a read back that is
+not the file sent; `check`; `https` only. The token is in nothing it says,
+in every test. Once, on 21 Nov 2026, against the download service itself
+started on this PC (the site's preview, with a token of its own): the
+release installer of LiMo 0.1.0 published, read back, `check` passing,
+and published again refused; the site's `check_download.py` passed 24 of
+24 against it, LiMo's installer among them.
+
 ## Tools, and what the build fetches
 
 | What | From | Licence | Ships in the installer |
@@ -485,6 +620,8 @@ added for this; the console gained two examples (`app_facts.rs`,
 installer/
   README.md
   build.ps1            the one build, step by step
+  release.ps1          publishing: publish (--yes), check
+  release.test.mjs     its tests, against a fake of the download service
   installer.nsi        Tauri's NSIS template with LiMo's changes
   hooks.nsh            the three calls of limo.exe
   notices.mjs          the third party notices, from the packages themselves
@@ -500,7 +637,8 @@ Made by a build, git ignored: `installer\node_modules` and
 `installer\target` (`cargo\` the two programs' builds and the bundler's
 output, `stage\` the files as they go on a PC, `page\` the page's bundle
 with its map, `look\` the installer unpacked, `bundle.json`,
-`installer-compiled.log`, and the installer with its `.sha256`).
+`installer-compiled.log`, and the installer with its `.sha256`; and,
+while `release.ps1` looks at the phone app inside, `release-look\`).
 
 ## Left open
 
@@ -524,6 +662,9 @@ with its map, `look\` the installer unpacked, `bundle.json`,
 - **Windows 10, and Windows on ARM**: not tried; the installer refuses 32
   bit Windows.
 - **The phone app's own notices**, inside the APK: the phone side's.
+- **The first publish**: the download site deployed with LiMo's row, then
+  `release.ps1 publish --yes`; both the owner's (see
+  [Publishing](#publishing)).
 - **The installer's own words** use a straight apostrophe (NSIS reads a
   script without a byte order mark as the PC's code page, so the files are
   kept plain ASCII); `limo.exe`'s words, in its console windows, are
