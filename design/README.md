@@ -209,6 +209,12 @@ over the cable.
 - A step Android will not turn on does not trap the guardian. After two
   tries the screen offers to go on without it, and Today's banner then
   names the step.
+- Where a Samsung phone takes a different path, the step says so in a
+  dashed note: on Battery, the way to its list of apps that never sleep.
+- The last setup screen says the phone is set up even when a step is off,
+  because the phone works. That step's row has a hollow ring in place of
+  its tick and NOT ON in coral at its end, said plainly and not stamped,
+  and one sentence says that Today shows a guardian how to turn it on.
 - Then three screens for the child: what LiMo counts, what it never looks
   at, and how to ask for more time. The same three are in the app's "How
   it works" tab, with the child's own rules.

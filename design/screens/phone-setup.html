@@ -47,7 +47,7 @@
   <div class="order" id="order"></div>
 
   <h2>Before setup</h2>
-  <p class="lead">Only when LiMo is opened on a phone the PC has not paired. Nothing on the phone can set it up alone.</p>
+  <p class="lead">Only when LiMo is opened on a phone the PC has not paired. Nothing on the phone can set it up alone. LiMo’s name stays at the top, and the card stands in the middle of the screen.</p>
   <div class="shots" id="s0"></div>
 
   <h2>Welcome, and what LiMo does</h2>
@@ -59,6 +59,7 @@
   <div class="shots" id="s3"></div>
 
   <h2>Done</h2>
+  <p class="lead">With a step still off the phone works, so the screen still says it is set up. That step’s row has a ring in place of its tick and NOT ON at its end, and one sentence says where a guardian can turn it on.</p>
   <div class="shots" id="s8"></div>
 
   <h2>For Mira</h2>
@@ -83,7 +84,7 @@
     ['S0', 'Only on a phone the PC has not paired: how to start from the PC.'],
     ['S1 and S2', 'Welcome, then what LiMo does on this phone, and the guardian agrees.'],
     ['S3 to S8', 'One permission each: notifications, phone, usage access, accessibility, battery, protection.'],
-    ['S9', 'Done. The guardian hands the phone to the child.'],
+    ['S9 and S9b', 'Done, with every step on, and with one step still off. The guardian hands the phone to the child.'],
     ['C1 to C3', 'The child’s own introduction, ending on Today.'],
     ['H and T', 'In the child’s app from then on: How it works, and Today when something is switched off.']
   ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
@@ -111,7 +112,8 @@
     stepShot(0) + stepShot(1) + stepShot(2) + stepShot(2, 'done') + stepShot(3) + stepShot(3, 'stuck') + stepShot(4) + stepShot(5);
 
   byId('s8').innerHTML =
-    shot('S9 · Done', '390 by 844 · button pinned · fits, no scroll', S.frame(S.done()));
+    shot('S9 · Done', '390 by 844 · button pinned · fits, no scroll', S.frame(S.done())) +
+    shot('S9b · Done, Phone still off', '390 by 844 · button pinned · fits, no scroll', S.frame(S.done([1])));
 
   byId('c').innerHTML =
     shot('C1 · What LiMo counts', '1 of 3 · fits, no scroll', S.frame(S.intro(0))) +

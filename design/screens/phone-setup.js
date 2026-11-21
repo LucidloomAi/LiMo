@@ -19,6 +19,8 @@
       '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
   }
   var TICK = stroke(18, 18, '<path d="M3.5 9.5l3.6 3.6L14.5 5"/>', 'su-tickmark');
+  // In a tick's place, for a step that is off: the same room, a hollow ring.
+  var RING = stroke(18, 18, '<circle cx="9" cy="9" r="5.5"/>', 'su-ring');
 
   function label(text, cls) {
     return '<div class="ph-label' + (cls ? ' ' + cls : '') + '">' + text + '</div>';
@@ -65,10 +67,11 @@
 
   // ---------- S0. Not set up ----------
 
+  // LiMo's name stays at the top; the card stands in the middle of the screen.
   function notSetUp() {
     return '<div class="ph-lock">' + top() +
-      card('usb', '', 'This phone is not set up yet.',
-        'Connect it to the family PC with a USB cable, then choose <strong class="su-name">Add a phone</strong> in LiMo on the PC.') +
+      '<div class="ph-mid su-mid">' + card('usb', '', 'This phone is not set up yet.',
+        'Connect it to the family PC with a USB cable, then choose <strong class="su-name">Add a phone</strong> in LiMo on the PC.') + '</div>' +
       tail() + '</div>';
   }
 
@@ -130,7 +133,7 @@
     { icon: 'battery', title: 'Battery',
       why: 'So Android does not put LiMo to sleep to save battery.',
       what: 'Android asks once. Choose <strong class="su-name">Allow</strong>.', button: 'Allow',
-      note: ['On a Samsung phone', 'Also open Settings, then Battery, then Background usage limits, then Never sleeping apps, and add LiMo there.'] },
+      note: ['On a Samsung phone', 'Also open Settings, then Battery (on some phones Battery and device care, then Battery), then Background usage limits, then Never sleeping apps, and add LiMo there.'] },
     { icon: 'key', title: 'Protection',
       why: 'So LiMo cannot be switched off or removed without the guardian PIN.',
       what: 'Android asks you to make LiMo a device admin app. Choose <strong class="su-name">Activate</strong>.', button: 'Turn on protection' }
@@ -160,12 +163,26 @@
 
   // ---------- S9. Done ----------
 
-  function done() {
-    var list = STEPS.map(function (s) { return '<div class="su-ok">' + TICK + '<span>' + s.title + '</span></div>'; }).join('');
+  var COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'];
+
+  /** Done, with every step on, or with the steps in `off` (indexes) still
+      off. The phone works either way, so the title and the big tick stay; a
+      step that is off has a ring in its tick's place and NOT ON at its end,
+      said plainly, not stamped. Every row keeps its height. */
+  function done(off) {
+    off = off || [];
+    var list = STEPS.map(function (s, i) {
+      var isOff = off.indexOf(i) >= 0;
+      return '<div class="su-ok' + (isOff ? ' off' : '') + '">' + (isOff ? RING : TICK) + '<span>' + s.title + '</span>' +
+        (isOff ? '<span class="su-noton">Not on</span>' : '') + '</div>';
+    }).join('');
+    var offLine = !off.length ? '' : '<p class="su-offline">' +
+      (off.length === 1 ? STEPS[off[0]].title + ' is not on yet. ' : COUNT[off.length] + ' steps are not on yet. ') +
+      CHILD + '’s Today screen shows a guardian how to turn ' + (off.length === 1 ? 'it' : 'them') + ' on.</p>';
     return screen(top() +
       '<div class="ph-card su-card">' + icon('check', 64) +
         '<h1 class="ph-h1">This phone is set up.</h1>' +
-        '<div class="su-oks">' + list + '</div>' +
+        '<div class="su-oks">' + list + '</div>' + offLine +
         // The app knows the child's name, not how the child is spoken of,
         // so the line says the name again instead of "her" or "him".
         '<p class="ph-detail su-after">Hand the phone to ' + CHILD + '. The next three screens are ' + CHILD + '’s.</p>' +
@@ -208,8 +225,7 @@
       rows(INTRO.map(function (c) { return [c[0], c[2], c[3]]; })) +
       label('About', 'ph-sec') +
       '<div class="ph-card su-about"><b>LiMo 0.1.0</b>' +
-        '<p>Free and open source, under the Apache 2.0 licence.</p>' +
-        '<div class="su-repo">github.com/LucidloomAi/LiMo</div></div>' +
+        '<p>More info on <span class="su-addr">https://lucidloom.ai</span></p></div>' +
       tail() + '</div>';
   }
 

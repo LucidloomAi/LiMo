@@ -54,11 +54,22 @@
    still the way the step is meant to go. */
 .su-card > .su-goon { margin-top: 14px; }
 
-/* Done: a teal tick for each step. */
+/* Before setup: LiMo's name at the top, the card in the middle of the
+   screen, between the top row and the maker's mark. Its middle lands within
+   4 of the screen's middle at 390 by 844 and at 360 by 640. */
+.su-mid { padding: 20px 0 0; }
+
+/* Done: a teal tick for each step. A step that is off has a hollow ink ring
+   in the tick's place, and NOT ON at the end of its row in coral mono, with
+   no box: the page has one stamp, and this is not one. Every row keeps its
+   height either way. */
 .su-oks { margin-top: 12px; }
-.su-ok { display: flex; align-items: center; gap: 10px; min-height: 38px; border-top: 1.5px dashed var(--border); font-size: 16px; }
+.su-ok { display: flex; align-items: center; gap: 10px; height: 38px; border-top: 1.5px dashed var(--border); font-size: 16px; }
 .su-ok:first-child { border-top: 0; }
 .su-ok .su-tickmark { color: var(--teal); }
+.su-ok .su-ring { color: var(--ink); }
+.su-noton { margin-left: auto; font: 600 12px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--coral); white-space: nowrap; }
+.su-offline { margin: 10px 0 0; font-size: 16px; line-height: 1.4; color: var(--ink); text-wrap: pretty; }
 .su-after { padding-top: 4px; }
 
 /* How it works. */
@@ -69,8 +80,10 @@
 .su-rule .v { text-align: right; font-size: 16px; line-height: 1.35; text-wrap: balance; }
 .su-about b { display: block; font-size: 16px; font-weight: 600; line-height: 1.3; }
 .su-about p { margin: 4px 0 0; font-size: 14px; line-height: 1.4; color: var(--ink-soft); }
-/* The address is plain text: nothing on this screen opens a browser. */
-.su-repo { margin-top: 10px; font: 500 14px/1.3 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+/* The address is data, in mono, and plain text: nothing on this screen opens
+   a browser. It never breaks inside; on a phone too narrow for the line it
+   moves to a line of its own. */
+.su-addr { font: 500 14px/1.4 var(--mono); color: var(--ink); white-space: nowrap; }
 
 /* Today, when something is switched off: a banner above the time left. */
 .su-banner .ph-why-top { align-items: center; }
