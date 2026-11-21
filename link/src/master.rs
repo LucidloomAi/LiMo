@@ -393,7 +393,7 @@ impl MasterLink {
                     return Err(LinkError::OtherDevice);
                 }
                 reports_waiting += 1;
-                events.push(MasterEvent::Report { report });
+                events.push(MasterEvent::Report { report: *report });
             }
             PhoneSays::Apps { apps, hash } => events.push(MasterEvent::Apps { apps, hash }),
             PhoneSays::Bye {} => {
@@ -427,6 +427,27 @@ impl MasterLink {
     /// The link has then done its work: write the outgoing bytes, and close
     /// the socket (the phone says `bye` first, if the caller waits for it).
     pub fn welcome(&mut self, welcome: &Grant, code_secret: &[u8], now: Now) -> Result<(), LinkError> {
+        self.welcome_with_name(welcome, code_secret, None, now)
+    }
+
+    /// Answers a pairing request as [`MasterLink::welcome`] does, and tells
+    /// the phone the child's name (1 to [`crate::messages::MAX_NAME_CHARS`]
+    /// characters), for the child's own screens on it.
+    pub fn welcome_child(&mut self, welcome: &Grant, code_secret: &[u8], child_name: &str, now: Now) -> Result<(), LinkError> {
+        let chars = child_name.trim().chars().count();
+        if chars == 0 || child_name.chars().count() > crate::messages::MAX_NAME_CHARS {
+            return Err(LinkError::OutOfBounds { what: "a child's name that is empty or too long" });
+        }
+        self.welcome_with_name(welcome, code_secret, Some(child_name.to_string()), now)
+    }
+
+    fn welcome_with_name(
+        &mut self,
+        welcome: &Grant,
+        code_secret: &[u8],
+        child_name: Option<String>,
+        now: Now,
+    ) -> Result<(), LinkError> {
         let Stage::PairAsked { .. } = self.stage else {
             return Err(self.not_now("a welcome with no pairing request to answer"));
         };
@@ -436,8 +457,12 @@ impl MasterLink {
         if welcome.device_id.is_empty() || welcome.child_id.is_empty() {
             return Err(LinkError::OutOfBounds { what: "a welcome with no device or child" });
         }
-        let message =
-            MasterSays::Welcome { welcome: welcome.clone(), code_secret: CodeSecret::new(code_secret), master_now: now.unix };
+        let message = MasterSays::Welcome {
+            welcome: welcome.clone(),
+            code_secret: CodeSecret::new(code_secret),
+            master_now: now.unix,
+            child_name,
+        };
         let Stage::PairAsked { mut noise } = std::mem::replace(&mut self.stage, Stage::Failed) else {
             return Err(LinkError::Closed);
         };

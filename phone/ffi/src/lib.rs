@@ -61,6 +61,15 @@ pub use shapes::{
     RequestShown, TimeLeft, TimeRequest, TryAnswer, TryKind, Versions, WarningCause, WarningShown, Way, WayRow,
 };
 
+/// The hash the link gives an app list (`limo_link::apps_hash`): 32 hex
+/// characters, the same for the same apps in the same order, so the host
+/// sends its list again only when it changed.
+#[uniffi::export]
+pub fn apps_hash(apps: Vec<AppEntry>) -> String {
+    let apps: Vec<limo_link::AppEntry> = apps.into_iter().map(convert::app_in).collect();
+    limo_link::apps_hash(&apps)
+}
+
 /// The versions of what is inside the library: this layer, the engine, the
 /// core, the link crate, and the version of the link it speaks.
 #[uniffi::export]

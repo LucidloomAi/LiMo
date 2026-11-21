@@ -25,8 +25,8 @@ use crate::error::LinkError;
 use crate::frame::{Allowed, FrameReader, Kind, Preamble, frame, handshake_read, handshake_write, open, seal};
 use crate::keys::{KeyPair, PublicKey};
 use crate::messages::{
-    AppEntry, CODE_SECRET_BYTES, CodeSecret, MasterSays, PairRequest, PhoneSays, apps_hash, check_apps, from_json,
-    to_json,
+    AppEntry, CODE_SECRET_BYTES, CodeSecret, MAX_NAME_CHARS, MasterSays, PairRequest, PhoneSays, apps_hash, check_apps,
+    from_json, to_json,
 };
 use crate::offer::Offer;
 use crate::{ANSWER_LIMIT_MS, HANDSHAKE_LIMIT_MS, LINK_VERSION, MAX_WAITING, Now, PING_EVERY_MS};
@@ -81,6 +81,9 @@ pub struct Welcomed {
     pub code_secret: CodeSecret,
     /// The master's clock when it answered, unix seconds.
     pub master_now: i64,
+    /// The child's name as the master gave it, for the child's own screens;
+    /// None from a master that does not say it.
+    pub child_name: Option<String>,
 }
 
 enum PairingStage {
@@ -205,7 +208,7 @@ impl PhonePairing {
                 PairingStage::AwaitWelcome { mut noise, .. } => {
                     let text = open(&mut noise, &body)?;
                     match from_json::<MasterSays>(&text)? {
-                        MasterSays::Welcome { welcome, code_secret, master_now } => {
+                        MasterSays::Welcome { welcome, code_secret, master_now, child_name } => {
                             if !input.is_empty() {
                                 return Err(LinkError::Unexpected { what: "more after the welcome" });
                             }
@@ -214,6 +217,9 @@ impl PhonePairing {
                             }
                             if code_secret.expose().len() != CODE_SECRET_BYTES {
                                 return Err(LinkError::OutOfBounds { what: "a code secret of the wrong length" });
+                            }
+                            if child_name.as_ref().is_some_and(|n| n.chars().count() > MAX_NAME_CHARS) {
+                                return Err(LinkError::OutOfBounds { what: "a child's name that is too long" });
                             }
                             self.out.extend(frame(&seal(&mut noise, &to_json(&PhoneSays::Bye {})?)?));
                             self.stage = PairingStage::Done;
@@ -225,7 +231,7 @@ impl PhonePairing {
                                 addresses: self.offer.addresses().to_vec(),
                                 phone_keys: self.keys.clone(),
                             };
-                            return Ok(Some(Welcomed { paired, welcome, code_secret, master_now }));
+                            return Ok(Some(Welcomed { paired, welcome, code_secret, master_now, child_name }));
                         }
                         MasterSays::Refused { why, .. } => return Err(LinkError::Refused(why)),
                         MasterSays::Grant { .. } => return Err(LinkError::Unexpected { what: "a grant while pairing" }),
@@ -462,7 +468,7 @@ impl PhoneSession {
         if report.device_id != self.device_id || report.child_id != self.child_id {
             return Err(LinkError::OtherDevice);
         }
-        self.send(&PhoneSays::Report { report: report.clone() }, Some(Asked::Report), now)
+        self.send(&PhoneSays::Report { report: Box::new(report.clone()) }, Some(Asked::Report), now)
     }
 
     /// Sends the phone's app list, with its hash. Nothing answers it.

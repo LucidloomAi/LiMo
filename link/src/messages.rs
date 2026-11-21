@@ -10,7 +10,7 @@
 //!
 //! | Master to phone | |
 //! | --- | --- |
-//! | `welcome` | The answer to `pair`: the first grant, the phone's code secret, and the master's clock. |
+//! | `welcome` | The answer to `pair`: the first grant, the phone's code secret, the master's clock, and the child's name. |
 //! | `grant` | The answer to a `report`: the core's `Grant`, and the master's clock. |
 //! | `report_now` | Please report at once (the hub's wanted reports). |
 //! | `refused` | No, and why; the link ends. |
@@ -227,8 +227,9 @@ pub enum PhoneSays {
     },
     /// A report, for a grant.
     Report {
-        /// The core's report.
-        report: Report,
+        /// The core's report, boxed: it is much the largest message, and the
+        /// others stay small.
+        report: Box<Report>,
     },
     /// The phone's apps.
     Apps {
@@ -295,6 +296,11 @@ pub enum MasterSays {
         code_secret: CodeSecret,
         /// The master's clock, unix seconds.
         master_now: i64,
+        /// The child's name, as the guardian gave it on the master, for the
+        /// child's own screens; at most [`MAX_NAME_CHARS`] characters. Left
+        /// out by a master that does not say it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        child_name: Option<String>,
     },
     /// The answer to a report.
     Grant {

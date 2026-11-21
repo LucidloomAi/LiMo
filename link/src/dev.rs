@@ -5,7 +5,8 @@
 //!
 //! It does what the Windows service will do with a link, and nothing more:
 //! it keeps the offers it made and the phones it paired in memory, pairs a
-//! phone with the hub (`Hub::pair_device`), answers reports with the hub's
+//! phone with the hub (`Hub::pair_device`) and tells it the child's name in
+//! the welcome, answers reports with the hub's
 //! grants (`Hub::handle_report`), keeps each phone's app list, and asks a
 //! phone to report when the hub wants it to (`Hub::wanted_reports`). The
 //! hub does not keep link keys yet (a later piece), which is why this keeps
@@ -186,13 +187,14 @@ impl DevMaster {
                         }
                     };
                     self.offers[at].on_file.used = true;
+                    let child_name = self.hub.child(&child_id)?.name;
                     self.phones.push(KnownPhone {
                         device_id: pairing.device_id.clone(),
                         child_id,
                         key: *phone_key,
                         removed: false,
                     });
-                    link.welcome(&pairing.welcome, &pairing.code_secret, now)?;
+                    link.welcome_child(&pairing.welcome, &pairing.code_secret, &child_name, now)?;
                 }
                 MasterEvent::Report { report } => match self.hub.handle_report(report, now.unix) {
                     Ok(grant) => link.grant(&grant, now)?,

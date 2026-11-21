@@ -24,11 +24,9 @@ const FORMS: Record<Form, { name: string; package: string; slug: string; launche
 // tools:node="remove"). A later piece that truly needs one takes it off this
 // list and says why where it adds it.
 const NEVER = [
-  // No network until the link to the master PC exists (modules/limo-child/
-  // android/src/main/java/.../link). Without INTERNET, Android lets the app
-  // open no socket at all.
-  'android.permission.INTERNET',
-  'android.permission.ACCESS_NETWORK_STATE',
+  // The network beyond what the child form's link needs: no Wi-Fi state, no
+  // multicast of LiMo's own (Android's NsdManager does the discovery), no
+  // nearby devices.
   'android.permission.ACCESS_WIFI_STATE',
   'android.permission.CHANGE_WIFI_MULTICAST_STATE',
   'android.permission.NEARBY_WIFI_DEVICES',
@@ -72,6 +70,12 @@ const CHILD_ONLY = [
   // never hides a call (see the child module's manifest). The guardian form
   // never holds it.
   'android.permission.READ_PHONE_STATE',
+  // The child form's link to the family's PC, and to nothing else (the
+  // child module's link/README.md): sockets to the cable's tunnel and the
+  // home network, and which network is Wi-Fi. The guardian form opens no
+  // socket at all until it has a link of its own.
+  'android.permission.INTERNET',
+  'android.permission.ACCESS_NETWORK_STATE',
 ];
 
 function readForm(): Form {

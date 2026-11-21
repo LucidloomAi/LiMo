@@ -56,6 +56,7 @@ fn pair(start: i64) -> Paired {
     let request = PairRequest { name: "Asha's phone".into(), platform: "android".into(), android_version: Some(33) };
     let pairing = PhonePairing::start(offer.clone(), request, 1_000).unwrap();
     assert!(!pairing.is_done().unwrap());
+    assert_eq!(pairing.child_name().unwrap(), None);
     assert_eq!(pairing.paired_master(), Err(LinkError::NotWelcomed));
     assert!(matches!(pairing.make_engine(start), Err(EngineError::NotWelcomed)));
     family.connect(1_000, start).unwrap();
@@ -70,6 +71,8 @@ fn pair(start: i64) -> Paired {
     assert!(welcomed);
     assert!(pairing.is_done().unwrap());
     assert_eq!(pairing.master_now().unwrap(), Some(start));
+    // The master's welcome names the child, for the host's name file.
+    assert_eq!(pairing.child_name().unwrap().as_deref(), Some("Asha"));
     assert_eq!(pairing.tick(1_100).unwrap(), None);
 
     let kept_pairing = pairing.paired_master().unwrap();
@@ -227,4 +230,18 @@ fn bad_offers_bad_kept_pairings_and_times_below_zero_are_refused_without_quoting
     let paired = PairedMaster::from_bytes(kept_pairing).unwrap();
     assert!(!format!("{paired:?}").contains(&private));
     assert!(matches!(PhoneSession::start(paired, -1), Err(LinkError::OutOfRange { .. })));
+}
+
+#[test]
+fn an_app_lists_hash_is_the_links_own() {
+    let apps = vec![
+        limo_phone_ffi::AppEntry { package_name: "com.example.game".into(), label: "Game".into() },
+        limo_phone_ffi::AppEntry { package_name: "com.example.maps".into(), label: "Maps".into() },
+    ];
+    // The link's own known answers (its README, "The messages").
+    assert_eq!(limo_phone_ffi::apps_hash(vec![]), "d0a1652e66aeda9f7a69ce933a28e059");
+    assert_eq!(limo_phone_ffi::apps_hash(apps[..1].to_vec()), "727ff9ebabe1f146643f8061ce9365b6");
+    let mut changed = apps.clone();
+    changed[1].label = "Map".into();
+    assert_ne!(limo_phone_ffi::apps_hash(changed), limo_phone_ffi::apps_hash(apps));
 }

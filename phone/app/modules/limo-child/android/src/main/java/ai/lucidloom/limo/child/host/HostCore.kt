@@ -3,6 +3,7 @@ package ai.lucidloom.limo.child.host
 import ai.lucidloom.limo.child.ffi.Cover
 import ai.lucidloom.limo.child.ffi.CoverKind
 import ai.lucidloom.limo.child.ffi.EngineException
+import ai.lucidloom.limo.child.ffi.GrantOutcome
 import ai.lucidloom.limo.child.ffi.InternalException
 import ai.lucidloom.limo.child.ffi.PhoneEngine
 import ai.lucidloom.limo.child.ffi.PhoneEngineInterface
@@ -14,6 +15,8 @@ import ai.lucidloom.limo.child.ffi.TimeLeft
 import ai.lucidloom.limo.child.ffi.TimeRequest
 import ai.lucidloom.limo.child.ffi.TryAnswer
 import ai.lucidloom.limo.child.ffi.WarningShown
+import ai.lucidloom.limo.child.link.LinkPort
+import ai.lucidloom.limo.child.link.NoLink
 
 // What the host needs from Android, each behind a small interface, so that
 // the JVM tests play the phone and the Rust engine is the real one.
@@ -35,7 +38,7 @@ internal interface StateStore {
 
 /** The facts for each tick, and word of a change (the watch). */
 internal interface FactsSource {
-  /** The facts now. There is no link yet: the master is never in reach, nor has it asked for a report. */
+  /** The facts now. Whether the master is in reach, and asked for a report, the host takes from the link. */
   fun factsNow(): PhoneFacts
 
   /** Calls [onChange] (on any thread) whenever a fact changed. */
@@ -118,12 +121,17 @@ internal val NO_COVER = Cover(CoverKind.NOTHING, null, null, null)
  *   watching. A state that cannot be read gives the engine's own answer,
  *   an engine that locks the phone and never asks to be kept, so the host
  *   never writes over it.
- * - **Each tick** takes the facts, calls the engine, keeps the state when
- *   the orders say so and before anything else, hands the cover to the
- *   [Shower] and the time left and any warning to the [KeeperDisplay], logs
- *   the engine's notes, and asks for the next tick: in a second while the
+ * - **Each tick** takes the facts (whether the master is in reach, and
+ *   asked for a report, from the [LinkPort]), calls the engine, keeps the
+ *   state when the orders say so and before anything else, hands the cover
+ *   to the [Shower] and the time left and any warning to the
+ *   [KeeperDisplay], logs the engine's notes, carries a report the orders
+ *   ask for to the link, and asks for the next tick: in a second while the
  *   screen is on, at the engine's next check while it is off (see
  *   [HostTimes]).
+ * - **The link** hands it the master's grants ([takeGrant]), says when
+ *   the master could not be reached ([lostContact]), pairs the phone
+ *   ([adopt]) and releases it when the PC removed it ([release]).
  * - **A failure** is logged and the next tick tries again. An engine that
  *   reports itself broken (or panicked) is closed and made again from the
  *   kept state.
@@ -139,6 +147,8 @@ internal class HostCore(
   private val keeper: KeeperDisplay,
   private val log: HostLog,
   private val events: HostEvents,
+  /** The link to the master PC; none in the tests of the host alone. */
+  private val link: LinkPort = NoLink,
 ) {
   /** Who draws the covers. Until show/ gives one, a stand in that logs them. */
   var shower: Shower = LoggingShower(log)
@@ -177,7 +187,9 @@ internal class HostCore(
   fun tick() {
     val engine = ensureEngine() ?: return
     val seen = try {
-      facts.factsNow()
+      val now = facts.factsNow()
+      val reach = link.inReach
+      now.copy(inReach = reach, prodded = reach && link.takeProdded())
     } catch (e: Exception) {
       return failedTick("facts", e)
     } catch (e: LinkageError) {
@@ -268,9 +280,33 @@ internal class HostCore(
    * with no name.
    */
   fun pair(welcome: ByteArray, codeSecret: ByteArray, childName: String?): Boolean {
-    started = true
     try {
       val made = engines.paired(welcome, codeSecret, clock.wallSecs())
+      return adopt(made, childName)
+    } catch (e: EngineException) {
+      log.line("host pair_refused error=${e.javaClass.simpleName}")
+      return false
+    } catch (e: Exception) {
+      failed("pair", e)
+      return false
+    } catch (e: LinkageError) {
+      failed("pair", e)
+      return false
+    } finally {
+      welcome.fill(0)
+      codeSecret.fill(0)
+    }
+  }
+
+  /**
+   * Pairs the phone with an engine already made, as the link makes it from
+   * the master's welcome (the code secret never reaching Kotlin), for the
+   * child called [childName]: the same as [pair] from there on. On false
+   * the engine is closed and nothing changed.
+   */
+  fun adopt(made: PhoneEngineInterface, childName: String?): Boolean {
+    started = true
+    try {
       val kept = try {
         val bytes = made.save()
         try {
@@ -306,19 +342,58 @@ internal class HostCore(
       events.changed(HostChange.PAIRING)
       tick()
       return true
-    } catch (e: EngineException) {
-      log.line("host pair_refused error=${e.javaClass.simpleName}")
-      return false
     } catch (e: Exception) {
       failed("pair", e)
       return false
     } catch (e: LinkageError) {
       failed("pair", e)
       return false
-    } finally {
-      welcome.fill(0)
-      codeSecret.fill(0)
     }
+  }
+
+  /**
+   * The master's answer to the report the link carried (the core's grant as
+   * JSON bytes): the engine takes it, the state is kept before anything is
+   * acted on, and the host ticks at once, so the orders follow it (a report
+   * at once when the grant asks for one).
+   */
+  fun takeGrant(grant: ByteArray) {
+    val engine = ensureEngine() ?: return
+    val taken = try {
+      engine.takeGrant(grant, clock.wallSecs())
+    } catch (e: EngineException.Broken) {
+      return broken(e)
+    } catch (e: InternalException) {
+      return broken(e)
+    } catch (e: Exception) {
+      return failed("grant", e)
+    } catch (e: LinkageError) {
+      return failed("grant", e)
+    }
+    if (safely("should_save", false) { engine.shouldSave() }) save(engine)
+    if (taken.outcome == GrantOutcome.NOT_FOR_THIS_DEVICE) log.line("host grant not_for_this_phone")
+    tick()
+  }
+
+  /**
+   * The master could not be reached with a report waiting (the link closed,
+   * or no answer came): the engine stops trusting what the master last said
+   * is left, and the host ticks.
+   */
+  fun lostContact() {
+    val engine = engine ?: return
+    safely("lost_contact", Unit) { engine.lostContact() }
+    tick()
+  }
+
+  /**
+   * The family's PC removed this phone, and said so: the phone lets go of
+   * its limits, as [forget] does. Switching its protection off is the
+   * Android side's.
+   */
+  fun release() {
+    log.line("host released")
+    forget()
   }
 
   /** Forgets the pairing: the state is deleted, nothing is covered, nothing ticks. */
@@ -389,11 +464,30 @@ internal class HostCore(
     }
     // The engine's notes hold no sentence and no name: a package at most.
     for (note in orders.notes) log.line("note $note")
-    if (orders.sendReport && !reportOrdered) {
-      // Only ever ordered in reach of the master, which is never, until the link.
-      reportOrdered = true
-      log.line("host report_ordered no_link")
+    if (orders.sendReport) report()
+  }
+
+  /**
+   * A report the orders ask for: written, kept, then handed to the link.
+   * Not written at all while the link may not send one now (no session, or
+   * the phone called on the PC often this minute): the engine orders it
+   * again at a later tick. One the link could not take after all is a
+   * contact lost.
+   */
+  private fun report() {
+    val engine = engine ?: return
+    if (!link.mayReport()) {
+      if (!reportOrdered) {
+        reportOrdered = true
+        log.line("host report_ordered no_link")
+      }
+      return
     }
+    reportOrdered = false
+    val report = safely("report", null) { engine.outgoingReport(clock.wallSecs()) } ?: return
+    // Kept before it is sent: the report's number and what it carries.
+    if (safely("should_save", false) { engine.shouldSave() }) save(engine)
+    if (!link.send(report)) safely("lost_contact", Unit) { engine.lostContact() }
   }
 
   /** The engine says to keep the state: exactly then, in place of the old bytes. */
@@ -473,7 +567,7 @@ internal class HostCore(
   private fun schedule(nextCheckInSecs: Long?) {
     val now = clock.elapsedMs()
     val plan = HostTimes.plan(interactive, nextCheckInSecs, now, alarmAt)
-    timer.tickAfter(plan.tickInMs)
+    timer.tickAfter(if (link.inReach) plan.tickInMs.coerceAtMost(HostTimes.IN_REACH_MS) else plan.tickInMs)
     plan.alarmAt?.let { at ->
       // Remembered only when Android took it, so a refused one is asked for again at the next tick.
       if (safely("alarm", false) { wakeups.at(at); true }) alarmAt = at

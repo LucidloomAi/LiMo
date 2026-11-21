@@ -4,7 +4,7 @@ Debug builds only. A release build is made from src/main alone and never has
 this receiver or its code (src/debug/java).
 
 dev/DevReceiver: how the development tool on the PC talks to the app over
-the USB cable, before the link exists. It takes three broadcasts: PAIR (take
+the USB cable, with no family PC. It takes three broadcasts: PAIR (take
 the test family's pairing file from files/limo-dev/pairing.json, then delete
 it), FORGET (wipe the kept state) and PROBE (switch on or off the probe that
 logs the class names the guard reads and the package manager's answers for

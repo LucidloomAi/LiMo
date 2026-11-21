@@ -1,7 +1,10 @@
 # dev
 
-A test family over the USB cable, before the link exists: the app's side
-of the development tool on the PC (`phone/devtool`); and the probe that
+A test family over the USB cable, with no family PC: the app's side of
+the development tool on the PC (`phone/devtool`), which pairs a debug build
+without the link (a phone paired this way has no kept pairing, so its link
+opens no session; the family's PC pairs a phone through the cable door,
+link/README.md); and the probe that
 learns the real names of the pages LiMo guards. **Debug builds only**:
 everything here is in `src/debug`, which a release build never compiles,
 and `npm run inspect` checks that the release APK holds neither the

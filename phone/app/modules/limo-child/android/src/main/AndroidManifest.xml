@@ -20,12 +20,26 @@ ai.lucidloom.limo.child: .watch.WatchService, .keep.AdminReceiver.
     Permissions. Only what these components need, each one for a reason.
     Not here, on purpose: the camera, the microphone, location, contacts,
     accounts, the call log, phone numbers, reading or writing shared storage,
-    exact alarms, and "draw over other apps" (the covers are accessibility
-    overlays, which need no permission of their own). Also not here:
-    INTERNET. Nothing in this build opens a socket; the link to the master PC
-    (folder link/, a later piece) adds INTERNET and ACCESS_NETWORK_STATE for
-    the home network only, and says so where it adds them.
+    exact alarms, Wi-Fi's own state and multicast, nearby devices, and "draw
+    over other apps" (the covers are accessibility overlays, which need no
+    permission of their own).
     -->
+
+    <!--
+    link/: the link to the family's PC, and to nothing else. Sockets to the
+    phone's own loopback, where the USB cable's tunnel brings the PC's port,
+    and to the PC's address on the home network, encrypted (Noise, the
+    limo-link crate); and Android's NsdManager, which needs this permission
+    too, to find the PC's announcement on the home network. No other host,
+    no other port: see link/README.md and its house rules.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+    link/: which network is Wi-Fi, so the home network's sockets go through
+    it even when mobile data is the default network, and word when Wi-Fi
+    comes, so the link knocks at once. The network's name is never read.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- keep/KeepService runs as a foreground service (Android 9 and later). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -208,6 +222,21 @@ ai.lucidloom.limo.child: .watch.WatchService, .keep.AdminReceiver.
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
         </receiver>
+
+        <!--
+        link/CableDoor: the cable door. The family's PC writes a pairing offer
+        into it over the USB cable (content write, the offer on its standard
+        input), in release builds too. Exported so that the adb shell can
+        reach it, and guarded by android.permission.DUMP, which only the adb
+        shell and the system hold: no app on the phone can open it. It takes
+        one offer, and none while the phone is paired.
+        -->
+        <provider
+            android:name="ai.lucidloom.limo.child.link.CableDoor"
+            android:authorities="ai.lucidloom.limo.child.cable"
+            android:exported="true"
+            android:grantUriPermissions="false"
+            android:permission="android.permission.DUMP" />
 
         <!--
         The development receiver (folder dev/) is declared in

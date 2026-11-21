@@ -193,6 +193,37 @@ impl TestFamily {
         Ok(())
     }
 
+    /// Asks the connected phone to report at once when the family's file
+    /// wants to hear from it, as the service's prods do; returns the bytes
+    /// to write to the phone (none when it was not wanted, or no session is
+    /// open).
+    pub fn prod(&self, now_ms: i64, wall_secs: i64) -> Result<Vec<u8>, TestkitError> {
+        let ms = u64::try_from(now_ms).map_err(|e| failed("the elapsed count", e))?;
+        let mut family = self.family()?;
+        let Family { master, link } = &mut *family;
+        let Some(link) = link.as_mut() else { return Ok(Vec::new()) };
+        if link.phone().is_none() {
+            return Ok(Vec::new());
+        }
+        master.prod(link, Now { ms, unix: wall_secs }).map_err(|e| failed("prod", e))?;
+        Ok(link.take_outgoing())
+    }
+
+    /// The child's counted use today on all of its devices, as the family's
+    /// file has it, in seconds.
+    pub fn used_today(&self, child_id: String, wall_secs: i64) -> Result<i64, TestkitError> {
+        let mut family = self.family()?;
+        let today = family.master.hub().child_today(&child_id, wall_secs).map_err(|e| failed("read today", e))?;
+        Ok(convert::long(today.used_secs))
+    }
+
+    /// The packages of the app list a phone sent last, in its order; empty
+    /// when it sent none.
+    pub fn apps_of(&self, device_id: String) -> Result<Vec<String>, TestkitError> {
+        let family = self.family()?;
+        Ok(family.master.apps_of(&device_id).map(|apps| apps.iter().map(|a| a.package.clone()).collect()).unwrap_or_default())
+    }
+
     /// Feeds bytes from the phone into the master's end, which acts on what
     /// came as the Windows service will (pairs, answers reports); returns the
     /// bytes it would write back.

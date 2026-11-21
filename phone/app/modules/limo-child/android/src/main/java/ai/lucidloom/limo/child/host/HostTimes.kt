@@ -30,6 +30,14 @@ internal object HostTimes {
   /** An alarm wanted this much earlier than the one set replaces it. */
   const val ALARM_SLACK_MS = 1_000L
 
+  /**
+   * While the master is in reach, the host ticks at least this often, as
+   * the engine's README asks, so that an idle phone at home still reports
+   * every few minutes and hears of new rules. On the host's own thread only:
+   * the alarm is not set for it.
+   */
+  const val IN_REACH_MS = 60_000L
+
   /** After a failure with no next check from the engine, or with no engine made. */
   const val RETRY_MS = 60_000L
 

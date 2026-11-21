@@ -14,9 +14,10 @@ of the lock (asking for time, a code, the PIN) to the engine and the
 answers back, and gives the engine's view to the child's screens.
 
 **What it is not.** It decides nothing (the engine does), reads no fact
-itself (watch/ does), draws nothing (show/ does), and keeps nothing alive
-(keep/ does). It has no link to the master PC yet, so the master is never
-in reach and no report is ever sent. It does not answer the screens'
+itself (watch/ does), draws nothing (show/ does), keeps nothing alive
+(keep/ does), and opens no socket (link/ does: it starts the link, takes
+from it whether the master is in reach, hands it the engine's reports and
+takes the master's grants from it). It does not answer the screens'
 requests itself: `LimoChildModule` hands each to the seam (seam/README.md),
 which asks the host for its view; the module also starts the keeper when
 the app opens. Nothing here has run on a phone yet: see [What only a phone can prove](#what-only-a-phone-can-prove).
@@ -78,12 +79,22 @@ The reason a child types is not a secret, but it is never logged.
 | `finishSetup { answer -> }` | A guardian finished setup on the phone: they left setup's last screen (the seam calls it for `child.finishSetup`, and again for `child.markIntroSeen` in case that request was lost). Until the engine has it, it counts nothing and covers nothing, and the time left it hands the keeper says "Setup is not finished on this phone.". `WayOut.Done(true)` when this finished it, `Done(false)` when it was finished already (nothing changes, nothing is written), `Refused` (`CannotCheck`) when the kept state cannot be read, `NotPaired`, `Failed`. As with a way out, the state is kept before the answer and the engine ticked at once, so a blocked app in front is covered there and then. |
 | `listen { what -> }` | Told on the main thread: `PAIRING` when the phone was paired or forgotten (and so its name changed), `VIEW` when the time left's words, the cover, the permissions or the engine's notes changed, or after a way out. Ask again then. Close the handle to stop. |
 
-**For pairing (dev/ now, the link later):**
+**For pairing (dev/ and the link):**
 
 | Call | What |
 | --- | --- |
 | `pair(welcome, codeSecret, childName) { ok -> }` | A new engine from the core's welcome grant (JSON bytes) and the 32 byte code secret, both filled with zeros after, for the child called `childName`. Its state is written before the engine is used; if it cannot be written, nothing changes, the name neither, and the answer is false. Then the name is kept (or, with none, any older one removed). It replaces any state and name kept before, a state that cannot be read among them. |
 | `forget { }` | The kept state and the child's name deleted, nothing covered, nothing ticking, the keeper stopped (`KeeperDisplay.cleared`). |
+
+**For the link (link/, on its own thread; each call carried onto the
+host's):** `adopt(engine, childName)`, a pairing over the link: the same as
+`pair` with the engine already made in Rust from the master's welcome (the
+code secret never reaching Kotlin), the name the welcome gave; the link
+waits for it. `takeGrant(bytes)`: the master's answer to a report, kept
+before it is acted on, then a tick at once. `lostContact()`: a report got no
+answer. A tick at once when the master comes in or out of reach or asks for
+a report. `release()`: the PC removed the phone: `forget`, and LiMo's device
+admin switched off. And `cableOffer(bytes)`, from the cable door.
 
 **For receivers (keep/):** `start()` (idempotent) and `wake(done)`, a tick
 at once with `done` run after it, so a receiver can hold its broadcast
@@ -97,7 +108,8 @@ All in `HostTimes`:
 | --- | --- |
 | The screen on (`interactive`) | Once a second, on the host's thread (`Handler.postDelayed`). |
 | Anything the watch says changed: the app in front, the screen on or off or unlocked, a call, the clock, the zone, a permission, the apps | At once, in place of the tick that was waiting, so a burst of changes gives one tick. Screen on and unlock come this way. |
-| The screen off | No tick every second: nothing counts. The next tick at the engine's next check (`next_check_in_secs`), at most fifteen minutes away, on the host's thread while the phone is awake, and by an alarm that wakes it from sleep. |
+| The screen off | No tick every second: nothing counts. The next tick at the engine's next check (`next_check_in_secs`), at most fifteen minutes away, on the host's thread while the phone is awake, and by an alarm that wakes it from sleep. While the master is in reach, at least once a minute on the host's thread (`IN_REACH_MS`), as the engine asks; the alarm is not set for it. |
+| The link | At once when a session opens or ends, the master asks for a report, or a grant comes. |
 | Always | An alarm at most fifteen minutes away, so a LiMo stopped from Android's list of running apps comes back. While the screen is on it is set again only when it comes within five minutes, about every ten minutes. |
 | A way out, a pairing | At once, after it. |
 | A failure | At the usual next tick; a minute when there was no engine to ask. |
@@ -126,15 +138,19 @@ In this order, at every tick:
 5. **The engine's notes**, each logged as the engine's JSON (`note
    {"note":"blocked_app_opened","package":"org.example.casino",...}`). They
    hold no sentence and no name.
-6. **A report** is never sent: there is no link, so the facts never say the
-   master is in reach and the engine never orders one. Were it ordered, one
-   log line says so.
+6. **A report**, when the orders ask for one: written
+   (`outgoingReport`), the state kept, the bytes handed to the link, which
+   sends them with its open session. Not written at all while the link may
+   not send one (no session, or forty calls on the PC this minute); the
+   engine orders it again a moment later. One the link could not take
+   after all is a contact lost (`lostContact`).
 7. **The next tick**, as above.
 
 ## The child's name
 
 The welcome grant holds no name, so the pairing hands the host the child's
-name beside it (the development tool's pairing file now, `dev/README.md`).
+name beside it: the master's welcome over the link (link/README.md), or
+the development tool's pairing file (`dev/README.md`).
 The host keeps it in a small file of its own beside the engine's state,
 the app's private `files/limo/child.json`, `{"child_name":"Asha"}`, written
 all or nothing with `AtomicFile` (`ChildName`, `AtomicNameStore`), out of
@@ -200,7 +216,9 @@ a code, a PIN, nor an error's own words.
 | `host state_unreadable kind=<empty, not_limo, newer, damaged> phone_locked` | The kept state could not be read. |
 | `host engine_broken error=<kind> loading_again` | The engine was made again. |
 | `host failed what=<what> error=<kind>` | Anything else that failed; at most once a minute for each. |
-| `host report_ordered no_link` | Never expected before the link. |
+| `host report_ordered no_link` | A report the engine asked for while the link could not take one (no session, or the minute's calls used up); once until a report goes. |
+| `host grant not_for_this_phone` | A grant for another phone, which the engine ignored. |
+| `host released`, `host protection_off` | The PC removed the phone: it forgot its pairing, and LiMo's device admin was switched off. |
 | `note <the engine's JSON>` | Each of the engine's notes for the guardian. |
 | `way_out <ask, code, pin, guard_pin> answer=<done, added, unlocked, release_confirmed, wrong, must_wait, ...>` | Each way out, the guard's PIN among them, by the kind of its answer. |
 | `host setup <finished, already, refused error=CannotCheck, not_paired, failed>` | Setup finished on the phone, or asked for again. |
@@ -295,13 +313,6 @@ development tool):
 
 ## Left open
 
-- **The name over the network.** When pairing over the network is built,
-  the master's welcome will carry the child's name, and the link hands it
-  to `pair` as the development tool does now.
-- **The link.** `inReach` and `prodded` are always false, and a report is
-  never sent; the link adds the session, `outgoingReport`,
-  `takeGrant`, `lostContact` and the wake ups the engine asks for in reach
-  (at least once a minute).
 - **Split screen with a blocked app beside the front** (the watch's
   `alsoVisible`): the host gives the engine the one front. Asking the engine
   about each app beside it, or the engine taking a list, is for the lead.
@@ -320,7 +331,7 @@ host/
   HostCore.kt         the host with no Android in it, and the small interfaces it needs (state, facts, engines, clock, timer, alarm, keeper, log)
   ChildName.kt        the child's name: cleaned, its file's text, and where it is kept (NameStore)
   HostTimes.kt        when it ticks and sets its alarm, and its times
-  Host.kt             the host of the process: its thread, AtomicFile for the state and the name, the watch's facts, the alarm, the main thread
+  Host.kt             the host of the process: its thread, AtomicFile for the state and the name, the watch's facts, the alarm, the main thread, the link and its side of it
   LimoChildModule.kt  the Expo module: starts the keeper when the app opens; hands the screens' requests and the change event to seam/
 src/test/java/ai/lucidloom/limo/child/host/
   HostRig.kt          the made up phone, the state in memory, the engine watched

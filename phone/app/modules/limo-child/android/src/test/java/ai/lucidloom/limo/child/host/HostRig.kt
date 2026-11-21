@@ -24,6 +24,8 @@ import ai.lucidloom.limo.child.ffi.WarningShown
 import ai.lucidloom.limo.child.ffi.app
 import ai.lucidloom.limo.child.ffi.miraRules
 import ai.lucidloom.limo.child.ffi.testkit.TestFamily
+import ai.lucidloom.limo.child.link.LinkPort
+import ai.lucidloom.limo.child.link.NoLink
 import java.io.File
 import java.io.IOException
 
@@ -289,10 +291,13 @@ internal class HostRig(folder: File, start: Long = WEDNESDAY_4_PM) : AutoCloseab
     }
   }
 
+  /** The link the host is given: none, unless a test of the link gives its own. */
+  var link: LinkPort = NoLink
+
   var core = newCore()
 
   /** A host as a new process makes it, on the same kept state. */
-  fun newCore(): HostCore = HostCore(store, names, facts, engines, clock, timer, wakeups, keeper, { log += it }, { events += it }).also {
+  fun newCore(): HostCore = HostCore(store, names, facts, engines, clock, timer, wakeups, keeper, { log += it }, { events += it }, link).also {
     it.shower = shower
   }
 

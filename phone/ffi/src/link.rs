@@ -162,6 +162,8 @@ struct Pairing {
     master_now: Option<i64>,
     /// The welcome and the code secret, until the engine is made from them.
     welcome: Option<(limo_core::Grant, CodeSecret)>,
+    /// The child's name the welcome gave.
+    child_name: Option<String>,
 }
 
 /// The phone's side of pairing, once, with the master an offer names:
@@ -196,7 +198,7 @@ impl PhonePairing {
             limo_link::PairRequest { name: request.name, form: Form::Child, platform: request.platform, android_version };
         let link = limo_link::PhonePairing::start(&offer.inner, request, now(now_ms)?)?;
         Ok(Arc::new(PhonePairing {
-            inner: Mutex::new(Pairing { link, paired: None, master_now: None, welcome: None }),
+            inner: Mutex::new(Pairing { link, paired: None, master_now: None, welcome: None, child_name: None }),
         }))
     }
 
@@ -219,6 +221,7 @@ impl PhonePairing {
         pairing.paired = Some(welcomed.paired);
         pairing.master_now = Some(welcomed.master_now);
         pairing.welcome = Some((welcomed.welcome, welcomed.code_secret));
+        pairing.child_name = welcomed.child_name;
         Ok(true)
     }
 
@@ -237,6 +240,13 @@ impl PhonePairing {
     /// The master's clock when it welcomed the phone, unix seconds.
     pub fn master_now(&self) -> Result<Option<i64>, LinkError> {
         Ok(hold(&self.inner)?.master_now)
+    }
+
+    /// The child's name the master's welcome gave, as it came (the host
+    /// cleans it before it keeps it); None before the welcome, and from a
+    /// master that does not say it.
+    pub fn child_name(&self) -> Result<Option<String>, LinkError> {
+        Ok(hold(&self.inner)?.child_name.clone())
     }
 
     /// The bytes to keep for every session after this one. They hold the

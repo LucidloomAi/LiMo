@@ -123,7 +123,8 @@ loop {
                 // in one step: refuse a used offer, pair with the offer's child,
                 // mark the offer used, keep phone_key with the new device
                 let pairing = hub.pair_device(&child, &request.name, DeviceKind::Portable, &request.platform, now.unix)?;
-                link.welcome(&pairing.welcome, &pairing.code_secret, now)?;
+                // with the child's name, for the phone's screens (or welcome(), with none)
+                link.welcome_child(&pairing.welcome, &pairing.code_secret, &child_name, now)?;
             }
             MasterEvent::Opened { device_id, .. } => replace_any_older_session_of(device_id),
             MasterEvent::Report { report } => link.grant(&hub.handle_report(&report, now.unix)?, now)?,
@@ -391,7 +392,7 @@ errors say only where the reading stopped.
 
 | Master to phone | |
 | --- | --- |
-| `{"say":"welcome","welcome":{...},"code_secret":"<64 hex>","master_now":...}` | The answer to `pair`: the core's first `Grant`, the device's code secret, and the master's clock. |
+| `{"say":"welcome","welcome":{...},"code_secret":"<64 hex>","master_now":...,"child_name":"Asha"}` | The answer to `pair`: the core's first `Grant`, the device's code secret, the master's clock, and the child's name (1 to 120 characters) for the phone's own screens. A master may leave the name out (`MasterLink::welcome`); `MasterLink::welcome_child` gives it. The phone refuses a name longer than 120 characters. |
 | `{"say":"grant","grant":{...},"master_now":...}` | The answer to a report. |
 | `{"say":"report_now"}` | Report at once: the hub's wanted reports. |
 | `{"say":"refused","why":...,"speaks":1}` | No, and the link ends. `why` is `removed`, `unknown`, `other_device`, `version`, `offer_used`, `offer_expired` or `not_supported`; `speaks` is the link version the master speaks. |
@@ -491,7 +492,7 @@ secret, and the code secret a `welcome` carries.
 With the `dev` feature, `limo_link::dev::DevMaster` plays the master over a
 real family file in a folder the caller gives (a temporary one): it keeps
 its offers and the phones it paired in memory, pairs a phone with the hub
-(`Hub::pair_device`), answers reports with the hub's grants
+(`Hub::pair_device`) and names the child in its welcome, answers reports with the hub's grants
 (`Hub::handle_report`), refuses a removed or unknown device as the hub
 says, keeps app lists, and asks a phone to report when the hub wants it
 (`Hub::wanted_reports`). A phone's side can be tested against it with no PC
@@ -513,7 +514,6 @@ prints what crosses and never a secret.
 - **Where the master keeps link keys.** The master's own key pair, each
   phone's key and the offers belong in the hub's file (a later piece). Until
   then the dev master keeps them in memory.
-- **A removed phone releasing itself** when it is told `removed`.
 - **Padding**, so that message sizes say less.
 - **Rekeying.** Not done: nonces last 2^64 messages, and a session lasts
   hours.
@@ -554,7 +554,7 @@ with `cargo test --release --test link cost -- --ignored --nocapture`:
 | Where | What | Count |
 | --- | --- | --- |
 | `src/*.rs` | Unit tests: hex and base32 with the known answers of RFC 4648; X25519 with those of RFC 7748; BLAKE2s with RFC 7693's; this crate's resolver against snow's own, byte for byte, both protocols, every pairing of the two, and a rekey; the handshake message sizes; the cipher refusing short, altered and keyless text without a panic; the frame limits, piece counts, lengths refused from four bytes, frames from any pieces; preambles; offers to text and back, with 0, 1, 2 and 8 addresses, and every broken form refused without quoting it; ids and secrets never shared; the master id's known answer (worked out with Python's `hashlib`) and TXT records; the app list hash's known answers; every message to JSON and back; unknown and misshapen messages; bounds; key pairs saved and read again, and refused when they do not fit; secrets out of `Debug` | 32 |
-| `tests/link/` | The stories, both ends in memory with the dev master over a real family file. Pairing: a whole pairing, frame by frame; an offer used twice, an offer expired (and one at its last second), a wrong secret, an offer naming another key, an impostor that holds the whole offer, an offer from another master, a guardian's phone, two phones racing for one offer, a phone of a newer version, and a phone written by hand on snow from this README's description. Sessions: opening with a ping, reports and grants, prods, apps, goodbyes, a phone with another key, a phone that pinned another master, a removed phone (before and during its session), a forgotten one, a report for another device (refused by both sides), a grant for another device or nobody, every timing (a report unanswered, a quiet minute's ping, three minutes of silence, a handshake too slow on both sides), a replayed start, a newer version, a new session taking over. A whole day: pairing at 07:00, use and a report every two minutes, a goodbye, school out of reach, home again with the school's slices, a lock from the master and its lift arriving by prods, the evening until the day is used up, the master's count equal to the phone's at every exchange; and a PC asleep mid exchange. Hostile: every frame of a whole pairing and a whole session, both ways, garbled in nine places, cut, lengthened, shortened, said to be 4 GiB, replayed, swapped, dropped, replaced with junk and followed by a stray byte (252 runs), each ending the link or the clock, never bringing anything an honest run does not, and refusing everything after; lengths refused from four bytes at every step; a message cut at a piece boundary; a flag that is neither; a long message in seven pieces; a message too long to send. Random: random bytes at every step on both sides, random changes to whole conversations, and random JSON inside good encryption both ways (written by hand on snow), never a panic. Secrets: never in `Debug`, errors or the wire. One more, not run by default, measures the costs above | 41, and 1 |
+| `tests/link/` | The stories, both ends in memory with the dev master over a real family file. Pairing: a whole pairing, frame by frame; an offer used twice, an offer expired (and one at its last second), a wrong secret, an offer naming another key, an impostor that holds the whole offer, an offer from another master, a guardian's phone, two phones racing for one offer, a phone of a newer version, and a phone written by hand on snow from this README's description. Sessions: opening with a ping, reports and grants, prods, apps, goodbyes, a phone with another key, a phone that pinned another master, a removed phone (before and during its session), a forgotten one, a report for another device (refused by both sides), a grant for another device or nobody, every timing (a report unanswered, a quiet minute's ping, three minutes of silence, a handshake too slow on both sides), a replayed start, a newer version, a new session taking over. A whole day: pairing at 07:00, use and a report every two minutes, a goodbye, school out of reach, home again with the school's slices, a lock from the master and its lift arriving by prods, the evening until the day is used up, the master's count equal to the phone's at every exchange; and a PC asleep mid exchange. The welcome naming the child, or not, and a name empty or too long refused before anything is sent. Hostile: every frame of a whole pairing and a whole session, both ways, garbled in nine places, cut, lengthened, shortened, said to be 4 GiB, replayed, swapped, dropped, replaced with junk and followed by a stray byte (252 runs), each ending the link or the clock, never bringing anything an honest run does not, and refusing everything after; lengths refused from four bytes at every step; a message cut at a piece boundary; a flag that is neither; a long message in seven pieces; a message too long to send. Random: random bytes at every step on both sides, random changes to whole conversations, and random JSON inside good encryption both ways (written by hand on snow), never a panic. Secrets: never in `Debug`, errors or the wire. One more, not run by default, measures the costs above | 42, and 1 |
 | `tests/house_rules.rs` | No unsafe code, no attribute that silences a lint, no dash punctuation in anything a person reads, no machine paths | 4 |
 
 `LIMO_LINK_RANDOM=<n> cargo test --test link random` runs the random tests

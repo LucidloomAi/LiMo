@@ -1,17 +1,24 @@
 package ai.lucidloom.limo.child.host
 
 import ai.lucidloom.limo.child.ffi.Cover
+import ai.lucidloom.limo.child.ffi.PhoneEngineInterface
 import ai.lucidloom.limo.child.ffi.PhoneFacts
 import ai.lucidloom.limo.child.ffi.PinAction
 import ai.lucidloom.limo.child.ffi.TimeRequest
 import ai.lucidloom.limo.child.ffi.TryAnswer
 import ai.lucidloom.limo.child.ffi.WarningShown
+import ai.lucidloom.limo.child.keep.AdminReceiver
 import ai.lucidloom.limo.child.keep.AlarmReceiver
 import ai.lucidloom.limo.child.keep.Keeper
+import ai.lucidloom.limo.child.link.LinkHost
+import ai.lucidloom.limo.child.link.LinkHostSide
+import ai.lucidloom.limo.child.link.OfferAnswer
 import ai.lucidloom.limo.child.watch.PhoneWatch
 import ai.lucidloom.limo.child.watch.Watch
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
@@ -23,6 +30,8 @@ import android.util.Log
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * The engine's host of the process: [PhoneHost] on Android. One thread of
@@ -33,6 +42,11 @@ import java.util.concurrent.CopyOnWriteArrayList
  * It needs nothing to be running to work: the keeper's foreground service
  * (keep/) only keeps the process alive and shows the time left. While the
  * process lives and the phone is paired, the host ticks.
+ *
+ * It owns the link to the family's PC (link/, its own thread "LiMo link"):
+ * it starts it with itself, takes from it whether the master is in reach,
+ * hands it the engine's reports, and takes the master's grants, a contact
+ * lost, a pairing and a release from it on its own thread.
  */
 class Host private constructor(context: Context) : PhoneHost {
   private val app: Context = context.applicationContext ?: context
@@ -42,6 +56,7 @@ class Host private constructor(context: Context) : PhoneHost {
   private val listeners = CopyOnWriteArrayList<HostListener>()
   private val store = AtomicStateStore(stateFile(app))
   private val names = AtomicNameStore(nameFile(app))
+  private val link = LinkHost(app, LinkSide())
 
   // Already on the engine's thread.
   private val tick: Runnable = Runnable { guarded("tick") { core.tick() } }
@@ -66,10 +81,21 @@ class Host private constructor(context: Context) : PhoneHost {
     keeper = Keeper.display(app),
     log = AndroidHostLog,
     events = HostEvents { what -> main.post { deliver(what) } },
+    link = link.core,
   )
 
   override fun start() {
     onEngine("start") { core.start() }
+    link.start()
+  }
+
+  /** True while the cable door's last offer is still being paired with. */
+  internal val cableBusy: Boolean get() = link.core.offerHeld
+
+  /** An offer the cable door read ([ai.lucidloom.limo.child.link.CableDoor]); null when it was too long. Wiped. */
+  internal fun cableOffer(text: ByteArray?): OfferAnswer {
+    link.start()
+    return link.core.takeOffer(text)
   }
 
   override val paired: Boolean get() = store.exists()
@@ -172,6 +198,62 @@ class Host private constructor(context: Context) : PhoneHost {
     return posted
   }
 
+  /** The host's side, as the link sees it: every call carried onto the engine's thread. */
+  private inner class LinkSide : LinkHostSide {
+    override val paired: Boolean get() = store.exists()
+
+    override fun adopt(engine: PhoneEngineInterface, childName: String?): Boolean {
+      val done = CountDownLatch(1)
+      var ok = false
+      val posted = engineThread.post {
+        try {
+          ok = core.adopt(engine, childName)
+        } catch (e: Exception) {
+          AndroidHostLog.line("host failed what=adopt error=${e.javaClass.simpleName}")
+        } finally {
+          done.countDown()
+        }
+      }
+      if (!posted) {
+        (engine as? AutoCloseable)?.let { guarded("engine_close") { it.close() } }
+        return false
+      }
+      if (!done.await(ADOPT_WAIT_SECS, TimeUnit.SECONDS)) return false
+      // Paired: the keeper's service and the covers, as after any pairing.
+      if (ok) Keeper.start(app, "link_pair")
+      return ok
+    }
+
+    override fun grant(grant: ByteArray) {
+      onEngine("grant") { core.takeGrant(grant) }
+    }
+
+    override fun lostContact() {
+      onEngine("lost_contact") { core.lostContact() }
+    }
+
+    override fun reachChanged() = timer.tickAfter(0)
+
+    override fun released() {
+      onEngine("release") { core.release() }
+      protectionOff()
+    }
+  }
+
+  /**
+   * The family's PC removed this phone: LiMo's device admin is switched off
+   * too, so LiMo can be removed from the phone, as the family decided. An
+   * app may always switch its own admin off.
+   */
+  private fun protectionOff() {
+    guarded("protection_off") {
+      val policy = app.getSystemService(DevicePolicyManager::class.java) ?: return@guarded
+      val admin = ComponentName(app, AdminReceiver::class.java)
+      if (policy.isAdminActive(admin)) policy.removeActiveAdmin(admin)
+      AndroidHostLog.line("host protection_off")
+    }
+  }
+
   private fun answerOnMain(block: () -> Unit) {
     main.post { guarded("answer") { block() } }
   }
@@ -200,6 +282,9 @@ class Host private constructor(context: Context) : PhoneHost {
 
     internal fun get(context: Context): Host =
       instance ?: synchronized(this) { instance ?: Host(context).also { instance = it } }
+
+    /** How long the link waits for a pairing to be kept on the engine's thread. */
+    private const val ADOPT_WAIT_SECS = 30L
 
     /** The engine's kept state: the app's private file `files/limo/state`. */
     internal fun stateFile(context: Context): File = File(context.filesDir, "limo/state")
@@ -268,7 +353,7 @@ internal class AtomicNameStore(private val file: File) : NameStore {
   override fun delete() = atomic.delete()
 }
 
-/** The watch's facts. There is no link yet, so the master is never in reach and never asks for a report. */
+/** The watch's facts. Whether the master is in reach, and asked for a report, the host takes from the link. */
 internal class WatchFacts(private val watch: PhoneWatch) : FactsSource {
   override fun factsNow(): PhoneFacts = watch.factsNow(inReach = false, prodded = false)
 

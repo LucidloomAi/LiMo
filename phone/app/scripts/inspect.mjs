@@ -12,8 +12,8 @@
 //   - the signing certificate and the 16 KB alignment of native libraries;
 //   - what the APK's bytes are made of.
 //
-// The checks, for both forms: no INTERNET or any other permission on the
-// never list in app.config.ts; no screen reachable from a link (no VIEW
+// The checks, for both forms: no permission on the never list in
+// app.config.ts; no screen reachable from a link (no VIEW
 // intent filter); backups off; not debuggable; no clear text traffic; the
 // build PC's user name, home folder and repository folder appear nowhere in
 // the APK's files.
@@ -22,12 +22,15 @@
 // the page probe (its class, its words, its broadcast), while the watch's
 // release WindowPage, which only matches page names, is; it holds the
 // Phone permission (READ_PHONE_STATE) and may ask to be left out of battery
-// optimisation (REQUEST_IGNORE_BATTERY_OPTIMIZATIONS); the Rust bridge
+// optimisation (REQUEST_IGNORE_BATTERY_OPTIMIZATIONS); it holds INTERNET and
+// ACCESS_NETWORK_STATE for its link to the family's PC, and the cable door
+// is there, exported, guarded by DUMP, at its one authority; the Rust bridge
 // (liblimo_phone_ffi.so) is there for every ABI the APK names, with JNA's
 // library and the bindings in the dex. For the guardian form: no
 // accessibility service, no device admin receiver, no usage access, no
 // foreground service, no Phone permission, no asking to be left out of
-// battery optimisation, and nothing of the child module
+// battery optimisation, no network at all (no INTERNET, no
+// ACCESS_NETWORK_STATE), no cable door, and nothing of the child module
 // at all: no Rust bridge, no JNA, no bindings.
 // For both: nothing of the testkit (the Rust feature that plays the master
 // PC in the JVM tests) in any native library or dex file. The same check is
@@ -108,6 +111,7 @@ function manifestFacts(xml) {
       return {
         kind: n.tag,
         name: n.attrs.name,
+        authorities: n.attrs.authorities,
         exported: n.attrs.exported,
         permission: n.attrs.permission,
         fgsType: n.attrs.foregroundServiceType,
@@ -177,8 +181,6 @@ function partOf(name) {
 // The checks
 
 const NEVER = [
-  'android.permission.INTERNET',
-  'android.permission.ACCESS_NETWORK_STATE',
   'android.permission.ACCESS_WIFI_STATE',
   'android.permission.CHANGE_WIFI_MULTICAST_STATE',
   'android.permission.NEARBY_WIFI_DEVICES',
@@ -209,7 +211,10 @@ const STUBS = [
   ['receiver', `${CHILD}.keep.RestartReceiver`, undefined],
   ['receiver', `${CHILD}.keep.AlarmReceiver`, undefined],
   ['receiver', `${CHILD}.keep.AdminReceiver`, 'android.permission.BIND_DEVICE_ADMIN'],
+  ['provider', `${CHILD}.link.CableDoor`, 'android.permission.DUMP'],
 ];
+// The cable door's one authority, which the PC's cable writes the offer to.
+const CABLE_AUTHORITY = `${CHILD}.cable`;
 // The Rust bridge (phone/ffi) and what comes with it.
 const BRIDGE = 'liblimo_phone_ffi.so';
 const BRIDGE_EXPORT = Buffer.from('uniffi_limo_phone_ffi_fn_method_phoneengine_tick');
@@ -232,7 +237,11 @@ const WINDOW_PAGE = Buffer.from('Lai/lucidloom/limo/child/watch/WindowPage;');
 // child form only: to know that a call rings or is on.
 // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS lets setup's Battery step show
 // Android's own question, for the child form only.
+// INTERNET and ACCESS_NETWORK_STATE are the link's, to the family's PC only
+// (the child module's link/README.md), for the child form only.
 const CHILD_PERMISSIONS = [
+  'android.permission.INTERNET',
+  'android.permission.ACCESS_NETWORK_STATE',
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
   'android.permission.POST_NOTIFICATIONS',
@@ -291,12 +300,19 @@ function inspect(form, file, tools) {
     }
     for (const p of CHILD_PERMISSIONS) check(held.has(p), `holds ${p}`);
     check(!facts.components.some((c) => c.name.endsWith('.dev.DevReceiver')), 'has no development receiver (debug builds only)');
+    const door = find('provider', `${CHILD}.link.CableDoor`);
+    check(door?.exported === '1' || door?.exported === 'true', 'the cable door is exported, for the adb shell');
+    check(door?.authorities === CABLE_AUTHORITY, `the cable door's authority is ${CABLE_AUTHORITY}`);
+    // Only the cable door may be an exported provider of LiMo's own.
+    const ownProviders = facts.components.filter((c) => c.kind === 'provider' && c.name.startsWith(`${CHILD}.`));
+    check(ownProviders.length === 1, 'the cable door is the child module\'s one provider');
   } else {
     check(!facts.components.some((c) => c.permission === 'android.permission.BIND_ACCESSIBILITY_SERVICE'), 'has no accessibility service');
     check(!facts.components.some((c) => c.permission === 'android.permission.BIND_DEVICE_ADMIN'), 'has no device admin receiver');
     check(!held.has('android.permission.PACKAGE_USAGE_STATS'), 'has no usage access (PACKAGE_USAGE_STATS)');
     check(!facts.components.some((c) => c.fgsType), 'has no foreground service');
     check(!facts.components.some((c) => c.name.startsWith(`${CHILD}.`)), 'has no component of the child module');
+    check(!facts.components.some((c) => c.authorities === CABLE_AUTHORITY), 'has no cable door');
     for (const p of CHILD_PERMISSIONS.filter((x) => x !== 'android.permission.POST_NOTIFICATIONS')) {
       check(!held.has(p), `does not hold ${p}`);
     }

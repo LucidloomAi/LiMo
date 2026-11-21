@@ -60,6 +60,7 @@ fn a_phone_pairs_with_the_offer_and_gets_its_welcome() {
     assert_eq!(welcomed.welcome.device_id, paired.device_id);
     assert_eq!(welcomed.code_secret.expose().len(), CODE_SECRET_BYTES);
     assert_eq!(welcomed.master_now, START);
+    assert_eq!(welcomed.child_name.as_deref(), Some("Asha"), "the child's name, for the phone's screens");
     // What the master keeps: the phone, its key, the device in the hub.
     let known = &family.master.phones_paired()[0];
     assert_eq!((known.device_id.as_str(), known.key), (paired.device_id.as_str(), *phone_key));
@@ -248,5 +249,49 @@ fn a_hand_made_phone_pairs_by_the_readmes_description() {
     assert_eq!(welcome["say"], "welcome");
     assert_eq!(welcome["code_secret"].as_str().unwrap().len(), 64);
     assert_eq!(welcome["master_now"], START);
+    assert_eq!(welcome["child_name"], "Asha");
     assert_eq!(welcome["welcome"]["device_id"], family.master.phones_paired()[0].device_id.as_str());
+}
+
+#[test]
+fn a_welcome_may_leave_the_childs_name_out_and_never_holds_a_wrong_one() {
+    // A master that does not say the name: the phone pairs with none.
+    let mut family = Family::new();
+    let offer = family.offer();
+    let now = family.now();
+    let mut phone = PhonePairing::start(&offer, request("Asha's phone"), now).unwrap();
+    let mut link = MasterLink::accept(family.master.keys(), now);
+    let directory = DirectoryList { offers: vec![OfferOnFile { offer: offer.clone(), used: false }], phones: vec![] };
+    let mut welcome = family.master.hub().pair_device(&family.child, "Asha's phone", limo_core::DeviceKind::Portable, "android", START).unwrap();
+    for _ in 0..3 {
+        let out = phone.take_outgoing();
+        let events = link.receive(&out, now, &directory).unwrap();
+        if !events.is_empty() {
+            break;
+        }
+        if let Some(welcomed) = phone.receive(&link.take_outgoing(), now).unwrap() {
+            panic!("welcomed early: {welcomed:?}");
+        }
+    }
+    // A name that is empty, or longer than the link carries, is refused
+    // before anything is sent, and the master can still welcome.
+    let code_secret = welcome.code_secret.clone();
+    assert!(matches!(link.welcome_child(&welcome.welcome, &code_secret, "  ", now), Err(LinkError::OutOfBounds { .. })));
+    let long = "n".repeat(limo_link::messages::MAX_NAME_CHARS + 1);
+    assert!(matches!(link.welcome_child(&welcome.welcome, &code_secret, &long, now), Err(LinkError::OutOfBounds { .. })));
+    link.welcome(&welcome.welcome, &code_secret, now).unwrap();
+    welcome.code_secret.fill(0);
+    let welcomed = phone.receive(&link.take_outgoing(), now).unwrap().expect("the welcome");
+    assert_eq!(welcomed.child_name, None);
+    // As JSON, a welcome with no name has no field for it, as a welcome of
+    // the first link had, and reads back the same.
+    let message = MasterSays::Welcome {
+        welcome: welcomed.welcome.clone(),
+        code_secret: welcomed.code_secret.clone(),
+        master_now: START,
+        child_name: None,
+    };
+    let json = serde_json::to_value(&message).unwrap();
+    assert!(json.get("child_name").is_none());
+    assert_eq!(serde_json::from_value::<MasterSays>(json).unwrap(), message);
 }
