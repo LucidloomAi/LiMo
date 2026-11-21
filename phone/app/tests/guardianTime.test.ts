@@ -7,14 +7,15 @@ import {
   clockText,
   dateLine,
   heardAgo,
+  laterInSentence,
   leftWords,
   minuteOfDay,
   minutesFigure,
   minutesInSentence,
   timeADayWords,
+  timeAt,
   timeLeft,
   timeOfDay,
-  untilInSentence,
   usedLine,
   usedSpan,
 } from '../src/guardian/time';
@@ -113,13 +114,35 @@ describe('times of day, on the screen’s own clock', () => {
     expect(minuteOfDay(1_440, H24)).toBe('00:00');
   });
 
-  it('a later moment in a sentence: today, tomorrow, a weekday, a date; rounded up to the minute', () => {
+  it('a later moment in a sentence: today, tomorrow, a weekday, a date', () => {
     const now = at(0, 21, 42);
-    expect(untilInSentence(now, at(0, 21, 47), H12)).toBe('9:47 pm');
-    expect(untilInSentence(now, at(0, 21, 46) + 1, H12)).toBe('9:47 pm');
-    expect(untilInSentence(now, at(1, 7, 0), H24)).toBe('tomorrow, 07:00');
-    expect(untilInSentence(now, at(2, 7, 0), H12)).toBe('Friday, 7:00 am');
-    expect(untilInSentence(now, at(9, 7, 0), H12)).toBe('Friday 27 November, 7:00 am');
+    expect(laterInSentence(now, at(0, 21, 47), 'from', H12)).toBe('9:47 pm');
+    expect(laterInSentence(now, at(1, 7, 0), 'until', H24)).toBe('tomorrow, 07:00');
+    expect(laterInSentence(now, at(2, 7, 0), 'from', H12)).toBe('Friday, 7:00 am');
+    expect(laterInSentence(now, at(9, 7, 0), 'until', H12)).toBe('Friday 27 November, 7:00 am');
+  });
+
+  it('a moment from which something becomes possible is rounded UP: never said earlier than it is', () => {
+    // The owner's run: the wait ended at 8:40:33 pm; "8:40 pm" was too early.
+    const end = at(0, 20, 40) + 33;
+    expect(timeAt(end, 'from', H12)).toBe('8:41 pm');
+    expect(laterInSentence(at(0, 20, 39), end, 'from', H12)).toBe('8:41 pm');
+    expect(timeAt(at(0, 20, 40) + 1, 'from', H24)).toBe('20:41');
+    // Exactly on a minute, that minute.
+    expect(timeAt(at(0, 20, 40), 'from', H12)).toBe('8:40 pm');
+    // Over midnight.
+    expect(laterInSentence(at(0, 23, 50), at(0, 23, 59) + 30, 'from', H12)).toBe('tomorrow, 12:00 am');
+  });
+
+  it('a moment until which something is allowed is rounded DOWN: never a minute more than there is', () => {
+    const end = at(0, 21, 30) + 59;
+    expect(timeAt(end, 'until', H12)).toBe('9:30 pm');
+    expect(laterInSentence(at(0, 21, 0), end, 'until', H12)).toBe('9:30 pm');
+    expect(leftWords(0, end, at(0, 16, 0), H12).words).toBe('Open until 9:30 pm');
+    // Exactly on a minute, that minute.
+    expect(timeAt(at(0, 21, 30), 'until', H24)).toBe('21:30');
+    // A moment that has happened is said as the clock showed it.
+    expect(timeOfDay(end, H12)).toBe('9:30 pm');
   });
 
   it('today’s date, and when a device was last heard', () => {

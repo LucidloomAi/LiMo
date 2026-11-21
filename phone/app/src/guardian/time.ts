@@ -83,7 +83,7 @@ export function leftWords(
   now: number,
   clock: Clock,
 ): { kind: 'left' | 'no-limit' | 'open'; words: string } {
-  if (unlockedUntil !== null && unlockedUntil > now) return { kind: 'open', words: `Open until ${untilInSentence(now, unlockedUntil, clock)}` };
+  if (unlockedUntil !== null && unlockedUntil > now) return { kind: 'open', words: `Open until ${laterInSentence(now, unlockedUntil, 'until', clock)}` };
   if (leftSecs === null) return { kind: 'no-limit', words: 'No limit today' };
   return { kind: 'left', words: timeLeft(leftSecs) };
 }
@@ -118,16 +118,48 @@ export function minuteOfDay(minute: number, clock: Clock): string {
   return clockText(Math.floor(m / 60), m % 60, clock);
 }
 
-/** The time of day of a moment: "9:42 pm" or "21:42". Seconds are dropped. */
+/**
+ * The time of day of a moment as the clock showed it: "9:42 pm" or "21:42",
+ * its seconds dropped. For a moment that has happened, such as when a child
+ * asked; a moment the screens say something becomes possible from, or is
+ * allowed until, goes through `timeAt` with its way.
+ */
 export function timeOfDay(at: number, clock: Clock): string {
   const t = local(at, clock);
   return clockText(t.hour, t.minute, clock);
 }
 
-/** A moment rounded up to the next whole minute, so that a time is never said earlier than it is. */
+/**
+ * A time of day has no seconds, so saying a moment rounds it, and each kind
+ * of moment is rounded the honest way:
+ *
+ * - `from`: a moment from which something becomes possible: a wait's end
+ *   (try again at), a lock's end, bedtime's end. Rounded UP to the next
+ *   whole minute, so a screen never says it is possible before it is.
+ * - `until`: a moment until which something is allowed: open until, LiMo
+ *   allowed to be removed until, an offer's end. Rounded DOWN, so a screen
+ *   never promises a minute more than there is.
+ *
+ * A moment exactly on a minute is that minute either way.
+ */
+export type Way = 'from' | 'until';
+
+/** A moment rounded up to the next whole minute. */
 function upToMinute(at: number): number {
   const over = ((at % 60) + 60) % 60;
   return over === 0 ? at : at + (60 - over);
+}
+
+/** A moment rounded down to its whole minute. */
+function downToMinute(at: number): number {
+  return at - (((at % 60) + 60) % 60);
+}
+
+const onMinute = (at: number, way: Way) => (way === 'from' ? upToMinute(at) : downToMinute(at));
+
+/** The time of day of a moment, rounded its honest way: "8:41 pm" for a wait that ends at 8:40:33. */
+export function timeAt(at: number, way: Way, clock: Clock): string {
+  return timeOfDay(onMinute(at, way), clock);
 }
 
 /** "Friday 27 November". */
@@ -138,14 +170,14 @@ function dayAndMonth(t: ReturnType<typeof local>): string {
 /**
  * A later moment inside a sentence: "9:47 pm" today, else "tomorrow, 7:00
  * am", "Friday, 7:00 am", or "Friday 4 December, 7:00 am" a week or more
- * on. Rounded up to the minute.
+ * on. Rounded its honest way (`Way`).
  */
-export function untilInSentence(now: number, at: number, clock: Clock): string {
-  const up = upToMinute(at);
-  const time = timeOfDay(up, clock);
-  const then = local(up, clock);
+export function laterInSentence(now: number, at: number, way: Way, clock: Clock): string {
+  const said = onMinute(at, way);
+  const time = timeOfDay(said, clock);
+  const then = local(said, clock);
   const days = then.day - local(now, clock).day;
-  if (up <= now || days <= 0) return time;
+  if (said <= now || days <= 0) return time;
   if (days === 1) return `tomorrow, ${time}`;
   if (days <= 6) return `${WEEKDAYS[then.weekday]}, ${time}`;
   return `${dayAndMonth(then)}, ${time}`;

@@ -16,7 +16,7 @@ import { GuardianTabs, type TabKey } from './GuardianTabs';
 import { Column, Page } from './Page';
 import { Btn, Card, CardHead, Chip, Field, Head2, Kvs, Label, MakerMark, Mark, Room, SubHead, Tile, TopRow, useSizes, useWide } from './parts';
 import { gtype } from './text';
-import { dateLine, untilInSentence } from './time';
+import { dateLine, laterInSentence } from './time';
 import * as W from './words';
 
 export type MoreScreen = (typeof W.more.rows)[number]['key'];
@@ -30,8 +30,8 @@ export function useSaid(onSignedOut: () => void, onRefused: () => void): Said {
     (o) => {
       if (o.kind === 'not-done' && o.reason === 'signed_out') onSignedOut();
       if (o.kind === 'refused') onRefused();
-      if (o.kind === 'wait') return W.confirm.wait(untilInSentence(now(), o.until, clock));
-      if (o.kind === 'wrong' && o.waitUntil !== null) return W.confirm.wait(untilInSentence(now(), o.waitUntil, clock));
+      if (o.kind === 'wait') return W.confirm.wait(laterInSentence(now(), o.until, 'from', clock));
+      if (o.kind === 'wrong' && o.waitUntil !== null) return W.confirm.wait(laterInSentence(now(), o.waitUntil, 'from', clock));
       return o.words;
     },
     [onSignedOut, onRefused, now, clock],
@@ -394,7 +394,7 @@ export function About({
         <Head2 icon="trash" title={W.about.remove} />
         <Btn label={W.about.removeLimo} onPress={onRemoveLimo} outer={styles.gap} testID="remove-limo" />
         <Txt style={[gtype.small, styles.small]} wrap="pretty">
-          {removalUntil !== null && removalUntil > now ? W.confirm.removeLimo.allowed(untilInSentence(now, removalUntil, clock)) : W.about.removeLimoLine}
+          {removalUntil !== null && removalUntil > now ? W.confirm.removeLimo.allowed(laterInSentence(now, removalUntil, 'until', clock)) : W.about.removeLimoLine}
         </Txt>
         <Btn label={W.about.deleteFamily} look="coral" onPress={onDeleteFamily} outer={styles.gap} testID="delete-family" />
         <Txt style={[gtype.small, styles.small]}>{W.about.asksAgain}</Txt>
@@ -575,7 +575,7 @@ export function RemoveLimo({ door, onBack, onTab, onSignedOut, onRefused }: { do
       button={W.confirm.removeLimo.button}
       act={(password) => ask(door, 'allow_removal', { password })}
       onDone={() => undefined}
-      doneWords={(v) => W.confirm.removeLimo.allowed(untilInSentence(now, v.until, clock))}
+      doneWords={(v) => W.confirm.removeLimo.allowed(laterInSentence(now, v.until, 'until', clock))}
       onSignedOut={onSignedOut}
       onRefused={onRefused}
       testID="screen-remove-limo"

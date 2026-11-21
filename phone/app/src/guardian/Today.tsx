@@ -25,7 +25,7 @@ import { GuardianTabs, type TabKey } from './GuardianTabs';
 import { Page } from './Page';
 import { Btn, Card, Label, Mark, Stamp, Tile, TopRow, useScreenWidth, useSizes } from './parts';
 import { gtype } from './text';
-import { dateLine, heardAgo, leftWords, minutesInSentence, timeOfDay, usedLine, usedSpan } from './time';
+import { dateLine, heardAgo, leftWords, minutesInSentence, timeAt, timeOfDay, usedLine, usedSpan } from './time';
 import * as W from './words';
 
 /** How often Today asks again while it is open, in milliseconds. */
@@ -217,7 +217,7 @@ function Kid({
           {choosing ? (
             <View style={styles.choices} testID={`open-choices-${k.childId}`}>
               {openChoices(t).map((until) => (
-                <Btn key={until} label={timeOfDay(until, clock)} mono padding={14} onPress={() => onAct(until)} testID={`open-${until}`} />
+                <Btn key={until} label={timeAt(until, 'until', clock)} mono padding={14} onPress={() => onAct(until)} testID={`open-${until}`} />
               ))}
             </View>
           ) : null}

@@ -21,7 +21,7 @@ import { useClock } from './clock';
 import { Page } from './Page';
 import { Btn, Card, Field, H1, Label, Room, Tile, TopRow } from './parts';
 import { gtype } from './text';
-import { timeOfDay } from './time';
+import { laterInSentence } from './time';
 import * as W from './words';
 
 export type SignInStart = {
@@ -46,7 +46,8 @@ export function SignIn({ host, onSignedIn, start }: { host: GuardianHost; onSign
   const [password, setPassword] = useState(start?.typed ?? '');
   const live = useRef(true);
 
-  const waitWords = (until: number) => W.signIn.wait(timeOfDay(until, clock));
+  // The wait's end rounded up, so the time said is never earlier than the field opens; it opens at the real end.
+  const waitWords = (until: number) => W.signIn.wait(laterInSentence(now(), until, 'from', clock));
   const formAfter = (outcome: DoorOutcome): Shown => {
     switch (outcome.kind) {
       case 'done':
