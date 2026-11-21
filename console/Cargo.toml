@@ -1,0 +1,82 @@
+[package]
+name = "limo-console"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+description = "LiMo's guardian console on the master PC: the app's own screens in a window, every action sent to the LiMo service through its door"
+publish = false
+
+[lib]
+name = "limo_console"
+
+# The window. It needs the console's page, built first in phone/app with
+# `npm run build:console`; the tests need neither (cargo test
+# --no-default-features).
+[[bin]]
+name = "limo-console"
+path = "src/main.rs"
+required-features = ["window"]
+
+[features]
+default = ["window"]
+# The Tauri window and the WebView2 calls it makes. Without it the crate is
+# the door's two halves, the switches and the checks, and builds in seconds.
+window = ["dep:tauri", "dep:tauri-build", "dep:webview2-com"]
+
+[dependencies]
+# The door's messages are JSON, as the helper channel's are.
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+# Wiping a password from memory when it is no longer needed.
+zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
+# The window: the same version spike 06 proved. `custom-protocol` always,
+# so every build serves the page embedded in the exe and never a
+# development server's address.
+tauri = { version = "=2.12.7", features = ["custom-protocol"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# WebView2's own settings (accelerator keys, the context menu), which Tauri
+# does not pass on: the version Tauri itself uses.
+webview2-com = { version = "=0.39.1", optional = true }
+
+[target.'cfg(windows)'.dependencies.windows]
+# Windows itself: the version the rest of LiMo for Windows uses.
+version = "0.62.2"
+features = [
+    "Win32_Foundation",
+    # The connections a process has open, for measuring what WebView2
+    # contacts (read only, as any account may).
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.6", optional = true }
+
+[dev-dependencies]
+# Paints the window's icon from the design's own SVG (examples/make_icon.rs),
+# as limo-screens paints its icons. Never in the exe.
+resvg = { version = "0.50.0", default-features = false }
+tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "png-format"] }
+
+# The size settings Tauri suggests, as in spike 06, with the panic messages'
+# paths made relative by the release script (tools/build-release.ps1).
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

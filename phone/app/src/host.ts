@@ -7,6 +7,12 @@
 //
 //   child-module   the child form's Kotlin module (modules/limo-child), linked
 //                  in the child form only
+//   console        the guardian console on the PC: the page inside the
+//                  console's Tauri window (../../console), whose Rust side
+//                  passes each guardian request through the door to LiMo's
+//                  service. Found by __TAURI_INTERNALS__ on the page's global
+//                  object, which Tauri puts there before any of the page's
+//                  scripts run and nothing else does
 //   none           nothing native to ask yet: the guardian form today, whose
 //                  link to the master PC is a later piece
 //   mock           a development run with no native module (never in a
@@ -14,8 +20,7 @@
 //                  itself, and holds no made up data
 //
 // A later place joins here, not in the screens: the guardian's link on the
-// phone, and the console in a Tauri window on the PC (proof six found it by
-// __TAURI_INTERNALS__ on the page's global object).
+// phone.
 //
 // Each request is listed in Requests, with what it is sent and what it
 // answers, so a screen cannot ask for something that does not exist.
@@ -47,11 +52,13 @@ import {
   type TodayView,
 } from './childSeam';
 import { appForm, type Form } from './form';
+import { type DoorOutcome, type GuardianHost, readDoorAnswer, readDoorProblem } from './guardianSeam';
 
 export type * from './childSeam';
 export { isSamsung, STEP_IDS } from './childSeam';
+export type * from './guardianSeam';
 
-export type Place = 'child-module' | 'none' | 'mock';
+export type Place = 'child-module' | 'console' | 'none' | 'mock';
 
 /** What the start screens show: which form, and who answered. */
 export type About = {
@@ -82,7 +89,36 @@ export type Requests = {
   'child.rules': { args: None; answer: RulesView }; // readRules
   'child.maker': { args: None; answer: string }; // readMaker
   'child.askForMoreTime': { args: None; answer: null };
+  // The guardian's requests: what guardianHost below asks of the console's
+  // Rust side, which asks the door. Each answer is checked by
+  // readDoorAnswer (src/guardianSeam.ts).
+  'guardian.about': { args: None; answer: DoorOutcome };
+  'guardian.signIn': { args: { password: string }; answer: DoorOutcome };
+  // The console's self check (console/README.md, "The self check"). The
+  // console's Rust side answers it only when started with --self-check.
+  'console.selfCheck': { args: SelfCheckArgs; answer: unknown };
 };
+
+/** What the console's self check asks of its Rust side. */
+export type SelfCheckArgs =
+  | { action: 'state' }
+  | { action: 'report'; key: string; text: string }
+  | { action: 'use'; door: string };
+
+/** The console's Rust side, by the name it calls each request. */
+const CONSOLE_WIRE: Partial<Record<RequestName, string>> = {
+  'guardian.about': 'about',
+  'guardian.signIn': 'sign_in',
+  'console.selfCheck': 'self_check',
+};
+
+type TauriInternals = { invoke(command: string, args: Record<string, unknown>): Promise<unknown> };
+
+/** Tauri's own bridge, where the page runs inside the console's window. */
+function tauri(): TauriInternals | null {
+  const g = globalThis as { __TAURI_INTERNALS__?: Partial<TauriInternals> };
+  return g.__TAURI_INTERNALS__ && typeof g.__TAURI_INTERNALS__.invoke === 'function' ? (g.__TAURI_INTERNALS__ as TauriInternals) : null;
+}
 
 export type RequestName = keyof Requests;
 
@@ -98,6 +134,7 @@ export class HostError extends Error {
 }
 
 function place(): Place {
+  if (tauri()) return 'console';
   if (limoChild) return 'child-module';
   return __DEV__ ? 'mock' : 'none';
 }
@@ -118,7 +155,10 @@ function answerHere<N extends RequestName>(name: N, where: Place): Requests[N]['
     case 'child.pairing':
       return { paired: false } as Requests[N]['answer'];
     default:
-      throw new HostError('NotBuiltYet', `Nothing here answers ${name}: the child module is not linked.`);
+      throw new HostError(
+        'NotBuiltYet',
+        name.startsWith('child.') ? `Nothing here answers ${name}: the child module is not linked.` : `Nothing here answers ${name}.`,
+      );
   }
 }
 
@@ -145,7 +185,32 @@ const READ: { [N in RequestName]: (answer: unknown) => Requests[N]['answer'] } =
   'child.rules': readRules,
   'child.maker': readMaker,
   'child.askForMoreTime': () => null,
+  'guardian.about': readDoorAnswer,
+  'guardian.signIn': readDoorAnswer,
+  'console.selfCheck': (a) => a,
 };
+
+// The console: a request goes to the console's one Rust command, `request`,
+// by its name there. The door's answers are read as every answer is; a
+// door that could not be asked comes back as the console's own words.
+async function askConsole<N extends RequestName>(name: N, args: Requests[N]['args']): Promise<Requests[N]['answer']> {
+  const wire = CONSOLE_WIRE[name];
+  const bridge = tauri();
+  if (!wire || !bridge) return answerHere(name, 'console');
+  let answer: unknown;
+  try {
+    answer = await bridge.invoke('request', { name: wire, args: args as Record<string, unknown> });
+  } catch (e) {
+    const problem = readDoorProblem(e);
+    if (problem && name.startsWith('guardian.')) return problem as Requests[N]['answer'];
+    throw new HostError('Failed', problem?.kind === 'problem' ? problem.words : String(e));
+  }
+  try {
+    return READ[name](answer);
+  } catch (e) {
+    throw new HostError('Failed', e instanceof SeamError ? `The console answered ${name} wrongly: ${e.message}` : String(e));
+  }
+}
 
 async function askChildModule<N extends RequestName>(name: N, args: Requests[N]['args']): Promise<Requests[N]['answer']> {
   if (!limoChild) throw new HostError('NotBuiltYet', 'The child module is not linked in this build.');
@@ -165,7 +230,9 @@ async function askChildModule<N extends RequestName>(name: N, args: Requests[N][
 
 async function request<N extends RequestName>(name: N, args: Requests[N]['args']): Promise<Requests[N]['answer']> {
   const where = place();
-  return where === 'child-module' ? askChildModule(name, args) : answerHere(name, where);
+  if (where === 'child-module') return askChildModule(name, args);
+  if (where === 'console') return askConsole(name, args);
+  return answerHere(name, where);
 }
 
 export const host = { form: appForm, place, request };
@@ -226,4 +293,24 @@ export const childHost: ChildHost = {
     });
     return () => sub.remove();
   },
+};
+
+// ---------------------------------------------------------------------------
+// The guardian's part of the seam, as the app answers it.
+
+/** Where nothing answers the guardian's requests yet (the guardian form on a phone, for now). */
+const NOT_HERE = 'LiMo’s settings open in the console on the family’s PC. This app cannot open them yet.';
+
+async function askGuardian<N extends 'guardian.about' | 'guardian.signIn'>(name: N, args: Requests[N]['args']): Promise<DoorOutcome> {
+  try {
+    return await request(name, args);
+  } catch (e) {
+    if (e instanceof HostError && e.code === 'NotBuiltYet') return { kind: 'problem', code: 'not_here', words: NOT_HERE };
+    return { kind: 'problem', code: 'failed', words: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export const guardianHost: GuardianHost = {
+  about: () => askGuardian('guardian.about', none),
+  signIn: (password) => askGuardian('guardian.signIn', { password }),
 };

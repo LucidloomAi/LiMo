@@ -84,9 +84,10 @@ npm run test:child         # the child module's JVM tests: the Rust engine from 
 npm test                   # the screens' tests (jest), against the mock host
 npm run preview            # the screens in a browser: dist/preview/index.html
 npm run check:release-js   # no mock and no preview in either form's JavaScript
+npm run build:console      # the guardian console's page: dist/console, for ../../console
 ```
 
-The last three need nothing but Node.
+The last four need nothing but Node.
 
 The child form's build also needs Rust with the `aarch64-linux-android`
 target: see [The Rust engine](#the-rust-engine).
@@ -348,13 +349,17 @@ must never meet.
 app.config.ts             the two forms: package, name, icon, permissions, plugins
 index.ts, App.tsx         the entry point; App picks the form's start screen
 App.web.tsx               in a browser only: the preview (never in a built app)
+console.tsx               the guardian console's page, for the web only (npm run build:console)
 app/
   child/index.tsx         the child form: its screens (src/child)
   guardian/index.tsx      the guardian form's start screen
 src/
   form.ts                 which form this build is (from the app's embedded config)
-  host.ts                 THE seam: host.request(name, args) and childHost, see below
+  host.ts                 THE seam: host.request(name, args), childHost and guardianHost, see below
   childSeam.ts            the child's part of the seam, as plain data, and its readers
+  guardianSeam.ts         the guardian's part of the seam, and the reader of the door's answers
+  guardian/               the guardian's screens: SignIn.tsx (G0) and its words
+  console/                the console's page: ConsoleApp.tsx, the page's key guard, the self check's driver
   child/                  the child form's screens
     ChildApp.tsx          which screen shows, and what each tap asks of the host
     SetupScreens.tsx      S0 to S8, and C1 to C3
@@ -620,15 +625,25 @@ answers. Today:
 | Place | When | Answers |
 | --- | --- | --- |
 | `child-module` | the child module is linked (the child form) | `LimoChildModule` in Kotlin |
+| `console` | the page runs in the guardian console's window on the PC (Tauri's `__TAURI_INTERNALS__` is on the page) | the console's Rust side, through its one command `request`, which asks LiMo's service through the door (`../../console/README.md`) |
 | `none` | no native module (the guardian form, until its link exists) | what JavaScript knows by itself |
 | `mock` | a development run with no native module | the same, never in a release build; it holds no made up data |
 
 Requests are typed in one list (`Requests`), with what each is sent and
 answers, so a screen cannot ask for one that does not exist. Errors are a
-`HostError` with a `code`. The guardian's link on the phone and the console
-in a Tauri window on the PC join here as further places, not in the
-screens. JavaScript is never on the enforcement path: the Kotlin side calls
-the Rust engine itself.
+`HostError` with a `code`. The guardian's link on the phone joins here as a
+further place, not in the screens. JavaScript is never on the enforcement
+path: the Kotlin side calls the Rust engine itself, and on the PC the
+service alone holds the family's file.
+
+**The guardian's part** is `guardianHost` (`src/guardianSeam.ts`):
+`about()` and `signIn(password)`, the door's `about` and `sign_in`, each
+answered with one `DoorOutcome` (about, signed in, wrong with the tries
+left before a wait, a wait until a time, a child's account, an account the
+door cannot tell, or a problem in the console's own words). It never throws
+for the door's sake. Where nothing answers a guardian yet (the guardian form
+on a phone), it answers with a problem that says the settings open in the
+console on the family's PC.
 
 ## The child form's screens
 
@@ -778,9 +793,11 @@ pm"), the line "48 min used of 2 h", where the time went, "Screens are off
 from 9:00 pm to 7:00 am.", each app's minutes, the rules in words, and the
 sentence for each step that is off. Kotlin puts each app's name in place of
 its package (`seam/`) and passes the rest through; it never makes them.
-One part waits for the core: the use on the child's other devices. Until a
-grant carries it, `where` says only "On this phone 31 min", and "· on the
-PC 17 min" is not said.
+The use on the child's other devices comes from the master in every grant:
+once one for the day says it, `used` is the whole day and `where` says
+"On this phone 31 min · on the PC 17 min" (or "· on other devices 17
+min"); before that, and on a phone that never reaches its master, `where`
+says only "On this phone 31 min".
 
 **The Kotlin side** is `modules/limo-child/android/.../seam/` (its README
 says what each request does on Android, where agreeing and the
@@ -840,6 +857,7 @@ mock host. Nothing in them runs on a phone.
 | `tests/access.test.tsx` | a role, a label and 48 of height for everything to tap, the way on and the banner with three off among them; headings; the reading order |
 | `tests/release.test.ts` | no screen names a native module, the network or a link out, or holds the engine's sentences for a step that is off; only `src/host.ts` reaches the child module; the app's imports, as Android resolves them from `index.ts`, never reach the mock, the preview or the tests |
 | `tests/seamContract.test.ts` | the child module's real answers (`tests/seam-answers/`, written by its JVM tests) each pass the reader the app's host checks it with, unchanged; none missing and none unknown; the engine's kinds turned, apps by their names only, what is switched off in setup order with its sentences |
+| `tests/console.test.tsx` | the console's sign in (G0): one password field after the door answered, the tries left and a wait in words, the field emptied after each try, a child's account told at once with no field, the door's problems in plain words, three lines of room under the field; the reader of the door's answers; the `console` place found by Tauri's bridge and each request sent to the one command by the door's name; the page's key guard, which stops the browser's keys and leaves a field's own alone; the console's entry reaching neither the mock, the preview nor the child's screens |
 
 `npm run check:release-js` shows the last on the bundles themselves: it
 makes each form's JavaScript as Gradle's release build does (`expo
@@ -870,6 +888,7 @@ as a Gradle task instead, as proof three did it.
 | `test-child.mjs` | `test:child` | the child module's JVM tests |
 | `inspect.mjs` | `inspect` | looks inside `out/*.apk` and checks them, their signing too |
 | `preview.mjs` | `preview` | the screens' preview, into `dist/preview`, made to open from disk |
+| `build-console.mjs` | `build:console` | the guardian console's page, into `dist/console`, which the console's exe embeds: one bundle from `console.tsx` (Expo's `export:embed` for the web, so neither the preview nor the mock is in it, which the script checks), a page of its own with the three fonts and react-native-web's style element (see `../../console/README.md`), the fonts with their licences, and the logo |
 | `check-release-js.mjs` | `check:release-js` | each form's release JavaScript holds no mock and no preview |
 | | `test` | the screens' tests (jest, `jest.config.js`) |
 | `newer-ninja.gradle` | | from proof three: a ninja that copes with long Windows paths, now reaching the app's own C++ build too |
@@ -1108,12 +1127,13 @@ follow Expo's blank template (0BSD).
   autolinking; not done, because it cannot be tried on a phone here. Fresco's
   GIF and animated WebP support (`expo.gif.enabled`, about 320 KB) is unused
   too.
-- **The console on the PC.** The theme's font families are Android ones
-  (`Fraunces 28` and so on). In a browser `display()` quotes the name, as
-  CSS needs, and the preview declares the families with `@font-face`; a
-  console in a Tauri window would do the same. `App.web.tsx` is the
-  preview's page now: a console for the web would take it over and move
-  the preview to its own entry.
+- **The console on the PC.** Its page has an entry of its own,
+  `console.tsx`, so `App.web.tsx` stays the preview's. The theme's font
+  families are Android ones (`Fraunces 28` and so on); in a browser
+  `display()` quotes the name, as CSS needs, and the console's page
+  declares the families with `@font-face`, as the preview does. The sign in
+  is built from the console's description, ahead of its drawing; the
+  drawing, once approved, decides its look and words.
 - **The launcher icon** is a stand in from the icon set until LiMo has its
   own mark.
 - **The maker's logo** is 22 on the child form's screens, as the phone
@@ -1124,10 +1144,6 @@ follow Expo's blank template (0BSD).
   `host/README.md`, "The child's name"); the development tool's pairing
   file carries it now, and the master's welcome will when pairing over the
   network is built.
-- **For the core:** the use on the child's other devices, which Today's
-  "where" line waits for (see [The child's seam](#the-childs-seam)). The
-  engine already gives every other word Today and How it works show, and
-  keeps each app's use today in its own state.
 - **Not drawn, decided here for the lead to look at:** the line "Android
   did not open it. Try again." under a step's stamp (S6c draws the line
   for a step still off after two tries); the banner with more

@@ -18,6 +18,7 @@
     "test:signing": "node scripts/test-signing.mjs",
     "test": "node scripts/make-design.mjs && jest",
     "preview": "node scripts/preview.mjs",
+    "build:console": "node scripts/build-console.mjs",
     "check:release-js": "node scripts/check-release-js.mjs"
   },
   "dependencies": {

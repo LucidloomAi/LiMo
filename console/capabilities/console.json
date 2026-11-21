@@ -1,0 +1,6 @@
+{
+  "identifier": "console",
+  "description": "The console's window may call one command, request, and nothing else: no core plugins, no events, no window calls.",
+  "windows": ["main"],
+  "permissions": ["allow-request"]
+}
