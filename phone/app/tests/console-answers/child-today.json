@@ -30,7 +30,9 @@
             "name": "Family PC",
             "pin_unlocked_until": null,
             "platform": "windows",
+            "setup_finished": null,
             "standing": null,
+            "usb_debugging_on": null,
             "used_secs": 302,
             "waiting_secs": 0,
             "wrong_guesses": 0

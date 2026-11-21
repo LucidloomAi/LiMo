@@ -15,22 +15,19 @@
         "child_id": "child-0000000000000001",
         "device_id": "device-0000000000000002",
         "guardian_needed": {
-          "clock_off_by_secs": null,
           "off": [
             {
               "permission": "accessibility",
-              "since": 1794998347,
               "words": "Accessibility is switched off, so LiMo cannot see which app is open."
             }
-          ],
-          "setup_finished": true,
-          "usb_debugging_on": false
+          ]
         },
         "kind": "portable",
         "last_heard_at": 1794998227,
         "name": "Asha’s tablet",
         "paired_at": 1794998143,
         "platform": "android",
+        "setup_finished": true,
         "standing": {
           "clock": null,
           "clock_moved": null,
@@ -80,7 +77,8 @@
             "accessibility"
           ],
           "usb_debugging": null
-        }
+        },
+        "usb_debugging_on": false
       }
     },
     "say": "answer"

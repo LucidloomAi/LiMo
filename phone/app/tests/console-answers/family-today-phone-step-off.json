@@ -28,7 +28,9 @@
               "name": "Family PC",
               "pin_unlocked_until": null,
               "platform": "windows",
+              "setup_finished": null,
               "standing": null,
+              "usb_debugging_on": null,
               "used_secs": 401,
               "waiting_secs": 0,
               "wrong_guesses": 0
@@ -39,16 +41,12 @@
               "device_id": "device-0000000000000002",
               "giving_back_secs": 0,
               "guardian_needed": {
-                "clock_off_by_secs": null,
                 "off": [
                   {
                     "permission": "accessibility",
-                    "since": 1794998347,
                     "words": "Accessibility is switched off, so LiMo cannot see which app is open."
                   }
-                ],
-                "setup_finished": true,
-                "usb_debugging_on": false
+                ]
               },
               "holds_secs": 1800,
               "in_use": false,
@@ -57,6 +55,7 @@
               "name": "Asha’s tablet",
               "pin_unlocked_until": null,
               "platform": "android",
+              "setup_finished": true,
               "standing": {
                 "clock": null,
                 "clock_moved": null,
@@ -107,6 +106,7 @@
                 ],
                 "usb_debugging": null
               },
+              "usb_debugging_on": false,
               "used_secs": 0,
               "waiting_secs": 0,
               "wrong_guesses": 0

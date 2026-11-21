@@ -20,7 +20,9 @@
         "name": "Family PC",
         "paired_at": 1794997825,
         "platform": "windows",
-        "standing": null
+        "setup_finished": null,
+        "standing": null,
+        "usb_debugging_on": null
       }
     },
     "say": "answer"

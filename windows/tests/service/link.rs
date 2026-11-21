@@ -640,13 +640,15 @@ fn a_phones_notes_reach_the_doors_answers_as_how_it_stands_now() {
     // Paired, and no note yet: setup is not finished.
     let devices = pc.done(door, Request::Devices { child: asha.clone() });
     let fresh = phone_in(&devices, &device);
-    assert_eq!(fresh["standing"]["setup_finished"], false, "{fresh}");
+    assert_eq!(fresh["setup_finished"], false, "{fresh}");
+    assert_eq!(fresh["usb_debugging_on"], false);
+    assert!(fresh["guardian_needed"].is_null(), "nothing noted off");
     assert_eq!(fresh["standing"]["needs_guardian"], true);
-    assert_eq!(fresh["guardian_needed"]["setup_finished"], false);
-    assert_eq!(fresh["guardian_needed"]["off"], serde_json::json!([]));
     // The master PC's own device, when it has one, has no standing.
     for on_master in devices.as_array().unwrap().iter().filter(|d| d["kind"] == "on_master") {
-        assert!(on_master["standing"].is_null() && on_master["guardian_needed"].is_null(), "{on_master}");
+        for field in ["standing", "guardian_needed", "setup_finished", "usb_debugging_on"] {
+            assert!(on_master[field].is_null(), "{on_master}");
+        }
     }
     // Set up, every step on; then accessibility switched off and USB
     // debugging found on.
@@ -664,13 +666,18 @@ fn a_phones_notes_reach_the_doors_answers_as_how_it_stands_now() {
         phone_in(&pc.done(door, Request::ChildToday { child: asha.clone() })["devices"], &device).clone(),
         phone_in(&pc.done(door, Request::FamilyToday)[0]["devices"], &device).clone(),
     ] {
-        let needed = &answer["guardian_needed"];
-        assert_eq!(needed["setup_finished"], true, "{answer}");
-        assert_eq!(needed["usb_debugging_on"], true);
-        assert_eq!(needed["off"].as_array().unwrap().len(), 1);
-        assert_eq!(needed["off"][0]["permission"], "accessibility");
-        assert_eq!(needed["off"][0]["words"], "Accessibility is switched off, so LiMo cannot see which app is open.");
-        assert_eq!(needed["off"][0]["since"], at + 2);
+        // The engine's own shape, and nothing else in it.
+        assert_eq!(
+            answer["guardian_needed"],
+            serde_json::json!({ "off": [{
+                "permission": "accessibility",
+                "words": "Accessibility is switched off, so LiMo cannot see which app is open."
+            }] }),
+            "{answer}"
+        );
+        assert_eq!(answer["setup_finished"], true);
+        assert_eq!(answer["usb_debugging_on"], true);
+        assert_eq!(answer["standing"]["steps"][3]["since"], at + 2);
         assert_eq!(answer["standing"]["setup_finished_at"], at + 1);
         assert_eq!(answer["standing"]["usb_debugging"], serde_json::json!({ "on": true, "since": at + 3 }));
         assert_eq!(answer["standing"]["steps_off"], serde_json::json!(["accessibility"]));
@@ -681,15 +688,14 @@ fn a_phones_notes_reach_the_doors_answers_as_how_it_stands_now() {
     session.exchange(&mut phone, false, &mut || pc.answer_link()).unwrap();
     let well = pc.done(door, Request::Device { device: device.clone() });
     assert_eq!(well["standing"]["needs_guardian"], false, "{well}");
-    assert_eq!(well["guardian_needed"]["off"], serde_json::json!([]));
+    assert!(well["guardian_needed"].is_null() && well["usb_debugging_on"] == false && well["setup_finished"] == true);
     assert_eq!(well["standing"]["steps"][3], serde_json::json!({ "permission": "accessibility", "on": true, "since": at + 4 }));
     // A clock nine minutes ahead: said, with since when the master found it.
     phone.clock_ahead_secs = 540;
     session.exchange(&mut phone, false, &mut || pc.answer_link()).unwrap();
     let found_at = pc.now();
     let ahead = pc.done(door, Request::Device { device: device.clone() });
-    assert_eq!(ahead["guardian_needed"]["clock_off_by_secs"], 540, "{ahead}");
-    assert_eq!(ahead["standing"]["clock"]["off_by_secs"], 540);
+    assert_eq!(ahead["standing"]["clock"]["off_by_secs"], 540, "{ahead}");
     // The fake clock stands still while the phone talks: found now.
     assert_eq!(ahead["standing"]["clock"]["since"], found_at, "{ahead}");
     assert_eq!(ahead["standing"]["needs_guardian"], true);

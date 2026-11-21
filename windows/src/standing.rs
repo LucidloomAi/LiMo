@@ -116,34 +116,29 @@ pub struct Standing {
     pub needs_guardian: bool,
 }
 
-/// One step switched off, with what it costs, in the shape the phone's
-/// engine gives the child's own Today.
+/// One step switched off, with what it costs: the shape the phone's engine
+/// gives the child's own Today.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SwitchedOff {
-    /// Which.
+    /// Which, by the core's name.
     pub permission: PhonePermission,
     /// What it costs, in one sentence.
     pub words: String,
-    /// Since when, by the phone's clock.
-    pub since: Option<i64>,
 }
 
-/// What a phone needs a guardian for now. Nothing needed is an empty `off`,
-/// `setup_finished` true, `usb_debugging_on` false and no clock.
+/// The steps switched off on a phone, in the shape the phone's engine gives
+/// the child's own Today (`guardian_needed`): never empty, and none at all
+/// while every step is on (or none was noted off).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GuardianNeeded {
     /// The steps switched off, in setup order.
     pub off: Vec<SwitchedOff>,
-    /// False until a guardian finished setup on the phone.
-    pub setup_finished: bool,
-    /// True while USB debugging is on.
-    pub usb_debugging_on: bool,
-    /// How far its clock is off, when it is far off.
-    pub clock_off_by_secs: Option<i64>,
 }
 
-/// What a step switched off costs, in one sentence: the same words the
-/// phone's engine shows the child.
+/// What a step switched off costs, in one sentence: the words the phone's
+/// engine shows the child (`limo_phone::Permission::off_words`), held here
+/// too until they have one home that both crates reach; a test of the
+/// engine's crate cannot be run from here, so keep the two the same.
 pub fn off_words(permission: PhonePermission) -> &'static str {
     match permission {
         PhonePermission::Notifications => "Notifications are switched off, so LiMo cannot show the time left or a warning.",
@@ -217,19 +212,22 @@ impl Standing {
         }
     }
 
-    /// What it needs a guardian for, in the shape the screens read.
-    pub fn guardian_needed(&self) -> GuardianNeeded {
-        GuardianNeeded {
-            off: self
-                .steps
-                .iter()
-                .filter(|s| s.on == Some(false))
-                .map(|s| SwitchedOff { permission: s.permission, words: off_words(s.permission).to_string(), since: s.since })
-                .collect(),
-            setup_finished: self.setup_finished,
-            usb_debugging_on: self.usb_debugging.is_some_and(|u| u.on),
-            clock_off_by_secs: self.clock.map(|c| c.off_by_secs),
-        }
+    /// The steps switched off, in the shape the screens read; None while
+    /// none is.
+    pub fn guardian_needed(&self) -> Option<GuardianNeeded> {
+        let off: Vec<SwitchedOff> = self
+            .steps
+            .iter()
+            .filter(|s| s.on == Some(false))
+            .map(|s| SwitchedOff { permission: s.permission, words: off_words(s.permission).to_string() })
+            .collect();
+        (!off.is_empty()).then_some(GuardianNeeded { off })
+    }
+
+    /// True while USB debugging is on, as last noted; false when it was
+    /// never noted on.
+    pub fn usb_debugging_on(&self) -> bool {
+        self.usb_debugging.is_some_and(|u| u.on)
     }
 }
 
@@ -256,11 +254,11 @@ mod tests {
         assert_eq!((accessibility.on, accessibility.since), (Some(true), Some(300)));
         assert_eq!(standing.usb_debugging, Some(UsbDebuggingStanding { on: false, since: 600 }));
         assert!(standing.setup_finished && standing.needs_guardian, "battery is off");
-        let needed = standing.guardian_needed();
+        let needed = standing.guardian_needed().unwrap();
         assert_eq!(needed.off.len(), 1);
-        assert_eq!((needed.off[0].permission, needed.off[0].since), (PhonePermission::Battery, Some(400)));
+        assert_eq!(needed.off[0].permission, PhonePermission::Battery);
         assert_eq!(needed.off[0].words, "Android may put LiMo to sleep to save battery.");
-        assert!(!needed.usb_debugging_on);
+        assert!(!standing.usb_debugging_on());
     }
 
     #[test]
@@ -290,10 +288,8 @@ mod tests {
         assert!(!standing.needs_guardian);
         assert_eq!(standing.clock, None, "40 seconds off is near enough");
         assert_eq!(standing.protection, Some(ProtectionStanding { level: ProtectionLevel::Base, since: 20 }));
-        assert_eq!(
-            standing.guardian_needed(),
-            GuardianNeeded { off: vec![], setup_finished: true, usb_debugging_on: false, clock_off_by_secs: None }
-        );
+        assert_eq!(standing.guardian_needed(), None, "nothing switched off: none, as the engine has it");
+        assert!(!standing.usb_debugging_on());
     }
 
     #[test]
@@ -304,9 +300,7 @@ mod tests {
         let standing = Standing::of(&notes, Some(540), Some(1_000));
         assert!(standing.needs_guardian);
         assert_eq!(standing.clock, Some(ClockStanding { off_by_secs: 540, since: Some(1_000) }));
-        let needed = standing.guardian_needed();
-        assert!(needed.usb_debugging_on && needed.off.is_empty());
-        assert_eq!(needed.clock_off_by_secs, Some(540));
+        assert!(standing.usb_debugging_on() && standing.guardian_needed().is_none());
         // Exactly the hub's five minutes is not far off; one more second is.
         assert!(Standing::of(&notes[..7], Some(-300), None).clock.is_none());
         assert!(Standing::of(&notes[..7], Some(-301), None).clock.is_some());

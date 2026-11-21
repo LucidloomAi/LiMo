@@ -526,7 +526,7 @@ are answered before sign in.
 | `create_family` | `password` | `create_family`, while there is none; it signs the connection in | no |
 | `set_pin` | `pin` | `set_pin` | yes |
 | `change_password` | `old`, `new` | `change_password` | yes |
-| `family_today`, `child_today` | `child` | `family_today`, `child_today`; each device with its `standing` and `guardian_needed` (below) | yes |
+| `family_today`, `child_today` | `child` | `family_today`, `child_today`; each device with `guardian_needed`, `setup_finished`, `usb_debugging_on` and `standing` (below) | yes |
 | `add_child` | `name`, `age_band` | `add_child`, in the PC's time zone now | yes |
 | `rename_child`, `set_age_band` | `child`, `name` or `age_band` | the same | yes |
 | `remove_child` | `child`, `password` | the password again, then `remove_child` | yes |
@@ -536,7 +536,7 @@ are answered before sign in.
 | `give_extra` | `child`, `minutes`, `tap_id` | `give_extra` | yes |
 | `lock_now`, `unlock_until`, `lift` | `child`, `until` | the same | yes |
 | `make_code` | `device`, `minutes` | `make_code`: `shown`, `minutes`, `day`, `device_id` | yes |
-| `devices`, `device`, `rename_device` | `child` or `device`, `name` | the same; `devices` and `device` with each device's `standing` and `guardian_needed` (below) | yes |
+| `devices`, `device`, `rename_device` | `child` or `device`, `name` | the same; `devices` and `device` with each device's `guardian_needed`, `setup_finished`, `usb_debugging_on` and `standing` (below) | yes |
 | `remove_device` | `device`, `password` | the password again, then `remove_device` | yes |
 | `accounts` | | every account of the PC (below) with its link | yes |
 | `link_account`, `unlink_account` | `account`, `link` | the same, for an account of this PC only | yes |
@@ -549,37 +549,37 @@ are answered before sign in.
 | `device_link` | `device` | the device's open session, if it has one: `way` (`cable` or `home_network`), `opened_at`, `last_report_at` | yes |
 
 **What a device needs a guardian for.** In `family_today`, `child_today`,
-`devices` and `device`, each phone has `standing`, how it stands now, and
-`guardian_needed`, what that asks of a guardian; the master PC's own device
-has both null. They are derived in one place (`src/standing.rs`), never in
-the screens, from the phone's notes as the family's file keeps them (the
-newest of each kind, taken in the order they came, so a step switched off
-and later on is on) and from the master's measure of its clock:
+`devices` and `device`, each phone has four fields, derived in one place
+(`src/standing.rs`), never in the screens, from the phone's notes as the
+family's file keeps them (the newest of each kind, taken in the order they
+came, so a step switched off and later on is on) and from the master's
+measure of its clock. The master PC's own device has all four null.
 
-- `standing`: `setup_finished` and `setup_finished_at` (a phone paired and
-  not yet set up has not finished); `steps`, the six steps in setup order,
-  each with `permission` (the core's name: `notifications`, `phone`,
-  `usage_access`, `accessibility`, `battery`, `protection`), `on` (true,
-  false, or null while no note said) and `since`; `steps_off`, the names of
-  those off now; `protection` (`level`: `off`, `base` or `strict`, and
-  `since`); `usb_debugging` (`on`, `since`); `clock` (`off_by_secs`, ahead
-  positive, and `since`, when the master found it far off), only when it is
-  off by more than the family file's five minutes; `clock_moved` (the
-  phone's own clock's last move: `by_secs`, `followed`, `at`);
-  `restarted_at`; `guard_opened` (`until`, `at`); `guarded_pages` (each
-  page's last cover: `page`, `day`, `at`); and `needs_guardian`, true when
-  setup is not finished, a step is off, USB debugging is on, or the clock
-  is far off.
-- `guardian_needed`: `off`, the steps off now in setup order, each with
-  `permission`, `words` (what it costs, in the sentence the phone shows the
-  child, such as "Accessibility is switched off, so LiMo cannot see which
-  app is open.") and `since`; `setup_finished`; `usb_debugging_on`;
-  `clock_off_by_secs` (null unless far off). Nothing needed is an empty
-  `off`, `setup_finished` true, `usb_debugging_on` false and no clock.
+- `guardian_needed`: the steps switched off now, in the shape the phone's
+  engine gives the child's own Today, `{"off": [{"permission":
+  "accessibility", "words": "Accessibility is switched off, so LiMo cannot
+  see which app is open."}]}`, in setup order, the permission by the core's
+  name (`notifications`, `phone`, `usage_access`, `accessibility`,
+  `battery`, `protection`); null while none is off.
+- `setup_finished`: false until a guardian finished setup on the phone (a
+  phone paired and not yet set up has not).
+- `usb_debugging_on`: true while its newest note says so.
+- `standing`, the whole of how it stands, with since when: `steps` (the six
+  in setup order, each `on` true, false, or null while no note said, and
+  `since`), `steps_off`, `setup_finished_at`, `protection` (`level`: `off`,
+  `base` or `strict`, and `since`), `usb_debugging` (`on`, `since`),
+  `clock` (`off_by_secs`, ahead positive, and `since`, when the master found
+  it far off; only beyond the family file's five minutes), `clock_moved`
+  (`by_secs`, `followed`, `at`), `restarted_at`, `guard_opened` (`until`,
+  `at`), `guarded_pages` (`page`, `day`, `at`) and `needs_guardian` (setup
+  not finished, a step off, USB debugging on, or the clock far off).
 
 A note's time is by the phone's own clock; the clock's `since` is by the
-master's. A phone whose notes cannot be read has both null, rather than the
-whole answer failing.
+master's. A phone whose notes cannot be read has all four null, rather than
+the whole answer failing. The sentences are the phone engine's
+(`limo_phone::Permission::off_words`); `windows/` does not depend on the
+engine, so they are held in `src/standing.rs` too until they have one home
+both crates reach.
 
 `accounts` lists every normal account of the PC that is not switched off
 (`NetUserEnum`, then `NetUserGetInfo` at level 23 for its full name and
@@ -1034,6 +1034,22 @@ without a word or asks whoever is at the PC, a question a family should not
 meet. In this build's tests nothing listens on any address but loopback (a
 test's home address is a loopback listener standing in for it), nothing is
 announced, and the firewall is never touched.
+
+**On a public Wi-Fi, such as a café's.** The rules cover the Public profile
+so that a home Wi-Fi Windows calls public still works, and a café's Wi-Fi is
+on the same profile. A café's network is usually in a private address range
+too, so once the family has a phone, a PC there listens on port 47810 and
+announces itself as on a home network. Then any device on the same subnet
+can reach the port, and can see that a LiMo is there: the announcement's
+instance and host names and its `id`, which are the same on every network,
+so a device that saw them once could know this PC again elsewhere. That is
+all it learns: nothing names the family, a child or the PC. It can do
+nothing with the port: a connection must finish the link's handshake with
+the key of a phone this PC paired, or present a pairing offer that a
+guardian made in LiMo's settings, which works once, for ten minutes, and
+whose secret is shown only on this PC. Anything else is closed within a
+second, and a flood of connections or calls is cut off, without the PC's
+counting slowing.
 
 ## The example phone
 

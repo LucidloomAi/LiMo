@@ -775,11 +775,13 @@ impl<O: Os> Service<O> {
     }
 
     /// Each device in an answer (a family's or a child's day, a child's
-    /// devices, one device) with its standing and what it needs a guardian
-    /// for, as [`Standing`] derives them from the phone's notes and the
-    /// master's measure of its clock. The master PC's own device has
-    /// neither: both are null. A phone whose notes cannot be read has both
-    /// null too, rather than the whole answer failing.
+    /// devices, one device) with what it needs a guardian for, as
+    /// [`Standing`] derives it from the phone's notes and the master's
+    /// measure of its clock: `guardian_needed` (the steps switched off, in
+    /// the engine's shape, or null), `setup_finished`, `usb_debugging_on`,
+    /// and the whole `standing`. The master PC's own device has all four
+    /// null; so has a phone whose notes cannot be read, rather than the
+    /// whole answer failing.
     fn with_standing(&mut self, mut answer: Value, wall: i64) -> Result<Value, Fail> {
         let mut found: Vec<&mut serde_json::Map<String, Value>> = Vec::new();
         match &mut answer {
@@ -828,9 +830,11 @@ impl<O: Os> Service<O> {
             } else {
                 None
             };
-            let needed = standing.as_ref().map(Standing::guardian_needed);
-            device.insert("standing".to_string(), serde_json::to_value(&standing).unwrap_or(Value::Null));
+            let needed = standing.as_ref().and_then(Standing::guardian_needed);
             device.insert("guardian_needed".to_string(), serde_json::to_value(&needed).unwrap_or(Value::Null));
+            device.insert("setup_finished".to_string(), standing.as_ref().map_or(Value::Null, |s| Value::Bool(s.setup_finished)));
+            device.insert("usb_debugging_on".to_string(), standing.as_ref().map_or(Value::Null, |s| Value::Bool(s.usb_debugging_on())));
+            device.insert("standing".to_string(), serde_json::to_value(&standing).unwrap_or(Value::Null));
         }
         Ok(answer)
     }

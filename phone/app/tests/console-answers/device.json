@@ -14,17 +14,13 @@
       "value": {
         "child_id": "child-0000000000000001",
         "device_id": "device-0000000000000002",
-        "guardian_needed": {
-          "clock_off_by_secs": null,
-          "off": [],
-          "setup_finished": false,
-          "usb_debugging_on": false
-        },
+        "guardian_needed": null,
         "kind": "portable",
         "last_heard_at": 1794998143,
         "name": "Asha’s phone",
         "paired_at": 1794998143,
         "platform": "android",
+        "setup_finished": false,
         "standing": {
           "clock": null,
           "clock_moved": null,
@@ -69,7 +65,8 @@
           ],
           "steps_off": [],
           "usb_debugging": null
-        }
+        },
+        "usb_debugging_on": false
       }
     },
     "say": "answer"

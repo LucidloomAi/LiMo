@@ -20,8 +20,8 @@ finished, a step switched off, USB debugging on, all well: the
 `device-phone-*` files and `family-today-phone-step-off`), a console from
 Asha's account is refused, and at the end the family is removed. Each
 device in `family_today`, `child_today`, `devices` and `device` has
-`standing` and `guardian_needed`, null for the PC's own; LiMo for Windows'
-README says what each field holds. Every request in the door's
+`guardian_needed`, `setup_finished`, `usb_debugging_on` and `standing`, all
+null for the PC's own; LiMo for Windows' README says what each holds. Every request in the door's
 list has at least one file, and the test fails when the door gains a
 request it does not play.
 
