@@ -23,7 +23,9 @@
 //!   that has not allowed this PC, or a release build, each has its own
 //!   plain message. When adb sees no phone, Windows' own list of USB devices
 //!   says why ([`usb`]): a cable that only charges, USB debugging off, or no
-//!   driver for the phone's debugging interface.
+//!   driver for the phone's debugging interface. That look, and the reading
+//!   of an APK ([`apk`]), are LiMo's cable crate's (`phone/cable`), one copy
+//!   for this tool and LiMo on the PC.
 //! - **A PIN or a code is never printed by mistake**, nor put in an error or
 //!   in the tool's log. The code `code` makes is printed once, on purpose.
 //!
@@ -31,14 +33,15 @@
 //! [`usb::UsbLook`] and [`ui::Ui`], so that the tests play a phone and a
 //! PC's USB ports with fakes and read every line printed.
 //!
-//! **Unsafe code only in `win/`**, where Windows' list of USB devices is
-//! read; every other module forbids it, each unsafe block there says why it
-//! is sound, and a test (`tests/house_rules.rs`) checks both.
+//! **No unsafe code here**: every module forbids it, and a test
+//! (`tests/house_rules.rs`) checks it. Windows' list of USB devices is read by
+//! the cable crate, whose own rules keep that read only.
 
 #![warn(missing_docs)]
+#![forbid(unsafe_code)]
 
 pub mod adb;
-pub mod apk;
+pub use limo_cable::apk;
 pub mod cli;
 pub mod commands;
 pub mod family;
@@ -48,8 +51,6 @@ pub mod places;
 pub mod status;
 pub mod ui;
 pub mod usb;
-#[cfg(windows)]
-pub mod win;
 
 pub use commands::{DONE, FAILED, REFUSED, Tool, run};
 
@@ -72,7 +73,7 @@ pub fn run_real(argv: &[String]) -> i32 {
             .unwrap_or(0)
     };
     #[cfg(windows)]
-    let mut usb = win::usb::WindowsUsb;
+    let mut usb = limo_cable::win::usb::WindowsUsb;
     #[cfg(not(windows))]
     let mut usb = usb::NoLook;
     let mut tool = Tool { adb: &mut adb, usb: &mut usb, ui: &mut terminal, places, clock: &clock };

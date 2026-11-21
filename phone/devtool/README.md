@@ -210,6 +210,13 @@ nothing, whatever the reason. So when `adb devices` lists no phone at all,
 the step every command runs first (`check` and all the others) reads what
 Windows itself sees on its USB ports and says which case it is, in one line,
 then what to do. Windows only, for now; elsewhere the old sentence stays.
+
+**The look and the cases are LiMo's cable crate's** ([`../cable`](../cable/),
+`limo_cable::usb` and the Windows read in its `src/win/usb.rs`): one copy,
+for this tool and for LiMo on the PC, which uses them in its "Add a phone".
+This tool keeps only its own words for each case (`src/usb.rs`), which name
+adb, as it runs adb. The reading of an APK (`limo_cable::apk`) moved there
+too, for the same reason.
 When adb lists any phone, in any state (ready, not allowed yet, offline, or
 more than one), Windows' list is not read at all, and adb's own answer is
 said as before.
@@ -242,12 +249,13 @@ device class offers files or pictures over USB, which is what is wanted.
 
 No serial number and no instance id is read, nothing is written, no driver
 is installed, no device is started, stopped or restarted, and no other
-program (no PowerShell) is run. A house rule checks that the Windows calls
-are only these reads.
+program (no PowerShell) is run. A house rule of the cable crate checks that
+the Windows calls of its look are only these reads; this tool makes no
+Windows call of its own.
 
-**The cases**, decided by one pure function (`usb::decide`) from what adb
-listed and what Windows listed, apart from the printing, so that LiMo on
-the PC can take it over for "Add a phone":
+**The cases**, decided by one pure function (`limo_cable::usb::decide`,
+called here as `usb::decide` with what adb listed) from whether adb lists a
+phone and what Windows listed, apart from the printing:
 
 | Windows sees | This PC sees | Then |
 | --- | --- | --- |
@@ -436,9 +444,9 @@ a small trait, and the stories play a phone with a fake.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | The cable check: the debugging interface by its compatible id in any case, each case from what adb and Windows list, adb listing a phone meaning no case, and each case's two lines; a portable device a phone only on the USB bus, a stick on the software bus never one, alone or beside a phone; the portable device class as Windows names it; the adb line as typed; a reply's parts; looking for adb where it should be; the command line, each command and each refusal; the help saying first what the tool never does; devices of every state, one picked or each problem said; `run-as` telling a debug build from a release build; the phone's clock and zone; `dumpsys` and the install and uninstall answers; only LiMo's two log tags; no command carrying anything but names; bedtimes and package names; the test family's rules with the whole day away; the folder named for testing; a log line with the time in UTC and no control characters; times on the phone's clock; zones said; a child's name trimmed, its hidden characters dropped, 1 to 40 long; LiMo's own word about a pairing file read from its log, and the advice for each; permissions in words, in setup's order; the state's answer read exactly, with or without a state, and one whose line ends were changed said so, never taken as the state; every text answer read the same with carriage returns; numbers read from an APK, never past the end (and two ignored tests: one reads a real APK, below; one reads this PC's own list of USB devices and says only the case) | 34 |
+| `src/*.rs` | The cable check: the debugging interface by its compatible id in any case, each case from what adb and Windows list, adb listing a phone meaning no case, and each case's two lines; a portable device a phone only on the USB bus, a stick on the software bus never one, alone or beside a phone; the portable device class as Windows names it; the adb line as typed; a reply's parts; looking for adb where it should be; the command line, each command and each refusal; the help saying first what the tool never does; devices of every state, one picked or each problem said; `run-as` telling a debug build from a release build; the phone's clock and zone; `dumpsys` and the install and uninstall answers; only LiMo's two log tags; no command carrying anything but names; bedtimes and package names; the test family's rules with the whole day away; the folder named for testing; a log line with the time in UTC and no control characters; times on the phone's clock; zones said; a child's name trimmed, its hidden characters dropped, 1 to 40 long; LiMo's own word about a pairing file read from its log, and the advice for each; permissions in words, in setup's order; the state's answer read exactly, with or without a state, and one whose line ends were changed said so, never taken as the state; every text answer read the same with carriage returns; each case's two lines, and adb listing a phone meaning no case (the look, the cases and the APK reader are tested in the cable crate, where they moved) | 29 |
 | `tests/devtool/` | The stories, against the fake phone (below), with the real hub on a real file in a temporary folder and the real phone engine on the phone's side | 61 |
-| `tests/house_rules.rs` | Unsafe code only in `src/win/`, every other module forbidding it and each unsafe block saying why it is sound; Windows only read there, never changed (only the six calls that read); no allow attributes; the service's folder and file never named; nothing sent to the phone that could change anything but LiMo (every command checked: no settings, accounts, device policy, permissions, other apps or rebooting); nothing in the tool's own code printed by its Debug form; no dash punctuation in anything a person reads or in anything printed | 8 |
+| `tests/house_rules.rs` | No unsafe code at all, every module forbidding it; Windows reached only through the cable crate (no Windows call of this tool's own), and only its look and APK reader taken (without its default features); no allow attributes; the service's folder and file never named; nothing sent to the phone that could change anything but LiMo (every command checked: no settings, accounts, device policy, permissions, other apps or rebooting); nothing in the tool's own code printed by its Debug form; no dash punctuation in anything a person reads or in anything printed | 8 |
 
 The fake phone answers exactly the calls the tool is meant to make, written
 out letter for letter, and fails a test on any other, so the stories also
@@ -534,7 +542,7 @@ of the stories. The stories:
   sent; installing, and again over LiMo with its files kept; Android
   refusing, with what to do; an Android too old.
 
-`LIMO_TEST_APK=path cargo test real_apk -- --ignored` reads a real APK and
+In the cable crate, `LIMO_TEST_APK=path cargo test real_apk -- --ignored` reads a real APK and
 prints what it says. It read the debug APKs of spikes 2 and 5 as debug
 builds, and `phone/app/out`'s two release builds as the child form and the
 guardian form, release builds.
@@ -553,9 +561,10 @@ as in the hub and the engine, so the slow PIN hash stays quick.
 | zeroize | 1.9.2 | Apache-2.0 or MIT | wiping the typed PIN, the pairing file's bytes and the state read back |
 | console | 0.16.6 | MIT | the PIN typed at a prompt that does not show it, with no unsafe code of the tool's own for it; without its default features |
 | encode_unicode | 1.0.0 | Apache-2.0 or MIT | used by console on Windows |
-| windows-sys, windows-link | 0.61.2, 0.2.1 | MIT or Apache-2.0 | on Windows: the cable check reads Windows' list of USB devices through it (its `Win32_Devices_DeviceAndDriverInstallation` and `Win32_Foundation` parts); also used by console, and already under the hub's tests |
+| limo-cable | 0.1.0 (path) | Apache-2.0 | the look at Windows' list of USB devices when adb sees no phone, and the reading of an APK; without its default features, so none of LiMo's own adb comes with it |
+| windows-sys, windows-link | 0.61.2, 0.2.1 | MIT or Apache-2.0 | on Windows: the cable crate reads Windows' list of USB devices through it; also used by console, and already under the hub's tests |
 | libc | 0.2.191 | MIT or Apache-2.0 | used by console on Linux and macOS |
-| miniz_oxide | 0.8.9 | MIT or Zlib or Apache-2.0 | inflating the manifest inside an APK |
+| miniz_oxide | 0.8.9 | MIT or Zlib or Apache-2.0 | inflating the manifest inside an APK (in the cable crate), and deflating the APKs the tests build |
 | adler2 | 2.0.1 | 0BSD or MIT or Apache-2.0 | used by miniz_oxide |
 | getrandom | 0.4.3 | MIT or Apache-2.0 | the test family's random password (already under the hub) |
 | tempfile | 3.27.0 | MIT or Apache-2.0 | tests only: a folder for the test family |
@@ -583,13 +592,9 @@ phone/devtool/
     family.rs     the test family on this PC: made, read, codes, deleted
     pairing.rs    the pairing file's bytes
     status.rs     what the phone holds, read by its own engine
-    apk.rs        what an APK says it is: its package, version and debug flag
     places.rs     where the test family lives, and the tool's log
     ui.rs         the terminal, and the PIN typed without it showing
-    usb.rs        the cable check: what Windows sees, the cases, their words
-    win/          on Windows only, and the only unsafe code here
-      mod.rs
-      usb.rs      Windows' list of USB devices, read only
+    usb.rs        the cable check's words; the look and the cases are the cable crate's
   tests/
     house_rules.rs
     devtool/      main.rs, fake.rs (the fake phone, USB list and terminal),

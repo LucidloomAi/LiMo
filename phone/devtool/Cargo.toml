@@ -31,21 +31,20 @@ serde_json = "1.0.154"
 zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
 # The PIN typed at a prompt that does not show it, with no unsafe code here.
 console = { version = "0.16.6", default-features = false, features = ["std"] }
-# Reading the manifest inside an APK, which is compressed with deflate.
-miniz_oxide = "0.8.9"
+# The look at Windows' list of USB devices when adb sees no phone, and the
+# reading of an APK: LiMo's cable crate's, one copy for this tool and LiMo on
+# the PC. Without its default features: this tool reaches a phone through
+# Google's adb, not through LiMo's own.
+limo-cable = { path = "../cable", default-features = false }
 # A random guardian password for the test family, never shown and never
 # kept: the hub needs one, and nothing in this tool asks for it.
 getrandom = "0.4.3"
 
-[target.'cfg(windows)'.dependencies]
-# Windows' own list of USB devices (SetupAPI and the configuration manager),
-# read only, when adb sees no phone. Already in the lock file through
-# console and tempfile; only the two features are new.
-windows-sys = { version = "0.61.2", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_Foundation"] }
-
 [dev-dependencies]
 # The test family's file in a temporary folder.
 tempfile = "3.27.0"
+# Deflating the manifests of the APKs the tests build in memory.
+miniz_oxide = "0.8.9"
 
 # The guardian PIN is hashed slowly on purpose. Optimised dependencies in
 # debug and test builds keep it as fast as it is in the product, as in the

@@ -1,0 +1,59 @@
+[package]
+name = "limo-cable"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+description = "LiMo cable: what the PC sees on its USB ports, and LiMo's own way to a phone over the cable"
+publish = false
+
+[lib]
+name = "limo_cable"
+
+[features]
+# LiMo's own adb over Windows' own WinUSB: the key, the protocol, the phone's
+# calls and the state machine the console drives. The look at Windows' list
+# of USB devices and the APK reader need none of it, so the phone
+# development tool, which reaches a phone through Google's adb, leaves it out.
+default = ["adb"]
+adb = ["dep:rsa", "dep:md-5"]
+# A fake phone, at the far end of a fake cable, for the tests of this crate
+# and of the console. Never part of the product.
+fake = ["adb"]
+
+[dependencies]
+# Wiping the secrets that cross the cable, and the key's text once read.
+zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
+# Reading the manifest inside an APK, which is compressed with deflate.
+miniz_oxide = "0.8.9"
+# LiMo's own adb key, and the signature of the phone's token (PKCS#1 v1.5,
+# as adb signs). The version the proof ran with on the test phone.
+rsa = { version = "0.9.10", optional = true }
+# The key's fingerprint as the phone shows it (MD5, as Android computes it).
+md-5 = { version = "0.10.6", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# Windows' own lists of devices, read only; and WinUSB, with overlapped
+# transfers, for the debugging interface.
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_Usb",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+# The tests and the examples use the fake phone.
+limo-cable = { path = ".", features = ["fake"] }
+# Tests only: checks that the signature of the phone's token is the one adb
+# makes.
+sha1 = { version = "0.10.7", features = ["oid"] }
+
+# The RSA key is made once; optimised dependencies keep that quick in tests.
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test.package."*"]
+opt-level = 3

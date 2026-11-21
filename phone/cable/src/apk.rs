@@ -1,7 +1,7 @@
 //! What an APK says it is, read before anything is installed: its package
-//! name, its version name, and whether it is a debug build. `install` uses
-//! it to refuse anything but LiMo's child form, and a release build of it,
-//! with nothing sent to the phone.
+//! name, its version name, and whether it is a debug build. The console
+//! uses it to install nothing but LiMo's child form as a release build; the
+//! phone development tool, to install nothing but its debug build.
 //!
 //! An APK is a zip file; Android's compiled `AndroidManifest.xml` is in it,
 //! in Android's binary XML. Only what is needed is read: the zip's central
@@ -61,6 +61,12 @@ impl fmt::Display for ApkProblem {
 pub fn read_apk(path: &Path) -> Result<ApkFacts, ApkProblem> {
     let mut file = std::fs::File::open(path).map_err(|e| ApkProblem::Read(e.to_string()))?;
     let manifest = manifest_bytes(&mut file)?;
+    manifest_facts(&manifest)
+}
+
+/// What an APK already in memory says it is.
+pub fn apk_facts(apk: &[u8]) -> Result<ApkFacts, ApkProblem> {
+    let manifest = manifest_bytes(&mut std::io::Cursor::new(apk))?;
     manifest_facts(&manifest)
 }
 
@@ -260,8 +266,8 @@ mod tests {
     }
 
     /// Reads a real APK when one is named in `LIMO_TEST_APK`, with
-    /// `cargo test real_apk -- --ignored`. The integration tests
-    /// (`tests/devtool/apk.rs`) read APKs built in memory.
+    /// `cargo test real_apk -- --ignored`. The phone development tool's
+    /// tests (`phone/devtool/tests/devtool/apk.rs`) read APKs built in memory.
     #[test]
     #[ignore]
     fn real_apk() {

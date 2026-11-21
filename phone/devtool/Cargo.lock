@@ -187,6 +187,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "limo-cable"
+version = "0.1.0"
+dependencies = [
+ "miniz_oxide",
+ "windows-sys",
+ "zeroize",
+]
+
+[[package]]
 name = "limo-core"
 version = "0.1.0"
 dependencies = [
@@ -227,6 +236,7 @@ version = "0.1.0"
 dependencies = [
  "console",
  "getrandom",
+ "limo-cable",
  "limo-core",
  "limo-hub",
  "limo-phone",
@@ -234,7 +244,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "windows-sys",
  "zeroize",
 ]
 

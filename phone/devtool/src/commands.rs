@@ -21,7 +21,7 @@ use crate::phone::{
 use crate::places::{self, Places};
 use crate::status::{self, Whose};
 use crate::ui::{Hidden, Ui};
-use crate::usb::{self, UsbLook};
+use crate::usb::{self, CaseWords, UsbLook};
 
 /// Exit code: done.
 pub const DONE: i32 = 0;

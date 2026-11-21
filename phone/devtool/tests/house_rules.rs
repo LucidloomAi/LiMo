@@ -41,9 +41,9 @@ fn code_of(file: &Path) -> String {
 }
 
 #[test]
-fn unsafe_code_only_in_win_each_block_saying_why() {
-    let win = crate_dir().join("src").join("win");
-    let unsafe_block = ["unsafe", " {"].concat();
+fn no_unsafe_code_at_all() {
+    // Windows' list of USB devices is read by the cable crate, whose own
+    // rules keep its unsafe code in its own `win/` and that read read only.
     let unsafe_word = ["unsafe", " "].concat();
     for file in sources() {
         let text = std::fs::read_to_string(&file).unwrap();
@@ -52,66 +52,27 @@ fn unsafe_code_only_in_win_each_block_saying_why() {
             // This file names the word in order to look for it.
             continue;
         }
-        if file.starts_with(&win) {
-            // Blocks only, each with its reason in the comment just above.
-            let lines: Vec<&str> = text.lines().collect();
-            for (number, line) in lines.iter().enumerate() {
-                for word in ["fn", "impl", "trait", "extern"] {
-                    assert!(!line.contains(&format!("{unsafe_word}{word}")), "{}:{} has unsafe {word}", file.display(), number + 1);
-                }
-                if line.contains(&unsafe_block) {
-                    let above = &lines[number.saturating_sub(4)..number];
-                    assert!(above.iter().any(|l| l.trim_start().starts_with("// SAFETY:")), "{}:{} says not why it is sound", file.display(), number + 1);
-                }
-            }
-            continue;
-        }
         let code: Vec<&str> = text.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
         assert!(!code.iter().any(|l| l.contains(&unsafe_word)), "{} has unsafe code", file.display());
-        // The crate root holds the modules, so it cannot forbid unsafe code
-        // for all of them; every other file forbids it for itself.
-        if file.parent() == Some(crate_dir().join("src").as_path()) && name != "lib.rs" {
+        if file.parent() == Some(crate_dir().join("src").as_path()) {
             assert!(text.contains("#![forbid(unsafe_code)]"), "{} does not forbid unsafe code", file.display());
         }
     }
-    let lib = std::fs::read_to_string(crate_dir().join("src").join("lib.rs")).unwrap();
-    assert!(lib.contains("#[cfg(windows)]\npub mod win;"), "win is built on Windows only");
+    assert!(!crate_dir().join("src").join("win").exists(), "no Windows calls of this tool's own");
 }
 
 #[test]
-fn windows_is_only_read_never_changed() {
-    // The only Windows calls: listing the present devices, reading three
-    // properties and a status, and letting go of the list.
-    let allowed = [
-        "SetupDiGetClassDevsW",
-        "SetupDiEnumDeviceInfo",
-        "SetupDiGetDeviceRegistryPropertyW",
-        "SetupDiDestroyDeviceInfoList",
-        "CM_Get_DevNode_Status",
-        "GetLastError",
-    ];
-    let mut files = Vec::new();
-    files_under(&crate_dir().join("src").join("win"), &mut files);
-    let mut called = 0;
-    for file in files {
-        let text = std::fs::read_to_string(&file).unwrap();
-        for (number, line) in text.lines().enumerate() {
-            if line.trim_start().starts_with("//") {
-                continue;
-            }
-            for word in line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
-                let windows_call = word.starts_with("SetupDi") || word.starts_with("CM_") || word.starts_with("Get") && word.ends_with("Error");
-                if windows_call && word.chars().any(|c| c.is_ascii_lowercase()) {
-                    assert!(allowed.contains(&word), "{}:{} calls {word}", file.display(), number + 1);
-                    called += 1;
-                }
-            }
-        }
-        for change in ["SetupDiSet", "SetupDiCall", "SetupDiChange", "SetupDiInstall", "SetupDiRemove", "CM_Set", "CM_Disable", "CM_Enable", "CM_Reenumerate", "CM_Query_And_Remove", "CreateProcess", "Command::new"] {
-            assert!(!text.contains(change), "{} has {change}", file.display());
+fn windows_is_reached_only_through_the_cable_crate() {
+    for file in rust_files("src") {
+        let text = code_of(&file);
+        for word in ["windows_sys", "SetupDi", "CM_Get", "CreateProcess", "Command::new(\"powershell"] {
+            assert!(!text.contains(word), "{} has {word}", file.display());
         }
     }
-    assert!(called >= allowed.len(), "every allowed call is there");
+    let lib = std::fs::read_to_string(crate_dir().join("src").join("lib.rs")).unwrap();
+    assert!(lib.contains("limo_cable::win::usb::WindowsUsb"), "the look is the cable crate's");
+    let manifest = std::fs::read_to_string(crate_dir().join("Cargo.toml")).unwrap();
+    assert!(manifest.contains("limo-cable = { path = \"../cable\", default-features = false }"), "only the look and the APK reader");
 }
 
 #[test]
