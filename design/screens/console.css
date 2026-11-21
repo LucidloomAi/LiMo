@@ -1,0 +1,398 @@
+/* LiMo, the guardian's screens: sign in, the first start and Today, in the
+   Paper and Ink theme. Drawings to agree the look, not the product.
+
+   One set of screens, arranged by the width they get. Each screen is drawn
+   in the console's window on the family PC (1100 by 760, Windows' own title
+   bar in its top 32) and on a guardian's phone (390 by 844, Android's bars
+   in its top 32 and bottom 24). The screen's markup is the same in both:
+   container queries on the view, the part LiMo draws, arrange it. Under 700
+   wide it takes the phone's arrangement, from 700 up the console's.
+
+   Sizes: reading text 16, small text 14, mono labels 12 and never smaller,
+   headings in Fraunces 28 (30 at the console's width). Anything to tap is at
+   least 48 high at phone width and 40 at the console's. */
+
+/* The theme's three fonts, from the copies the product bundles. */
+@font-face { font-family: 'Fraunces'; src: url('../../screens/fonts/fraunces/Fraunces-VariableFont_SOFT%2CWONK%2Copsz%2Cwght.ttf') format('truetype'); font-weight: 100 900; font-display: block; }
+@font-face { font-family: 'Instrument Sans'; src: url('../../screens/fonts/instrument-sans/InstrumentSans-VariableFont_wdth%2Cwght.ttf') format('truetype'); font-weight: 400 700; font-display: block; }
+@font-face { font-family: 'Spline Sans Mono'; src: url('../../screens/fonts/spline-sans-mono/SplineSansMono-VariableFont_wght.ttf') format('truetype'); font-weight: 300 700; font-display: block; }
+
+:root {
+  --paper: #f6f1e4; --paper2: #efe7d2; --card: #fffdf6; --ink: #1b2638; --ink-soft: #46506a;
+  --marigold: #e89c1c; --marigold-deep: #b97a08; --teal: #0e7c66; --coral: #cf4326;
+  --border: rgba(27,38,56,.16); --shadow: rgba(27,38,56,.85); --dash: rgba(27,38,56,.42);
+  --display: Fraunces, Georgia, 'Times New Roman', serif;
+  --body: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Spline Sans Mono', Consolas, 'Courier New', monospace;
+}
+
+/* ---------- The frames: the console's window, or a guardian's phone ---------- */
+
+/* --fh is the frame's height, --top what the system draws above the view,
+   --bottom what it draws below. */
+.cn-frame {
+  --fh: 844px; --top: 32px; --bottom: 24px;
+  position: relative; box-sizing: content-box; overflow: hidden; width: 390px; height: var(--fh);
+  color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.4;
+  background-color: var(--paper);
+  background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+  border: 1.5px solid var(--ink); border-radius: 40px;
+}
+.cn-frame.pc { --fh: 760px; --bottom: 0px; width: 1100px; border-radius: 10px; }
+.cn-frame *, .cn-frame *::before, .cn-frame *::after { box-sizing: border-box; }
+.cn-frame img, .cn-frame svg { display: block; flex: none; }
+
+/* Windows' own title bar, drawn quietly: Windows draws it, not LiMo. */
+.cn-win {
+  position: absolute; z-index: 6; left: 0; right: 0; top: 0; height: 32px; display: flex; align-items: center;
+  background: #eceef2; border-bottom: 1px solid #d3d7de; color: #1f2328;
+  font: 400 12px/1 'Segoe UI', system-ui, sans-serif;
+}
+.cn-win .nm { display: flex; align-items: center; gap: 8px; padding-left: 12px; }
+.cn-win .ctl { display: flex; height: 100%; margin-left: auto; }
+.cn-win .ctl span { display: grid; place-items: center; width: 46px; height: 100%; }
+
+/* Android's status bar (only the time) and gesture bar. */
+.cn-status {
+  position: absolute; z-index: 6; left: 0; right: 0; top: 0; height: 32px; display: flex; align-items: center;
+  padding: 2px 30px 0; font: 500 12px/1 var(--mono); letter-spacing: .04em; color: var(--ink-soft);
+}
+.cn-gesture { position: absolute; z-index: 6; left: 0; right: 0; bottom: 0; height: 24px; display: grid; place-items: center; }
+.cn-gesture i { width: 108px; height: 4px; border-radius: 2px; background: rgba(27,38,56,.3); }
+
+/* The view: what LiMo draws, between the system's bars. Its width decides
+   the arrangement. */
+.cn-view { position: absolute; left: 0; right: 0; top: var(--top); bottom: var(--bottom); container: view / inline-size; }
+
+/* What changes with the width: the height of things to tap, of fields and
+   pinned buttons, and of the pinned strip. */
+.cn-view > * { --tap: 48px; --field: 48px; --pin: 64px; }
+.cn-frame.pin2 .cn-view > * { --pin: 122px; }
+@container view (min-width: 700px) {
+  .cn-view > * { --tap: 40px; --field: 44px; --pin: 68px; }
+  .cn-frame.pin2 .cn-view > * { --pin: 68px; }
+}
+
+/* The page scrolls when it does not fit. */
+.cn-page { position: absolute; inset: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+.cn-page::-webkit-scrollbar { display: none; }
+.cn-frame.pinned .cn-page { bottom: var(--pin); }
+
+/* The main button, pinned to the bottom on a strip of the page itself (its
+   dots lined up with the page's), so nothing shows through it. */
+.cn-pin {
+  position: absolute; z-index: 4; left: 0; right: 0; bottom: 0; height: var(--pin); padding: 8px 16px 0;
+  background-color: var(--paper);
+  background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px);
+  background-size: 18px 18px; background-position: 0 calc(var(--bottom) + var(--pin) - var(--fh));
+}
+.cn-pin-in { display: flex; flex-direction: column; gap: 10px; }
+.cn-pin .cn-btn { width: 100%; min-height: var(--field); }
+@container view (min-width: 700px) {
+  .cn-pin { padding: 12px 32px 0; }
+  .cn-pin-in { flex-direction: row; justify-content: flex-end; max-width: 560px; margin: 0 auto; gap: 12px; }
+  .cn-pin .cn-btn { width: auto; min-width: 200px; padding: 0 28px; }
+}
+
+/* A page unrolled at its full length, to show what scrolls. */
+.cn-frame.whole { height: auto; }
+.cn-frame.whole .cn-view { position: relative; top: auto; bottom: auto; margin: var(--top) 0 var(--bottom); }
+.cn-frame.whole .cn-page { position: relative; inset: auto; overflow: visible; }
+.cn-frame.whole .cn-pin { position: relative; background: none; }
+
+/* ---------- Shared parts ---------- */
+
+.cn-wrap { min-height: 100%; display: flex; flex-direction: column; padding: 4px 16px 24px; }
+.cn-wrap.tabbed { padding-bottom: 104px; }
+@container view (min-width: 700px) {
+  .cn-wrap { padding: 16px 32px 28px; }
+  .cn-wrap.tabbed { padding-bottom: 104px; }
+}
+
+/* The top row: LiMo's own name first. */
+.cn-top { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 2px 2px 0; }
+.cn-mark { display: flex; align-items: center; gap: 7px; font: 600 22px/1 var(--display); letter-spacing: -.01em; }
+
+.cn-label { font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.cn-label em { margin-left: 6px; font: 400 14px/1 var(--body); letter-spacing: 0; text-transform: none; }
+.cn-label.gap { margin-top: 18px; }
+
+.cn-card {
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--shadow);
+  padding: 16px;
+}
+@container view (min-width: 700px) { .cn-card { padding: 20px 24px 22px; } }
+
+.cn-hrow { display: flex; align-items: center; gap: 12px; }
+.cn-h1 { margin: 0; font: 600 28px/1.1 var(--display); letter-spacing: -.012em; text-wrap: balance; }
+@container view (min-width: 700px) { .cn-h1 { font-size: 30px; } }
+.cn-head { margin: 0 2px 12px; }
+.cn-head .cn-h1 { margin-top: 8px; }
+.cn-detail { margin: 10px 0 0; font-size: 16px; line-height: 1.4; color: var(--ink-soft); text-wrap: pretty; }
+.cn-small { margin: 12px 2px 0; font-size: 14px; line-height: 1.45; color: var(--ink-soft); text-wrap: pretty; }
+/* What is true only of the console's window on the PC, which Windows
+   draws, is not said on a phone. */
+.cn-frame.ph .cn-pc-only { display: none; }
+.cn-tile { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 8px; background: var(--paper2); }
+.cn-tile.lg { width: 48px; height: 48px; border-radius: 10px; }
+
+/* Fields: an ink outline; the one being typed in has a marigold edge. */
+.cn-field {
+  display: flex; align-items: center; gap: 9px; height: var(--field); margin-top: 8px; padding: 0 14px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; font: 16px/1 var(--body);
+}
+.cn-field.at { box-shadow: inset 0 -4px 0 var(--marigold); }
+.cn-field.off { border-style: dashed; border-color: var(--dash); background: transparent; }
+.cn-field .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink); }
+.cn-field .val { font: 600 18px/1 var(--mono); color: var(--marigold-deep); }
+.cn-field .mk { margin-left: auto; color: var(--ink-soft); }
+.cn-caret { width: 2px; height: 20px; margin-left: -6px; background: var(--ink); }
+.cn-field .typed + .cn-caret { margin-left: -7px; }
+/* A message under a field has its room kept, two lines, so nothing moves. */
+.cn-err { min-height: 40px; margin-top: 6px; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--coral); text-wrap: pretty; }
+
+/* Buttons. */
+.cn-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--tap); padding: 0 16px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--shadow);
+  font: 600 16px/1 var(--body); color: var(--ink); white-space: nowrap;
+}
+.cn-btn.wide { display: flex; width: 100%; }
+.cn-btn.go { background: var(--marigold); }
+.cn-btn.mono { font: 600 14px/1 var(--mono); }
+.cn-btn.coral { color: var(--coral); border-color: var(--coral); }
+/* A button that cannot be used now: dashed, faded, no shadow; it keeps its size. */
+.cn-btn.dim { border-style: dashed; box-shadow: none; color: rgba(27,38,56,.45); border-color: var(--dash); }
+/* A main button that cannot be used yet: soft marigold, still solid. */
+.cn-btn.go.off { background: #f5d194; border-color: rgba(27,38,56,.4); color: rgba(27,38,56,.5); box-shadow: none; }
+
+/* Choices: ink outlines with mono type. A picked one is filled with ink and
+   keeps its size. */
+.cn-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.cn-chip {
+  display: inline-grid; place-items: center; min-height: var(--tap); padding: 0 14px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 8px; font: 500 14px/1 var(--mono); white-space: nowrap;
+}
+.cn-chip.on { background: var(--ink); color: var(--card); }
+.cn-chips.even { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.cn-chips.even .cn-chip { padding: 0 2px; }
+
+/* Plain rows, inside one card, with dashed dividers. */
+.cn-list { padding: 2px 14px; }
+.cn-li { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-top: 1.5px dashed var(--border); }
+.cn-li:first-child { border-top: 0; }
+.cn-li b { display: block; font-size: 16px; font-weight: 600; line-height: 1.25; }
+.cn-li i { display: block; margin-top: 2px; font-style: normal; font-size: 14px; line-height: 1.35; color: var(--ink-soft); text-wrap: pretty; }
+@container view (min-width: 700px) { .cn-list { padding: 2px 18px; } .cn-li { align-items: center; } }
+
+/* The tick box row. Taps anywhere on the row. */
+.cn-tick {
+  display: flex; align-items: center; gap: 12px; min-height: 56px; margin-top: 14px; padding: 10px 14px 10px 12px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--shadow);
+  font-size: 16px; line-height: 1.35;
+}
+.cn-tick > span:last-child { text-wrap: balance; }
+.cn-box { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border: 2px solid var(--ink); border-radius: 7px; background: var(--card); }
+.cn-box.on { background: var(--ink); color: var(--card); }
+
+/* ---------- Sign in ---------- */
+
+.cn-mid { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 16px 0 8px; }
+.cn-signin { width: 100%; max-width: 440px; margin: 0 auto; }
+.cn-signin > img { margin-bottom: 12px; }
+.cn-signin .cn-btn { margin-top: 2px; }
+.cn-forgot { margin-top: 18px; padding-top: 14px; border-top: 1.5px dashed var(--border); }
+.cn-forgot p { margin: 8px 0 0; font-size: 14px; line-height: 1.45; color: var(--ink-soft); text-wrap: pretty; }
+.cn-refuse { display: flex; align-items: flex-start; gap: 12px; margin-top: 18px; padding-top: 16px; border-top: 1.5px dashed var(--border); }
+.cn-refuse p { margin: 0; font-size: 16px; line-height: 1.45; text-wrap: pretty; }
+
+/* ---------- The first start ---------- */
+
+/* One column of comfortable reading width, in the middle. */
+.cn-col { width: 100%; max-width: 560px; margin: 0 auto; }
+/* Back at the left, the counter at the right. On the first step Back's
+   room is kept empty, so the counter never moves. */
+.cn-steps { display: flex; align-items: center; justify-content: space-between; min-height: var(--tap); margin: 12px 0 14px; }
+.cn-back {
+  display: inline-flex; align-items: center; gap: 4px; height: var(--tap); padding: 0 16px 0 10px;
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; font: 600 16px/1 var(--body);
+}
+.cn-count { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+.cn-dots { display: flex; gap: 6px; }
+.cn-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--ink-soft); }
+.cn-dot.done { background: var(--teal); border-color: var(--teal); }
+.cn-dot.at { background: var(--marigold); border-color: var(--marigold-deep); }
+
+/* The two secrets, side by side at the console's width, one under the
+   other on a phone. The one this step sets has a solid edge. */
+.cn-two { display: grid; gap: 10px; margin-top: 16px; }
+.cn-two > div { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; border: 1.5px dashed var(--dash); border-radius: 10px; }
+.cn-two > div.now { border: 1.5px solid var(--ink); }
+.cn-two p { margin: 0; font-size: 14px; line-height: 1.4; color: var(--ink-soft); text-wrap: pretty; }
+.cn-two b { display: block; margin-bottom: 2px; font-size: 16px; font-weight: 600; line-height: 1.25; color: var(--ink); }
+@container view (min-width: 700px) { .cn-two { grid-template-columns: 1fr 1fr; } }
+
+/* Time a day: a stepper, its figure in marigold because it is a time. The
+   figure keeps its width, so the buttons never move. */
+.cn-stepper { display: flex; align-items: center; gap: 12px; }
+.cn-sq {
+  display: grid; place-items: center; width: var(--tap); height: var(--tap);
+  background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px;
+}
+.cn-one { display: flex; justify-content: center; margin-top: 22px; padding: 14px 0 6px; border-top: 1.5px dashed var(--border); }
+.cn-one .cn-stepper { gap: 18px; }
+.cn-one .cn-sq { width: 48px; height: 48px; }
+.cn-bigfig { min-width: 168px; text-align: center; font: 600 48px/1 var(--display); letter-spacing: -.02em; color: var(--marigold-deep); }
+.cn-days { margin-top: 14px; border-top: 1.5px dashed var(--border); }
+.cn-day { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 0; border-top: 1.5px dashed var(--border); }
+.cn-day:first-child { border-top: 0; }
+.cn-day .cn-stepper { gap: 8px; }
+.cn-fig { min-width: 104px; text-align: center; font: 600 15px/1 var(--mono); color: var(--marigold-deep); }
+@container view (min-width: 700px) { .cn-days { margin-top: 12px; } }
+
+/* Bedtime: from and to, side by side at both widths. */
+.cn-times { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 18px; }
+
+/* The Windows accounts. On a phone the choices go under the name; at the
+   console's width they stand at the right of it. */
+.cn-accts { margin-top: 12px; border-top: 1.5px dashed var(--border); }
+.cn-acct { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px 12px; align-items: center; padding: 10px 0; border-top: 1.5px dashed var(--border); }
+.cn-acct:first-child { border-top: 0; }
+.cn-acct .who b { display: block; font-size: 16px; font-weight: 600; line-height: 1.25; }
+.cn-acct .who .cn-label { margin-top: 5px; line-height: 1.45; letter-spacing: .08em; }
+.cn-acct .cn-label.admin { color: var(--coral); }
+.cn-acct .cn-chips { grid-column: 1 / -1; margin-top: 0; flex-wrap: nowrap; }
+.cn-acct .cn-chips .cn-chip { flex: 1 1 auto; padding: 0 10px; }
+.cn-acct .cn-warn { grid-column: 1 / -1; }
+@container view (min-width: 700px) {
+  .cn-acct { grid-template-columns: 40px minmax(0, 1fr) auto; padding: 12px 0; }
+  .cn-acct .facts span { display: block; }
+  .cn-acct .facts .sep { display: none; }
+  .cn-acct .cn-chips { grid-column: auto; }
+  .cn-acct .cn-chips .cn-chip { flex: none; padding: 0 12px; }
+}
+/* An administrator chosen for a child: said plainly, in coral. */
+.cn-warn { padding: 12px 14px; border: 1.5px solid var(--coral); border-radius: 10px; background: rgba(207,67,38,.06); }
+.cn-warn-top { display: flex; align-items: flex-start; gap: 10px; }
+.cn-warn p { margin: 0; font-size: 15px; line-height: 1.4; text-wrap: pretty; }
+.cn-warn b { font-weight: 600; }
+.cn-warn ol { margin: 8px 0 0; padding-left: 54px; font-size: 15px; line-height: 1.45; }
+.cn-warn .cn-small { margin: 8px 0 0 34px; }
+
+/* Done: a teal tick for each thing made, then the phone. */
+.cn-oks { margin-top: 14px; }
+.cn-ok { display: flex; align-items: center; gap: 10px; min-height: 40px; border-top: 1.5px dashed var(--border); font-size: 16px; }
+.cn-ok:first-child { border-top: 0; }
+.cn-ok .tk { color: var(--teal); }
+.cn-next { display: flex; align-items: flex-start; gap: 12px; margin-top: 12px; padding: 12px 14px; border: 1.5px dashed var(--dash); border-radius: 10px; }
+.cn-next b { display: block; font-size: 16px; font-weight: 600; line-height: 1.25; }
+.cn-next i { display: block; margin-top: 2px; font-style: normal; font-size: 14px; line-height: 1.35; color: var(--ink-soft); text-wrap: balance; }
+
+/* The maker's mark: said once, small, at the end. The logo keeps its own
+   colours: 22 on a phone, 26 at the console's width. */
+.cn-maker { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: auto; padding-top: 20px; color: var(--ink); }
+.cn-maker span { font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.cn-maker img { width: 22px; height: 22px; margin-left: 2px; }
+.cn-maker b { font: 600 14px/1 var(--body); letter-spacing: -.005em; }
+@container view (min-width: 700px) { .cn-maker img { width: 26px; height: 26px; } }
+
+/* ---------- Today ---------- */
+
+/* One column on a phone, what waits for a guardian first. At the console's
+   width, two: the children at the left, what waits at the right. */
+.cn-today { display: grid; gap: 14px; margin-top: 8px; }
+.cn-kids, .cn-aside { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+@container view (min-width: 700px) {
+  .cn-today { grid-template-columns: minmax(0, 1fr) 340px; grid-template-areas: "kids aside"; gap: 24px; align-items: start; margin-top: 14px; }
+  .cn-kids { grid-area: kids; }
+  .cn-aside { grid-area: aside; }
+}
+.cn-sec { margin: 4px 2px -4px; }
+
+/* A child. Its card arranges itself by its own width: stacked on a phone,
+   the time beside the devices on the console. */
+.cn-kid { padding: 0; container: kid / inline-size; }
+.cn-kid-in { display: grid; grid-template-areas: "head" "time" "devs" "acts"; padding: 14px 16px 16px; }
+@container kid (min-width: 540px) {
+  .cn-kid-in { grid-template-columns: 210px minmax(0, 1fr); grid-template-areas: "head head" "time devs" "acts acts"; column-gap: 26px; padding: 12px 20px 14px; }
+}
+.cn-kid-head { grid-area: head; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 32px; padding-bottom: 8px; border-bottom: 1.5px dashed var(--border); }
+.cn-kid-head b { font: 600 24px/1.1 var(--display); letter-spacing: -.01em; }
+.cn-kid-time { grid-area: time; padding-top: 12px; }
+.cn-big { display: block; font: 600 40px/1 var(--display); letter-spacing: -.02em; color: var(--marigold-deep); white-space: nowrap; }
+.cn-big + .cn-label { margin-top: 8px; }
+.cn-bar { height: 10px; margin-top: 14px; border: 1.5px solid var(--ink); border-radius: 999px; overflow: hidden; background: var(--paper); }
+.cn-bar i { display: block; height: 100%; background: var(--marigold); }
+.cn-bar i.part { border-right: 1.5px solid var(--ink); }
+.cn-used { margin: 8px 0 0; font-size: 15px; line-height: 1.35; }
+
+.cn-devs { grid-area: devs; margin-top: 12px; border-top: 1.5px dashed var(--border); }
+@container kid (min-width: 540px) { .cn-devs { margin-top: 4px; border-top: 0; } }
+.cn-dev { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1.5px dashed var(--border); }
+.cn-dev:first-child { border-top: 0; }
+.cn-dev .nm { min-width: 0; }
+.cn-dev .nm b { display: block; font-size: 16px; font-weight: 600; line-height: 1.25; }
+.cn-dev .st { display: block; margin-top: 4px; font: 500 12px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+.cn-dev .st.live { color: var(--teal); }
+/* A device that needs a guardian: a coral mark under its name. */
+.cn-dev .need { display: flex; align-items: center; gap: 6px; margin-top: 5px; font: 600 12px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--coral); }
+.cn-dev .need img { width: 20px; height: 20px; }
+.cn-dev .min { margin-left: auto; padding-left: 8px; font: 500 14px/1 var(--mono); white-space: nowrap; }
+/* A phone not added yet: a dashed row with the way to add it. */
+.cn-dev.missing { flex-wrap: wrap; margin: 6px 0 2px; padding: 10px 12px; border: 1.5px dashed var(--dash); border-radius: 10px; }
+.cn-dev.missing p { flex: 1 1 160px; margin: 0; font-size: 15px; line-height: 1.35; }
+.cn-dev.missing .cn-btn { flex: 1 1 100%; }
+@container kid (min-width: 540px) { .cn-dev.missing .cn-btn { flex: none; } }
+
+/* Quick actions: plain ink outlines with mono type; Lock now in coral. */
+.cn-acts { grid-area: acts; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1.5px dashed var(--border); }
+.cn-acts .span2 { grid-column: span 2; }
+.cn-acts .cn-btn { padding: 0 8px; }
+@container kid (min-width: 540px) {
+  .cn-acts { display: flex; gap: 8px; margin-top: 8px; padding-top: 12px; }
+  .cn-acts .cn-btn { padding: 0 14px; }
+}
+
+/* A stamp that says a state, straight. */
+.cn-st {
+  flex: none; padding: 5px 8px 4px; border: 1.5px solid var(--ink); border-radius: 6px; white-space: nowrap;
+  font: 600 12px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+}
+.cn-st.coral { color: var(--coral); border-color: var(--coral); }
+.cn-st.teal { color: var(--teal); border-color: var(--teal); }
+
+/* A request waiting: who, where, when, the child's own words, and one tap. */
+.cn-req-top { display: flex; align-items: flex-start; gap: 12px; }
+.cn-req-top b { display: block; font-size: 17px; font-weight: 600; line-height: 1.25; }
+.cn-req-top .cn-label { margin-top: 6px; line-height: 1.3; }
+.cn-quote { margin: 12px 0 0; padding: 10px 12px; border: 1.5px dashed var(--dash); border-radius: 10px; font-size: 16px; line-height: 1.4; text-wrap: pretty; }
+.cn-answers { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; margin-top: 12px; }
+.cn-answers .cn-btn { padding: 0 8px; font-size: 15px; }
+.cn-answers .cn-btn:last-child { min-width: 64px; }
+
+/* Something that needs a guardian. */
+.cn-need-top { display: flex; align-items: center; justify-content: space-between; }
+.cn-need b { display: block; margin-top: 12px; font-size: 16px; font-weight: 600; line-height: 1.25; }
+.cn-need p { margin: 4px 0 0; font-size: 15px; line-height: 1.4; color: var(--ink-soft); text-wrap: pretty; }
+.cn-need .cn-btn { margin-top: 12px; }
+
+/* Nothing waiting: said quietly, in a dashed box. */
+.cn-quiet { padding: 14px 16px; border: 1.5px dashed var(--dash); border-radius: 12px; font-size: 15px; line-height: 1.45; color: var(--ink-soft); text-wrap: pretty; }
+.cn-quiet b { display: block; font-weight: 600; color: var(--ink); }
+
+/* Tabs float, in glass, set in from the sides and the bottom by 14. At the
+   console's width the bar keeps a phone's width, in the middle. */
+.cn-tabs {
+  position: absolute; z-index: 5; left: 14px; right: 14px; bottom: 14px; display: flex; gap: 4px; padding: 6px; border-radius: 24px;
+  background: rgba(255,253,246,.44);
+  -webkit-backdrop-filter: blur(9px) saturate(1.7); backdrop-filter: blur(9px) saturate(1.7);
+  border: 1.5px solid rgba(255,255,255,.72);
+  box-shadow: 0 0 0 1px rgba(27,38,56,.16), 0 12px 28px rgba(27,38,56,.22);
+}
+@container view (min-width: 700px) { .cn-tabs { left: calc(50% - 220px); right: calc(50% - 220px); } }
+.cn-tab {
+  flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 7px 0; border-radius: 18px;
+  font: 600 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft);
+}
+.cn-tab.on { color: var(--ink); background: rgba(27,38,56,.09); }

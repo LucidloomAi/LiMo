@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiMo guardian console</title>
+<link rel="stylesheet" href="console.css">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 16px 60px; color: var(--ink); font-family: var(--body);
+    background-color: var(--paper);
+    background-image: radial-gradient(rgba(27,38,56,.13) 1px, transparent 1.2px);
+    background-size: 18px 18px;
+  }
+  main { max-width: 1540px; margin: 0 auto; }
+  /* Each half of the sheet carries its own margin, so a picture of it does too. */
+  .part { margin: 0 -16px; padding: 16px 16px 24px; }
+  h1 { font-family: var(--display); font-size: 34px; margin: 0 0 4px; letter-spacing: -.01em; }
+  h2 { font-family: var(--display); font-size: 24px; margin: 48px 0 4px; }
+  h3 { font-family: var(--display); font-size: 19px; margin: 36px 0 4px; }
+  .lead { margin: 0 0 18px; max-width: 820px; font-size: 16px; line-height: 1.5; color: var(--ink-soft); }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--teal); }
+
+  /* Each frame at both widths, side by side, at its real size. */
+  .pair { margin-top: 30px; }
+  .pair > .cap { margin: 0 0 10px; font: 600 13px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .two { display: flex; align-items: flex-start; gap: 32px; width: max-content; }
+  .sz { min-height: 1.45em; margin: 0 0 8px; font: 500 12px/1.45 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+  .wholes { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px; }
+
+  .card { max-width: 980px; background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 rgba(27,38,56,.85); padding: 16px; }
+  .line { display: flex; gap: 14px; padding: 10px 0; border-top: 1.5px dashed var(--border); font-size: 14.5px; line-height: 1.5; }
+  .line:first-child { border-top: 0; padding-top: 0; }
+  .line:last-child { padding-bottom: 0; }
+  .line .k { flex: none; width: 118px; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); padding-top: 2px; }
+  @media (max-width: 760px) {
+    h1 { font-size: 28px; }
+    .line { flex-direction: column; gap: 2px; }
+    .line .k { width: auto; }
+  }
+</style>
+</head>
+<body>
+<main>
+<section class="part" id="sheet-a">
+  <div class="eyebrow">LiMo · design · the guardian’s console</div>
+  <h1>The guardian’s screens: sign in, the first start and Today</h1>
+  <p class="lead">What a guardian sees in LiMo, in the Paper and Ink theme. A guardian opens these screens in a window on the family PC, and later the same screens run on a guardian’s phone. They are one set of screens arranged by the width they get, never two designs: every frame is drawn twice, side by side, at its real size in CSS pixels. The window is 1100 by 760 and its top 32 is Windows’ own title bar. The phone is 390 by 844, with Android’s status bar in its top 32 and its gesture bar in its bottom 24.</p>
+  <div class="card" id="order"></div>
+
+  <h2>C0. Sign in</h2>
+  <p class="lead">LiMo’s settings open with the guardian password. A message under the field has its room kept, so nothing moves when one appears. What to do about a forgotten password is said on the screen itself, because there is nothing to tap for it. From a child’s Windows account the screen says it cannot be opened, and has no field.</p>
+  <div id="sign"></div>
+
+  <h2>F1 to F8. The first start: making the family</h2>
+  <p class="lead">One step a screen, with Back and a counter above the card, and the main button pinned to the bottom. On the first step, Back’s room is kept empty so the counter never moves. The sentence about the window on F1 is said only in the console on the PC, where Windows draws the window, so a phone leaves it out. Blocked programs and apps, and how much of the day a phone away from home may use, are not part of the first start: they live in Rules.</p>
+  <div id="first"></div>
+  <h3>Unrolled: the frames that scroll</h3>
+  <p class="lead">Each frame that does not fit its window, drawn at its full length. In use it scrolls above the pinned button.</p>
+  <div class="wholes" id="first-whole"></div>
+</section>
+
+<section class="part" id="sheet-b">
+  <h2>T. Today, the home screen</h2>
+  <p class="lead">What is happening now, and the answers a guardian gives most, each one tap. At the console’s width Today uses two columns: the children at the left, and what waits for a guardian at the right. At 390 it is one column, and what waits comes first. Marigold is time, teal is in use or done, coral is locked or needs a guardian. The tab bar floats in glass at the bottom centre at both widths, and the page keeps room at its end so the last row scrolls clear of it.</p>
+  <div id="today"></div>
+  <h3>Unrolled: the frames that scroll</h3>
+  <p class="lead">Each frame that does not fit its window, drawn at its full length, with the tab bar at the end where it rests when the page is scrolled to the bottom.</p>
+  <div class="wholes" id="today-whole"></div>
+
+  <h2>For the build</h2>
+  <div class="card" id="notes"></div>
+</section>
+</main>
+<script src="console.js"></script>
+<script>
+  var C = window.LIMO_CONSOLE;
+  function byId(id) { return document.getElementById(id); }
+
+  var FRAMES = {
+    sign: [
+      ['C0', 'Sign in', C.signIn('ready')],
+      ['C0b', 'A wrong password', C.signIn('wrong')],
+      ['C0c', 'The wait after too many wrong tries', C.signIn('wait')],
+      ['C0d', 'From a child’s Windows account', C.signIn('child')]
+    ],
+    first: [
+      ['F1', 'Welcome, and the guardian agrees', C.welcome(false)],
+      ['F2', 'The guardian password, twice', C.password()],
+      ['F3', 'The guardian PIN, twice', C.pin()],
+      ['F4', 'The child', C.child()],
+      ['F5', 'Time a day: one figure for every day', C.timeADay(false)],
+      ['F5b', 'Time a day: each day on its own', C.timeADay(true)],
+      ['F6', 'Bedtime', C.bedtime()],
+      ['F7', 'The Windows accounts on this PC', C.accounts(false)],
+      ['F7b', 'A child’s account is an administrator', C.accounts(true)],
+      ['F8', 'Done', C.done()]
+    ],
+    today: [
+      ['T1', 'Right after the first start', C.today('first')],
+      ['T2', 'One child', C.today('one')],
+      ['T3', 'Two children, a request waiting, a phone that needs a guardian', C.today('two')]
+    ]
+  };
+
+  function pair(f) {
+    return '<div class="pair" id="pair-' + f[0] + '"><div class="cap">' + f[0] + ' · ' + f[1] + '</div><div class="two">' +
+      '<div><div class="sz" data-sz="' + f[0] + '-1100">1100 by 760</div>' + C.frame(f[2], 'pc', { id: f[0] + '-1100' }) + '</div>' +
+      '<div><div class="sz" data-sz="' + f[0] + '-390">390 by 844</div>' + C.frame(f[2], 'phone', { id: f[0] + '-390' }) + '</div>' +
+      '</div></div>';
+  }
+  Object.keys(FRAMES).forEach(function (k) { byId(k).innerHTML = FRAMES[k].map(pair).join(''); });
+
+  byId('order').innerHTML = [
+    ['C0 to C0d', 'Sign in: the screen, a wrong password, the wait after too many wrong tries, and what a child’s account sees.'],
+    ['F1 to F8', 'The first start, one step a screen: welcome, the password, the PIN, the child, time a day, bedtime, the Windows accounts, done. F5b and F7b are second states of F5 and F7.'],
+    ['T1 to T3', 'Today, the home screen: right after the first start, one child, and two children with a request waiting and a phone that needs a guardian.'],
+    ['Two widths', 'At the console’s width nothing stretches to fill the window. Sign in and every step of the first start sit in one column 560 wide in the middle, with the step counter above. Today uses the width for two columns. At 390 everything is one column.']
+  ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
+
+  byId('notes').innerHTML = [
+    ['Widths', 'One markup for each screen. Below 700 wide it takes the phone’s arrangement, from 700 up the console’s. The forms keep a column of 560 at most; Today’s right column is 340 and the children take the rest.'],
+    ['Size', 'Reading text 16, small text 14, mono labels 12 and never smaller, headings 28 in Fraunces (30 at the console’s width). Anything to tap is at least 48 high on a phone and 40 at the console’s width; fields and pinned buttons are 48 and 44.'],
+    ['Pinned', 'The main button is pinned to the bottom on a strip of the page, so nothing shows through it. On a phone it is as wide as the screen; at the console’s width it stands at the right of the column. Done pins two: Later, and Add the phone now in the main button’s place.'],
+    ['Steps', 'Eight, with Back at the left and the counter at the right. Done ones teal, this one marigold, later ones outlined; every dot keeps its size. Back keeps what was typed.'],
+    ['Messages', 'A message under a field has two lines of room kept when there is none. The rules’ own sentence for a bedtime or a time a day that does not fit goes in that room.'],
+    ['Accounts', 'LiMo changes no Windows account itself. An account left for later is locked once the first start ends; an administrator’s account never is.'],
+    ['Today', 'Times come from the service as numbers and are written in the engine’s words, such as 1 h 12 min. The screen asks again every few seconds while it is open. Lift is switched off unless a guardian’s lock or unlock is in force.'],
+    ['Tabs', 'Today, Rules, Devices, More. On a phone the bar is set in 14 from the sides and the bottom; at the console’s width it keeps a width of 440 in the middle, 14 above the window’s edge. Where the window cannot blur, the bar is the card colour at nearly full strength.'],
+    ['Icons', 'From the set, at 24 in a tab and a row, 32 on a tile, 48 beside a heading, 64 on sign in. Rules uses the edit icon: the set has no icon of its own for rules.'],
+    ['Maker', 'The LucidLoom AI logo and name with the words made by, once, at the end of Done: 26 at the console’s width, 22 on a phone. It is not a link.'],
+    ['Not here', 'No screenshots, no window titles, no web addresses. Today shows device names, minutes and states only.']
+  ].map(function (n) { return '<div class="line"><span class="k">' + n[0] + '</span><span>' + n[1] + '</span></div>'; }).join('');
+
+  // Once the fonts have set the heights: say under each frame whether it
+  // fits, and draw each frame that scrolls again, unrolled.
+  function measure() {
+    var screens = {};
+    Object.keys(FRAMES).forEach(function (k) { FRAMES[k].forEach(function (f) { screens[f[0]] = [k, f]; }); });
+    var whole = { first: '', today: '' };
+    Array.prototype.forEach.call(document.querySelectorAll('.cn-frame[data-id]'), function (fr) {
+      var page = fr.querySelector('.cn-page');
+      var over = page.scrollHeight - page.clientHeight;
+      var id = fr.getAttribute('data-id');
+      var pc = /-1100$/.test(id);
+      var what = fr.classList.contains('tabbed') ? 'under the tab bar' : fr.classList.contains('pinned') ? 'above the pinned button' : '';
+      var cap = document.querySelector('[data-sz="' + id + '"]');
+      cap.textContent = (pc ? '1100 by 760' : '390 by 844') + ' · ' + (over > 1 ? 'scrolls ' + over + ' ' + what : 'fits, no scroll');
+      var key = id.replace(/-(1100|390)$/, '');
+      var s = screens[key];
+      if (over > 1 && s && whole[s[0]] !== undefined) {
+        whole[s[0]] += '<div><div class="sz">' + key + ' · ' + (pc ? '1100' : '390') + ' wide · unrolled</div>' +
+          C.frame(s[1][2], pc ? 'pc' : 'phone', { whole: true, id: key + '-' + (pc ? '1100' : '390') + '-whole' }) + '</div>';
+      }
+    });
+    byId('first-whole').innerHTML = whole.first || '<p class="lead">None: every step fits at both widths.</p>';
+    byId('today-whole').innerHTML = whole.today || '<p class="lead">None.</p>';
+    fit();
+    document.documentElement.setAttribute('data-ready', '1');
+  }
+
+  // On a screen narrower than a pair, the pairs are drawn smaller.
+  function fit() {
+    var room = document.querySelector('main').clientWidth;
+    Array.prototype.forEach.call(document.querySelectorAll('.two, .wholes > div'), function (t) {
+      t.style.zoom = '';
+      var w = t.scrollWidth;
+      t.style.zoom = w > room ? String(room / w) : '';
+    });
+  }
+  window.addEventListener('resize', fit);
+  window.addEventListener('load', function () {
+    if (document.fonts && document.fonts.ready) { document.fonts.ready.then(measure); } else { measure(); }
+  });
+</script>
+</body>
+</html>
