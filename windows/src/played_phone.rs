@@ -17,7 +17,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
-use limo_core::{Decision, DeviceState, Grant, GrantOutcome};
+use limo_core::{Decision, DeviceState, Grant, GrantOutcome, PhoneNote, SentNote};
 use limo_link::{Form, LinkError, Now, Offer, PairRequest, PairedMaster, PhoneEvent, PhonePairing, PhoneSession};
 use zeroize::Zeroize;
 
@@ -95,6 +95,16 @@ pub struct PlayedPhone {
     pub paired: PairedMaster,
     /// Its device's state, as the core keeps it.
     pub state: DeviceState,
+    /// The child's name, as the master's welcome gave it.
+    pub child_name: Option<String>,
+    /// Notes for the guardian not yet confirmed by a grant: sent with every
+    /// report until they are, as LiMo for Android sends them.
+    pub notes: Vec<SentNote>,
+    /// How many notes it has made, for the next note's id.
+    pub notes_made: u64,
+    /// How far its clock is ahead of the master's in what its reports say
+    /// (behind when negative): 0 for a phone whose clock is right.
+    pub clock_ahead_secs: i64,
 }
 
 /// Why playing the phone stopped.
@@ -144,7 +154,14 @@ impl PlayedPhone {
                     let _ = wire.send(&pairing.take_outgoing());
                     let mut state = DeviceState::from_pairing(&welcomed.welcome, now.unix);
                     state.set_code_secret(welcomed.code_secret.expose().to_vec()).map_err(|e| other(e.to_string()))?;
-                    return Ok(PlayedPhone { paired: welcomed.paired, state });
+                    return Ok(PlayedPhone {
+                        paired: welcomed.paired,
+                        state,
+                        child_name: welcomed.child_name,
+                        notes: Vec::new(),
+                        notes_made: 0,
+                        clock_ahead_secs: 0,
+                    });
                 }
                 wire.send(&pairing.take_outgoing()).map_err(other)?;
             }
@@ -152,6 +169,21 @@ impl PlayedPhone {
             std::thread::sleep(Duration::from_millis(1));
         }
         Err(other("the master did not answer in time".to_string()))
+    }
+
+    /// A note for the guardian, sent with the next report and every one
+    /// after until a grant confirms it.
+    pub fn note(&mut self, note: PhoneNote) {
+        self.notes_made += 1;
+        let id = SentNote::id_for(&self.paired.device_id, self.notes_made);
+        self.notes.push(SentNote { id, note });
+    }
+
+    /// Takes a grant: the core's device takes it, and the notes it confirms
+    /// are forgotten.
+    fn take(&mut self, grant: &Grant, now: i64) -> GrantOutcome {
+        self.notes.retain(|sent| !grant.confirmed_notes.contains(&sent.id));
+        self.state.take_grant(grant, now)
     }
 
     /// Opens a session with the master at `address`, as the paired phone.
@@ -217,7 +249,9 @@ impl Session {
     /// Sends a report and waits for its grant, which the phone takes.
     pub fn exchange(&mut self, phone: &mut PlayedPhone, want_more: bool, pump: &mut dyn FnMut() -> Now) -> Result<Box<Grant>, PhoneProblem> {
         let now = pump();
-        let report = phone.state.report(now.unix, want_more);
+        let mut report = phone.state.report(now.unix, want_more);
+        report.notes = phone.notes.clone();
+        report.sent_at = report.sent_at.saturating_add(phone.clock_ahead_secs);
         self.session.send_report(&report, now).map_err(problem)?;
         let out = self.session.take_outgoing();
         self.wire.send(&out).map_err(other)?;
@@ -227,7 +261,7 @@ impl Session {
                 match event {
                     PhoneEvent::Grant { grant, .. } => {
                         let now = pump();
-                        let outcome = phone.state.take_grant(&grant, now.unix);
+                        let outcome = phone.take(&grant, now.unix);
                         if outcome == GrantOutcome::NotForThisDevice {
                             return Err(other("a grant for another device came".to_string()));
                         }
@@ -245,7 +279,9 @@ impl Session {
     /// and taken by [`Session::take_held_grants`].
     pub fn send_report(&mut self, phone: &mut PlayedPhone, want_more: bool, pump: &mut dyn FnMut() -> Now) -> Result<(), PhoneProblem> {
         let now = pump();
-        let report = phone.state.report(now.unix, want_more);
+        let mut report = phone.state.report(now.unix, want_more);
+        report.notes = phone.notes.clone();
+        report.sent_at = report.sent_at.saturating_add(phone.clock_ahead_secs);
         self.session.send_report(&report, now).map_err(problem)?;
         let out = self.session.take_outgoing();
         self.wire.send(&out).map_err(other)
@@ -256,7 +292,7 @@ impl Session {
         let mut taken = 0;
         self.held.retain(|event| match event {
             PhoneEvent::Grant { grant, .. } => {
-                phone.state.take_grant(grant, now.unix);
+                phone.take(grant, now.unix);
                 taken += 1;
                 false
             }

@@ -1,0 +1,127 @@
+{
+  "request": "family_today",
+  "case": "every child’s day, with accessibility off on Asha’s phone",
+  "asked": {
+    "name": "family_today"
+  },
+  "answer": {
+    "id": 63,
+    "reply": {
+      "outcome": "done",
+      "value": [
+        {
+          "age_band": "thirteen_to_seventeen",
+          "budget_secs": 3600,
+          "child_id": "child-0000000000000001",
+          "day": 20775,
+          "devices": [
+            {
+              "added_secs": 0,
+              "clock_off_by_secs": null,
+              "device_id": "device-0000000000000001",
+              "giving_back_secs": 0,
+              "guardian_needed": null,
+              "holds_secs": 499,
+              "in_use": true,
+              "kind": "on_master",
+              "last_heard_at": 1794998227,
+              "name": "Family PC",
+              "pin_unlocked_until": null,
+              "platform": "windows",
+              "standing": null,
+              "used_secs": 401,
+              "waiting_secs": 0,
+              "wrong_guesses": 0
+            },
+            {
+              "added_secs": 0,
+              "clock_off_by_secs": null,
+              "device_id": "device-0000000000000002",
+              "giving_back_secs": 0,
+              "guardian_needed": {
+                "clock_off_by_secs": null,
+                "off": [
+                  {
+                    "permission": "accessibility",
+                    "since": 1794998347,
+                    "words": "Accessibility is switched off, so LiMo cannot see which app is open."
+                  }
+                ],
+                "setup_finished": true,
+                "usb_debugging_on": false
+              },
+              "holds_secs": 1800,
+              "in_use": false,
+              "kind": "portable",
+              "last_heard_at": 1794998227,
+              "name": "Asha’s tablet",
+              "pin_unlocked_until": null,
+              "platform": "android",
+              "standing": {
+                "clock": null,
+                "clock_moved": null,
+                "guard_opened": null,
+                "guarded_pages": [],
+                "needs_guardian": true,
+                "protection": {
+                  "level": "base",
+                  "since": 1794998287
+                },
+                "restarted_at": null,
+                "setup_finished": true,
+                "setup_finished_at": 1794998287,
+                "steps": [
+                  {
+                    "on": true,
+                    "permission": "notifications",
+                    "since": 1794998227
+                  },
+                  {
+                    "on": true,
+                    "permission": "phone",
+                    "since": 1794998227
+                  },
+                  {
+                    "on": true,
+                    "permission": "usage_access",
+                    "since": 1794998227
+                  },
+                  {
+                    "on": false,
+                    "permission": "accessibility",
+                    "since": 1794998347
+                  },
+                  {
+                    "on": true,
+                    "permission": "battery",
+                    "since": 1794998227
+                  },
+                  {
+                    "on": true,
+                    "permission": "protection",
+                    "since": 1794998227
+                  }
+                ],
+                "steps_off": [
+                  "accessibility"
+                ],
+                "usb_debugging": null
+              },
+              "used_secs": 0,
+              "waiting_secs": 0,
+              "wrong_guesses": 0
+            }
+          ],
+          "extra_secs": 1500,
+          "guardian": "nothing",
+          "left_secs": 4699,
+          "name": "Asha",
+          "over_secs": 0,
+          "used_secs": 401,
+          "waiting_requests": 0
+        }
+      ]
+    },
+    "say": "answer"
+  }
+}

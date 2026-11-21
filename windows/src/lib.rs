@@ -68,6 +68,7 @@ pub mod protocol;
 pub mod quiet;
 pub mod service;
 pub mod settings;
+pub mod standing;
 pub mod setup;
 pub mod text;
 

@@ -355,6 +355,10 @@ fn a_handshake_with_a_key_this_pc_never_paired_is_closed() {
     let stranger = PlayedPhone {
         paired: PairedMaster { phone_keys: KeyPair::generate().unwrap(), ..phone.paired.clone() },
         state: phone.state.clone(),
+        child_name: phone.child_name.clone(),
+        notes: Vec::new(),
+        notes_made: 0,
+        clock_ahead_secs: 0,
     };
     let opened = stranger.open(address, &mut || {
         pc.step();
@@ -618,4 +622,93 @@ fn the_step_time_with_a_phone_talking() {
     assert!(quiet_counted.abs_diff(counted) <= 1, "{quiet_counted} and {counted}");
     assert!(counted >= 29, "{counted}");
     assert!(mean(&steps) < 50.0, "a step is slow: {:.2} ms", mean(&steps));
+}
+
+/// The phone's device in an answer of the door.
+fn phone_in<'a>(devices: &'a serde_json::Value, device: &str) -> &'a serde_json::Value {
+    devices.as_array().unwrap().iter().find(|d| d["device_id"] == device).unwrap_or_else(|| panic!("{devices}"))
+}
+
+#[test]
+fn a_phones_notes_reach_the_doors_answers_as_how_it_stands_now() {
+    use limo_core::{PhoneNote, PhonePermission};
+    let (mut pc, asha, address, door) = family_with_the_link(60);
+    let mut phone = paired_phone(&mut pc, door, &asha, address);
+    let device = phone.paired.device_id.clone();
+    let mut session = phone.open(address, &mut || pc.answer_link()).unwrap();
+    session.exchange(&mut phone, false, &mut || pc.answer_link()).unwrap();
+    // Paired, and no note yet: setup is not finished.
+    let devices = pc.done(door, Request::Devices { child: asha.clone() });
+    let fresh = phone_in(&devices, &device);
+    assert_eq!(fresh["standing"]["setup_finished"], false, "{fresh}");
+    assert_eq!(fresh["standing"]["needs_guardian"], true);
+    assert_eq!(fresh["guardian_needed"]["setup_finished"], false);
+    assert_eq!(fresh["guardian_needed"]["off"], serde_json::json!([]));
+    // The master PC's own device, when it has one, has no standing.
+    for on_master in devices.as_array().unwrap().iter().filter(|d| d["kind"] == "on_master") {
+        assert!(on_master["standing"].is_null() && on_master["guardian_needed"].is_null(), "{on_master}");
+    }
+    // Set up, every step on; then accessibility switched off and USB
+    // debugging found on.
+    let at = pc.now();
+    for permission in PhonePermission::ALL {
+        phone.note(PhoneNote::PermissionOn { permission, at });
+    }
+    phone.note(PhoneNote::SetupFinished { at: at + 1 });
+    phone.note(PhoneNote::PermissionOff { permission: PhonePermission::Accessibility, at: at + 2 });
+    phone.note(PhoneNote::UsbDebugging { on: true, at: at + 3 });
+    session.exchange(&mut phone, false, &mut || pc.answer_link()).unwrap();
+    assert!(phone.notes.is_empty(), "the grant confirmed every note");
+    for answer in [
+        pc.done(door, Request::Device { device: device.clone() }),
+        phone_in(&pc.done(door, Request::ChildToday { child: asha.clone() })["devices"], &device).clone(),
+        phone_in(&pc.done(door, Request::FamilyToday)[0]["devices"], &device).clone(),
+    ] {
+        let needed = &answer["guardian_needed"];
+        assert_eq!(needed["setup_finished"], true, "{answer}");
+        assert_eq!(needed["usb_debugging_on"], true);
+        assert_eq!(needed["off"].as_array().unwrap().len(), 1);
+        assert_eq!(needed["off"][0]["permission"], "accessibility");
+        assert_eq!(needed["off"][0]["words"], "Accessibility is switched off, so LiMo cannot see which app is open.");
+        assert_eq!(needed["off"][0]["since"], at + 2);
+        assert_eq!(answer["standing"]["setup_finished_at"], at + 1);
+        assert_eq!(answer["standing"]["usb_debugging"], serde_json::json!({ "on": true, "since": at + 3 }));
+        assert_eq!(answer["standing"]["steps_off"], serde_json::json!(["accessibility"]));
+    }
+    // Switched on again, and USB debugging off: all well.
+    phone.note(PhoneNote::PermissionOn { permission: PhonePermission::Accessibility, at: at + 4 });
+    phone.note(PhoneNote::UsbDebugging { on: false, at: at + 5 });
+    session.exchange(&mut phone, false, &mut || pc.answer_link()).unwrap();
+    let well = pc.done(door, Request::Device { device: device.clone() });
+    assert_eq!(well["standing"]["needs_guardian"], false, "{well}");
+    assert_eq!(well["guardian_needed"]["off"], serde_json::json!([]));
+    assert_eq!(well["standing"]["steps"][3], serde_json::json!({ "permission": "accessibility", "on": true, "since": at + 4 }));
+    // A clock nine minutes ahead: said, with since when the master found it.
+    phone.clock_ahead_secs = 540;
+    session.exchange(&mut phone, false, &mut || pc.answer_link()).unwrap();
+    let found_at = pc.now();
+    let ahead = pc.done(door, Request::Device { device: device.clone() });
+    assert_eq!(ahead["guardian_needed"]["clock_off_by_secs"], 540, "{ahead}");
+    assert_eq!(ahead["standing"]["clock"]["off_by_secs"], 540);
+    // The fake clock stands still while the phone talks: found now.
+    assert_eq!(ahead["standing"]["clock"]["since"], found_at, "{ahead}");
+    assert_eq!(ahead["standing"]["needs_guardian"], true);
+    session.bye(&mut || pc.answer_link());
+}
+
+#[test]
+fn a_phone_paired_by_the_pc_is_told_whose_it_is_in_the_welcome() {
+    let (mut pc, asha, address, door) = family_with_the_link(60);
+    let phone = paired_phone(&mut pc, door, &asha, address);
+    assert_eq!(phone.child_name.as_deref(), Some("Asha"));
+    // The family's file keeps names of up to 40 characters; the longest
+    // arrives whole (the link takes up to 120, and the PC cuts beyond).
+    let long = "Mira ".repeat(8).trim_end().to_string() + "!";
+    assert_eq!(long.chars().count(), 40);
+    let now = pc.now();
+    let mira = pc.hub().add_child(&long, limo_hub::AgeBand::SixToNine, IST, now).unwrap().child_id;
+    let offer = offer_for(&mut pc, door, &mira);
+    let second = PlayedPhone::pair(address, &offer, "Mira’s phone", &mut || pc.answer_link()).unwrap();
+    assert_eq!(second.child_name.as_deref(), Some(long.as_str()));
+    assert_eq!(second.paired.child_id, mira);
 }

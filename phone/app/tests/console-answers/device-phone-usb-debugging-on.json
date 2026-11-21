@@ -1,0 +1,83 @@
+{
+  "request": "device",
+  "case": "a phone with USB debugging left on",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000002"
+    },
+    "name": "device"
+  },
+  "answer": {
+    "id": 64,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "child_id": "child-0000000000000001",
+        "device_id": "device-0000000000000002",
+        "guardian_needed": {
+          "clock_off_by_secs": null,
+          "off": [],
+          "setup_finished": true,
+          "usb_debugging_on": true
+        },
+        "kind": "portable",
+        "last_heard_at": 1794998229,
+        "name": "Asha’s tablet",
+        "paired_at": 1794998143,
+        "platform": "android",
+        "standing": {
+          "clock": null,
+          "clock_moved": null,
+          "guard_opened": null,
+          "guarded_pages": [],
+          "needs_guardian": true,
+          "protection": {
+            "level": "base",
+            "since": 1794998287
+          },
+          "restarted_at": null,
+          "setup_finished": true,
+          "setup_finished_at": 1794998287,
+          "steps": [
+            {
+              "on": true,
+              "permission": "notifications",
+              "since": 1794998227
+            },
+            {
+              "on": true,
+              "permission": "phone",
+              "since": 1794998227
+            },
+            {
+              "on": true,
+              "permission": "usage_access",
+              "since": 1794998227
+            },
+            {
+              "on": true,
+              "permission": "accessibility",
+              "since": 1794998407
+            },
+            {
+              "on": true,
+              "permission": "battery",
+              "since": 1794998227
+            },
+            {
+              "on": true,
+              "permission": "protection",
+              "since": 1794998227
+            }
+          ],
+          "steps_off": [],
+          "usb_debugging": {
+            "on": true,
+            "since": 1794998467
+          }
+        }
+      }
+    },
+    "say": "answer"
+  }
+}

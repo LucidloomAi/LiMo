@@ -1,0 +1,77 @@
+{
+  "request": "device",
+  "case": "a phone paired, with setup not finished on it",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000002"
+    },
+    "name": "device"
+  },
+  "answer": {
+    "id": 61,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "child_id": "child-0000000000000001",
+        "device_id": "device-0000000000000002",
+        "guardian_needed": {
+          "clock_off_by_secs": null,
+          "off": [],
+          "setup_finished": false,
+          "usb_debugging_on": false
+        },
+        "kind": "portable",
+        "last_heard_at": 1794998143,
+        "name": "Asha’s tablet",
+        "paired_at": 1794998143,
+        "platform": "android",
+        "standing": {
+          "clock": null,
+          "clock_moved": null,
+          "guard_opened": null,
+          "guarded_pages": [],
+          "needs_guardian": true,
+          "protection": null,
+          "restarted_at": null,
+          "setup_finished": false,
+          "setup_finished_at": null,
+          "steps": [
+            {
+              "on": null,
+              "permission": "notifications",
+              "since": null
+            },
+            {
+              "on": null,
+              "permission": "phone",
+              "since": null
+            },
+            {
+              "on": null,
+              "permission": "usage_access",
+              "since": null
+            },
+            {
+              "on": null,
+              "permission": "accessibility",
+              "since": null
+            },
+            {
+              "on": null,
+              "permission": "battery",
+              "since": null
+            },
+            {
+              "on": null,
+              "permission": "protection",
+              "since": null
+            }
+          ],
+          "steps_off": [],
+          "usb_debugging": null
+        }
+      }
+    },
+    "say": "answer"
+  }
+}

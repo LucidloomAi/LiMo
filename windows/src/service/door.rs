@@ -38,7 +38,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use limo_core::FREE_WRONG_GUESSES;
-use limo_hub::{AccountLink, AccountStanding, HubError, PasswordOutcome, UnlinkedAccounts};
+use limo_hub::{AccountLink, AccountStanding, EventKind, HubError, PasswordOutcome, UnlinkedAccounts};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -50,6 +50,7 @@ use crate::console::{
 };
 use crate::os::{AccountSeen, ClientSeen, DoorEvent, DoorId, Os, SendProblem};
 use crate::protocol::Secret;
+use crate::standing::Standing;
 
 /// The most connections served at once. Another is refused with words.
 pub const MAX_CONNECTIONS: usize = 4;
@@ -246,6 +247,17 @@ fn in_words(message: ToConsole) -> ToConsole {
             ToConsole::Answer { id, reply: Reply::Problem { problem } }
         }
         other => other,
+    }
+}
+
+/// The device objects of an answer item: the item itself when it is a
+/// device, or the devices of a child's day.
+fn device_objects<'a>(item: &'a mut Value, found: &mut Vec<&'a mut serde_json::Map<String, Value>>) {
+    let Some(object) = item.as_object_mut() else { return };
+    if object.contains_key("device_id") && object.contains_key("kind") {
+        found.push(object);
+    } else if let Some(Value::Array(devices)) = object.get_mut("devices") {
+        found.extend(devices.iter_mut().filter_map(Value::as_object_mut));
     }
 }
 
@@ -648,8 +660,14 @@ impl<O: Os> Service<O> {
                 PasswordOutcome::Right => done(),
                 outcome => Err(Fail::Problem(password_problem(outcome))),
             },
-            Request::FamilyToday => value(self.hub.family_today(wall)?),
-            Request::ChildToday { child } => value(self.hub.child_today(child, wall)?),
+            Request::FamilyToday => {
+                let today = value(self.hub.family_today(wall)?)?;
+                self.with_standing(today, wall)
+            }
+            Request::ChildToday { child } => {
+                let today = value(self.hub.child_today(child, wall)?)?;
+                self.with_standing(today, wall)
+            }
             Request::AddChild { name, age_band } => {
                 let offset = self.os.utc_offset_secs();
                 value(self.hub.add_child(name, *age_band, offset, wall)?)
@@ -679,8 +697,14 @@ impl<O: Os> Service<O> {
                     "device_id": code.device_id,
                 }))
             }
-            Request::Devices { child } => value(self.hub.devices(child)?),
-            Request::Device { device } => value(self.hub.device(device)?),
+            Request::Devices { child } => {
+                let devices = value(self.hub.devices(child)?)?;
+                self.with_standing(devices, wall)
+            }
+            Request::Device { device } => {
+                let device = value(self.hub.device(device)?)?;
+                self.with_standing(device, wall)
+            }
             Request::RenameDevice { device, name } => value(self.hub.rename_device(device, name)?),
             Request::RemoveDevice { device, password } => {
                 self.password_again(password, wall)?;
@@ -748,6 +772,67 @@ impl<O: Os> Service<O> {
                 Ok(json!({ "device_id": device, "sessions": self.phones.sessions_of(device) }))
             }
         }
+    }
+
+    /// Each device in an answer (a family's or a child's day, a child's
+    /// devices, one device) with its standing and what it needs a guardian
+    /// for, as [`Standing`] derives them from the phone's notes and the
+    /// master's measure of its clock. The master PC's own device has
+    /// neither: both are null. A phone whose notes cannot be read has both
+    /// null too, rather than the whole answer failing.
+    fn with_standing(&mut self, mut answer: Value, wall: i64) -> Result<Value, Fail> {
+        let mut found: Vec<&mut serde_json::Map<String, Value>> = Vec::new();
+        match &mut answer {
+            Value::Array(items) => {
+                for item in items.iter_mut() {
+                    device_objects(item, &mut found);
+                }
+            }
+            item => device_objects(item, &mut found),
+        }
+        let phone = |d: &serde_json::Map<String, Value>| d.get("kind").and_then(Value::as_str) == Some("portable");
+        // The clock as the day's view has it, for answers that do not carry it.
+        let clocks: BTreeMap<String, Option<i64>> = if found.iter().any(|d| phone(d) && !d.contains_key("clock_off_by_secs")) {
+            self.hub
+                .family_today(wall)
+                .map(|children| {
+                    children.into_iter().flat_map(|c| c.devices).map(|d| (d.device_id, d.clock_off_by_secs)).collect()
+                })
+                .unwrap_or_default()
+        } else {
+            BTreeMap::new()
+        };
+        let clock_of = |d: &serde_json::Map<String, Value>, id: &str| match d.get("clock_off_by_secs") {
+            Some(clock) => clock.as_i64(),
+            None => clocks.get(id).copied().flatten(),
+        };
+        // Since when a clock is far off: the newest such event of the device.
+        let far_off_since: BTreeMap<String, i64> = if found.iter().any(|d| {
+            let id = d.get("device_id").and_then(Value::as_str).unwrap_or_default();
+            phone(d) && clock_of(d, id).is_some()
+        }) {
+            let mut since = BTreeMap::new();
+            for event in self.hub.events(limo_hub::MAX_EVENTS_PER_CALL, None).unwrap_or_default() {
+                if let EventKind::ClockFarOff { device_id, .. } = event.what {
+                    since.entry(device_id).or_insert(event.at);
+                }
+            }
+            since
+        } else {
+            BTreeMap::new()
+        };
+        for device in found {
+            let id = device.get("device_id").and_then(Value::as_str).unwrap_or_default().to_string();
+            let standing = if phone(device) {
+                self.hub.phone(&id).ok().map(|info| Standing::of(&info.notes, clock_of(device, &id), far_off_since.get(&id).copied()))
+            } else {
+                None
+            };
+            let needed = standing.as_ref().map(Standing::guardian_needed);
+            device.insert("standing".to_string(), serde_json::to_value(&standing).unwrap_or(Value::Null));
+            device.insert("guardian_needed".to_string(), serde_json::to_value(&needed).unwrap_or(Value::Null));
+        }
+        Ok(answer)
     }
 
     /// Every Windows account of this PC, with its link, whether it is an

@@ -55,7 +55,7 @@ fn load(folder: &Path) -> Result<PlayedPhone, String> {
     let paired = PairedMaster::from_bytes(&paired).map_err(|e| e.to_string())?;
     let state = std::fs::read(folder.join("state.json")).map_err(|e| e.to_string())?;
     let state: DeviceState = serde_json::from_slice(&state).map_err(|e| e.to_string())?;
-    Ok(PlayedPhone { paired, state })
+    Ok(PlayedPhone { paired, state, child_name: None, notes: Vec::new(), notes_made: 0, clock_ahead_secs: 0 })
 }
 
 /// Where to reach the master: the address given, or each of the offer's.

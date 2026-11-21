@@ -15,8 +15,13 @@ over a real named pipe, and writes each message as it left the door, one
 file per request and case. The family is made by the first start's own
 requests (the password, the PIN, Asha, the accounts, her rules); then Asha
 uses the PC for five minutes and asks for more time, a phone is paired, a
-wrong password is tried until the wait, a console from Asha's account is
-refused, and at the end the family is removed. Every request in the door's
+wrong password is tried until the wait, the phone's notes come in (setup not
+finished, a step switched off, USB debugging on, all well: the
+`device-phone-*` files and `family-today-phone-step-off`), a console from
+Asha's account is refused, and at the end the family is removed. Each
+device in `family_today`, `child_today`, `devices` and `device` has
+`standing` and `guardian_needed`, null for the PC's own; LiMo for Windows'
+README says what each field holds. Every request in the door's
 list has at least one file, and the test fails when the door gains a
 request it does not play.
 

@@ -180,6 +180,19 @@ pub struct Paired {
     pub welcome: Grant,
     /// The device's code secret.
     pub code_secret: CodeSecret,
+    /// The child's name, for the phone's own screens, made fit for the link
+    /// ([`name_for_welcome`]); None says no name.
+    pub child_name: Option<String>,
+}
+
+/// A child's name as the link's welcome carries it: trimmed, and cut to the
+/// link's longest ([`limo_link::messages::MAX_NAME_CHARS`] characters, which the
+/// phone refuses beyond); None for a name with nothing in it, so that the
+/// welcome goes without one rather than not at all. The family's file keeps
+/// shorter names than that, so the cut is a guard only.
+pub fn name_for_welcome(name: &str) -> Option<String> {
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.chars().take(limo_link::messages::MAX_NAME_CHARS).collect::<String>().trim_end().to_string())
 }
 
 impl fmt::Debug for Paired {
@@ -551,7 +564,10 @@ impl Connection {
                 MasterEvent::PairRequest { offer_id, phone_key, request } => {
                     self.count_call(now)?;
                     let sent = match self.ask(|reply| LinkAsk::Pair { offer_id, phone_key, request, reply })? {
-                        Ok(paired) => link.welcome(&paired.welcome, paired.code_secret.expose(), now),
+                        Ok(paired) => match &paired.child_name {
+                            Some(name) => link.welcome_child(&paired.welcome, paired.code_secret.expose(), name, now),
+                            None => link.welcome(&paired.welcome, paired.code_secret.expose(), now),
+                        },
                         Err(no) => refuse(link, no)?,
                     };
                     sent.map_err(|e| End::Problem(link_problem(&e)))?;
@@ -819,6 +835,20 @@ impl Drop for LinkServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_childs_name_for_the_welcome_is_trimmed_and_cut_to_the_links_longest() {
+        assert_eq!(name_for_welcome("  Asha "), Some("Asha".to_string()));
+        assert_eq!(name_for_welcome("   "), None, "no name rather than an empty one, which the link refuses");
+        let long = "M".repeat(limo_link::messages::MAX_NAME_CHARS + 30);
+        let cut = name_for_welcome(&long).unwrap();
+        assert_eq!(cut.chars().count(), limo_link::messages::MAX_NAME_CHARS);
+        // Characters, not bytes: a name in any script is cut whole.
+        let script = "\u{0906}\u{0936}\u{093e}".repeat(60);
+        let cut = name_for_welcome(&script).unwrap();
+        assert_eq!(cut.chars().count(), limo_link::messages::MAX_NAME_CHARS);
+        assert!(script.starts_with(&cut));
+    }
 
     #[test]
     fn a_connection_from_loopback_came_through_the_cable() {

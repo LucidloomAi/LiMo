@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use limo_core::{BlockedWindow, DailyBudget, RequestReply, RuleSet, WeekBudgets, Weekday};
+use limo_core::{BlockedWindow, DailyBudget, PhoneNote, PhonePermission, RequestReply, RuleSet, WeekBudgets, Weekday};
 use limo_hub::{AccountLink, AgeBand, UnlinkedAccounts};
 use limo_link::Offer;
 use limo_windows::console::{CONSOLE_PROTOCOL_VERSION, FromConsole, Request, ToConsole};
@@ -427,6 +427,7 @@ fn a_small_family_through_the_real_door_writes_each_answer_the_screens_read() {
     a.done(p, c, "devices-with-phone", "Asha's devices: the PC and a phone", Request::Devices { child: asha.clone() });
     a.done(p, c, "device", "the phone", Request::Device { device: phone_device.clone() });
     a.done(p, c, "device-link", "the phone's session, through the cable", Request::DeviceLink { device: phone_device.clone() });
+
     a.done(p, c, "rename-device", "the phone renamed", Request::RenameDevice { device: phone_device.clone(), name: "Asha’s tablet".into() });
     a.done(p, c, "device-pc", "the PC's own device", Request::Device { device: pc_device });
     a.done(p, c, "rename-child", "Asha renamed, to the same name", Request::RenameChild { child: asha.clone(), name: "Asha".into() });
@@ -467,6 +468,32 @@ fn a_small_family_through_the_real_door_writes_each_answer_the_screens_read() {
     c.write_raw(&frame).unwrap();
     let message = next_message(p, c);
     a.keep("unknown-request", "take_over_the_pc", "a request this LiMo does not know", Some(json!({ "name": "take_over_the_pc", "args": {} })), &message);
+
+    // What the phone needs a guardian for, as its notes come in.
+    a.done(p, c, "device-phone-setup-not-finished", "a phone paired, with setup not finished on it", Request::Device {
+        device: phone_device.clone(),
+    });
+    let at = p.now();
+    for permission in PhonePermission::ALL {
+        phone.note(PhoneNote::PermissionOn { permission, at });
+    }
+    phone.note(PhoneNote::SetupFinished { at: at + 60 });
+    phone.note(PhoneNote::Protection { level: limo_core::ProtectionLevel::Base, at: at + 60 });
+    phone.note(PhoneNote::PermissionOff { permission: PhonePermission::Accessibility, at: at + 120 });
+    session.exchange(&mut phone, false, &mut || p.answer_link()).unwrap();
+    a.done(p, c, "device-phone-step-off", "a phone with one step switched off: accessibility", Request::Device {
+        device: phone_device.clone(),
+    });
+    a.done(p, c, "family-today-phone-step-off", "every child's day, with accessibility off on Asha's phone", Request::FamilyToday);
+    phone.note(PhoneNote::PermissionOn { permission: PhonePermission::Accessibility, at: at + 180 });
+    phone.note(PhoneNote::UsbDebugging { on: true, at: at + 240 });
+    session.exchange(&mut phone, false, &mut || p.answer_link()).unwrap();
+    a.done(p, c, "device-phone-usb-debugging-on", "a phone with USB debugging left on", Request::Device { device: phone_device.clone() });
+    phone.note(PhoneNote::UsbDebugging { on: false, at: at + 300 });
+    session.exchange(&mut phone, false, &mut || p.answer_link()).unwrap();
+    a.done(p, c, "device-phone-all-well", "a phone set up, every step on, USB debugging off: nothing needed", Request::Device {
+        device: phone_device.clone(),
+    });
 
     a.done(p, c, "remove-device", "the phone removed", Request::RemoveDevice { device: phone_device, password: secret(NEW_PASSWORD) });
     a.done(p, c, "unlink-account", "the guest account's link taken away", Request::UnlinkAccount { account: GUEST.into() });

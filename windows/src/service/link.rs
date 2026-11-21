@@ -244,7 +244,10 @@ impl<O: Os> Service<O> {
                             pairing.device_id
                         ));
                         self.phones.book_dirty = true;
-                        Ok(Paired { welcome: pairing.welcome.clone(), code_secret: CodeSecret::new(&pairing.code_secret) })
+                        // The child's name goes with the welcome, so that the
+                        // phone knows whose it is.
+                        let child_name = self.hub.child(&pairing.child_id).ok().and_then(|c| crate::phones::name_for_welcome(&c.name));
+                        Ok(Paired { welcome: pairing.welcome.clone(), code_secret: CodeSecret::new(&pairing.code_secret), child_name })
                     }
                     Err(error) => {
                         let text = format!("A phone that asked to pair from {} was refused: {error}", peer.ip());
