@@ -15,6 +15,7 @@
     "build:engine": "node scripts/build-engine.mjs android",
     "test:child": "node scripts/test-child.mjs",
     "inspect": "node scripts/inspect.mjs",
+    "test:signing": "node scripts/test-signing.mjs",
     "test": "node scripts/make-design.mjs && jest",
     "preview": "node scripts/preview.mjs",
     "check:release-js": "node scripts/check-release-js.mjs"

@@ -15,6 +15,13 @@
 // Windows, from proof three), scripts/no-build-paths.gradle (no path of the
 // build PC inside the C++ libraries) and scripts/form-check.gradle.
 //
+// At the end of android/app/build.gradle: applies scripts/release-signing.gradle,
+// which signs the release build with the key LIMO_RELEASE_KEY_FILE names, when
+// it is set. It must come after the template's android { } block, whose
+// release build type is signed with the debug key, so that it wins. The
+// script reads the variable while Gradle runs, so android/ never holds a path
+// or a password of the key.
+//
 // In the manifest: no <queries> for web links (LiMo opens none), and
 // data extraction rules that keep everything out of cloud backups and
 // device to device transfers. allowBackup=false (app.config.ts) already stops
@@ -39,6 +46,7 @@ const {
   withAndroidColors,
   withAndroidManifest,
   withAndroidStyles,
+  withAppBuildGradle,
   withDangerousMod,
   withGradleProperties,
   withProjectBuildGradle,
@@ -84,6 +92,26 @@ function withBuildScripts(config) {
     const missing = APPLY.filter((line) => !text.includes(line));
     if (missing.length) {
       cfg.modResults.contents = text.replace(ANCHOR, `// LiMo, see plugins/with-limo-android.js\n${missing.join('\n')}\n\n${ANCHOR}`);
+    }
+    return cfg;
+  });
+}
+
+const APPLY_SIGNING = 'apply from: new File(rootDir, "../scripts/release-signing.gradle")';
+// The template's release build type, signed with the debug key. It must be
+// there, or the script would set signing the template never had and the
+// warning a build without a key gives would be wrong.
+const TEMPLATE_RELEASE_SIGNING = /release\s*\{[^}]*signingConfig\s+signingConfigs\.debug/;
+
+function withReleaseSigning(config) {
+  return withAppBuildGradle(config, (cfg) => {
+    if (cfg.modResults.language !== 'groovy') throw new Error('with-limo-android: expected a Groovy android/app/build.gradle');
+    const text = cfg.modResults.contents;
+    if (!TEMPLATE_RELEASE_SIGNING.test(text)) {
+      throw new Error("with-limo-android: android/app/build.gradle no longer signs the release build with the debug key; look at scripts/release-signing.gradle again");
+    }
+    if (!text.includes(APPLY_SIGNING)) {
+      cfg.modResults.contents = `${text.trimEnd()}\n\n// LiMo, see plugins/with-limo-android.js\n${APPLY_SIGNING}\n`;
     }
     return cfg;
   });
@@ -229,6 +257,7 @@ module.exports = function withLimoAndroid(config, { launcherIcon } = {}) {
   if (!launcherIcon) throw new Error('with-limo-android: say which design icon is the launcher icon (launcherIcon)');
   config = withProperties(config);
   config = withBuildScripts(config);
+  config = withReleaseSigning(config);
   config = withManifestRules(config);
   config = withColors(config);
   config = withTheme(config);

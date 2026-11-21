@@ -41,6 +41,7 @@ emulator.
 ## Contents
 
 - [Building](#building)
+- [Signing](#signing)
 - [The two forms](#the-two-forms)
 - [Layout](#layout)
 - [The child module](#the-child-module)
@@ -76,7 +77,8 @@ npm run build:child        # out/limo-child-release.apk
 npm run build:guardian     # out/limo-guardian-release.apk
 npm run build:both         # both, one after the other
 npm run build:child:debug  # out/limo-child-debug.apk, for the development tool only
-npm run inspect            # looks inside both release files and checks them
+npm run inspect            # looks inside both release files and checks them, their signing too
+npm run test:signing       # the release signing, with throwaway keys (some minutes; --quick: seconds)
 npm run typecheck
 npm run test:child         # the child module's JVM tests: the Rust engine from Kotlin, and each folder's
 npm test                   # the screens' tests (jest), against the mock host
@@ -96,8 +98,10 @@ runs `gradlew assembleRelease` with `LIMO_FORM` set. `android/` is never
 edited by hand and is not committed: everything in it comes from
 `app.config.ts` and the config plugins in `plugins/`.
 
-The APKs are signed with the debug key `expo prebuild` writes, only so that
-they install over USB. A release key is the owner's decision, later.
+With `LIMO_RELEASE_KEY_FILE` set, the release APKs are signed with the
+owner's release key; without it, with Android's debug key, for trying on a
+phone over a cable only, and the build says so at its end where it cannot be
+missed. See [Signing](#signing).
 
 The first build on a PC downloads Gradle 9.3.1, the Android Gradle Plugin
 and the React Native and Expo libraries into the user's Gradle cache; later
@@ -112,8 +116,209 @@ on nothing else), and it holds the development receiver (`dev/`). A debug
 build has no `INTERNET` either, so it could not load JavaScript from a
 development server; `scripts/debug-bundle.gradle` makes it carry its
 JavaScript inside, as a release build does. Same package name as the
-release build: one replaces the other. Never give a debug build to a
-family.
+release build, but always signed with Android's debug key, so it replaces a
+release build only when that one carries the debug key too (see
+[Debug and release builds on one phone](#debug-and-release-builds-on-one-phone)).
+Never give a debug build to a family.
+
+## Signing
+
+Android installs an update of an app only when it is signed with the same
+key as the app already on the phone. LiMo's builds sign so:
+
+| Build | `LIMO_RELEASE_KEY_FILE` set | Not set |
+| --- | --- | --- |
+| `build:child`, `build:guardian`, `build:both` | the release key it names | Android's debug key, and the build ends with a warning |
+| `build:child:debug` | Android's debug key: the variable is not even passed to Gradle | Android's debug key |
+
+Android's debug key is the one `expo prebuild` writes into
+`android/app/debug.keystore`. It is the same in every React Native project
+and published with it, so anyone can sign an APK with it that Android would
+take as an update of LiMo. An APK signed with it is for trying on a phone
+over a cable, never for a family. Without the variable, a release build ends
+so:
+
+```
+###################################################################
+#  SIGNED WITH ANDROID'S DEBUG KEY: NOT FOR A FAMILY              #
+#                                                                 #
+#  LIMO_RELEASE_KEY_FILE is not set, so these are signed          #
+#  with Android's debug key:                                      #
+#    out\limo-child-release.apk                                   #
+#    out\limo-guardian-release.apk                                #
+#  For trying on a phone over a cable only, never for a family:   #
+#  the debug key is public, so anyone could sign an update that   #
+#  Android would accept in place of LiMo.                         #
+#  To sign with the release key, see "Signing" in README.md.      #
+###################################################################
+```
+
+With it:
+
+```
+[build] Signed with the release key LIMO_RELEASE_KEY_FILE names: out\limo-child-release.apk and out\limo-guardian-release.apk
+[build]   CN=LucidLoom AI, O=LucidLoom AI
+[build]   certificate SHA-256 AB:CD:...
+```
+
+**The schemes** are Android Gradle's defaults for minSdk 26, and nothing here
+changes them: APK Signature Scheme v2 only. v1 (JAR signing) is only for
+Android older than 7.0, and v3 is off unless asked for. `npm run inspect`
+prints the schemes of each APK.
+
+### Making the release key
+
+The owner does this once, on the PC that builds the releases. The key never
+goes into a repository, this one or any other.
+
+1. A folder outside every repository, readable only by your own Windows
+   account. In PowerShell:
+
+   ```
+   mkdir C:\keys
+   icacls C:\keys /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F"
+   ```
+
+   The second line takes away every permission the folder had from above it
+   and gives your own account, alone, full control of it and of every file
+   made in it. Not a folder that a cloud service copies by itself.
+
+2. The key, with `keytool`, which comes with the JDK:
+
+   ```
+   keytool -genkeypair -v -storetype PKCS12 -keystore C:\keys\limo-release.p12 -alias limo -keyalg RSA -keysize 4096 -validity 10958 -dname "CN=LucidLoom AI, O=LucidLoom AI"
+   ```
+
+   RSA 4096, valid for 30 years (10,958 days), under the alias `limo`. The
+   name is the maker's, never a person's: it is in every APK, for anyone to
+   read. keytool asks for the keystore's password twice: a long one, kept in
+   a password manager. In a PKCS12 keystore the key has the same password.
+
+3. The properties file, `C:\keys\limo-release.properties`:
+
+   ```
+   storeFile=limo-release.p12
+   storePassword=<the keystore's password>
+   keyAlias=limo
+   keyPassword=<the same password>
+   ```
+
+   `storeFile` is a full path, or a path from this file's own folder: the
+   keystore's name alone, beside it, is simplest. In a properties file a
+   backslash starts an escape and is dropped, so a full path is written with
+   forward slashes (`C:/keys/limo-release.p12`). Everything after `=` counts,
+   a space at the end of a line too. The file is read as UTF-8.
+
+4. A copy off the PC: the keystore on a USB stick kept somewhere safe, and
+   its password in the password manager, never beside it. Without both, no
+   update of LiMo can ever be signed again.
+
+### Building with it
+
+```
+$env:LIMO_RELEASE_KEY_FILE = 'C:\keys\limo-release.properties'
+npm run build:both
+npm run inspect
+```
+
+That sets the variable for one PowerShell window; `setx
+LIMO_RELEASE_KEY_FILE C:\keys\limo-release.properties` keeps it for every
+window opened after. Only a release build reads it: a Gradle run that builds
+no release, such as `npm run test:child`, never checks it.
+
+**What is checked, and when.** Before anything runs (no prebuild, no
+Gradle), `scripts/build.mjs` checks the key with
+`scripts/ReleaseKeyCheck.java`, and stops in plain words when it is not
+right. Gradle checks it again with the same file, in the task
+`limoCheckReleaseKey`, before anything of a release build runs, so a hand
+run of `gradlew assembleRelease` is checked too. After the build, apksigner
+reads each APK: one signed with any other key is deleted and the build
+stops. No message, log or error holds a password, a path of the key or a
+value from the properties file, since a build's log may be pasted anywhere.
+Android Gradle's own message for a wrong password names the keystore's path;
+the check comes first, so it is never reached.
+
+| What is wrong | What the build says |
+| --- | --- |
+| The variable is not a full path | `LIMO_RELEASE_KEY_FILE must be a full path, such as C:\keys\limo-release.properties.` |
+| It points at no file, or at a folder | `LIMO_RELEASE_KEY_FILE points at no file. Set it to the full path of the release key's properties file, or leave it unset for a build signed with Android's debug key.` |
+| The file cannot be read | `The file LIMO_RELEASE_KEY_FILE points at cannot be read.` |
+| A key is missing or empty | `The file LIMO_RELEASE_KEY_FILE points at has no storePassword. It needs all four: storeFile, storePassword, keyAlias, keyPassword.` (naming each one missing) |
+| `storeFile` names nothing | `The keystore that storeFile names does not exist. A storeFile that is not a full path is read from the folder the properties file is in.` With a single backslash in the line, instead of the second sentence: `A backslash in a properties file starts an escape and is dropped: write the path with forward slashes, such as C:/keys/limo-release.p12, or put the keystore beside the properties file and give its name alone.` |
+| `storeFile` names a folder | `storeFile names a folder, not a keystore.` |
+| It names a file that is no keystore | `The file storeFile names is not a keystore Java can read (PKCS12 or JKS).` |
+| `storePassword` is wrong | `The keystore that storeFile names does not open with storePassword.` |
+| `keyAlias` names nothing in it | `The keystore holds no entry named by keyAlias.` |
+| `keyAlias` names a certificate only | `The entry keyAlias names holds a certificate only, not a key to sign with.` |
+| `keyPassword` is wrong | `keyPassword does not open the key that keyAlias names. In a PKCS12 keystore, which keytool makes unless told otherwise, the key's password is the keystore's password.` |
+| The key is an Android debug key | `The key keyAlias names is an Android debug key (CN=Android Debug). A release key must be one of the maker's own.` |
+
+A password that ends with a space gets `(storePassword ends with a space,
+which counts as part of it.)` after its message. `scripts/build.mjs` prints
+the message after `[build] The release key:` and then `[build] Stopped before
+building anything.`; Gradle after `[LiMo]`.
+
+### Debug and release builds on one phone
+
+Android refuses to install an APK over one signed with another key (`adb`
+says `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, the phone "App not installed").
+The debug build is always signed with Android's debug key, which the PC
+test tool needs. So once the release builds carry the release key, the
+debug build and a release build cannot replace each other: going between
+them on one phone means removing LiMo first, which takes its pairing and its
+state with it, so the phone is set up again. Without the release key both
+carry the debug key and replace each other, as before.
+
+### Losing or changing the key
+
+If the key is lost, or another key is used, Android will never again accept
+an update for an installed LiMo: every phone needs LiMo removed and installed
+again, and set up again. Nothing gets around this for an app installed by
+hand. In strict mode, later, LiMo will be the phone's device owner, which a
+family cannot simply remove and install again, so there the same key will
+matter even more.
+
+### How it is wired, and why
+
+`expo prebuild` makes `android/` again on every build, so nothing written
+into it by hand survives. The signing is a Gradle script,
+`scripts/release-signing.gradle`, which `plugins/with-limo-android.js`
+applies at the end of `android/app/build.gradle` on every prebuild, after
+the template's `android { }` block, so that what it sets wins over the
+template's release signing. Applied there, rather than passed by
+`scripts/build.mjs` as an init script the way `scripts/debug-bundle.gradle`
+is, it holds for every Gradle run of a release build, a hand run of
+`gradlew` too, and it sets the signing in the app's own `android { }`
+settings, where Android Gradle reads it, with no hook into Android Gradle's
+later steps. It reads the variable while Gradle runs, so `android/` never
+holds a path or a password of the key. Its check runs as a task before the
+release build, not while Gradle reads the build files, so a Gradle run that
+builds no release is never stopped by a key. The plugin stops prebuild if
+the template ever stops signing its release build with the debug key, so
+the script never quietly does something else.
+
+### The tests
+
+`npm run test:signing` makes throwaway keystores with `keytool` in a new
+temporary folder, with a random throwaway password, and needs no real key.
+It shows that `storeFile` as a bare name, as a path from the properties
+file's folder and as a full path all open the key; that each failure above
+gives its message and prints no password, no path of the key and no file
+name; that `scripts/build.mjs` stops on a wrong key before anything runs and
+leaves `android/` alone; then, with real Gradle builds of the child form,
+that a release build carries the throwaway certificate (storeFile a bare
+name through `scripts/build.mjs`, and a full path through `gradlew` by
+hand), that no file under `android/` holds the password afterwards, that
+Gradle stops in `limoCheckReleaseKey` with the check's message for a wrong
+password and for no file, that Android Gradle's own message for a wrong
+password holds no password either, and that the debug build stays on the
+debug key with the variable set. The APKs go to a temporary folder, never
+to `out/`, and every throwaway key is deleted at the end. It takes about
+DURATION on the development PC with Gradle's caches warm, and makes
+`android/` again for the child form, so it never runs beside another
+Gradle run of this app. `npm run test:signing -- --quick` runs the key
+checks alone, without Gradle, in about 20 seconds. Neither is part of `npm
+test`, which needs nothing but Node.
 
 ## The two forms
 
@@ -186,7 +391,7 @@ modules/limo-child/       the child module (a local Expo module)
   android/src/test/       the JVM tests: the Rust engine from Kotlin, and each folder's
   android/src/generated/  written by scripts/make-design.mjs and scripts/build-engine.mjs, git ignored
 plugins/
-  with-limo-android.js    Gradle settings, theme, backups, launcher icon, debug manifests
+  with-limo-android.js    Gradle settings, theme, backups, launcher icon, debug manifests, release signing
   with-limo-form.js       what differs between the forms
   with-limo-fonts.js      the three fonts and their licences
 scripts/                  see Scripts
@@ -655,11 +860,15 @@ as a Gradle task instead, as proof three did it.
 | `make-design.mjs` | `make:design`, `postinstall` | the design into `src/generated` and the module's `src/generated` |
 | `icons.mjs` | | paints the icons with `clay.js`; used by `make-design` and the launcher icon |
 | `vector-drawable.mjs` | | one painted icon as an Android vector drawable |
-| `build.mjs` | `build:child`, `build:guardian`, `build:both`, `build:child:debug` | prebuild and a release build of a form, into `out/`; with `--debug`, a debug build (`out/limo-<form>-debug.apk`) |
+| `build.mjs` | `build:child`, `build:guardian`, `build:both`, `build:child:debug` | prebuild and a release build of a form, into `out/` (or `--out <folder>`); with `--debug`, a debug build (`out/limo-<form>-debug.apk`); checks the release key first and says at its end how the APKs are signed |
 | `debug-bundle.gradle` | | a Gradle init script for debug builds only: the JavaScript inside the debug APK, as in a release build |
+| `release-signing.gradle` | | applied at the end of `android/app/build.gradle`: release builds signed with the key `LIMO_RELEASE_KEY_FILE` names (see [Signing](#signing)) |
+| `ReleaseKeyCheck.java` | | checks that key, run with `java` by `build.mjs` before anything runs and by Gradle before a release build |
+| `signing.mjs` | | what `build.mjs`, `inspect.mjs` and the signing tests share: the key check, and how apksigner reads an APK |
+| `test-signing.mjs` | `test:signing` | the signing tests, with throwaway keys; `--quick` without Gradle |
 | `build-engine.mjs` | `build:engine` | the Rust bridge and its bindings, for the phone (run by the child module's Gradle build) or for the JVM tests on this PC |
 | `test-child.mjs` | `test:child` | the child module's JVM tests |
-| `inspect.mjs` | `inspect` | looks inside `out/*.apk` and checks them |
+| `inspect.mjs` | `inspect` | looks inside `out/*.apk` and checks them, their signing too |
 | `preview.mjs` | `preview` | the screens' preview, into `dist/preview`, made to open from disk |
 | `check-release-js.mjs` | `check:release-js` | each form's release JavaScript holds no mock and no preview |
 | | `test` | the screens' tests (jest, `jest.config.js`) |
@@ -882,8 +1091,13 @@ follow Expo's blank template (0BSD).
   bit phone refuses the APK. Adding `armeabi-v7a` is one value in
   `plugins/with-limo-android.js` and one Rust target, and makes the native
   part about half as big again.
-- **The release key.** Both forms are signed with the debug key. A private
-  key, needed before strict mode, is the owner's decision.
+- **The release key.** The builds can sign with it (see [Signing](#signing));
+  the owner makes it and builds with `LIMO_RELEASE_KEY_FILE` set. Until a
+  build is made so, the APKs in `out/` carry Android's debug key and are for
+  a cable only. Not done: v3 signing, whose key rotation could one day move
+  LiMo to a new key while the old one is still at hand (Android 9 and later
+  only; Android 8 would still need LiMo removed), and an app bundle for a
+  store.
 - **Expo Router.** See [Versions, and why](#versions-and-why).
 - **The foreground service type:** `specialUse` now; Android also has
   `systemExempted` for device admin and device owner apps, for the base

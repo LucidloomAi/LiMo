@@ -1,0 +1,114 @@
+// Applied at the end of android/app/build.gradle (plugins/with-limo-android.js
+// adds the line during prebuild), after the android { } block, so what it sets
+// wins over the template's own release signing.
+//
+// LIMO_RELEASE_KEY_FILE set: the release build is signed with the key it
+// names, a properties file outside the repository with storeFile,
+// storePassword, keyAlias and keyPassword (see "Signing" in README.md). The
+// task limoCheckReleaseKey runs scripts/ReleaseKeyCheck.java before anything
+// of a release build runs, and stops the build in plain words when the key is
+// not right: no file, a key missing, no keystore, a wrong password, no such
+// alias. Neither this script nor the check ever prints a password, a path or
+// a value from the file. Android Gradle's own message for a wrong password
+// names the keystore's path, so the check runs first and that message is never
+// reached.
+//
+// LIMO_RELEASE_KEY_FILE not set: nothing changes. The release build is signed
+// with Android's debug key (android/app/debug.keystore), as the template does,
+// and says so when it packages the APK.
+//
+// The debug build is never touched: it keeps the debug key either way, and
+// scripts/build.mjs does not even pass the variable to a debug build.
+//
+// The signing schemes are Android Gradle's defaults for minSdk 26: APK
+// Signature Scheme v2 only (v1, JAR signing, is for Android older than 7.0).
+//
+// The file is read exactly as the check reads it (UTF-8, java.util.Properties'
+// rules, storeFile from the properties file's folder when it is not a full
+// path), so the key checked is the key used. The check runs in a task, not
+// while Gradle reads the build, so a Gradle run that builds no release (the
+// child module's JVM tests) is never stopped by a key.
+
+def keyVariable = 'LIMO_RELEASE_KEY_FILE'
+def keyFileName = System.getenv(keyVariable)
+
+if (!keyFileName) {
+  tasks.configureEach { t ->
+    if (t.name == 'packageRelease') {
+      t.doLast {
+        t.logger.warn("[LiMo] ${keyVariable} is not set: this release APK is signed with Android's debug key, " +
+          'for trying on a phone over a cable only, never for a family.')
+      }
+    }
+  }
+  return
+}
+
+def keyFile = new File(keyFileName)
+def keyProperties = new Properties()
+if (keyFile.isAbsolute() && keyFile.isFile()) {
+  try {
+    keyFile.withInputStream { keyProperties.load(new InputStreamReader(it, 'UTF-8')) }
+  } catch (IOException ignored) {
+    // limoCheckReleaseKey says what is wrong, before anything is built.
+  }
+}
+def storeFileValue = keyProperties.getProperty('storeFile')
+def releaseStore = null
+if (storeFileValue) {
+  def f = new File(storeFileValue)
+  releaseStore = f.isAbsolute() ? f : new File(keyFile.absoluteFile.parentFile, storeFileValue)
+}
+
+android {
+  signingConfigs {
+    limoRelease {
+      // When the file could not be read, storeFile stays unset; the check
+      // stops the build before Android Gradle looks at it.
+      if (releaseStore != null) storeFile releaseStore
+      storePassword keyProperties.getProperty('storePassword')
+      keyAlias keyProperties.getProperty('keyAlias')
+      keyPassword keyProperties.getProperty('keyPassword')
+    }
+  }
+  buildTypes {
+    release {
+      signingConfig signingConfigs.limoRelease
+    }
+  }
+}
+
+def checker = new File(rootDir, '../scripts/ReleaseKeyCheck.java').canonicalPath
+def java = new File(System.getProperty('java.home'), 'bin/' + (System.getProperty('os.name').toLowerCase().contains('windows') ? 'java.exe' : 'java')).path
+
+def checkKey = tasks.register('limoCheckReleaseKey') { task ->
+  task.group = 'LiMo'
+  task.description = "Checks the release key ${keyVariable} names, before a release build uses it."
+  // Always runs: the key or its file may change between two builds.
+  task.outputs.upToDateWhen { false }
+  task.doLast {
+    // The check reads the variable from the environment it inherits; nothing
+    // secret is on its command line.
+    def process = new ProcessBuilder(java, checker).start()
+    def out = new StringBuilder()
+    def err = new StringBuilder()
+    process.waitForProcessOutput(out, err)
+    def line = out.toString().readLines().find { it.startsWith('OK\t') || it.startsWith('FAIL\t') }
+    if (line == null) {
+      throw new GradleException("[LiMo] The release key check did not run (java exit ${process.exitValue()}). " +
+        'Run java scripts/ReleaseKeyCheck.java from phone/app to see why.')
+    }
+    def parts = line.split('\t')
+    if (parts[0] != 'OK') {
+      throw new GradleException("[LiMo] ${parts[1]}")
+    }
+    def sha = parts[1].toUpperCase().replaceAll(/(..)(?!$)/, '$1:')
+    task.logger.lifecycle("[LiMo] Release signing with the key ${keyVariable} names: ${parts[2]}, certificate SHA-256 ${sha}")
+  }
+}
+
+// Before anything of a release build runs, and before Android Gradle checks
+// the signing config itself.
+tasks.configureEach { t ->
+  if (t.name == 'preReleaseBuild' || t.name == 'validateSigningRelease') t.dependsOn(checkKey)
+}

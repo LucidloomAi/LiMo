@@ -18,7 +18,9 @@
 // build PC's user name, home folder and repository folder appear nowhere in
 // the APK's files.
 // For the child form: every stub component is there with its guard, and the
-// development receiver is not (it is in debug builds only); it holds the
+// development receiver is not (it is in debug builds only), nor anything of
+// the page probe (its class, its words, its broadcast), while the watch's
+// release WindowPage, which only matches page names, is; it holds the
 // Phone permission (READ_PHONE_STATE) and may ask to be left out of battery
 // optimisation (REQUEST_IGNORE_BATTERY_OPTIMIZATIONS); the Rust bridge
 // (liblimo_phone_ffi.so) is there for every ABI the APK names, with JNA's
@@ -32,10 +34,18 @@
 // run once on the library built for the JVM tests, which has the testkit,
 // to show that it finds it.
 //
+// Signing, for each APK: the certificate's subject and SHA-256, whether it is
+// Android's debug certificate, and the schemes it verifies with. With
+// LIMO_RELEASE_KEY_FILE set, both release APKs must be signed with the key it
+// names (checked with scripts/ReleaseKeyCheck.java) and not with the debug
+// certificate; without it, with the debug certificate, as a build without it
+// signs them. Both forms must carry the same certificate. The debug build
+// (out/limo-child-debug.apk), when there is one, must always carry the debug
+// certificate. Nothing here prints a password or a path of the key.
+//
 // Exit code 0 when every check passes, 1 when one fails, 2 when there is
 // nothing to inspect or a tool is missing.
 
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -43,31 +53,10 @@ import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
 import { testkitProblems } from './build-engine.mjs';
+import { KEY_VARIABLE, apkSigning, buildTools, checkReleaseKey, colons, tool } from './signing.mjs';
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = path.join(appDir, 'out');
-const win = process.platform === 'win32';
-
-function buildTools() {
-  const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
-  if (!sdk) throw new Error('ANDROID_HOME is not set');
-  const dir = path.join(sdk, 'build-tools');
-  const versions = fs.readdirSync(dir).filter((v) => /^\d+\.\d+\.\d+$/.test(v));
-  versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  const latest = path.join(dir, versions[versions.length - 1]);
-  return {
-    version: path.basename(latest),
-    aapt2: path.join(latest, win ? 'aapt2.exe' : 'aapt2'),
-    apksigner: path.join(latest, win ? 'apksigner.bat' : 'apksigner'),
-    zipalign: path.join(latest, win ? 'zipalign.exe' : 'zipalign'),
-  };
-}
-
-function tool(exe, args) {
-  const r = spawnSync(exe, args, { encoding: 'utf8', shell: win && exe.endsWith('.bat'), maxBuffer: 64 * 1024 * 1024 });
-  if (r.error) throw r.error;
-  return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
-}
 
 // ---------------------------------------------------------------------------
 // The manifest, from `aapt2 dump xmltree`, as a tree of elements.
@@ -227,6 +216,16 @@ const BRIDGE_EXPORT = Buffer.from('uniffi_limo_phone_ffi_fn_method_phoneengine_t
 const BINDINGS_CLASS = Buffer.from('Lai/lucidloom/limo/child/ffi/PhoneEngine;');
 const BINDINGS_PACKAGE = Buffer.from('Lai/lucidloom/limo/child/ffi/');
 const TESTKIT_CLASSES = [Buffer.from('Lai/lucidloom/limo/child/ffi/testkit/'), Buffer.from('TestFamily')];
+// The debug build's probe of page names (dev/PageProbe): its class, its log
+// words, and the broadcast that switches it on. None may be in a release build.
+const PROBE_ACTION = 'ai.lucidloom.limo.child.dev.PROBE';
+const PROBE_TRACES = [
+  Buffer.from('Lai/lucidloom/limo/child/dev/PageProbe;'),
+  Buffer.from('probe window'),
+  Buffer.from(PROBE_ACTION),
+];
+// The watch's WindowPage, whose release copy matches a page's class name and logs nothing.
+const WINDOW_PAGE = Buffer.from('Lai/lucidloom/limo/child/watch/WindowPage;');
 
 // The child form must hold each of these; the guardian form none of them
 // but POST_NOTIFICATIONS. READ_PHONE_STATE is the Phone permission, for the
@@ -320,6 +319,22 @@ function inspect(form, file, tools) {
   else check(!inDex, 'the child module is not compiled in (no WatchService in the dex)');
   const devClass = Buffer.from('Lai/lucidloom/limo/child/dev/DevReceiver;');
   check(!dex.some((e) => e.bytes().includes(devClass)), 'the development receiver is not compiled in');
+  // The probe of Settings' and the installer's page names (dev/PageProbe,
+  // debug builds only): neither its class, nor its words, nor the broadcast
+  // that switches it on is in a release build.
+  for (const needle of PROBE_TRACES) {
+    check(!dex.some((e) => e.bytes().includes(needle)), `nothing of the page probe is compiled in (no "${needle.toString('latin1')}" in the dex)`);
+  }
+  check(
+    !facts.components.some((c) => c.actions.includes(PROBE_ACTION)),
+    `no component takes the page probe's broadcast (${PROBE_ACTION})`,
+  );
+  if (form === 'child') {
+    // The watch's own copy of WindowPage, which only matches a class name
+    // against the guarded list, is the release one: it is there, and the
+    // probe (above) is not.
+    check(dex.some((e) => e.bytes().includes(WINDOW_PAGE)), 'the watch matches page names (WindowPage in the dex), with no probe');
+  }
 
   // The Rust bridge: in the child form only, and never with the testkit.
   const libs = entries.filter((e) => e.name.startsWith('lib/') && e.name.endsWith('.so'));
@@ -363,16 +378,43 @@ function inspect(form, file, tools) {
   });
   check(traced.length === 0, `the build PC's user name, home folder and repository folder appear in no file${traced.length ? ` (found in ${traced.map((e) => e.name).join(', ')})` : ''}`);
 
-  const signed = tool(tools.apksigner, ['verify', '--print-certs', file]);
-  const dn = /certificate DN: (.*)/.exec(signed.out)?.[1];
-  console.log(`\nsigned by   ${dn ?? 'unknown'}${/Android Debug/.test(dn ?? '') ? ' (the debug key: fine for a USB install, not for release)' : ''}`);
-  check(signed.status === 0, 'the signature verifies');
+  const signer = signedBy(file, tools, check);
+  if (releaseKey) {
+    check(Boolean(signer) && !signer.debug, `${KEY_VARIABLE} is set: not signed with Android's debug certificate`);
+    if (releaseKey.ok) {
+      check(signer?.sha256 === releaseKey.sha256, `signed with the key ${KEY_VARIABLE} names (certificate SHA-256 ${colons(releaseKey.sha256)})`);
+    } else {
+      check(false, `the key ${KEY_VARIABLE} names: ${releaseKey.message}`);
+    }
+  } else {
+    check(Boolean(signer?.debug), `${KEY_VARIABLE} is not set: signed with Android's debug certificate, as a build without it signs it`);
+  }
   const aligned = tool(tools.zipalign, ['-c', '-P', '16', '4', file]);
   check(aligned.status === 0, 'zipalign -c -P 16: native libraries are 16 KB aligned');
 
+  printChecks(checks);
+  return { ok: checks.every(([ok]) => ok), signer };
+}
+
+// Prints who signed an APK and checks that the signature verifies with one
+// signer. Returns the signer, or null.
+function signedBy(file, tools, check) {
+  const signing = apkSigning(file, tools.apksigner);
+  const signer = signing.signers.length === 1 ? signing.signers[0] : null;
+  for (const s of signing.signers) {
+    console.log(`\nsigned by   ${s.subject}`);
+    console.log(`certificate SHA-256 ${colons(s.sha256)}`);
+    console.log(`Android's debug certificate: ${s.debug ? "yes (fine for a cable, never for a family)" : 'no'}`);
+  }
+  console.log(`schemes     ${signing.schemes.length ? signing.schemes.join(', ') : 'none'}`);
+  check(signing.verified, 'the signature verifies');
+  check(Boolean(signer), `one signer (${signing.signers.length})`);
+  return signer;
+}
+
+function printChecks(checks) {
   console.log('\nchecks:');
   for (const [ok, text] of checks) console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${text}`);
-  return checks.every(([ok]) => ok);
 }
 
 let tools;
@@ -383,8 +425,16 @@ try {
   process.exit(2);
 }
 console.log(`inspect: Android build tools ${tools.version}`);
+// The release key the APKs should carry, when LIMO_RELEASE_KEY_FILE is set.
+const releaseKey = process.env[KEY_VARIABLE] ? checkReleaseKey(process.env) : null;
+console.log(
+  releaseKey
+    ? `inspect: ${KEY_VARIABLE} is set: the release APKs must carry the key it names`
+    : `inspect: ${KEY_VARIABLE} is not set: the release APKs must carry Android's debug certificate`,
+);
 let found = 0;
 let allPass = true;
+const signers = {};
 for (const form of ['child', 'guardian']) {
   const file = path.join(outDir, `limo-${form}-release.apk`);
   if (!fs.existsSync(file)) {
@@ -392,11 +442,39 @@ for (const form of ['child', 'guardian']) {
     continue;
   }
   found += 1;
-  allPass = inspect(form, file, tools) && allPass;
+  const result = inspect(form, file, tools);
+  signers[form] = result.signer;
+  allPass = result.ok && allPass;
 }
 if (!found) {
   console.error('\ninspect: nothing to inspect. Build first: npm run build:both');
   process.exit(2);
+}
+
+// Signing across the files: both forms with one certificate, and the debug
+// build always with the debug certificate.
+{
+  const checks = [];
+  const check = (ok, text) => checks.push([ok, text]);
+  console.log('\n=== signing across the files');
+  if (signers.child !== undefined && signers.guardian !== undefined) {
+    check(
+      Boolean(signers.child?.sha256) && signers.child?.sha256 === signers.guardian?.sha256,
+      'both forms carry the same certificate',
+    );
+  } else {
+    console.log('  (one form only: nothing to compare)');
+  }
+  const debugApk = path.join(outDir, 'limo-child-debug.apk');
+  if (fs.existsSync(debugApk)) {
+    console.log(`\n${path.relative(appDir, debugApk)} (${fs.statSync(debugApk).size} bytes):`);
+    const signer = signedBy(debugApk, tools, check);
+    check(Boolean(signer?.debug), "the debug build is signed with Android's debug certificate, as it always is");
+  } else {
+    console.log('\nno debug build (out/limo-child-debug.apk) to look at');
+  }
+  if (checks.length) printChecks(checks);
+  allPass = checks.every(([ok]) => ok) && allPass;
 }
 
 // The control: the library built for the JVM tests has the testkit, so the

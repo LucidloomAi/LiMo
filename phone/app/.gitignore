@@ -31,3 +31,9 @@ local.properties
 *.jks
 *.keystore
 *.hprof
+
+# A release key never belongs in a repository (README.md, Signing): these
+# keep one out that was put here by mistake.
+*.p12
+*.pfx
+limo-release.properties

@@ -5,13 +5,20 @@
 //   node scripts/build.mjs guardian
 //   node scripts/build.mjs child guardian
 //   node scripts/build.mjs child --debug
+//   node scripts/build.mjs child --out <folder>    the APKs into another folder
 //
-// For each form, in order:
+// First, for a release build with LIMO_RELEASE_KEY_FILE set, the key is
+// checked (scripts/ReleaseKeyCheck.java), so a wrong file, a missing key or a
+// wrong password stops the build before anything runs, in plain words.
+//
+// Then for each form, in order:
 //   1. scripts/make-design.mjs (the theme, icons and logo from the design);
 //   2. deletes android/ and makes it again with `expo prebuild` for the form,
 //      so nothing of the other form is left in it;
 //   3. `gradlew assembleRelease`, with LIMO_FORM set for the whole run;
-//   4. copies the APK to out/limo-<form>-release.apk.
+//   4. copies the APK to out/limo-<form>-release.apk, and reads who signed it
+//      with apksigner; with a release key, an APK signed with any other key
+//      stops the build and is not kept.
 //
 // With --debug, step 3 is `gradlew assembleDebug` and the APK is
 // out/limo-<form>-debug.apk: debuggable, so the development tool on the PC
@@ -25,9 +32,14 @@
 // (EXPO_NO_TELEMETRY=1). Gradle runs without a daemon and compiles Kotlin in
 // its own process, so nothing keeps running after the build.
 //
-// The APK is signed with the debug key that `expo prebuild` writes into
-// android/app/debug.keystore, only so that it installs over USB. A release key
-// is the owner's decision, later.
+// Signing (see "Signing" in README.md). A release build is signed with the
+// key LIMO_RELEASE_KEY_FILE names (scripts/release-signing.gradle, applied in
+// android/app/build.gradle). Without it, a release build is signed with
+// Android's debug key, which `expo prebuild` writes into
+// android/app/debug.keystore, and the build says at its end, where it cannot
+// be missed, that the APKs are for a cable only, never for a family. A debug
+// build is always signed with the debug key: the variable is not even passed
+// to it.
 //
 // Then run `node scripts/inspect.mjs` to look inside the built files.
 
@@ -36,20 +48,48 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { KEY_VARIABLE, apkSigning, buildTools, checkReleaseKey, colons } from './signing.mjs';
+
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const androidDir = path.join(appDir, 'android');
-const outDir = path.join(appDir, 'out');
 const FORMS = ['child', 'guardian'];
 
 const args = process.argv.slice(2);
 const debug = args.includes('--debug');
-const forms = args.filter((a) => a !== '--debug');
-if (forms.length === 0 || forms.some((f) => !FORMS.includes(f))) {
-  console.error('Usage: node scripts/build.mjs child|guardian [child|guardian] [--debug]');
+const outAt = args.indexOf('--out');
+const outDir = outAt >= 0 && args[outAt + 1] ? path.resolve(args[outAt + 1]) : path.join(appDir, 'out');
+const forms = args.filter((a, i) => a !== '--debug' && a !== '--out' && !(outAt >= 0 && i === outAt + 1));
+if (forms.length === 0 || forms.some((f) => !FORMS.includes(f)) || (outAt >= 0 && !args[outAt + 1])) {
+  console.error('Usage: node scripts/build.mjs child|guardian [child|guardian] [--debug] [--out <folder>]');
   process.exit(2);
 }
 const variant = debug ? 'debug' : 'release';
 const task = debug ? 'assembleDebug' : 'assembleRelease';
+
+// The release key, checked before anything runs.
+const keySet = Boolean(process.env[KEY_VARIABLE]);
+let releaseKey = null;
+if (!debug && keySet) {
+  const key = checkReleaseKey(process.env);
+  if (!key.ok) {
+    console.error(`\n[build] The release key: ${key.message}`);
+    console.error('[build] Stopped before building anything.');
+    process.exit(1);
+  }
+  releaseKey = key;
+  console.log(`[build] Release key: ${key.subject}, certificate SHA-256 ${colons(key.sha256)}`);
+} else if (!debug) {
+  console.log(`[build] ${KEY_VARIABLE} is not set: the release APKs will be signed with Android's debug key.`);
+} else if (keySet) {
+  console.log(`[build] ${KEY_VARIABLE} is set, but a debug build never uses it: it is signed with Android's debug key.`);
+}
+let tools;
+try {
+  tools = buildTools();
+} catch (e) {
+  console.error(`[build] ${e.message}: the build needs the Android SDK (see Building in README.md).`);
+  process.exit(2);
+}
 
 function run(label, command, args, cwd, env) {
   const started = Date.now();
@@ -71,6 +111,8 @@ function run(label, command, args, cwd, env) {
 const times = [];
 for (const form of forms) {
   const env = { ...process.env, LIMO_FORM: form, EXPO_NO_TELEMETRY: '1' };
+  // A debug build keeps the debug key: Gradle never sees the release key.
+  if (debug) delete env[KEY_VARIABLE];
   const t = { form };
   t.design = run('make-design', process.execPath, [path.join('scripts', 'make-design.mjs')], appDir, env);
 
@@ -96,7 +138,25 @@ for (const form of forms) {
   const target = path.join(outDir, `limo-${form}-${variant}.apk`);
   fs.copyFileSync(apk, target);
   t.bytes = fs.statSync(target).size;
-  console.log(`[build] ${path.relative(appDir, target)}: ${t.bytes} bytes`);
+  t.name = path.relative(appDir, target);
+  console.log(`[build] ${t.name}: ${t.bytes} bytes`);
+
+  // Who signed it, as Android will read it.
+  const signing = apkSigning(target, tools.apksigner);
+  t.signer = signing.signers.length === 1 ? signing.signers[0] : null;
+  const wrong = !signing.verified
+    ? 'its signature does not verify'
+    : !t.signer
+      ? `it has ${signing.signers.length} signers, not one`
+      : releaseKey && t.signer.sha256 !== releaseKey.sha256
+        ? `it is signed by ${t.signer.subject}, not with the release key`
+        : null;
+  if (wrong) {
+    fs.rmSync(target, { force: true });
+    console.error(`[build] ${t.name} is not kept: ${wrong}. Stopped.`);
+    process.exit(1);
+  }
+  console.log(`[build] ${t.name}: signed by ${t.signer.subject} (${signing.schemes.join(', ')})`);
   times.push(t);
 }
 
@@ -105,4 +165,34 @@ for (const t of times) {
   console.log(
     `  ${t.form}: ${t.bytes} bytes; make-design ${t.design} s, delete android ${t.clean} s, prebuild ${t.prebuild} s, gradle ${t.gradle} s`,
   );
+}
+
+// How the APKs are signed, said last, where it cannot be missed.
+const names = times.map((t) => t.name).join(' and ');
+if (debug) {
+  console.log(
+    `\n[build] ${names}: signed with Android's debug key, as every debug build is. ` +
+      'For the development tool over a cable only, never for a family.',
+  );
+} else if (releaseKey) {
+  console.log(`\n[build] Signed with the release key ${KEY_VARIABLE} names: ${names}`);
+  console.log(`[build]   ${releaseKey.subject}`);
+  console.log(`[build]   certificate SHA-256 ${colons(releaseKey.sha256)}`);
+} else {
+  const lines = [
+    "SIGNED WITH ANDROID'S DEBUG KEY: NOT FOR A FAMILY",
+    '',
+    `${KEY_VARIABLE} is not set, so ${times.length > 1 ? 'these are' : 'this is'} signed`,
+    "with Android's debug key:",
+    ...times.map((t) => `  ${t.name}`),
+    'For trying on a phone over a cable only, never for a family:',
+    'the debug key is public, so anyone could sign an update that',
+    'Android would accept in place of LiMo.',
+    'To sign with the release key, see "Signing" in README.md.',
+  ];
+  const width = Math.max(...lines.map((l) => l.length)) + 4;
+  const bar = '#'.repeat(width + 2);
+  console.log(`\n${bar}`);
+  for (const l of lines) console.log(`#  ${l.padEnd(width - 2)}#`);
+  console.log(bar);
 }
