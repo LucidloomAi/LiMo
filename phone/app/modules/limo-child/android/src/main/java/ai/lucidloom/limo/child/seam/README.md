@@ -408,11 +408,17 @@ screen is used, then ON once back in LiMo.
 
 ## Left open
 
-- **The protection step's words** say LiMo "cannot be switched off or
-  removed without the guardian PIN". Today the device admin only stops
-  LiMo being removed while it is on, and anyone can switch it off in
-  Settings; the base protection has to make the step's words true, or they
-  change. The admin's own description says only what is true now.
+- **The protection step's words** say "So a guardian’s PIN is needed to
+  switch this off, and LiMo cannot be removed while it is on." Android
+  keeps the second half: it refuses to uninstall an active device admin.
+  LiMo's guard keeps the first once setup is finished (watch/README.md,
+  "The guard"): it covers the device admin's page by its name and Android
+  asking the admin to switch off, and opens them only for the guardian
+  PIN; none of it has run on a phone yet, and the page's name is from
+  Android's source. Still open: a maker that names the page otherwise is
+  guarded only at Deactivate, nothing is guarded while LiMo cannot draw
+  (its accessibility service off, a force stop, safe mode), and the
+  admin's own description still says only what the admin itself does.
 - **Split screen without a pause** is caught from the main activity's
   window being laid out again, not from Android's own word for it
   (`Activity.onMultiWindowModeChanged`), which only the activity hears and
