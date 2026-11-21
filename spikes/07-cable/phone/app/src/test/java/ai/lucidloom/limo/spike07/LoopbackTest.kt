@@ -47,6 +47,29 @@ class LoopbackTest {
     }
 
     @Test
+    fun aPcThatClosesFirstCutsTheRunShortAndItIsSaid() {
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        thread {
+            server.use {
+                it.accept().use { socket ->
+                    // Sends back the first bytes only, ends its side, and
+                    // takes the rest without answering.
+                    val buffer = ByteArray(1000)
+                    val n = socket.getInputStream().read(buffer)
+                    socket.getOutputStream().write(buffer, 0, n)
+                    socket.shutdownOutput()
+                    while (socket.getInputStream().read(buffer) >= 0) {
+                        // drained
+                    }
+                }
+            }
+        }
+        val result = Loopback.run(server.localPort)
+        assertEquals("cut_short", result.why)
+        assertTrue(result.bytes in 1 until Loopback.BYTES.toLong())
+    }
+
+    @Test
     fun theLastRunIsKeptForTheStatusRow() {
         SpikeState.reset()
         SpikeState.recordLoopback(Loopback.Result(true, 262144, 85, "none"))

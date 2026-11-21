@@ -36,14 +36,15 @@ const DEBUG_INTERFACE_ID: &str = "USB\\Class_FF&SubClass_42&Prot_01";
 /// Windows' class of portable devices (WPD).
 const PORTABLE_DEVICE_CLASS: u128 = 0xEEC5_AD98_8080_425F_922A_DABF_3DE3_F69A;
 /// The Android USB interface class, as a number.
-const ANDROID_CLASS: u128 = 0xF72F_E0D4_CBCB_407D_8814_9ED6_73D0_DD6B;
+pub(super) const ANDROID_CLASS: u128 = 0xF72F_E0D4_CBCB_407D_8814_9ED6_73D0_DD6B;
 /// The most devices looked at.
 const MAX_DEVICES: u32 = 10_000;
 /// The most bytes read for one property or value.
 const MAX_BYTES: u32 = 64 * 1024;
 
-/// A device information set, destroyed when dropped.
-struct DeviceSet(HDEVINFO);
+/// A device information set, destroyed when dropped. The WinUSB route
+/// (`winusb.rs`) uses it too.
+pub(super) struct DeviceSet(pub(super) HDEVINFO);
 
 impl Drop for DeviceSet {
     fn drop(&mut self) {
@@ -55,7 +56,7 @@ impl Drop for DeviceSet {
     }
 }
 
-fn last_error() -> u32 {
+pub(super) fn last_error() -> u32 {
     // SAFETY: reads this thread's last error; takes and writes nothing.
     unsafe { GetLastError() }
 }
@@ -63,7 +64,7 @@ fn last_error() -> u32 {
 impl DeviceSet {
     /// The devices present, of every class, or of those offering the
     /// interface class `interface`.
-    fn new(interface: Option<&GUID>) -> Result<DeviceSet, String> {
+    pub(super) fn new(interface: Option<&GUID>) -> Result<DeviceSet, String> {
         let (class, flags) = match interface {
             Some(guid) => (guid as *const GUID, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE),
             None => (std::ptr::null(), DIGCF_PRESENT | DIGCF_ALLCLASSES),
@@ -79,7 +80,7 @@ impl DeviceSet {
     }
 
     /// Every device in the set.
-    fn devices(&self) -> Result<Vec<SP_DEVINFO_DATA>, String> {
+    pub(super) fn devices(&self) -> Result<Vec<SP_DEVINFO_DATA>, String> {
         let mut out = Vec::new();
         for index in 0..MAX_DEVICES {
             let mut data = SP_DEVINFO_DATA {
@@ -104,7 +105,7 @@ impl DeviceSet {
 
     /// A text property of a device, one or several strings, each trimmed,
     /// the empty ones left out.
-    fn strings(&self, data: &SP_DEVINFO_DATA, property: SETUP_DI_REGISTRY_PROPERTY) -> Vec<String> {
+    pub(super) fn strings(&self, data: &SP_DEVINFO_DATA, property: SETUP_DI_REGISTRY_PROPERTY) -> Vec<String> {
         let mut needed: u32 = 0;
         let mut kind: u32 = 0;
         // SAFETY: a question of size alone: no buffer and a size of 0;
@@ -126,7 +127,7 @@ impl DeviceSet {
     }
 
     /// The first text of a property.
-    fn string(&self, data: &SP_DEVINFO_DATA, property: SETUP_DI_REGISTRY_PROPERTY) -> Option<String> {
+    pub(super) fn string(&self, data: &SP_DEVINFO_DATA, property: SETUP_DI_REGISTRY_PROPERTY) -> Option<String> {
         self.strings(data, property).into_iter().next()
     }
 
@@ -164,9 +165,14 @@ impl DeviceSet {
         if key.is_null() || key as isize == -1 {
             return Vec::new();
         }
-        let mut found = Vec::new();
+        let mut found: Vec<String> = Vec::new();
         for name in ["DeviceInterfaceGUIDs", "DeviceInterfaceGUID"] {
-            found.extend(registry_strings(key, name));
+            for guid in registry_strings(key, name) {
+                // The same GUID can be in both values, in either case.
+                if !found.iter().any(|g| g.eq_ignore_ascii_case(&guid)) {
+                    found.push(guid);
+                }
+            }
         }
         // SAFETY: the key was opened above and is closed once, here.
         unsafe {
@@ -197,7 +203,7 @@ fn registry_strings(key: HKEY, name: &str) -> Vec<String> {
 }
 
 /// Wide text split at its zeros, each part trimmed, empty ones left out.
-fn split_wide(buffer: &[u16]) -> Vec<String> {
+pub(super) fn split_wide(buffer: &[u16]) -> Vec<String> {
     buffer
         .split(|unit| *unit == 0)
         .map(|part| String::from_utf16_lossy(part).trim().to_string())

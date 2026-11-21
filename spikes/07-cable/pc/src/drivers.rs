@@ -107,15 +107,28 @@ fn shown(value: &Option<String>) -> &str {
 }
 
 /// libusb 1.0.27 (`os/windows_winusb.c`): an interface driven by WinUSB,
-/// libusbK or libusb0, under `usbccgp` or `dg_ssudbus`, or a whole device
-/// so driven. libusbK and libusb0 also need libusbK's own library on the PC.
+/// libusbK or libusb0, under Windows' own `usbccgp`, or a whole device so
+/// driven. Its source also names Samsung's composite driver, `dg_ssudbus`,
+/// but on the test phone (21 Nov 2026) it refused an interface under it,
+/// driven by WinUSB, with "Operation not supported or unimplemented on this
+/// platform"; so that counts as no. libusbK and libusb0 also need libusbK's
+/// own library on the PC.
 pub fn libusb_can(i: &DebugInterface) -> Can {
     if let Some(no) = no_driver(i) {
         return no;
     }
-    let parent_ok = whole_device(i) || is(&i.parent_service, &["usbccgp", "dg_ssudbus"]);
-    if !parent_ok {
-        return Can::No(format!("libusb reaches an interface only under usbccgp or dg_ssudbus, and the device above is driven by {}", shown(&i.parent_service)));
+    if is(&i.parent_service, &["dg_ssudbus"]) {
+        return Can::No(
+            "the device above is driven by Samsung's dg_ssudbus, under which libusb 1.0.27 refused the interface on \
+             the test phone (\"Operation not supported\"), although its source names that driver"
+                .to_string(),
+        );
+    }
+    if !(whole_device(i) || is(&i.parent_service, &["usbccgp"])) {
+        return Can::No(format!(
+            "libusb reaches an interface only under Windows' own usbccgp, and the device above is driven by {}",
+            shown(&i.parent_service)
+        ));
     }
     if is(&i.service, &["winusb"]) {
         Can::Yes("its driver is WinUSB".to_string())
@@ -165,6 +178,25 @@ pub fn adb_exe_can(i: &DebugInterface) -> Can {
     }
 }
 
+/// This program's WinUSB route (`route_winusb.rs`), as Google's adb on
+/// Windows opens a phone through WinUSB: an interface that offers the
+/// Android USB interface class, by which it is found, driven by WinUSB,
+/// whatever driver is above it.
+pub fn winusb_can(i: &DebugInterface) -> Can {
+    if let Some(no) = no_driver(i) {
+        return no;
+    }
+    if !is(&i.service, &["winusb"]) {
+        return Can::No(format!("this route speaks through WinUSB only, and its driver is {}", shown(&i.service)));
+    }
+    if !i.android_class {
+        return Can::No(format!(
+            "WinUSB is bound, but it does not offer the Android USB interface class {ANDROID_USB_CLASS}, by which this route finds it"
+        ));
+    }
+    Can::Yes("its driver is WinUSB, and it offers the Android USB interface class, by which this route finds it".to_string())
+}
+
 fn can_words(can: &Can) -> String {
     match can {
         Can::Yes(why) => format!("yes: {why}"),
@@ -211,6 +243,7 @@ pub fn words(report: &Report) -> Vec<String> {
             if i.winusb_guids.is_empty() { "none".to_string() } else { i.winusb_guids.join(", ") }
         ));
         out.push("  What each route can use, by its own rules (the run proves it):".to_string());
+        out.push(format!("    this program's own adb over WinUSB: {}", can_words(&winusb_can(i))));
         out.push(format!("    adb_client over libusb: {}", can_words(&libusb_can(i))));
         out.push(format!("    adb_client over nusb: {}", can_words(&nusb_can(i))));
         out.push(format!("    Google's adb.exe: {}", can_words(&adb_exe_can(i))));
@@ -267,13 +300,31 @@ mod tests {
     fn a_makers_own_driver_reaches_only_google_adb() {
         let mut i = interface("ssudadb", "dg_ssudbus");
         i.android_class = true;
-        assert!(matches!(libusb_can(&i), Can::No(why) if why.contains("ssudadb")));
+        assert!(matches!(libusb_can(&i), Can::No(_)));
         assert!(matches!(nusb_can(&i), Can::No(why) if why.contains("ssudadb")));
         assert!(yes(adb_exe_can(&i)));
-        // WinUSB under Samsung's composite driver: libusb yes, nusb no.
-        let winusb_under_samsung = DebugInterface { winusb_guids: vec!["{X}".to_string()], ..interface("WinUSB", "dg_ssudbus") };
-        assert!(yes(libusb_can(&winusb_under_samsung)));
-        assert!(matches!(nusb_can(&winusb_under_samsung), Can::No(why) if why.contains("dg_ssudbus")));
+        assert!(matches!(winusb_can(&i), Can::No(why) if why.contains("ssudadb")));
+    }
+
+    #[test]
+    fn the_test_phone_as_windows_listed_it_reaches_only_google_adb_and_the_winusb_route() {
+        // Samsung's driver package binds WinUSB to the interface, under
+        // Samsung's own composite driver, with the Android class offered.
+        let galaxy = DebugInterface {
+            name: Some("SAMSUNG Android ADB Interface".to_string()),
+            inf: Some("oem56.inf".to_string()),
+            provider: Some("SAMSUNG Electronics Co., Ltd.".to_string()),
+            android_class: true,
+            winusb_guids: vec![ANDROID_USB_CLASS.to_string()],
+            ..interface("WINUSB", "dg_ssudbus")
+        };
+        assert!(matches!(libusb_can(&galaxy), Can::No(why) if why.contains("Operation not supported")));
+        assert!(matches!(nusb_can(&galaxy), Can::No(why) if why.contains("dg_ssudbus")));
+        assert!(yes(adb_exe_can(&galaxy)));
+        assert!(yes(winusb_can(&galaxy)));
+        // WinUSB with no Android class: the WinUSB route cannot find it.
+        let unfound = DebugInterface { android_class: false, ..galaxy.clone() };
+        assert!(matches!(winusb_can(&unfound), Can::No(why) if why.contains("does not offer")));
     }
 
     #[test]
@@ -289,6 +340,8 @@ mod tests {
         assert!(yes(libusb_can(&whole)));
         assert!(yes(nusb_can(&whole)));
         assert!(!yes(adb_exe_can(&whole)));
+        assert!(!yes(winusb_can(&whole)));
+        assert!(matches!(winusb_can(&none), Can::No(why) if why.contains("problem 28")));
         assert!(yes(libusb_can(&interface("libusbK", "usbccgp"))));
     }
 
@@ -308,6 +361,7 @@ mod tests {
         assert!(text.contains("winusb.inf, from Microsoft"));
         assert!(text.contains("driven by usbccgp"));
         assert!(text.contains("adb_client over libusb: yes"));
+        assert!(text.contains("this program's own adb over WinUSB: no"));
         assert!(text.contains("Galaxy S20 Ultra 5G, working, driven by WUDFWpdMtp"));
     }
 }

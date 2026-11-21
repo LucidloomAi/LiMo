@@ -33,7 +33,7 @@ fn unsafe_code_is_only_in_win_and_says_why_each_time() {
         if in_win(&path) {
             let lines: Vec<&str> = text.lines().collect();
             for (n, line) in lines.iter().enumerate() {
-                if line.contains("unsafe {") || line.contains("unsafe{") {
+                if line.contains("unsafe {") || line.contains("unsafe{") || line.contains("unsafe impl") {
                     let above = &lines[n.saturating_sub(4)..n];
                     assert!(above.iter().any(|l| l.contains("// SAFETY:")), "{name}:{}: an unsafe block without SAFETY", n + 1);
                 }
@@ -50,7 +50,7 @@ fn unsafe_code_is_only_in_win_and_says_why_each_time() {
 
 #[test]
 fn every_command_to_the_phone_touches_only_the_test_app_and_one_setting() {
-    let allowed_starts = ["getprop ro.", "pm list packages ", "settings get global adb_enabled", "content write --uri content://ai.lucidloom.limo.spike07.cable/", "content query --uri content://ai.lucidloom.limo.spike07.cable/", "am start -n ai.lucidloom.limo.spike07/", "settings put global adb_enabled 0"];
+    let allowed_starts = ["getprop ro.", "pm list packages ", "settings get global adb_enabled", "content write --uri content://ai.lucidloom.limo.spike07.cable/", "content query --uri content://ai.lucidloom.limo.spike07.cable/", "am start -n ai.lucidloom.limo.spike07/", "am start -S -n ai.lucidloom.limo.spike07/", "settings put global adb_enabled 0"];
     let never = ["dpm", "account", "uninstall", "reboot", "pm clear", "pm disable", "pm grant", "pm revoke", "cmd ", "rm ", " su", "run-as", "device_owner", "appops", "wm ", "input ", "svc "];
     for ask in Ask::every() {
         let command = ask.command();
@@ -89,6 +89,35 @@ fn the_routes_call_only_what_the_steps_need() {
             }
             assert!(text.contains("device.uninstall(PACKAGE, None)"), "adb_client removes only the test app");
         }
+        if name == "route_winusb.rs" {
+            let calls: Vec<&str> = text
+                .match_indices("connection()?.")
+                .filter_map(|(i, _)| {
+                    let rest = &text[i + "connection()?.".len()..];
+                    let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))?;
+                    (end > 0 && rest[end..].starts_with('(')).then(|| &rest[..end])
+                })
+                .collect();
+            assert!(!calls.is_empty());
+            for call in calls {
+                assert!(["shell", "install", "exec", "reverse", "reverse_remove"].contains(&call), "route_winusb.rs calls {call}");
+            }
+            assert_eq!(text.matches(".exec(").count(), 1, "exec only to remove the test app");
+            assert!(text.contains(".exec(&uninstall_command()"));
+            assert!(text.contains("format!(\"cmd package uninstall {PACKAGE}\")"));
+        }
+        if name == "protocol.rs" {
+            // The only services this program's own adb opens.
+            let services: Vec<&str> = text.match_indices("format!(\"").map(|(i, _)| &text[i + 9..]).filter(|r| r.contains(':')).collect();
+            for word in ["sync:", "root:", "unroot:", "remount:", "reboot:", "tcpip:", "usb:", "jdwp", "framebuffer:", "abb", "dev:", "localabstract", "track-", "sideload", "backup:", "restore:", "disable-verity", "enable-verity"] {
+                // As the start of a string: a service's name.
+                assert!(!text.contains(&format!("\"{word}")), "protocol.rs opens {word}");
+            }
+            for prefix in ["shell,v2,raw:", "shell:", "exec:", "reverse:forward:", "reverse:killforward:"] {
+                assert!(text.contains(&format!("format!(\"{prefix}")), "protocol.rs opens {prefix}");
+            }
+            assert!(!services.is_empty());
+        }
         if name == "route_adb.rs" {
             for word in ["\"push\"", "\"pull\"", "\"root\"", "\"reboot\"", "\"tcpip\"", "\"forward\"", "\"sideload\"", "\"remount\"", "\"emu\"", "\"exec-out\"", "\"disable-verity\""] {
                 assert!(!text.contains(word), "route_adb.rs runs adb {word}");
@@ -109,6 +138,11 @@ fn a_serial_number_is_never_printed_whole() {
             }
         }
         assert!(!text.contains("serial_number()") || name == "route_nusb.rs", "{name} reads a serial number");
+        // A key's place, Google's adb's above all, is never printed.
+        for (n, line) in text.lines().enumerate() {
+            let prints = line.contains("format!(") || line.contains("say(") || line.contains("println!(");
+            assert!(!(prints && line.contains("key.path")), "{name}:{}: prints a key's place", n + 1);
+        }
         assert!(!text.contains("{info:?}") && !text.contains("{device:?}"), "{name}: a device's Debug form holds its serial");
     }
 }

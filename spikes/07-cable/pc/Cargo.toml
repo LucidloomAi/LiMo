@@ -44,13 +44,24 @@ miniz_oxide = "0.8.9"
 log = { version = "0.4.28", features = ["std"] }
 
 [target.'cfg(windows)'.dependencies]
-# Windows' own lists of devices and drivers, read only, for `drivers`.
+# Windows' own lists of devices and drivers, read only, for `drivers`; and
+# WinUSB, with overlapped transfers, for the WinUSB route.
 windows-sys = { version = "0.61.2", features = [
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Devices_Properties",
+    "Win32_Devices_Usb",
     "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
     "Win32_System_Registry",
+    "Win32_System_Threading",
 ] }
+
+[dev-dependencies]
+# Tests only: checks that this program's own signature of adb's token is the
+# one adb_client makes (already in the build under adb_client).
+sha1 = { version = "0.10.7", features = ["oid"] }
 
 # The RSA key is made once; optimised dependencies keep that quick in tests.
 [profile.dev.package."*"]

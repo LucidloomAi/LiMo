@@ -108,8 +108,9 @@ pub fn does(step: StepName, via: Option<Via>) -> String {
         StepName::Start => "This opens the test app's screen (am start). Nothing else.".to_string(),
         StepName::Reverse => format!(
             "This listens on 127.0.0.1:{LOOPBACK_PORT} on this PC with an echo server, asks the phone to carry \
-             its own 127.0.0.1:{LOOPBACK_PORT} to it (reverse), opens the test app and asks it to send 256 KiB \
-             there and check that every byte comes back, then removes the reverse again."
+             its own 127.0.0.1:{LOOPBACK_PORT} to it (reverse), starts the test app afresh (am start -S stops \
+             it first, if it runs) and asks it to send 256 KiB there and check that every byte comes back, then \
+             removes the reverse again."
         ),
         StepName::Uninstall => format!(
             "This removes the test app ({PACKAGE}) and everything it kept. Nothing else."
@@ -140,19 +141,20 @@ pub fn plan() -> String {
         out.push(format!("    {what}"));
     };
     line(&mut out, "drivers", "Reads Windows' lists: which driver Windows bound to the phone's debugging interface. Nothing reaches the phone.");
-    line(&mut out, "list", "Reads the USB lists of libusb and nusb. Nothing reaches the phone.");
-    for via in [Via::Libusb, Via::Nusb, Via::Adb] {
+    line(&mut out, "list", "Reads what the WinUSB route, libusb and nusb each see. Nothing reaches the phone.");
+    for via in [Via::Winusb, Via::Libusb, Via::Nusb, Via::Adb] {
         let v = via.word();
         let first = match via {
-            Via::Libusb => "The phone asks \"Allow USB debugging?\" for this program's key: tick Always allow, tap Allow within 10 seconds. Reads properties.",
-            Via::Nusb => "The same key, so no question now. Reads properties. If nusb cannot reach the interface, it says so: skip the rest of this route.",
+            Via::Winusb => "The phone asks \"Allow USB debugging?\" for this program's key (unless it was allowed before): tick Always allow, tap Allow within 45 seconds. Reads properties.",
+            Via::Libusb => "The same key. On a phone under Samsung's own composite driver libusb refuses the interface: then skip the rest of this route.",
+            Via::Nusb => "The same key. nusb needs Windows' own composite driver: where it refuses, skip the rest of this route.",
             Via::Adb => "Google's adb with its own key (allowed before on this PC, so most likely no question). Reads properties, then stops adb's server, as every step by this route does.",
         };
         line(&mut out, &format!("connect --via {v}"), first);
         line(&mut out, &format!("install --via {v}"), "Installs the test app LiMo spike 07, a release build signed with a throwaway key.");
         line(&mut out, &format!("write-secret --via {v}"), "Writes a random sample secret into the test app's guarded door from standard input; compares what arrived.");
         line(&mut out, &format!("start --via {v}"), "Opens the test app's screen.");
-        line(&mut out, &format!("reverse --via {v}"), "Carries the test app's connection to 127.0.0.1:47810 on the phone to an echo server on this PC, 256 KiB each way.");
+        line(&mut out, &format!("reverse --via {v}"), "Starts the test app afresh and carries its connection to 127.0.0.1:47810 on the phone to an echo server on this PC, 256 KiB each way.");
         line(&mut out, &format!("uninstall --via {v}"), "Removes the test app.");
     }
     line(
@@ -164,7 +166,8 @@ pub fn plan() -> String {
     out.push(
         "Then, on a Windows PC that never had Android tools (about 15 minutes, reading only): copy this one program \
          there, switch USB debugging on again on the phone, plug it in unlocked, and run drivers, list, connect --via \
-         libusb and connect --via nusb. On that PC leave Always allow unticked, so the phone keeps nothing of it."
+         winusb, connect --via libusb and connect --via nusb. On that PC leave Always allow unticked, so the phone \
+         keeps nothing of it."
             .to_string(),
     );
     out.join("\n")
@@ -181,7 +184,7 @@ pub fn help() -> String {
          shows or keeps a serial number (only its last four characters are shown); it installs nothing on this PC."
             .to_string(),
         String::new(),
-        "Usage: limo-cable-spike <step> [--via libusb|nusb|adb] [--apk PATH] [--adb PATH] [--verbose]".to_string(),
+        "Usage: limo-cable-spike <step> [--via winusb|libusb|nusb|adb] [--key own|adb] [--apk PATH] [--adb PATH] [--verbose]".to_string(),
         String::new(),
         "  plan                 the whole run, for reading first".to_string(),
     ];
@@ -203,9 +206,16 @@ pub fn help() -> String {
     out.push("  help                 this".to_string());
     out.push(String::new());
     out.push(
-        "Routes: libusb and nusb are adb_client 4.0.0 inside this program (no adb.exe); adb is Google's adb.exe, \
-         found on the PATH, in ANDROID_HOME, or given with --adb. --verbose prints what adb_client and nusb log, \
+        "Routes: winusb is this program's own adb over Windows' own WinUSB, the phone found as Google's adb finds \
+         it; libusb and nusb are adb_client 4.0.0 inside this program; none of these runs adb.exe. adb is Google's \
+         adb.exe, found on the PATH, in ANDROID_HOME, or given with --adb. --verbose prints what adb_client and nusb log, \
          with any serial number cut to its last four characters."
+            .to_string(),
+    );
+    out.push(
+        "--key adb, with --via winusb only, connects with the adb key of this Windows account (Google's adb's own, \
+         read only, never copied or shown) instead of this program's own: a phone that allowed it before asks \
+         nothing. For this proof only; the real product makes its own key, and the guardian allows it once."
             .to_string(),
     );
     out.push("Exit codes: 0 done, 1 failed, 2 refused (nothing was changed on the phone).".to_string());

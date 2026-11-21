@@ -6,7 +6,7 @@ mod apk;
 mod fake;
 
 use limo_cable_spike::cable::{OpenProblem, Via};
-use limo_cable_spike::key::Key;
+use limo_cable_spike::key::{Key, KeySource};
 use limo_cable_spike::phone::{ACTIVITY, PACKAGE};
 use limo_cable_spike::plan::{StepName, help, plan};
 use limo_cable_spike::steps::{self, Exit};
@@ -22,7 +22,12 @@ fn installed() -> Fake {
 }
 
 fn key() -> Key {
-    Key { path: std::path::PathBuf::from("adbkey"), new: true, fingerprint: "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89".to_string() }
+    Key {
+        path: std::path::PathBuf::from("adbkey"),
+        new: true,
+        fingerprint: "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89".to_string(),
+        source: KeySource::Own,
+    }
 }
 
 /// The index of the first line that starts with `start`.
@@ -32,7 +37,7 @@ fn line_starting(ui: &Recorder, start: &str) -> Option<usize> {
 
 #[test]
 fn every_step_says_what_it_does_to_the_phone_before_anything_reaches_it() {
-    for via in [Via::Libusb, Via::Nusb, Via::Adb] {
+    for via in [Via::Winusb, Via::Libusb, Via::Nusb, Via::Adb] {
         let runs: Vec<(StepName, Run)> = vec![
             (StepName::Connect, Box::new(move |f, ui| steps::connect(f, via, Some(&key()), ui))),
             (StepName::WriteSecret, Box::new(move |f, ui| steps::write_secret(f, via, ui))),
@@ -75,6 +80,21 @@ fn connect_reads_four_facts_and_whether_the_test_app_is_there_and_nothing_else()
     assert!(text.contains("%LOCALAPPDATA%\\LiMo-spike07-TEST-ONLY\\adbkey (made just now"));
     assert!(text.contains("adb_client waits 10 seconds"));
     assert!(text.contains("Connected: a SM-G988B, Android 13 (API 33); USB debugging setting: 1; the test app: not installed."));
+    // The WinUSB route gives the person 45 seconds, and says so.
+    let fake = Fake::new();
+    let mut ui = Recorder::default();
+    assert_eq!(steps::connect(&fake, Via::Winusb, Some(&key()), &mut ui), Exit::Done);
+    assert!(ui.text().contains("this program waits 45 seconds"));
+    assert!(ui.text().contains("through this program's own adb, over Windows' own WinUSB"));
+    // With --key adb, the adb key of this Windows account is named so, and
+    // never by its place.
+    let google = Key { path: std::path::PathBuf::from("C:/somewhere/.android/adbkey"), new: false, source: KeySource::GoogleAdb, ..key() };
+    let fake = Fake::new();
+    let mut ui = Recorder::default();
+    assert_eq!(steps::connect(&fake, Via::Winusb, Some(&google), &mut ui), Exit::Done);
+    assert!(ui.text().contains("the adb key of this Windows account"));
+    assert!(ui.text().contains("Its fingerprint, as the phone shows it: AB:CD:EF:01"));
+    assert!(!ui.text().contains("somewhere") && !ui.text().contains(".android"));
     // Google's adb's own key is named for that route, and the answers with
     // carriage returns read the same.
     let fake = Fake::with(|s| s.carriage_returns = true);
@@ -192,7 +212,7 @@ fn reverse_carries_the_apps_loopback_to_the_echo_server_and_is_removed_after() {
         vec![
             "open nusb".to_string(),
             format!("reverse {port}"),
-            format!("shell am start -n {ACTIVITY} --ei loopback_port {port}"),
+            format!("shell am start -S -n {ACTIVITY} --ei loopback_port {port}"),
             format!("reverse remove {port}"),
             "close".to_string(),
         ]
@@ -271,7 +291,7 @@ fn debugging_off_is_last_needs_off_typed_and_says_the_link_has_ended() {
 #[test]
 fn the_plan_holds_every_step_by_every_route_and_ends_with_debugging_off() {
     let text = plan();
-    for via in ["libusb", "nusb", "adb"] {
+    for via in ["winusb", "libusb", "nusb", "adb"] {
         for step in ["connect", "install", "write-secret", "start", "reverse", "uninstall"] {
             assert!(text.contains(&format!("limo-cable-spike {step} --via {via}")), "{step} by {via}");
         }

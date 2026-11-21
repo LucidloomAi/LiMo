@@ -22,6 +22,9 @@ pub const INSTALL_LIMIT: Duration = Duration::from_secs(180);
 /// How long opening the phone may take, the prompt included: adb_client
 /// itself waits only 10 seconds once it has shown the phone its key.
 pub const OPEN_LIMIT: Duration = Duration::from_secs(40);
+/// How long the WinUSB route gives the person to answer "Allow USB
+/// debugging?" once the phone has been shown the key.
+pub const PROMPT_WAIT: Duration = Duration::from_secs(45);
 
 /// The three routes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +35,9 @@ pub enum Via {
     Nusb,
     /// Google's own adb.exe, run as a separate program.
     Adb,
+    /// This program's own adb, over Windows' own WinUSB, opened the way
+    /// Google's adb opens it on Windows.
+    Winusb,
 }
 
 impl Via {
@@ -41,6 +47,7 @@ impl Via {
             Via::Libusb => "libusb",
             Via::Nusb => "nusb",
             Via::Adb => "adb",
+            Via::Winusb => "winusb",
         }
     }
 
@@ -50,6 +57,7 @@ impl Via {
             Via::Libusb => "adb_client 4.0.0 in this program, over USB through libusb (no adb.exe, no adb server)",
             Via::Nusb => "adb_client 4.0.0 in this program, over USB through nusb (no adb.exe, no adb server, no C)",
             Via::Adb => "Google's own adb.exe (its server is stopped again at the end of the step)",
+            Via::Winusb => "this program's own adb, over Windows' own WinUSB, the phone found the way Google's adb finds it (no libusb, no nusb, no adb.exe, no adb server)",
         }
     }
 
@@ -59,6 +67,7 @@ impl Via {
             "libusb" => Some(Via::Libusb),
             "nusb" => Some(Via::Nusb),
             "adb" => Some(Via::Adb),
+            "winusb" => Some(Via::Winusb),
             _ => None,
         }
     }
@@ -225,7 +234,7 @@ mod tests {
 
     #[test]
     fn each_route_has_its_word() {
-        for via in [Via::Libusb, Via::Nusb, Via::Adb] {
+        for via in [Via::Libusb, Via::Nusb, Via::Adb, Via::Winusb] {
             assert_eq!(Via::from_word(via.word()), Some(via));
         }
         assert_eq!(Via::from_word("usb"), None);

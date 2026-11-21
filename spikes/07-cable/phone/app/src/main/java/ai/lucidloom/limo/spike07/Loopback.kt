@@ -10,8 +10,14 @@ import java.net.SocketTimeoutException
 /**
  * The loopback client: connects to 127.0.0.1 at a port on the phone (which
  * the PC's reverse carries over the cable to the PC's own loopback), sends
- * 256 KiB, stops sending, and checks that exactly the same bytes come back.
- * Reading runs while writing, so neither side can wait on the other.
+ * 256 KiB, reads them back, checks that exactly the same bytes came, and
+ * only then closes.
+ *
+ * It never stops sending to say it is done (no `shutdownOutput`): adb's
+ * streams have no half close, so a side that stops sending ends the whole
+ * stream, and the bytes still on their way back are lost. The first run on
+ * the phone showed exactly that (`cut_short`). Reading runs while writing,
+ * so neither side waits on the other.
  */
 object Loopback {
     /** How many bytes go each way. */
@@ -29,6 +35,7 @@ object Loopback {
         fun ms() = (System.nanoTime() - started) / 1_000_000
         if (port !in 1..65535) return Result(false, 0, 0, "bad_port")
         val sent = pattern()
+        val back = ByteArrayOutputStream()
         try {
             Socket().use { socket ->
                 socket.connect(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), connectTimeoutMs)
@@ -38,37 +45,35 @@ object Loopback {
                     try {
                         socket.getOutputStream().write(sent)
                         socket.getOutputStream().flush()
-                        socket.shutdownOutput()
                     } catch (e: Exception) {
                         writeError = e
                     }
                 }
                 writer.start()
-                val back = ByteArrayOutputStream()
                 val buffer = ByteArray(64 * 1024)
                 val input = socket.getInputStream()
-                while (true) {
-                    val n = input.read(buffer)
+                // Exactly as many bytes as were sent, then close: never wait
+                // for the other side to close first.
+                while (back.size() < BYTES) {
+                    val n = input.read(buffer, 0, minOf(buffer.size, BYTES - back.size()))
                     if (n < 0) break
                     back.write(buffer, 0, n)
-                    if (back.size() > BYTES) break
                 }
                 writer.join(readTimeoutMs.toLong())
                 if (writeError != null) return Result(false, back.size().toLong(), ms(), "write_failed")
-                val got = back.toByteArray()
-                return when {
-                    got.size < BYTES -> Result(false, got.size.toLong(), ms(), "cut_short")
-                    got.size > BYTES -> Result(false, got.size.toLong(), ms(), "too_much")
-                    !got.contentEquals(sent) -> Result(false, got.size.toLong(), ms(), "mismatch")
-                    else -> Result(true, got.size.toLong(), ms(), "none")
-                }
             }
         } catch (e: ConnectException) {
             return Result(false, 0, ms(), "refused")
         } catch (e: SocketTimeoutException) {
-            return Result(false, 0, ms(), "timeout")
+            return Result(false, back.size().toLong(), ms(), "timeout")
         } catch (e: Exception) {
-            return Result(false, 0, ms(), "error")
+            return Result(false, back.size().toLong(), ms(), "error")
+        }
+        val got = back.toByteArray()
+        return when {
+            got.size < BYTES -> Result(false, got.size.toLong(), ms(), "cut_short")
+            !got.contentEquals(sent) -> Result(false, got.size.toLong(), ms(), "mismatch")
+            else -> Result(true, got.size.toLong(), ms(), "none")
         }
     }
 }

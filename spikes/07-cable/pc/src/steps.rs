@@ -151,7 +151,7 @@ pub fn list(connector: &dyn Connector, via: Option<Via>, ui: &mut dyn Ui) -> Exi
     header(ui, StepName::List, via);
     let routes = match via {
         Some(via) => vec![via],
-        None => vec![Via::Libusb, Via::Nusb],
+        None => vec![Via::Winusb, Via::Libusb, Via::Nusb],
     };
     let mut exit = Exit::Done;
     for via in routes {
@@ -175,6 +175,19 @@ pub fn list(connector: &dyn Connector, via: Option<Via>, ui: &mut dyn Ui) -> Exi
 pub fn connect(connector: &dyn Connector, via: Via, key: Option<&Key>, ui: &mut dyn Ui) -> Exit {
     header(ui, StepName::Connect, Some(via));
     match (via, key) {
+        (_, Some(key)) if key.source == crate::key::KeySource::GoogleAdb => {
+            ui.say(
+                "This step connects with the adb key of this Windows account, Google's adb's own, instead of this \
+                 program's own (--key adb): it is only read, never written, copied or shown. A phone that allowed it \
+                 before asks nothing, so nobody need be at the phone. For this proof only: the real product makes \
+                 its own key, and the guardian allows it once.",
+            );
+            ui.say(&format!("Its fingerprint, as the phone shows it: {}", key.fingerprint));
+            ui.say(&format!(
+                "If the phone does not know it, it asks \"Allow USB debugging?\", and this program waits {} seconds.",
+                crate::cable::PROMPT_WAIT.as_secs()
+            ));
+        }
         (Via::Adb, _) => ui.say(
             "Google's adb uses its own key, in .android\\adbkey in your user folder. If the phone has allowed it before, \
              it asks nothing.",
@@ -185,11 +198,17 @@ pub fn connect(connector: &dyn Connector, via: Via, key: Option<&Key>, ui: &mut 
                 if key.new { "made just now: the phone has never seen it" } else { "kept from an earlier run" }
             ));
             ui.say(&format!("Its fingerprint, as the phone shows it: {}", key.fingerprint));
-            ui.say(
-                "Unlock the phone and keep it in hand. Once it shows \"Allow USB debugging?\", adb_client waits 10 \
+            let (who, seconds) = if via == Via::Winusb {
+                ("this program", crate::cable::PROMPT_WAIT.as_secs())
+            } else {
+                ("adb_client", 10)
+            };
+            ui.say(&format!(
+                "Unlock the phone and keep it in hand. Once it shows \"Allow USB debugging?\", {who} waits {seconds} \
                  seconds for the answer: tick \"Always allow from this computer\" (on a PC that is not yours, leave \
-                 it unticked), then tap Allow. If the 10 seconds pass first, tap Allow anyway and run connect again.",
-            );
+                 it unticked), then tap Allow. If the {seconds} seconds pass first, tap Allow anyway and run connect \
+                 again."
+            ));
         }
         (_, None) => ui.say("This program's adb key could not be made, so this route cannot connect."),
     }

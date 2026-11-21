@@ -4,12 +4,17 @@
 //!
 //! It listens on 127.0.0.1 only (never on the home network, so Windows'
 //! firewall is not asked), takes one connection, sends back every byte as it
-//! comes until the phone stops sending, and then stops listening.
+//! comes, and keeps the connection until the phone closes it, within a time
+//! limit; then it stops listening. It never closes first: adb's streams
+//! have no half close, so a side that stops sending ends the whole stream,
+//! and bytes still on their way back are lost (which the first run on the
+//! phone showed, as `cut_short`). The test app therefore never stops
+//! sending to say it is done: it reads every byte back, then closes.
 
 #![forbid(unsafe_code)]
 
 use std::io::{ErrorKind, Read, Write};
-use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::time::{Duration, Instant};
 
 /// What one connection did.
@@ -69,7 +74,7 @@ impl Echo {
     }
 }
 
-/// Sends back every byte that comes, until the other side stops sending.
+/// Sends back every byte that comes, until the other side closes.
 fn echo(mut stream: TcpStream, limit: Duration) -> Result<Echoed, String> {
     let started = Instant::now();
     stream.set_nonblocking(false).map_err(|e| e.to_string())?;
@@ -85,6 +90,12 @@ fn echo(mut stream: TcpStream, limit: Duration) -> Result<Echoed, String> {
             Ok(0) => break,
             Ok(n) => n,
             Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == ErrorKind::TimedOut || e.kind() == ErrorKind::WouldBlock => {
+                return Err(format!(
+                    "The phone kept the connection open for {} seconds without closing it, after {bytes} bytes.",
+                    limit.as_secs()
+                ));
+            }
             Err(e) => return Err(format!("Reading from the phone's connection failed after {bytes} bytes: {e}.")),
         };
         stream
@@ -93,13 +104,13 @@ fn echo(mut stream: TcpStream, limit: Duration) -> Result<Echoed, String> {
         bytes += n as u64;
     }
     let _ = stream.flush();
-    let _ = stream.shutdown(Shutdown::Write);
     Ok(Echoed { bytes, took: started.elapsed() })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::Shutdown;
 
     #[test]
     fn what_comes_goes_back_and_then_it_stops_listening() {
@@ -121,6 +132,39 @@ mod tests {
         let echoed = server.join().unwrap().unwrap().unwrap();
         assert_eq!(echoed.bytes, sent.len() as u64);
         assert!(TcpStream::connect((Ipv4Addr::LOCALHOST, port)).is_err(), "no longer listening");
+    }
+
+    #[test]
+    fn it_keeps_the_connection_until_the_phone_has_read_everything_back_and_closed() {
+        let echo = Echo::bind(0).unwrap();
+        let port = echo.port();
+        let server = std::thread::spawn(move || echo.serve_one(Duration::from_secs(5), Duration::from_secs(5)));
+        // As the test app: send, read every byte back without ever stopping
+        // sending first, wait a while, then close.
+        let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+        let sent: Vec<u8> = (0..100_000u32).map(|i| (i % 7) as u8).collect();
+        let mut writer = client.try_clone().unwrap();
+        let to_send = sent.clone();
+        let sender = std::thread::spawn(move || writer.write_all(&to_send).unwrap());
+        let mut back = vec![0u8; sent.len()];
+        client.read_exact(&mut back).unwrap();
+        sender.join().unwrap();
+        assert_eq!(back, sent);
+        std::thread::sleep(Duration::from_millis(300));
+        drop(client);
+        let echoed = server.join().unwrap().unwrap().unwrap();
+        assert!(echoed.took >= Duration::from_millis(300), "the echo stayed until the phone closed");
+        assert_eq!(echoed.bytes, sent.len() as u64);
+    }
+
+    #[test]
+    fn a_phone_that_never_closes_is_said_after_the_limit() {
+        let echo = Echo::bind(0).unwrap();
+        let port = echo.port();
+        let server = std::thread::spawn(move || echo.serve_one(Duration::from_secs(5), Duration::from_millis(500)));
+        let _client = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+        let said = server.join().unwrap().unwrap_err();
+        assert!(said.contains("without closing it"), "{said}");
     }
 
     #[test]

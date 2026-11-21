@@ -14,7 +14,7 @@
 //! each message's 24 byte header in one transfer, its data in the next,
 //! and a zero length packet after data that fills its last packet exactly;
 //! and they are read from the phone as adb's own host side reads them
-//! (`next_message`).
+//! (`protocol::next_message`, shared with the WinUSB route).
 //!
 //! This is the proof's way to ask whether nusb reaches the phone; LiMo itself
 //! would not open a socket for it (it would give adb_client a nusb transport
@@ -41,6 +41,7 @@ use nusb::descriptors::TransferType;
 use nusb::transfer::{Buffer, Bulk, Direction, In, Out, TransferError};
 
 use crate::cable::{Cable, OPEN_LIMIT, OpenProblem, Via, with_timeout};
+use crate::protocol::next_message;
 use crate::route_libusb::{adb_server_running, open_problem};
 use crate::route_rust::ClientCable;
 use crate::ui::Ui;
@@ -154,51 +155,6 @@ fn read_message(tcp: &mut TcpStream) -> std::io::Result<([u8; 24], Vec<u8>)> {
     let mut data = vec![0u8; length];
     tcp.read_exact(&mut data)?;
     Ok((header, data))
-}
-
-/// How long a read waits for a message to begin before looking whether to stop.
-const HEADER_WAIT: Duration = Duration::from_secs(1);
-/// How long a read waits for the rest of a message that has begun.
-const DATA_WAIT: Duration = Duration::from_secs(10);
-
-/// One transfer from the phone of at most the given bytes (whole packets),
-/// waiting at most the given time: its bytes (none for a zero length
-/// packet), or None when nothing came in time.
-type ReadTransfer<'a> = dyn FnMut(usize, Duration) -> Result<Option<Vec<u8>>, String> + 'a;
-
-/// Reads one adb message from the phone as adb's own host side does: the 24
-/// byte header in one transfer, then the data in transfers of what is left
-/// of it rounded up to whole packets. A transfer then ends when the data
-/// does, whether the phone sends a zero length packet after it or not (a
-/// larger transfer would wait for more, and adb's flow control would stall).
-/// Zero length packets between messages are passed over. None when no
-/// message began within one wait.
-fn next_message(read: &mut ReadTransfer<'_>, packet: usize) -> Result<Option<Vec<u8>>, String> {
-    let header = loop {
-        match read(packet, HEADER_WAIT)? {
-            None => return Ok(None),
-            Some(bytes) if bytes.is_empty() => continue,
-            Some(bytes) => break bytes,
-        }
-    };
-    if header.len() != 24 {
-        return Err(format!("a message header of {} bytes", header.len()));
-    }
-    let length = u32::from_le_bytes([header[12], header[13], header[14], header[15]]) as usize;
-    if length > MAX_DATA {
-        return Err("a message larger than adb allows".to_string());
-    }
-    let mut message = header;
-    message.reserve(length);
-    while message.len() < 24 + length {
-        let rest = 24 + length - message.len();
-        match read(rest.div_ceil(packet) * packet, DATA_WAIT)? {
-            None => return Err("the phone stopped in the middle of a message".to_string()),
-            Some(chunk) if chunk.len() > rest => return Err("more data than the message's header says".to_string()),
-            Some(chunk) => message.extend_from_slice(&chunk),
-        }
-    }
-    Ok(Some(message))
 }
 
 impl Relay {
@@ -370,57 +326,5 @@ mod tests {
         assert_eq!(data, b"hello");
         assert_eq!(read_message(&mut tcp).unwrap_err().kind(), ErrorKind::InvalidData);
         sender.join().unwrap();
-    }
-
-    fn header(length: u32) -> Vec<u8> {
-        let mut h = vec![0u8; 24];
-        h[12..16].copy_from_slice(&length.to_le_bytes());
-        h
-    }
-
-    /// What the fake phone's transfers give, in order, and what was asked.
-    struct FakeIn {
-        transfers: std::collections::VecDeque<Option<Vec<u8>>>,
-        asked: Vec<usize>,
-    }
-
-    impl FakeIn {
-        fn new(transfers: Vec<Option<Vec<u8>>>) -> FakeIn {
-            FakeIn { transfers: transfers.into(), asked: Vec::new() }
-        }
-
-        fn message(&mut self) -> Result<Option<Vec<u8>>, String> {
-            let mut read = |want: usize, _wait: Duration| {
-                self.asked.push(want);
-                Ok(self.transfers.pop_front().unwrap_or(None))
-            };
-            next_message(&mut read, 512)
-        }
-    }
-
-    #[test]
-    fn a_message_from_the_phone_is_read_in_transfers_that_end_where_it_does() {
-        // 1024 bytes of data: exactly two packets of 512, with no zero length
-        // packet after them, read in a transfer of exactly 1024.
-        let mut phone = FakeIn::new(vec![Some(header(1024)), Some(vec![7u8; 1024])]);
-        assert_eq!(phone.message().unwrap().unwrap().len(), 24 + 1024);
-        assert_eq!(phone.asked, vec![512, 1024]);
-        // 700 bytes arriving as 512 and then 188, after a zero length packet:
-        // the next ask is for what is left, rounded up to a whole packet.
-        let mut phone = FakeIn::new(vec![Some(vec![]), Some(header(700)), Some(vec![1u8; 512]), Some(vec![2u8; 188])]);
-        assert_eq!(phone.message().unwrap().unwrap().len(), 724);
-        assert_eq!(phone.asked, vec![512, 512, 1024, 512]);
-        // A header alone.
-        let mut phone = FakeIn::new(vec![Some(header(0))]);
-        assert_eq!(phone.message().unwrap().unwrap(), header(0));
-    }
-
-    #[test]
-    fn nothing_yet_is_none_and_a_broken_message_stops_the_relay() {
-        assert_eq!(FakeIn::new(vec![None]).message().unwrap(), None);
-        assert!(FakeIn::new(vec![Some(vec![0u8; 30])]).message().unwrap_err().contains("header of 30 bytes"));
-        assert!(FakeIn::new(vec![Some(header(100)), None]).message().unwrap_err().contains("middle of a message"));
-        assert!(FakeIn::new(vec![Some(header(100)), Some(vec![0u8; 200])]).message().unwrap_err().contains("more data"));
-        assert!(FakeIn::new(vec![Some(header(MAX_DATA as u32 + 1))]).message().unwrap_err().contains("larger than adb allows"));
     }
 }

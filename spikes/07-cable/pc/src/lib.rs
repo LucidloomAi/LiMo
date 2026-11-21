@@ -2,11 +2,13 @@
 //! the USB cable by itself, and do the things that adding a phone needs?
 //! See README.md for what is asked, the run, and what each outcome means.
 //!
-//! One step a run (`steps.rs`), each by one of three routes (`cable.rs`):
+//! One step a run (`steps.rs`), each by one of four routes (`cable.rs`):
 //! adb_client inside this program over libusb (`route_libusb.rs`) or over
-//! nusb (`route_nusb.rs`), or Google's adb.exe (`route_adb.rs`). Everything
-//! the phone is asked is in `phone.rs`. Windows' lists of drivers are read
-//! in `win/`, the only unsafe code here.
+//! nusb (`route_nusb.rs`), Google's adb.exe (`route_adb.rs`), or this
+//! program's own adb (`protocol.rs`) over Windows' own WinUSB
+//! (`route_winusb.rs`). Everything the phone is asked is in `phone.rs`.
+//! Windows' lists of drivers, and WinUSB, are in `win/`, the only unsafe
+//! code here.
 
 pub mod apk;
 pub mod cable;
@@ -16,10 +18,12 @@ pub mod echo;
 pub mod key;
 pub mod phone;
 pub mod plan;
+pub mod protocol;
 pub mod route_adb;
 pub mod route_libusb;
 pub mod route_nusb;
 pub mod route_rust;
+pub mod route_winusb;
 pub mod secret;
 pub mod steps;
 pub mod ui;
@@ -29,7 +33,7 @@ pub mod win;
 use std::path::{Path, PathBuf};
 
 use crate::cable::{Cable, Connector, OpenProblem, Via};
-use crate::cli::{Args, Command};
+use crate::cli::{Args, Command, KeyChoice};
 use crate::key::Key;
 use crate::phone::masked_serial;
 use crate::plan::StepName;
@@ -53,6 +57,10 @@ impl Connector for RealConnector {
                 if via == Via::Libusb { route_libusb::open(&key.path, ui) } else { route_nusb::open(&key.path, ui) }
             }
             Via::Adb => route_adb::open(AdbExe::find(self.adb.as_deref()), ui),
+            Via::Winusb => {
+                let key = self.key.as_ref().ok_or_else(|| OpenProblem::Other("this program's adb key could not be made".to_string()))?;
+                route_winusb::open(key, ui)
+            }
         }
     }
 
@@ -75,6 +83,7 @@ impl Connector for RealConnector {
                     )
                 })
                 .collect()),
+            Via::Winusb => route_winusb::seen(),
             Via::Adb => {
                 let exe = AdbExe::find(self.adb.as_deref()).ok_or_else(|| OpenProblem::AdbMissing.to_string())?;
                 exe.start_server().map_err(|e| format!("adb start-server: {e}"))?;
@@ -171,8 +180,16 @@ pub fn run(args: &[String], ui: &mut dyn Ui) -> i32 {
         }
         Command::Step { step, via, apk } => (step, via, apk),
     };
-    let rust_route = matches!(via, Some(Via::Libusb | Via::Nusb));
-    let key = if rust_route && step.needs_a_route() {
+    let rust_route = matches!(via, Some(Via::Libusb | Via::Nusb | Via::Winusb));
+    let key = if args.key == KeyChoice::Adb {
+        match key::google_adb() {
+            Ok(key) => Some(key),
+            Err(why) => {
+                ui.say(&why);
+                return Exit::Refused.code();
+            }
+        }
+    } else if rust_route && step.needs_a_route() {
         match key::folder() {
             Some(folder) => match key::load_or_make(&folder) {
                 Ok(key) => Some(key),

@@ -15,6 +15,14 @@
 //! readable by the user and administrators as that folder is. Deleting the
 //! folder forgets it; the phone's "Revoke USB debugging authorisations"
 //! forgets it on the phone.
+//!
+//! **For this proof only**, the WinUSB route can instead use the adb key of
+//! this Windows account, Google's adb's own (`--key adb`), which a phone may
+//! have allowed long ago, so that a step runs with nobody at the phone
+//! ([`google_adb`]). That key is only read: never written, copied or moved,
+//! never printed, and its place never said beyond "the adb key of this
+//! Windows account". The real product makes its own key, and the guardian
+//! allows it once.
 
 #![forbid(unsafe_code)]
 
@@ -33,21 +41,100 @@ pub const FOLDER: &str = "LiMo-spike07-TEST-ONLY";
 pub const FILE: &str = "adbkey";
 /// How the folder is named on screen, never with this PC's own path.
 pub const SHOWN_AS: &str = "%LOCALAPPDATA%\\LiMo-spike07-TEST-ONLY\\adbkey";
+/// How Google's adb's key is named on screen: never its path.
+pub const GOOGLE_SHOWN_AS: &str = "the adb key of this Windows account";
 
 /// The size of adb's keys.
 const BITS: usize = 2048;
 /// The words of a 2048 bit modulus, as Android's public key format counts them.
 const WORDS: u32 = 64;
 
-/// The key this program uses.
-#[derive(Debug, Clone)]
+/// Whose key it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeySource {
+    /// This program's own, made once and kept.
+    Own,
+    /// Google's adb's own key of this Windows account, read only, for this
+    /// proof alone (`--key adb`).
+    GoogleAdb,
+}
+
+/// The key this program uses. Its `Debug` leaves out where the file is.
+#[derive(Clone)]
 pub struct Key {
-    /// Where its file is.
+    /// Where its file is: shown only for this program's own key, and then as
+    /// [`SHOWN_AS`], never as this PC's path.
     pub path: PathBuf,
     /// True when it was made in this run (the phone has never seen it).
     pub new: bool,
     /// Its fingerprint, as the phone shows it on "Allow USB debugging?".
     pub fingerprint: String,
+    /// Whose it is.
+    pub source: KeySource,
+}
+
+impl std::fmt::Debug for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Key({:?}, new {}, fingerprint {})", self.source, self.new, self.fingerprint)
+    }
+}
+
+impl Key {
+    /// The key itself, read from its file (read only).
+    pub fn load(&self) -> Result<RsaPrivateKey, String> {
+        match self.source {
+            KeySource::Own => private_key(&self.path),
+            KeySource::GoogleAdb => read_google_key(&self.path),
+        }
+    }
+
+    /// How it is named on screen.
+    pub fn shown_as(&self) -> &'static str {
+        match self.source {
+            KeySource::Own => SHOWN_AS,
+            KeySource::GoogleAdb => GOOGLE_SHOWN_AS,
+        }
+    }
+}
+
+/// Where Google's adb keeps the key of this Windows account: in the folder
+/// `ANDROID_USER_HOME` names, else in `.android` in the user's own folder.
+pub fn google_adb_key_path() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("ANDROID_USER_HOME").filter(|d| !d.is_empty()) {
+        return Some(PathBuf::from(dir).join(FILE));
+    }
+    let home = if cfg!(windows) { std::env::var_os("USERPROFILE") } else { std::env::var_os("HOME") };
+    home.map(|h| PathBuf::from(h).join(".android").join(FILE))
+}
+
+/// Reads Google's adb's key at `path`, read only: PKCS#8, as adb writes it,
+/// or PKCS#1. The text is wiped from memory once read.
+fn read_google_key(path: &Path) -> Result<RsaPrivateKey, String> {
+    use rsa::pkcs1::DecodeRsaPrivateKey;
+    let pem = zeroize::Zeroizing::new(std::fs::read_to_string(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            "This Windows account has no adb key (Google's adb makes one the first time it runs). Run this without --key adb."
+                .to_string()
+        } else {
+            format!("{GOOGLE_SHOWN_AS} cannot be read: {e}.")
+        }
+    })?);
+    RsaPrivateKey::from_pkcs8_pem(&pem)
+        .or_else(|_| RsaPrivateKey::from_pkcs1_pem(&pem))
+        .map_err(|_| format!("{GOOGLE_SHOWN_AS} cannot be read as a key."))
+}
+
+/// Google's adb's key of this Windows account, for this proof's
+/// `--key adb`: read only, its fingerprint as the phone shows it.
+pub fn google_adb() -> Result<Key, String> {
+    let path = google_adb_key_path().ok_or_else(|| format!("No folder is set for {GOOGLE_SHOWN_AS}."))?;
+    google_adb_at(path)
+}
+
+/// The same, from a given file: for the tests.
+pub fn google_adb_at(path: PathBuf) -> Result<Key, String> {
+    let key = read_google_key(&path)?;
+    Ok(Key { fingerprint: fingerprint(&key), path, new: false, source: KeySource::GoogleAdb })
 }
 
 /// The folder the key lives in, in the user's own folder.
@@ -68,7 +155,7 @@ pub fn load_or_make(dir: &Path) -> Result<Key, String> {
         Ok(pem) => {
             let key = RsaPrivateKey::from_pkcs8_pem(&pem)
                 .map_err(|_| format!("The key file ({SHOWN_AS}) cannot be read as a key. Delete that folder and run this again."))?;
-            Ok(Key { path, new: false, fingerprint: fingerprint(&key) })
+            Ok(Key { path, new: false, fingerprint: fingerprint(&key), source: KeySource::Own })
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             std::fs::create_dir_all(dir).map_err(|e| format!("The key's folder could not be made: {e}."))?;
@@ -80,7 +167,7 @@ pub fn load_or_make(dir: &Path) -> Result<Key, String> {
                 .open(&path)
                 .map_err(|e| format!("The key file could not be made: {e}."))?;
             file.write_all(pem.as_bytes()).map_err(|e| format!("The key file could not be written: {e}."))?;
-            Ok(Key { path, new: true, fingerprint: fingerprint(&key) })
+            Ok(Key { path, new: true, fingerprint: fingerprint(&key), source: KeySource::Own })
         }
         Err(e) => Err(format!("The key file ({SHOWN_AS}) cannot be read: {e}.")),
     }
@@ -118,6 +205,42 @@ fn padded_le(value: &BigUint, size: usize) -> Vec<u8> {
     bytes
 }
 
+/// The private key in the file at `path`, for the WinUSB route, which
+/// speaks adb itself.
+pub fn private_key(path: &Path) -> Result<RsaPrivateKey, String> {
+    let pem = std::fs::read_to_string(path).map_err(|e| format!("The key file ({SHOWN_AS}) cannot be read: {e}."))?;
+    RsaPrivateKey::from_pkcs8_pem(&pem)
+        .map_err(|_| format!("The key file ({SHOWN_AS}) cannot be read as a key. Delete that folder and run this again."))
+}
+
+/// The public key as adb hands it to the phone: Android's own format, in
+/// standard base64 with padding.
+pub fn public_key_base64(key: &RsaPrivateKey) -> String {
+    base64(&android_public_key(key.n(), key.e()))
+}
+
+/// The name this program gives its key on the phone (adb's own gives
+/// `user@host`; this names no person and no PC).
+pub const KEY_NAME: &str = "limo-cable-spike@limo";
+
+/// RFC 4648 base64, standard alphabet, with padding.
+pub fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 /// The fingerprint Android shows: the MD5 of the public key in its own
 /// format, as pairs of uppercase hex digits joined by colons (Android's
 /// `AdbDebuggingManager`).
@@ -151,6 +274,44 @@ mod tests {
         std::fs::write(dir.join(FILE), "not a key").unwrap();
         assert!(load_or_make(&dir).unwrap_err().contains("Delete that folder"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn googles_adb_key_is_read_only_in_either_format_and_never_shown_by_its_path() {
+        use rsa::pkcs1::EncodeRsaPrivateKey;
+        let dir = temp_dir("google");
+        std::fs::create_dir_all(&dir).unwrap();
+        let key = RsaPrivateKey::new(&mut OsRng, BITS).unwrap();
+        for (name, pem) in [
+            ("pkcs8", key.to_pkcs8_pem(LineEnding::LF).unwrap().to_string()),
+            ("pkcs1", key.to_pkcs1_pem(LineEnding::LF).unwrap().to_string()),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, &pem).unwrap();
+            let before = std::fs::metadata(&path).unwrap().modified().unwrap();
+            let found = google_adb_at(path.clone()).unwrap();
+            assert_eq!(found.source, KeySource::GoogleAdb);
+            assert_eq!(found.fingerprint, fingerprint(&key));
+            assert_eq!(found.load().unwrap(), key);
+            assert_eq!(found.shown_as(), "the adb key of this Windows account");
+            assert!(!format!("{found:?}").contains(name), "its Debug form leaves out the path");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), pem, "never written");
+            assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), before);
+        }
+        let missing = google_adb_at(dir.join("none")).unwrap_err();
+        assert!(missing.starts_with("This Windows account has no adb key"));
+        assert!(!missing.contains(&dir.display().to_string()), "the path is never said");
+        std::fs::write(dir.join("bad"), "not a key").unwrap();
+        assert!(google_adb_at(dir.join("bad")).unwrap_err().contains("cannot be read as a key"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_is_rfc_4648_with_padding() {
+        for (plain, coded) in [("", ""), ("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foob", "Zm9vYg=="), ("fooba", "Zm9vYmE="), ("foobar", "Zm9vYmFy")] {
+            assert_eq!(base64(plain.as_bytes()), coded);
+        }
+        assert_eq!(base64(&[0xfb, 0xff]), "+/8=");
     }
 
     #[test]

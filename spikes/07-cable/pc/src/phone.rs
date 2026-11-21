@@ -42,7 +42,8 @@ pub enum Ask {
     DoorStatus,
     /// The test app's screen.
     Start,
-    /// The test app's screen, asked to run its loopback client to this port.
+    /// The test app's screen, started afresh (stopped first if it runs),
+    /// asked to run its loopback client to this port.
     StartLoopback(u16),
     /// USB debugging switched off. The last thing asked: the link ends there.
     DebuggingOff,
@@ -60,7 +61,7 @@ impl Ask {
             Ask::DoorWrite => format!("content write --uri {DOOR_OFFER}"),
             Ask::DoorStatus => format!("content query --uri {DOOR_STATUS}"),
             Ask::Start => format!("am start -n {ACTIVITY}"),
-            Ask::StartLoopback(port) => format!("am start -n {ACTIVITY} --ei loopback_port {port}"),
+            Ask::StartLoopback(port) => format!("am start -S -n {ACTIVITY} --ei loopback_port {port}"),
             Ask::DebuggingOff => "settings put global adb_enabled 0".to_string(),
         }
     }
@@ -192,7 +193,7 @@ mod tests {
         assert_eq!(Ask::Start.command(), "am start -n ai.lucidloom.limo.spike07/.MainActivity");
         assert_eq!(
             Ask::StartLoopback(47810).command(),
-            "am start -n ai.lucidloom.limo.spike07/.MainActivity --ei loopback_port 47810"
+            "am start -S -n ai.lucidloom.limo.spike07/.MainActivity --ei loopback_port 47810"
         );
         assert_eq!(Ask::DebuggingOff.command(), "settings put global adb_enabled 0");
         assert_eq!(Ask::every().iter().filter(|a| a.changes_a_setting()).count(), 1);

@@ -25,6 +25,16 @@ pub enum Command {
     },
 }
 
+/// Which key the WinUSB route connects with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyChoice {
+    /// This program's own, which makes the phone ask (the default).
+    Own,
+    /// The adb key of this Windows account, Google's adb's own, read only:
+    /// a phone that allowed it before asks nothing. For this proof only.
+    Adb,
+}
+
 /// The command line, read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Args {
@@ -34,6 +44,8 @@ pub struct Args {
     pub adb: Option<PathBuf>,
     /// Print what adb_client and nusb log.
     pub verbose: bool,
+    /// Which key the WinUSB route connects with.
+    pub key: KeyChoice,
 }
 
 /// Reads the command line (without the program's own name).
@@ -44,15 +56,23 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
     let mut apk = None;
     let mut adb = None;
     let mut verbose = false;
+    let mut key = None;
     while let Some(word) = words.next() {
         match word.as_str() {
             "--via" => {
-                let value = words.next().ok_or("--via needs a route: libusb, nusb or adb.")?;
-                via = Some(Via::from_word(value).ok_or_else(|| format!("--via {value}: the routes are libusb, nusb and adb."))?);
+                let value = words.next().ok_or("--via needs a route: winusb, libusb, nusb or adb.")?;
+                via = Some(Via::from_word(value).ok_or_else(|| format!("--via {value}: the routes are winusb, libusb, nusb and adb."))?);
             }
             "--apk" => apk = Some(PathBuf::from(words.next().ok_or("--apk needs a path.")?)),
             "--adb" => adb = Some(PathBuf::from(words.next().ok_or("--adb needs the path of adb.exe.")?)),
             "--verbose" => verbose = true,
+            "--key" => {
+                key = Some(match words.next().map(String::as_str) {
+                    Some("own") => KeyChoice::Own,
+                    Some("adb") => KeyChoice::Adb,
+                    _ => return Err("--key takes own (this program's own key, the default) or adb (the adb key of this Windows account).".to_string()),
+                })
+            }
             other => return Err(format!("{other}: not understood. Run limo-cable-spike help.")),
         }
     }
@@ -62,7 +82,7 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
         word => {
             let step = StepName::from_word(word).ok_or_else(|| format!("{word}: no such step. Run limo-cable-spike help."))?;
             if step.needs_a_route() && via.is_none() {
-                return Err(format!("{word} needs a route: --via libusb, --via nusb or --via adb."));
+                return Err(format!("{word} needs a route: --via winusb, --via libusb, --via nusb or --via adb."));
             }
             if step == StepName::Drivers && via.is_some() {
                 return Err("drivers reads Windows' lists only, and takes no route.".to_string());
@@ -76,7 +96,10 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
     if adb.is_some() && !matches!(command, Command::Step { via: Some(Via::Adb), .. }) {
         return Err("--adb is for --via adb only.".to_string());
     }
-    Ok(Args { command, adb, verbose })
+    if key.is_some() && !matches!(command, Command::Step { via: Some(Via::Winusb), step, .. } if step.needs_a_route()) {
+        return Err("--key is for the steps that reach the phone by --via winusb only.".to_string());
+    }
+    Ok(Args { command, adb, verbose, key: key.unwrap_or(KeyChoice::Own) })
 }
 
 #[cfg(test)]
@@ -101,6 +124,9 @@ mod tests {
         assert_eq!(install.command, Command::Step { step: StepName::Install, via: Some(Via::Adb), apk: Some(PathBuf::from("x.apk")) });
         assert!(install.verbose);
         assert_eq!(install.adb, Some(PathBuf::from("C:/tools/adb.exe")));
+        assert_eq!(install.key, KeyChoice::Own, "this program's own key unless told");
+        assert_eq!(args("connect --via winusb --key adb").unwrap().key, KeyChoice::Adb);
+        assert_eq!(args("reverse --via winusb --key own").unwrap().key, KeyChoice::Own);
         for step in StepName::every() {
             let line = if step.needs_a_route() { format!("{} --via libusb", step.word()) } else { step.word().to_string() };
             assert!(args(&line).is_ok(), "{line}");
@@ -118,5 +144,9 @@ mod tests {
         assert!(args("connect --via libusb --adb adb.exe").unwrap_err().contains("--via adb only"));
         assert!(args("reboot --via adb").unwrap_err().contains("no such step"));
         assert!(args("connect --via adb --force").unwrap_err().contains("not understood"));
+        assert!(args("connect --via libusb --key adb").unwrap_err().contains("--via winusb only"));
+        assert!(args("list --via winusb --key adb").unwrap_err().contains("--via winusb only"));
+        assert!(args("connect --via winusb --key google").unwrap_err().contains("takes own"));
+        assert!(args("connect --via winusb --key").unwrap_err().contains("takes own"));
     }
 }

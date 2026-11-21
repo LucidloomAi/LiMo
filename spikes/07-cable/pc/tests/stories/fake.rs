@@ -2,10 +2,11 @@
 //! send, as the test app and Android would, records every one, and fails
 //! the test on any other. Its loopback client is real: on `am start` with a
 //! loopback port it connects to that port on this PC's own loopback, as the
-//! reverse would carry it, sends 256 KiB and checks they come back.
+//! reverse would carry it, sends 256 KiB, reads them all back and only then
+//! closes (adb's streams have no half close), as the test app does.
 
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, Shutdown, TcpStream};
+use std::net::{Ipv4Addr, TcpStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -141,12 +142,12 @@ fn loopback_run(fake: Fake, port: u16) {
         let to_send = sent.clone();
         let sender = std::thread::spawn(move || {
             let _ = writer.write_all(&to_send);
-            let _ = writer.shutdown(Shutdown::Write);
         });
-        let mut back = Vec::new();
+        let mut back = vec![0u8; LOOPBACK_BYTES];
         let mut reader = stream;
-        reader.read_to_end(&mut back)?;
+        reader.read_exact(&mut back)?;
         let _ = sender.join();
+        drop(reader);
         if back == sent { Ok(back.len() as u64) } else { Err(std::io::Error::other("mismatch")) }
     })();
     let mut state = fake.state();
