@@ -52,7 +52,15 @@ import {
   type TodayView,
 } from './childSeam';
 import { appForm, type Form } from './form';
-import { type DoorOutcome, type GuardianHost, readDoorAnswer, readDoorProblem } from './guardianSeam';
+import {
+  type DoorName,
+  type DoorOutcome,
+  type GuardianDoor,
+  type GuardianHost,
+  makeGuardianHost,
+  readDoorAnswer,
+  readDoorProblem,
+} from './guardianSeam';
 
 export type * from './childSeam';
 export { isSamsung, STEP_IDS } from './childSeam';
@@ -89,11 +97,12 @@ export type Requests = {
   'child.rules': { args: None; answer: RulesView }; // readRules
   'child.maker': { args: None; answer: string }; // readMaker
   'child.askForMoreTime': { args: None; answer: null };
-  // The guardian's requests: what guardianHost below asks of the console's
-  // Rust side, which asks the door. Each answer is checked by
-  // readDoorAnswer (src/guardianSeam.ts).
-  'guardian.about': { args: None; answer: DoorOutcome };
-  'guardian.signIn': { args: { password: string }; answer: DoorOutcome };
+  // The guardian's requests: any request of the door, by the door's own name
+  // and with its own arguments (src/guardianSeam.ts, DoorRequests), which the
+  // console's Rust side forwards as it is. Each reply is checked by
+  // readDoorAnswer, and each answer by its request's reader in
+  // src/guardianSeam.ts.
+  'guardian.door': { args: { name: DoorName; args: Record<string, unknown> }; answer: DoorOutcome };
   // The console's one way out: LucidLoom AI's page in the PC's own browser,
   // at an address the console fixes; it takes nothing.
   'console.moreInfo': { args: None; answer: unknown };
@@ -108,13 +117,21 @@ export type SelfCheckArgs =
   | { action: 'report'; key: string; text: string }
   | { action: 'use'; door: string };
 
-/** The console's Rust side, by the name it calls each request. */
+/** The console's Rust side, by the name it calls each request. A guardian's request goes by the door's own name. */
 const CONSOLE_WIRE: Partial<Record<RequestName, string>> = {
-  'guardian.about': 'about',
-  'guardian.signIn': 'sign_in',
   'console.moreInfo': 'more_info',
   'console.selfCheck': 'self_check',
 };
+
+/** The name and arguments a request goes to the console's Rust side with. */
+function consoleWire<N extends RequestName>(name: N, args: Requests[N]['args']): { wire: string; args: Record<string, unknown> } | null {
+  if (name === 'guardian.door') {
+    const door = args as Requests['guardian.door']['args'];
+    return { wire: door.name, args: door.args };
+  }
+  const wire = CONSOLE_WIRE[name];
+  return wire ? { wire, args: args as Record<string, unknown> } : null;
+}
 
 type TauriInternals = { invoke(command: string, args: Record<string, unknown>): Promise<unknown> };
 
@@ -189,8 +206,7 @@ const READ: { [N in RequestName]: (answer: unknown) => Requests[N]['answer'] } =
   'child.rules': readRules,
   'child.maker': readMaker,
   'child.askForMoreTime': () => null,
-  'guardian.about': readDoorAnswer,
-  'guardian.signIn': readDoorAnswer,
+  'guardian.door': readDoorAnswer,
   'console.moreInfo': (a) => a,
   'console.selfCheck': (a) => a,
 };
@@ -199,12 +215,12 @@ const READ: { [N in RequestName]: (answer: unknown) => Requests[N]['answer'] } =
 // by its name there. The door's answers are read as every answer is; a
 // door that could not be asked comes back as the console's own words.
 async function askConsole<N extends RequestName>(name: N, args: Requests[N]['args']): Promise<Requests[N]['answer']> {
-  const wire = CONSOLE_WIRE[name];
+  const sent = consoleWire(name, args);
   const bridge = tauri();
-  if (!wire || !bridge) return answerHere(name, 'console');
+  if (!sent || !bridge) return answerHere(name, 'console');
   let answer: unknown;
   try {
-    answer = await bridge.invoke('request', { name: wire, args: args as Record<string, unknown> });
+    answer = await bridge.invoke('request', { name: sent.wire, args: sent.args });
   } catch (e) {
     const problem = readDoorProblem(e);
     if (problem && name.startsWith('guardian.')) return problem as Requests[N]['answer'];
@@ -306,16 +322,14 @@ export const childHost: ChildHost = {
 /** Where nothing answers the guardian's requests yet (the guardian form on a phone, for now). */
 const NOT_HERE = 'LiMo’s settings open in the console on the family’s PC. This app cannot open them yet.';
 
-async function askGuardian<N extends 'guardian.about' | 'guardian.signIn'>(name: N, args: Requests[N]['args']): Promise<DoorOutcome> {
+async function askGuardian(name: DoorName, args: Record<string, unknown>): Promise<DoorOutcome> {
   try {
-    return await request(name, args);
+    return await request('guardian.door', { name, args });
   } catch (e) {
     if (e instanceof HostError && e.code === 'NotBuiltYet') return { kind: 'problem', code: 'not_here', words: NOT_HERE };
     return { kind: 'problem', code: 'failed', words: e instanceof Error ? e.message : String(e) };
   }
 }
 
-export const guardianHost: GuardianHost = {
-  about: () => askGuardian('guardian.about', none),
-  signIn: (password) => askGuardian('guardian.signIn', { password }),
-};
+/** The sign in's two questions and every other request of the door, each by the door's own name. */
+export const guardianHost: GuardianHost & GuardianDoor = makeGuardianHost(askGuardian);

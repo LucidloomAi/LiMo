@@ -8,19 +8,28 @@
 // Then long names and large text.
 //
 // With "#one=<id>&size=390" (or 360) in the address it draws one phone and
-// nothing else, for pictures; "&scale=1.3" sets the text scale.
+// nothing else, for pictures; "&scale=1.3" sets the text scale. The
+// guardian's screens likewise with "#guardian=<id>&size=1100" (the console's
+// window) or "&size=390" (a guardian's phone).
 
 import { type ReactNode, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { ChildApp } from '../child/ChildApp';
 import { ChildHostProvider } from '../child/HostContext';
+import { ClockContext } from '../guardian/clock';
+import { GuardianApp } from '../guardian/GuardianApp';
+import { PlaceContext } from '../guardian/parts';
+import { timeOfDay } from '../guardian/time';
 import { mockHost } from '../mock/childMock';
+import { guardianMock, NOW, PC_CLOCK } from '../mock/guardianMock';
 import { color, tokens } from '../theme';
 import FONTS from '../theme/fonts.json';
-import { Txt, type } from '../ui/paper/text';
+import { TextScale, Txt, type } from '../ui/paper/text';
 import { findFrame, type Frame, FRAMES, STRESS } from './frames';
+import { findGuardianFrame, GUARDIAN_FRAMES, type GuardianFrame } from './guardianFrames';
 import { PhoneFrame, type Size, SIZES } from './PhoneFrame';
+import { WindowFrame } from './WindowFrame';
 
 // The theme's fonts, from copies scripts/preview.mjs puts beside the page.
 // A browser sets Fraunces' optical size to the font size by itself.
@@ -77,16 +86,48 @@ function Section({ title, lead, children }: { title: string; lead: string; child
   );
 }
 
-function readHash(): { one?: string; size: Size; scale: number } {
+/** A guardian screen, live, on its own made up family, at a fixed afternoon on the PC's clock. */
+function GuardianLive({ frame, pc }: { frame: GuardianFrame; pc: boolean }) {
+  const [door] = useState(() => guardianMock(frame.state()));
+  return (
+    <ClockContext.Provider value={FIXED_CLOCK}>
+      <PlaceContext.Provider value={pc ? 'pc' : 'phone'}>
+        <GuardianApp door={door} initial={frame.route} />
+      </PlaceContext.Provider>
+    </ClockContext.Provider>
+  );
+}
+const FIXED_CLOCK = { now: () => NOW, clock: PC_CLOCK };
+
+/** A guardian frame in the console's window (1100) or on a guardian's phone (390). */
+function GuardianShot({ frame, pc, textScale }: { frame: GuardianFrame; pc: boolean; textScale?: number }) {
+  const live = <GuardianLive frame={frame} pc={pc} />;
+  if (pc) return <TextScale.Provider value={textScale ?? 1}><WindowFrame>{live}</WindowFrame></TextScale.Provider>;
+  return (
+    <PhoneFrame size={SIZES[390]} textScale={textScale} time={timeOfDay(NOW, PC_CLOCK).replace(/ [ap]m$/, '')}>
+      {live}
+    </PhoneFrame>
+  );
+}
+
+function readHash(): { one?: string; guardian?: string; pc: boolean; size: Size; scale: number } {
   const hash = typeof window === 'undefined' ? '' : window.location.hash.slice(1);
   const q = new URLSearchParams(hash);
   const size = q.get('size') === '360' ? SIZES[360] : SIZES[390];
   const scale = Number(q.get('scale') ?? '1');
-  return { one: q.get('one') ?? undefined, size, scale: Number.isFinite(scale) && scale > 0 ? scale : 1 };
+  return {
+    one: q.get('one') ?? undefined,
+    guardian: q.get('guardian') ?? undefined,
+    pc: q.get('size') === '1100',
+    size,
+    scale: Number.isFinite(scale) && scale > 0 ? scale : 1,
+  };
 }
 
 export function Gallery() {
-  const [{ one, size, scale }] = useState(readHash);
+  const [{ one, guardian, pc, size, scale }] = useState(readHash);
+  const guardianFrame = guardian ? findGuardianFrame(guardian) : undefined;
+  if (guardianFrame) return <GuardianShot frame={guardianFrame} pc={pc} textScale={scale} />;
   const single = one ? findFrame(one) : undefined;
   if (single) {
     return (
@@ -113,6 +154,23 @@ export function Gallery() {
           <Shot key={f.id} frame={f} size={SIZES[360]} />
         ))}
       </Section>
+      <Section
+        title="The guardian’s screens"
+        lead="Sign in, the first start and Today, from the guardian’s own made up family: in the console’s window at 1100 by 760, and at 390 by 844 as on a guardian’s phone. Open design/screens/console.html beside it to compare."
+      >
+        {GUARDIAN_FRAMES.map((f) => (
+          <View key={f.id} style={styles.shot}>
+            <View style={styles.cap}>
+              <Txt style={[type.label, styles.capTitle]}>{f.title}</Txt>
+              <Txt style={type.label}>1100 by 760 · 390 by 844</Txt>
+            </View>
+            <View style={styles.pair}>
+              <GuardianShot frame={f} pc />
+              <GuardianShot frame={f} pc={false} />
+            </View>
+          </View>
+        ))}
+      </Section>
       <Section title="Long names, large text" lead="A long child’s name and long app names, with text at 1.3 and at 2 times its size.">
         {STRESS.map((f) => (
           <Shot key={`${f.id} 1.3`} frame={f} size={SIZES[360]} textScale={1.3} />
@@ -134,5 +192,6 @@ const styles = StyleSheet.create({
   shots: { marginTop: 18, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', columnGap: 32, rowGap: 36 },
   shot: { flexShrink: 0 },
   cap: { minHeight: 44, marginBottom: 10, gap: 6, maxWidth: 393 },
+  pair: { flexDirection: 'row', alignItems: 'flex-start', gap: 32 },
   capTitle: { color: color.ink },
 });

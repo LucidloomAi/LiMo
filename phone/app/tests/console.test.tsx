@@ -11,10 +11,12 @@ import { StyleSheet } from 'react-native';
 
 import { SeamError } from '../src/childSeam';
 import { isBrowserKey, type KeyPress } from '../src/console/pageGuard';
+import { ClockContext } from '../src/guardian/clock';
 import { SignIn } from '../src/guardian/SignIn';
 import * as W from '../src/guardian/words';
 import { type DoorOutcome, type GuardianHost, readDoorAnswer, readDoorProblem } from '../src/guardianSeam';
 import { guardianHost, host } from '../src/host';
+import { NOW, PC_CLOCK } from '../src/mock/guardianMock';
 import { inPhone, textsInOrder } from './render';
 
 /** A door that answers about with `about`, and each sign in with the next of `answers`. */
@@ -35,7 +37,13 @@ const WRONG = 'That password is not right. 4 more tries before a wait.';
 const ASHA = 'LiMo’s settings cannot be opened from Asha’s account. A guardian opens them from their own.';
 
 function renderSignIn(host: GuardianHost) {
-  return render(inPhone(<SignIn host={host} />));
+  return render(
+    inPhone(
+      <ClockContext.Provider value={{ now: () => NOW, clock: PC_CLOCK }}>
+        <SignIn host={host} />
+      </ClockContext.Provider>,
+    ),
+  );
 }
 
 async function typeAndOpen(words: string) {
@@ -47,7 +55,7 @@ async function typeAndOpen(words: string) {
 }
 
 describe('the sign in (G0)', () => {
-  it('asks the door first, then shows one password field, the button, and the maker’s mark last', async () => {
+  it('asks the door first, then shows one password field, the button, and what to do about a forgotten password last', async () => {
     renderSignIn(door(OPEN));
     expect(await screen.findByText(W.signIn.heading)).toBeOnTheScreen();
     expect(screen.getByLabelText(W.signIn.field)).toBeOnTheScreen();
@@ -55,11 +63,12 @@ describe('the sign in (G0)', () => {
     expect(screen.getByText(W.signIn.forgotten)).toBeOnTheScreen();
     const texts = textsInOrder();
     expect(texts.indexOf('LiMo')).toBeLessThan(texts.indexOf(W.signIn.heading));
-    expect(texts[texts.length - 1]).toBe('LucidLoom AI');
+    // As drawn (C0), the sign in has no maker's mark: it is said once, at the end of the first start.
+    expect(texts[texts.length - 1]).toBe(W.signIn.forgotten);
   });
 
   it('shows the door’s own words for a wrong password, and empties the field', async () => {
-    const d = door(OPEN, [{ kind: 'wrong', triesBeforeWait: 4, words: WRONG }]);
+    const d = door(OPEN, [{ kind: 'wrong', triesBeforeWait: 4, waitUntil: null, words: WRONG }]);
     renderSignIn(d);
     await typeAndOpen('not it');
     expect(await screen.findByText(WRONG)).toBeOnTheScreen();
@@ -67,11 +76,11 @@ describe('the sign in (G0)', () => {
     expect(screen.getByTestId('password').props.value).toBe('');
   });
 
-  it('shows a wait, and a door that is busy, in the door’s words, and keeps the field', async () => {
-    renderSignIn(door(OPEN, [{ kind: 'wait', until: 1_800_000_000, words: 'Too many wrong tries. Try again at 18:42.' }]));
+  it('shows a wait at its time on the PC’s clock, a door that is busy in the door’s words, and keeps the field', async () => {
+    renderSignIn(door(OPEN, [{ kind: 'wait', until: NOW + 5 * 60, words: 'Too many wrong tries. Wait before trying again.' }]));
     await typeAndOpen('no');
-    expect(await screen.findByText('Too many wrong tries. Try again at 18:42.')).toBeOnTheScreen();
-    renderSignIn(door(OPEN, [{ kind: 'not-done', reason: 'busy', words: 'One thing at a time: try again in a moment.' }]));
+    expect(await screen.findByText('Too many wrong tries. Try again at 6:17 pm.')).toBeOnTheScreen();
+    renderSignIn(door(OPEN, [{ kind: 'not-done', reason: 'busy', words: 'One thing at a time: try again in a moment.', ruleProblems: [] }]));
     await typeAndOpen('no');
     expect(await screen.findByText('One thing at a time: try again in a moment.')).toBeOnTheScreen();
     expect(screen.getByTestId('password')).toBeOnTheScreen();
@@ -80,8 +89,8 @@ describe('the sign in (G0)', () => {
   it('opens on the right password', async () => {
     renderSignIn(door(OPEN, [{ kind: 'done', value: {} }]));
     await typeAndOpen('Mira’s long sentence');
+    // With nothing to go on to (the guardian's flow passes onSignedIn), the field goes.
     expect(await screen.findByTestId('signed-in')).toBeOnTheScreen();
-    expect(screen.getByText(W.signedIn.heading)).toBeOnTheScreen();
     expect(screen.queryByTestId('password')).toBeNull();
   });
 
@@ -119,10 +128,10 @@ describe('the sign in (G0)', () => {
     expect(screen.getByTestId('password')).toBeOnTheScreen();
   });
 
-  it('keeps three lines of room under the field, so a message moves nothing', async () => {
+  it('keeps two lines of room under the field, as the drawing does, so a message moves nothing', async () => {
     renderSignIn(door(OPEN));
     const room = await screen.findByTestId('message-room');
-    expect(StyleSheet.flatten(room.props.style)).toEqual(expect.objectContaining({ minHeight: 60 }));
+    expect(StyleSheet.flatten(room.props.style)).toEqual(expect.objectContaining({ minHeight: 40 }));
   });
 });
 
@@ -133,6 +142,7 @@ describe('the door’s replies', () => {
     expect(readDoorAnswer({ outcome: 'problem', problem: { kind: 'wrong_password', message: WRONG, tries_before_wait: 4 } })).toEqual({
       kind: 'wrong',
       triesBeforeWait: 4,
+      waitUntil: null,
       words: WRONG,
     });
     expect(readDoorAnswer({ outcome: 'problem', problem: { kind: 'must_wait', message: 'Wait.', wait_until: 1_800_000_000 } })).toEqual({
@@ -144,6 +154,7 @@ describe('the door’s replies', () => {
       kind: 'not-done',
       reason: 'signed_out',
       words: 'Sign in.',
+      ruleProblems: [],
     });
     expect(readDoorAnswer({ outcome: 'refused', message: ASHA })).toEqual({ kind: 'refused', words: ASHA });
   });
@@ -205,6 +216,28 @@ describe('the console in the host seam', () => {
     ]);
   });
 
+  it('sends every other request of the guardian’s screens by the door’s own name, with its own arguments', async () => {
+    const calls: { command: string; args: Record<string, unknown> }[] = [];
+    (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args: Record<string, unknown>) => {
+        calls.push({ command, args });
+        if (args.name === 'family_today') return { outcome: 'done', value: [] };
+        return { outcome: 'problem', problem: { kind: 'signed_out', message: 'Signed out. Type the guardian password to go on.' } };
+      },
+    };
+    expect(await guardianHost.ask('family_today', {})).toEqual({ kind: 'done', value: [] });
+    expect(await guardianHost.ask('lock_now', { child: 'child-1' })).toEqual({
+      kind: 'not-done',
+      reason: 'signed_out',
+      words: 'Signed out. Type the guardian password to go on.',
+      ruleProblems: [],
+    });
+    expect(calls).toEqual([
+      { command: 'request', args: { name: 'family_today', args: {} } },
+      { command: 'request', args: { name: 'lock_now', args: { child: 'child-1' } } },
+    ]);
+  });
+
   it('turns a reply it cannot read into words, never a sign in', async () => {
     (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke: async () => ({ answer: 'signed_in_maybe' }) };
     const outcome = await guardianHost.signIn('pw');
@@ -258,7 +291,9 @@ describe('the console’s entry', () => {
       }
     }
     const rel = [...seen].map((f) => path.relative(appDir, f).replaceAll('\\', '/'));
-    expect(rel).toEqual(expect.arrayContaining(['src/console/ConsoleApp.tsx', 'src/guardian/SignIn.tsx', 'src/host.ts']));
+    expect(rel).toEqual(
+      expect.arrayContaining(['src/console/ConsoleApp.tsx', 'src/guardian/GuardianApp.tsx', 'src/guardian/SignIn.tsx', 'src/guardian/FirstStart.tsx', 'src/guardian/Today.tsx', 'src/host.ts']),
+    );
     expect(rel.filter((f) => /^(src\/mock\/|src\/preview\/|tests\/|src\/child\/(ChildApp|SetupScreens|AppScreens))/.test(f))).toEqual([]);
   });
 });

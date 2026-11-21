@@ -1,14 +1,17 @@
 // The guardian console's page: what the console's Tauri window shows on the
-// PC (../../console). For now its one screen, the sign in (G0).
+// PC (../../console): the guardian's screens (src/guardian), the sign in,
+// the first start and Today, at the window's own width.
 //
 // The page holds no state of its own and keeps nothing in the browser's
 // storage: every answer comes from LiMo's service through the console's
-// Rust side (src/host.ts, place "console").
+// Rust side (src/host.ts, place "console"), each request by the door's own
+// name.
 
 import { useEffect, useState } from 'react';
 import { SafeAreaFrameContext, SafeAreaInsetsContext } from 'react-native-safe-area-context';
 
-import { SignIn } from '../guardian/SignIn';
+import { GuardianApp } from '../guardian/GuardianApp';
+import { PlaceContext } from '../guardian/parts';
 import { guardianHost } from '../host';
 import { guardThePage } from './pageGuard';
 import { startSelfCheckIfAsked } from './selfCheck';
@@ -35,7 +38,10 @@ export function ConsoleApp() {
   return (
     <SafeAreaFrameContext.Provider value={frame}>
       <SafeAreaInsetsContext.Provider value={NO_INSETS}>
-        <SignIn host={guardianHost} />
+        {/* The console's window on the family's PC, which Windows draws. */}
+        <PlaceContext.Provider value="pc">
+          <GuardianApp door={guardianHost} />
+        </PlaceContext.Provider>
       </SafeAreaInsetsContext.Provider>
     </SafeAreaFrameContext.Provider>
   );

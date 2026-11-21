@@ -20,7 +20,7 @@ export const SIZES = {
 const STATUS = 32;
 const GESTURE = 24;
 
-export function PhoneFrame({ size, textScale = 1, children }: { size: Size; textScale?: number; children: ReactNode }) {
+export function PhoneFrame({ size, textScale = 1, time = '9:42', children }: { size: Size; textScale?: number; time?: string; children: ReactNode }) {
   const frame = { x: 0, y: 0, width: size.width, height: size.height };
   const insets = { top: STATUS, bottom: GESTURE, left: 0, right: 0 };
   // The screen gets exactly its size, inside the outline, as the design's
@@ -41,7 +41,7 @@ export function PhoneFrame({ size, textScale = 1, children }: { size: Size; text
           </SafeAreaInsetsContext.Provider>
         </SafeAreaFrameContext.Provider>
         <View style={styles.status} pointerEvents="none">
-          <Txt style={type.status}>9:42</Txt>
+          <Txt style={type.status}>{time}</Txt>
         </View>
         <View style={styles.gesture} pointerEvents="none">
           <View style={styles.pill} />
