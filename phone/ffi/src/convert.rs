@@ -109,6 +109,7 @@ pub(crate) fn facts_in(facts: PhoneFacts) -> Result<engine::PhoneFacts, EngineEr
             protection: facts.permissions.protection,
         },
         guarded: facts.guarded.map(guarded_in),
+        usb_debugging: facts.usb_debugging,
     })
 }
 
@@ -528,6 +529,7 @@ mod tests {
                 protection: true,
             },
             guarded: Some(GuardedPage::DeviceAdmin),
+            usb_debugging: Some(true),
         }
     }
 
@@ -562,6 +564,7 @@ mod tests {
                     protection: true,
                 },
                 guarded: Some(engine::GuardedPage::DeviceAdmin),
+                usb_debugging: Some(true),
             }
         );
         // Each guarded page crosses to its own, and none to none.

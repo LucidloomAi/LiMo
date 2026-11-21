@@ -145,6 +145,7 @@ Rules for callers:
 | `prodded` | The master asked for a report since the last call. |
 | `permissions` | The six things LiMo needs, in the order setup asks for them: `notifications`, `phone` (Android's Phone permission, only to know that a call rings or is on), `usage_access`, `accessibility` (the service on), `battery` (left out of battery optimisation), `protection` (its device admin). Each is true only when Android says so. See rule 10. |
 | `guarded` | A page in front that could switch LiMo off or remove it, as the host recognised it: `device_admin` (Android's page for LiMo's device admin) or `accessibility` (Android's accessibility settings); none for every other screen. See rule 12. |
+| `usb_debugging` | `Settings.Global.ADB_ENABLED` is 1: USB debugging is on, and any PC with a cable could stop LiMo. Told to the master, and of every change (rule 10). None when the host does not read it: then nothing is told of it. |
 
 **The engine holds no list of makers' package names.** Which app is the home
 screen, the dialler or the emergency dialler differs from maker to maker, so
@@ -284,12 +285,13 @@ are not use of an app. What reaches the master is what the core's slices
 hold: the app's package name, the day, the start and the end, and whether it
 counted. Each app's use today, kept for the child's own Today screen, is a
 package name and seconds, and stays on the phone. The notes hold no
-sentence and no name: a permission switched off is noted by which it is,
-and setup finished by when. The notes that reach the master are the kinds
-the core lists (`limo_core::PhoneNote`: setup finished, a permission off, a
-guarded page opened, the guard opened, a restart, the clock moved), with
-their times; a blocked app opened, the one note that names an app, a time
-zone changed and LiMo not watching stay on the phone.
+sentence and no name: a permission switched on or off is noted by which it
+is, and setup finished by when. The notes that reach the master are the
+kinds the core lists (`limo_core::PhoneNote`: setup finished, a permission
+on or off, the protection level, USB debugging, a guarded page opened, the
+guard opened, a restart, the clock moved), with their times; a blocked app
+opened, the one note that names an app, a time zone changed and LiMo not
+watching stay on the phone.
 Tests: `kept::an_apps_label_is_shown_but_never_kept_nor_reported`,
 `today::today_says_the_time_left_the_time_used_and_each_apps_minutes_and_starts_again_the_next_day`.
 
@@ -396,11 +398,36 @@ gave (the PC's engine exchanges before it decides, to the same end). Tests:
 **9. Restarts.** See [What is kept, and when](#what-is-kept-and-when). Tests:
 every test in `restart` and `kept`.
 
-**10. Permissions switched off.** The lead's rule, with the owner's
-decision of 20 Nov 2026 to ask for the Phone permission. Each of the six
-that goes from on to off is noted for the guardian
-(`PhoneNote::PermissionOff`, by which it is), and while any is off Today
-says a guardian is needed, with one sentence for each. **Nothing else
+**10. How the phone stands, and permissions switched off.** The lead's
+rule, with the owner's decision of 20 Nov 2026 to ask for the Phone
+permission, and the lead's of 21 Nov 2026 that the guardian's Devices
+screen and Add a phone show each step as the phone has it. **The master is
+told how each of the six stands, and of every change**: the kept state
+holds what the master was told of each, and at every call one that is on
+and was not told as on is told (`PhoneNote::PermissionOn`), and one that is
+off and was told as on is told (`PhoneNote::PermissionOff`), in the order
+setup asks for them. One never told and off is not told: a phone just
+paired tells nothing of its steps until the guardian does the first, then
+each as it is done, and one passed over at setup's end is told when it is
+first on. This goes on during setup too (rule 11). With them, the
+**protection level** (`PhoneNote::Protection`): `base` while LiMo's device
+admin is on and its guard can cover the pages that could switch it off
+(setup finished, and the accessibility service on, which draws the guard),
+`off` otherwise, told at the first call and at every change; `strict`, LiMo
+as the device owner, is not built and never told. And **USB debugging**
+(`PhoneNote::UsbDebugging`), told at the first call the host says it and at
+every change. A restart tells nothing again, since what was told is kept;
+a phone set up before any of this was told tells all of it once, at its
+first call. **However often something changes, the notes stay few**: a
+note of how the phone stands takes the place of an older one still
+waiting that says the same of the same thing, so at most one waits for
+each thing and each value it can have (seventeen in all): a permission
+switched on and off a thousand times leaves two, the last time it was off
+and the last time it was on, the newest last, and never takes the room of
+the other notes, while the guardian still hears it was switched off. The
+newest wins on the master. While any permission is off Today says a
+guardian is needed, with one sentence for each, from what the last call
+saw, never from the notes. **Nothing else
 changes in what the engine counts or covers, for any of the six:** the
 engine takes the app in front, the call and the screen from the other
 facts, as before. What changes is what the host can know and do. Without
@@ -412,7 +439,8 @@ less about calls (a call that rings with the ringer silenced may read as no
 call); without the battery exemption Android may stop LiMo; without
 protection LiMo can be removed. Tests:
 `today::a_guardian_is_needed_while_anything_is_switched_off_and_nothing_counted_or_covered_changes`,
-`clock::a_permission_switched_off_is_noted`.
+`clock::a_permission_switched_off_is_noted`, every test in `standing`, and
+`kept::notes_of_how_the_phone_stands_wait_once_for_each_thing_and_value`.
 
 **11. Setup is the guardian's time, not the child's.** The lead's rule,
 from the first run on a real phone (20 Nov 2026), where a guardian setting
@@ -420,9 +448,11 @@ up the phone used six of the child's thirty minutes on Android's own
 pages, and those pages stood in the child's Today. **From pairing until a
 guardian finishes setup on the phone, the engine counts nothing and covers
 nothing**: no lock, no block screen (the guardian is holding the phone),
-no warning, no request for more time to the master, and no note of a
-permission switched off (the guardian is switching them on, and Android
-may say one is on a moment before it is). The time left says so in place
+no warning, and no request for more time to the master. The steps are
+told to the master as they are done (rule 10), so the guardian sees them
+tick on the PC while holding the phone; Android may say one is on a moment
+before it is, and then the master is told on and then off, the newest
+winning there, so the PC shows what the phone last saw. The time left says so in place
 of itself, "Setup is not finished on this phone.", and so does the view
 (`setup`), so a phone never sits unfinished unnoticed: LiMo's notification
 shows those words. What the core decides goes on underneath (the day, the
@@ -737,8 +767,11 @@ Safe means:
 A state kept by an earlier version of this engine loads: every field after
 the device state is filled in when missing, and the form number says which
 form it is (this is the first). A state kept before the six permissions
-holds two: the other four read as off, and since only a permission going
-from on to off is noted, nothing is noted for them; one kept before each
+holds two: the other four read as off, and since a permission never told
+and off is not told, nothing is told of them until they are on. One kept
+before the master was told how the phone stands tells all of it at its
+first call: each step that is on, the protection level, and USB debugging
+when the host says it; one kept before each
 app's use was counted shows no apps on Today until there is use again. One
 kept before notes went to the master holds its notes without ids: those of
 a kind the master takes go in the next report in reach, numbered from 1,
@@ -794,13 +827,11 @@ this piece.
   they never reach the master; the engine keeps the newest of them with the
   rest (`MAX_NOTES_KEPT`, 200 in all), as before. Adding one is adding it to
   the core's list and to `PhoneNote::for_master`.
-- **Notes the core lists that the engine does not make yet**: a permission
-  switched on again, the protection level and USB debugging. The facts carry
-  the permissions, but the engine notes only a permission going off (rule
-  10), and a permission passed over during setup is never noted at all
-  (rule 11), so the master cannot tell from the notes alone that one is off
-  at setup's end. The facts carry neither the protection level nor USB
-  debugging.
+- **USB debugging from the watch.** The facts carry it (`usb_debugging`),
+  and the bridge too, but until the watch reads `Settings.Global.ADB_ENABLED`
+  into them nothing is told of it (rule 10).
+- **Strict mode** (LiMo as the phone's device owner) is not built, so the
+  protection level told is `off` or `base` only.
 - **A clock set forward while the phone was off**, with automatic time off,
   starts a new day early. The master's own clock, which the link will carry
   (`master_now`), would settle it.
@@ -880,7 +911,7 @@ extra time, less use beyond what a device held under an unlock.
 | --- | --- | --- |
 | `src/counts.rs` | The rule of what counts, a call in progress no way around it, and what is never covered | 5 |
 | `src/words.rs` | Times on the phone's clock; spans and the time left; every lock's short title beside its message; warnings with the time actually left, away or not, with hints and when; the answers to a code or a PIN; the guard's words, its row and until when a right PIN opens it; a request and its answer; the block screen naming the app by its label, cleaned and cut; Today's time left, the time used and its part, where it went in its three forms; the hours screens are off today, on the phone's clock and zone, joined, several, all day; the rules in words, by days, across the week's end | 11 |
-| `src/kept.rs` | The check catching a change anywhere in the kept state; notes kept up to the limit; notes for the master given ids as they first go, kept in their own JSON with the id beside, dropped once confirmed, the others staying; counting going on told from any other change; each app's use added up for one day, the nameless left out, a later day starting afresh, bounded | 5 |
+| `src/kept.rs` | The check catching a change anywhere in the kept state; notes kept up to the limit; notes for the master given ids as they first go, kept in their own JSON with the id beside, dropped once confirmed, the others staying; notes of how the phone stands waiting once for each thing and value through a thousand changes of each, the newest last; counting going on told from any other change; each app's use added up for one day, the nameless left out, a later day starting afresh, bounded | 6 |
 | `tests/phone/day.rs` | The core README's worked day with the PC beside the phone; the away time used up, warned of as away, opening again at home; a plain day at home to zero with each warning once, the home screen covered, the 24 hour clock and when to call again; a warning that waits for the screen and says the time actually left; a prod from the master, only in reach; a master that does not answer asked again every ten seconds | 6 |
 | `tests/phone/covers.rs` | Allowed apps usable under the lock and recorded without counting; never a cover over a ringing call, the diallers, LiMo, the keyguard or a dark screen, and during a call in progress the same cover as with no call, through every mix of those facts; with the time used up and a call on, the game and the home screen covered with the way back to the call, the dialler not; a call left open not stopping the count in a game, nor a block, nor the lock; a blocked app covered, named by its label, sent home, never counted, noted once a day and across a restart; what counts, case by case | 6 |
 | `tests/phone/ways_out.rs` | A request made at home, answered and shown; a request made away, carried home, refused; a code at school adding time once, wrong codes counting down to a wait that survives a crash, the guardian seeing both at home; the PIN adding time and unlocking with no network, only the PIN at bedtime, use under the unlock counted beyond, an unlock refused, a release confirmed | 4 |
@@ -888,9 +919,10 @@ extra time, less use beyond what a device held under an unlock.
 | `tests/phone/restart.rs` | One script for a whole day played uninterrupted, with a crash after every single call (over 4,000), and with crashes here and there: every call orders and counts the same (a call while locked among them), and each day's total is the same; a crash losing at most five seconds; a lock on again at the first call | 3 |
 | `tests/phone/kept.rs` | A kept state read back the same; an app's label shown but never kept, reported or in the view; a save that could not be written asked for again; empty, foreign, newer, cut short and changed states failing safe; a state with only the fields the first form needs; a state kept with two permissions and no count of each app loading and noting nothing new | 6 |
 | `tests/phone/guard.rs` | A guarded page covered in the engine's words with the PIN as its one row, no lock and nothing counted under it, noted once a day for each page; a wrong PIN changing nothing but the tries, the right one opening every guarded page for five minutes by the elapsed count (a clock set by hand buys nothing) and nothing else (no time added, no unlock), closing kept; closed by the screen off, Android's lock screen and a restart of the phone, kept through LiMo stopped and started again; wrong PINs on the guard counting with the lock's wrong codes, the fifth starting the wait shown on the guard and the lock alike, the right PIN made to wait, and after it opening the guard but not the lock; never over a ringing call, Android's lock screen, a dark screen, LiMo or the diallers, during a call in progress with the way back, the device admin's page only while the protection is on, the block screen and the lock first; no PIN set up said in words; nothing guarded before setup is finished | 7 |
-| `tests/phone/setup.rs` | Twenty minutes of setup on Android's settings, LiMo and a game counting nothing, listing nothing, warning of nothing, the time left saying setup is not finished, a permission switched on and off not noted; finished, noted once, counting from the next call, a permission switched off noted after; a blocked app and the hours screens are off neither covering nor warning before, the lock and the block screen at the first call after; not finished kept through a crash, finished kept through a crash and a restart, finishing again changing nothing; a state kept before setup was kept counting as finished; a state that cannot be read refusing it | 5 |
+| `tests/phone/setup.rs` | Twenty minutes of setup on Android's settings, LiMo and a game counting nothing, listing nothing, warning of nothing, the time left saying setup is not finished, a permission switched on and off told as it stands, the last on and the newest off waiting, Today's guardian needed from what the call saw; finished, noted once, counting from the next call, a permission switched off noted after; a blocked app and the hours screens are off neither covering nor warning before, the lock and the block screen at the first call after; not finished kept through a crash, finished kept through a crash and a restart, finishing again changing nothing; a state kept before setup was kept counting as finished; a state that cannot be read refusing it | 5 |
 | `tests/phone/today.rs` | Today through a day: the time left, the time used and its part, where it went, bedtime, each app longest first with the short and the nameless left out, the same after a crash, at bedtime, and starting again the next morning; a day with no limit and a guardian's unlock; How it works by days, on a 24 hour phone, and with no blocked hours; all six permissions switched off, noted in setup order, sent for a guardian with six sentences, while a phone with all on is told the same at every call through a game, a blocked app, the lock, a call and the dialler | 4 |
-| `tests/phone/notes.rs` | Notes kept away from home and carried home in every report until confirmed, under the same ids through a report with no answer and a crash, the blocked app staying on the phone; a new note bringing a report at the next call in reach, and a master from before notes, which confirms none, bringing no report after report; setup finished in reach reaching the master at the next call; Today saying how much went on the PC once the master says it, the used line the whole day, away and across a crash too, nothing the next morning, and only its own use on a phone that never reaches its master although the PC was used; use elsewhere said as on other devices, and a master from before the figure leaving the phone its own use; a state kept by the engine before notes went anywhere loading and sending them, numbered from 1 and on after a reload | 6 |
+| `tests/phone/notes.rs` | Notes kept away from home and carried home in every report until confirmed, under the same ids through a report with no answer and a crash, the blocked app staying on the phone; a new note bringing a report at the next call in reach, and a master from before notes, which confirms none, bringing no report after report; setup finished in reach reaching the master at the next call; Today saying how much went on the PC once the master says it, the used line the whole day, away and across a crash too, nothing the next morning, and only its own use on a phone that never reaches its master although the PC was used; use elsewhere said as on other devices, and a master from before the figure leaving the phone its own use; a state kept by the engine before notes went anywhere loading and sending them, numbered from 1, then every step on and base protection, and on after a reload with nothing told again | 6 |
+| `tests/phone/standing.rs` | How the phone stands: a phone just paired over the cable telling its protection level and USB debugging and no step, then each of the six as the guardian does it and only that one, Today's guardian needed following what the call saw, USB debugging switched off, base protection at setup's end; setup finished with a step passed over telling five on and nothing of the sixth until it is on days later; a step switched off after setup and on again, with the protection level; nothing told again through a crash and a restart, and a change made away told once home; a state kept before any of it was told telling every step on and the level at its first call, and kept at once; a permission switched off and on five hundred times away leaving two notes, the others staying, the master hearing it was off and is on | 6 |
 | `tests/house_rules.rs` | No unsafe code; no allow attributes; no makers' package names in the engine; no dash punctuation in anything a person reads, nor in any sentence the phone shows | 5 |
 
 At every call of every story the fake phone also checks that the guard
@@ -935,8 +967,9 @@ phone/engine/
     words.rs      every sentence the phone shows, but what is switched off
     today.rs      the child's own screens: Today and the rules in words
     kept.rs       the kept state: the stretch, the look, LiMo's clock, the
-                  notes and their ids, each app's use today, setup, and the
-                  blob's form
+                  notes and their ids, what the master was told of how the
+                  phone stands, each app's use today, setup, and the blob's
+                  form
     engine.rs     PhoneEngine: the call, the report and the grant, the ways
                   out, the guard's PIN, setup, keeping, the view
     error.rs      PhoneError, LoadProblem, in plain words
@@ -945,6 +978,7 @@ phone/engine/
     phone/
       main.rs     the one story program
       common.rs   the fake phone, the PC beside it, and its checks
-      day.rs, covers.rs, ways_out.rs, clock.rs, restart.rs, kept.rs, today.rs, setup.rs, guard.rs, notes.rs
+      day.rs, covers.rs, ways_out.rs, clock.rs, restart.rs, kept.rs, today.rs, setup.rs, guard.rs, notes.rs,
+      standing.rs
       fixtures/   a state kept by the engine before notes went to the master
 ```

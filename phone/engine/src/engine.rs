@@ -219,13 +219,14 @@ impl PhoneEngine {
         let clock = PhoneClock { utc_offset_secs: facts.utc_offset_secs, hours_24: facts.hours_24 };
         let Some(kept) = self.kept.as_mut() else { return cannot_check(facts, clock) };
         // Until a guardian finishes setup on this phone, nothing is counted,
-        // covered or warned of, the master is not asked for time, and no
-        // permission switched off is noted: the guardian is holding the
-        // phone, on Android's own pages, and that is not the child's time.
+        // covered or warned of, and the master is not asked for time: the
+        // guardian is holding the phone, on Android's own pages, and that is
+        // not the child's time. How the phone stands is told all the same,
+        // so the guardian sees each step done on the PC.
         let setting_up = !kept.setup_finished();
         let mut notes = Vec::new();
         let now = kept.watch_clock(facts, &mut notes);
-        kept.watch_permissions(facts.permissions, now, &mut notes);
+        kept.watch_standing(facts.permissions, facts.usb_debugging, now, &mut notes);
         let at = Moment { wall: now, elapsed_ms: facts.elapsed_ms, boot: facts.boot_count };
         let stamp = Stamp { boot: facts.boot_count, ms: facts.elapsed_ms };
         if !facts.in_reach {

@@ -109,6 +109,7 @@ fn facts_in_reach(wall: i64, elapsed_ms: i64) -> limo_phone_ffi::PhoneFacts {
         prodded: false,
         permissions: all_permissions(),
         guarded: None,
+        usb_debugging: None,
     }
 }
 

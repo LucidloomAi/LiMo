@@ -9,6 +9,14 @@
 //! confirms it; then it is dropped. The other kinds stay on the phone,
 //! the newest kept, as before notes went anywhere.
 //!
+//! **How the phone stands** (each of the six permissions, the protection
+//! level, USB debugging) is told to the master by notes, and of every
+//! change: the state keeps what the master was told, so that a restart
+//! tells nothing again and a phone set up before this was kept tells all of
+//! it once. However often something changes, one note for each thing and
+//! each value it can have waits on the phone at most (see
+//! [`Kept::keep_notes`]): these notes are never more than seventeen.
+//!
 //! **Each app's use today**, for the child's Today screen, is added up where
 //! the device state records use, from the slices it makes, so the two always
 //! agree and survive a restart together. Each slice carries the home day the
@@ -34,7 +42,7 @@
 //! every call on a copy of the state with the stretch recorded, so they are
 //! exactly what they would be had every second been recorded.
 
-use limo_core::{Decision, DeviceState, LockReason, SentNote, Slice};
+use limo_core::{Decision, DeviceState, LockReason, ProtectionLevel, SentNote, Slice};
 use serde::{Deserialize, Serialize};
 
 use crate::error::LoadProblem;
@@ -142,6 +150,46 @@ pub(crate) struct GuardOpen {
     from: Option<(u32, u64)>,
     /// Until when, by LiMo's clock, for the words.
     until: i64,
+}
+
+/// What the master was told of how the phone stands: the last word the
+/// notes gave of each thing, whether or not they have reached it yet (they
+/// go in every report until a grant confirms them). Kept with the state, so
+/// that a restart tells nothing again; missing from a state kept before it
+/// was, which then tells everything that is on once.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub(crate) struct Told {
+    /// The permissions told as on, in the order setup asks for them. One not
+    /// here was never told, or told as off.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    on: Vec<Permission>,
+    /// The protection level last told.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    protection: Option<ProtectionLevel>,
+    /// Whether USB debugging was last told as on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    usb_debugging: Option<bool>,
+}
+
+/// What a note of how the phone stands says, its time left out: a newer
+/// note that says the same takes the place of an older one still waiting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Says {
+    Permission(Permission, bool),
+    Protection(ProtectionLevel),
+    UsbDebugging(bool),
+}
+
+impl Says {
+    fn of(note: &PhoneNote) -> Option<Says> {
+        match note {
+            PhoneNote::PermissionOn { permission, .. } => Some(Says::Permission(*permission, true)),
+            PhoneNote::PermissionOff { permission, .. } => Some(Says::Permission(*permission, false)),
+            PhoneNote::Protection { level, .. } => Some(Says::Protection(*level)),
+            PhoneNote::UsbDebugging { on, .. } => Some(Says::UsbDebugging(*on)),
+            _ => None,
+        }
+    }
 }
 
 /// One app's recorded use on one day, whether its time counts or not.
@@ -262,6 +310,9 @@ pub(crate) struct Kept {
     /// The guarded pages noted, once a day for each.
     #[serde(default)]
     guard_noted: Vec<GuardNoted>,
+    /// What the master was told of how the phone stands.
+    #[serde(default)]
+    told: Told,
 }
 
 /// How a kept state differs from the one last saved.
@@ -309,6 +360,7 @@ impl Kept {
             setup: Setup::NotFinished,
             guard_open: None,
             guard_noted: Vec::new(),
+            told: Told::default(),
         }
     }
 
@@ -437,6 +489,7 @@ impl Kept {
             || self.setup != saved.setup
             || self.guard_open != saved.guard_open
             || self.guard_noted != saved.guard_noted
+            || self.told != saved.told
             || clock(self) != clock(saved)
         {
             return Change::Other;
@@ -528,20 +581,66 @@ impl Kept {
         self.clock.map_or(0, |c| c.correction_secs)
     }
 
-    /// Notes each permission that was on and is now off, in the order setup
-    /// asks for them. Not while setup is not finished: the guardian is
-    /// switching them on then, and Android may say one is on a moment
-    /// before it is; what is seen is kept all the same, so that a
-    /// permission switched off after setup is noted.
-    pub(crate) fn watch_permissions(&mut self, now: PhonePermissions, at: i64, notes: &mut Vec<PhoneNote>) {
-        if let Some(before) = self.permissions.filter(|_| self.setup_finished()) {
-            for permission in Permission::ALL {
-                if before.has(permission) && !now.has(permission) {
-                    notes.push(PhoneNote::PermissionOff { permission, at });
-                }
+    /// Tells the master how the phone stands where that differs from what
+    /// it was told: each permission that is on and was not told as on
+    /// ([`PhoneNote::PermissionOn`]), and each that is off and was told as on
+    /// ([`PhoneNote::PermissionOff`]), in the order setup asks for them; then
+    /// the protection level, and USB debugging when the host says it. A
+    /// permission never told and off is not told: a phone just paired tells
+    /// its steps one by one as the guardian does them, and one passed over
+    /// is told when it is first on. What is seen is kept as well, for Today.
+    ///
+    /// During setup too, so that the guardian sees the six steps tick on the
+    /// PC while holding the phone. Android may say a permission is on a
+    /// moment before it is, while the guardian is switching it on: then the
+    /// master is told on, and off a moment later, and the newest note wins on
+    /// the PC, so what it shows is what the phone last saw. None of this
+    /// raises the child's own "needs a guardian", which comes from what the
+    /// last call saw. A permission switched on and off again and again
+    /// leaves two notes on the phone, the last off and the last on, not one
+    /// for each time (see [`Kept::keep_notes`]).
+    pub(crate) fn watch_standing(
+        &mut self,
+        now: PhonePermissions,
+        usb_debugging: Option<bool>,
+        at: i64,
+        notes: &mut Vec<PhoneNote>,
+    ) {
+        for permission in Permission::ALL {
+            let told_on = self.told.on.contains(&permission);
+            if now.has(permission) && !told_on {
+                notes.push(PhoneNote::PermissionOn { permission, at });
+            } else if !now.has(permission) && told_on {
+                notes.push(PhoneNote::PermissionOff { permission, at });
             }
         }
+        self.told.on = Permission::ALL.into_iter().filter(|p| now.has(*p)).collect();
+        let level = self.protection_level(now);
+        if self.told.protection != Some(level) {
+            notes.push(PhoneNote::Protection { level, at });
+            self.told.protection = Some(level);
+        }
+        if let Some(on) = usb_debugging
+            && self.told.usb_debugging != Some(on)
+        {
+            notes.push(PhoneNote::UsbDebugging { on, at });
+            self.told.usb_debugging = Some(on);
+        }
         self.permissions = Some(now);
+    }
+
+    /// How well LiMo holds on the phone now: base protection while its
+    /// device admin is on and its guard can cover the pages that could switch
+    /// it off, which needs setup finished (nothing is covered before) and the
+    /// accessibility service on (it draws the guard); no protection
+    /// otherwise. Strict mode, LiMo as the phone's device owner, is not built,
+    /// so it is never told.
+    fn protection_level(&self, now: PhonePermissions) -> ProtectionLevel {
+        if now.protection && now.accessibility && self.setup_finished() {
+            ProtectionLevel::Base
+        } else {
+            ProtectionLevel::Off
+        }
     }
 
     /// The permissions the last call saw, if any call did.
@@ -565,9 +664,21 @@ impl Kept {
         notes.push(PhoneNote::BlockedAppOpened { package: package.to_string(), day, at });
     }
 
-    /// Keeps new notes, the newest [`MAX_NOTES_KEPT`] of all. True when one
-    /// of them is of a kind the master takes.
+    /// Keeps new notes, the newest [`MAX_NOTES_KEPT`] of all. A note of how
+    /// the phone stands (a permission on or off, the protection level, USB
+    /// debugging) takes the place of an older one still waiting that says
+    /// the same of the same thing: so at most one waits for each thing and
+    /// each value it can have, the newest last, which is how it stands now
+    /// (the newest wins on the master). A permission switched on and off a
+    /// thousand times leaves two notes, the last time it was off and the
+    /// last time it was on, never the room of the others, and a guardian
+    /// still hears that it was switched off. One dropped after it went in a
+    /// report is harmless: the master took it or not, and takes the newer
+    /// one. True when one of the new notes is of a kind the master takes.
     pub(crate) fn keep_notes(&mut self, new: &[PhoneNote]) -> bool {
+        for says in new.iter().filter_map(Says::of) {
+            self.notes.retain(|kept| Says::of(&kept.note) != Some(says));
+        }
         self.notes.extend(new.iter().map(|note| KeptNote { note: note.clone(), id: None }));
         let over = self.notes.len().saturating_sub(MAX_NOTES_KEPT);
         self.notes.drain(..over);
@@ -795,6 +906,43 @@ mod tests {
         }
         assert_eq!(check(b""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(check(b"a"), 0xaf63_dc4c_8601_ec8c, "the FNV-1a known answer for one letter");
+    }
+
+    #[test]
+    fn notes_of_how_the_phone_stands_wait_once_for_each_thing_and_value() {
+        let mut k = kept();
+        k.keep_notes(&[PhoneNote::SetupFinished { at: 1 }]);
+        // Every permission, the protection level and USB debugging, each
+        // changed a thousand times, with a note of another kind among them.
+        for at in 0..1_000 {
+            let on = at % 2 == 0;
+            let mut notes: Vec<PhoneNote> = Permission::ALL
+                .into_iter()
+                .map(|permission| {
+                    if on { PhoneNote::PermissionOn { permission, at } } else { PhoneNote::PermissionOff { permission, at } }
+                })
+                .collect();
+            let level = [ProtectionLevel::Off, ProtectionLevel::Base, ProtectionLevel::Strict][(at % 3) as usize];
+            notes.push(PhoneNote::Protection { level, at });
+            notes.push(PhoneNote::UsbDebugging { on, at });
+            k.keep_notes(&notes);
+        }
+        // Six permissions on and off, three levels, USB debugging on and
+        // off, and the setup note: nothing pushed out.
+        assert_eq!(k.notes.len(), 6 * 2 + 3 + 2 + 1);
+        assert_eq!(k.notes[0].note, PhoneNote::SetupFinished { at: 1 });
+        // The newest of each thing last: how it stands now.
+        let last_about_battery = k.notes.iter().rev().find_map(|n| match n.note {
+            PhoneNote::PermissionOn { permission: Permission::Battery, at } => Some((true, at)),
+            PhoneNote::PermissionOff { permission: Permission::Battery, at } => Some((false, at)),
+            _ => None,
+        });
+        assert_eq!(last_about_battery, Some((false, 999)));
+        let level = k.notes.iter().rev().find_map(|n| match n.note {
+            PhoneNote::Protection { level, at } => Some((level, at)),
+            _ => None,
+        });
+        assert_eq!(level, Some((ProtectionLevel::Off, 999)));
     }
 
     #[test]

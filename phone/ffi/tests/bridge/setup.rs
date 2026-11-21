@@ -24,7 +24,11 @@ fn nothing_counts_or_is_covered_until_setup_is_finished_and_then_it_stays_finish
     phone.front = app(CASINO, "Casino");
     assert_eq!(phone.run(5).cover.kind, CoverKind::Nothing);
     assert_eq!(phone.counted(), 0);
-    assert!(phone.notes.is_empty(), "{:?}", phone.notes);
+    // Nothing noted of the casino: only how the phone stands, for the
+    // guardian watching the steps on the PC (six on, and no protection yet).
+    let standing = |n: &String| n.contains(r#""note":"permission_on""#) || n.contains(r#""note":"protection","level":"off""#);
+    assert_eq!(phone.notes.len(), 7, "{:?}", phone.notes);
+    assert!(phone.notes.iter().all(standing), "{:?}", phone.notes);
 
     // Finished: kept at once, noted once, covering and counting from the next call.
     assert!(phone.engine.finish_setup(phone.wall).unwrap());

@@ -156,7 +156,8 @@ class EngineDayTest {
       // 12 minutes on the family PC; the phone away for a minute, then at home.
       phone.family.usePc(phone.child, 12, WEDNESDAY_4_PM)
       phone.run(60)
-      assertEquals("setup finished, waiting for the master", 1, phone.engine.view()!!.notesKept)
+      // Setup finished, and how the phone stands (six steps on, base protection), waiting for the master.
+      assertEquals(8, phone.engine.view()!!.notesKept)
       assertTrue(phone.engine.view()!!.json.contains("\"where_used\":\"On this phone 1 min\""))
       phone.inReach = true
       phone.run(65)

@@ -49,6 +49,11 @@ pub struct PhoneFacts {
     /// the guard.
     #[uniffi(default = None)]
     pub guarded: Option<GuardedPage>,
+    /// Whether USB debugging is on: `Settings.Global.ADB_ENABLED` is 1. The
+    /// master is told, and of every change. Null when the host does not
+    /// read it: then nothing is told of it.
+    #[uniffi(default = None)]
+    pub usb_debugging: Option<bool>,
 }
 
 /// A page that could switch LiMo off or remove it: the engine's

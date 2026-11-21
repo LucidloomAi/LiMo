@@ -1,6 +1,6 @@
 //! Setup: from pairing until a guardian finishes setup on the phone, nothing
-//! is counted, covered or warned of, and no permission switched off is
-//! noted; the time left and the view say setup is not finished. Then
+//! is counted, covered or warned of, and the steps are told to the master as
+//! they stand; the time left and the view say setup is not finished. Then
 //! counting starts, as for any phone. Finished once, it stays finished,
 //! through a save, a crash and a restart; finishing again changes nothing.
 
@@ -49,12 +49,27 @@ fn a_day_of_setup_counts_nothing_and_says_so_then_counting_starts() {
     assert!(f.warnings.is_empty());
 
     // Permissions switched on and off while the guardian works through the
-    // steps are not noted for the guardian.
+    // steps are told as they stand. Setting the rules took the phone home,
+    // where its steps were told on and confirmed; of the three changes
+    // since, two notes wait for the master: the last time it was on, and the
+    // newest (off). Today says a guardian is needed from what the call saw.
     for accessibility in [false, true, false] {
         f.permissions = PhonePermissions { accessibility, ..PhonePermissions::ALL };
         f.run(5);
     }
-    assert!(!f.notes.iter().any(|n| matches!(n, PhoneNote::PermissionOff { .. })), "{:?}", f.notes);
+    let accessibility: Vec<bool> = f
+        .view()
+        .notes
+        .iter()
+        .filter_map(|n| match n {
+            PhoneNote::PermissionOn { permission: Permission::Accessibility, .. } => Some(true),
+            PhoneNote::PermissionOff { permission: Permission::Accessibility, .. } => Some(false),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(accessibility, [true, false]);
+    let needed = f.view().today.guardian_needed.unwrap();
+    assert_eq!(needed.off.iter().map(|o| o.permission).collect::<Vec<_>>(), [Permission::Accessibility]);
 
     // The guardian finishes setup: noted once, kept at once. The host ticks
     // at once after it, and counting starts there.
@@ -74,9 +89,10 @@ fn a_day_of_setup_counts_nothing_and_says_so_then_counting_starts() {
 
     // After setup, a permission switched off is noted, and Today says a
     // guardian is needed, as for any phone.
+    let from = f.notes.len();
     f.permissions = PhonePermissions { accessibility: false, ..PhonePermissions::ALL };
     f.run(5);
-    let off: Vec<&PhoneNote> = f.notes.iter().filter(|n| matches!(n, PhoneNote::PermissionOff { .. })).collect();
+    let off: Vec<&PhoneNote> = f.notes[from..].iter().filter(|n| matches!(n, PhoneNote::PermissionOff { .. })).collect();
     assert!(matches!(off.as_slice(), [PhoneNote::PermissionOff { permission: Permission::Accessibility, .. }]), "{off:?}");
     let needed = f.view().today.guardian_needed.unwrap();
     assert_eq!(needed.off.iter().map(|o| o.permission).collect::<Vec<_>>(), [Permission::Accessibility]);

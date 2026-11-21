@@ -15,5 +15,6 @@ mod kept;
 mod notes;
 mod restart;
 mod setup;
+mod standing;
 mod today;
 mod ways_out;

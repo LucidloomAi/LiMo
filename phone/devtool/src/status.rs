@@ -201,6 +201,8 @@ pub fn status_lines(bytes: &[u8], family: Option<&Family>, clock: Option<(i64, i
         permissions: permissions_of(&kept),
         // No page is in front for this look: the screen is off.
         guarded: None,
+        // Not read for this look; nothing is kept from it anyway.
+        usb_debugging: None,
     };
     let orders = engine.tick(&facts);
     let wrong_tries = engine.outgoing_report(now).map(|r| r.wrong_guesses);

@@ -22,6 +22,11 @@ fn is_note_for_master(note: &PhoneNote) -> bool {
     note.for_master().is_some()
 }
 
+/// A note the master takes, by its kind alone.
+fn kind(note: &limo_core::PhoneNote) -> String {
+    serde_json::to_value(note).unwrap()["note"].as_str().unwrap().to_string()
+}
+
 #[test]
 fn notes_go_to_the_master_in_every_report_until_confirmed_and_the_others_stay() {
     let mut f = Family::new(at(16, 0));
@@ -32,14 +37,21 @@ fn notes_go_to_the_master_in_every_report_until_confirmed_and_the_others_stay() 
         r.blocked_apps = vec![CASINO.into()];
     });
     // Setting the rules took the phone home once: its setup finished went,
-    // the first note it ever sent, and was confirmed.
+    // the first note it ever sent, then how it stands (six steps on, base
+    // protection), and all were confirmed.
     let first = f.sent.first().unwrap().clone();
     let phone = f.phone_id.clone();
-    assert_eq!(carried(&first), vec![(format!("{phone}/note/1"), limo_core::PhoneNote::SetupFinished { at: finished_at })]);
+    assert_eq!(carried(&first)[0], (format!("{phone}/note/1"), limo_core::PhoneNote::SetupFinished { at: finished_at }));
+    let kinds: Vec<String> = carried(&first).iter().map(|(_, n)| kind(n)).collect();
+    assert_eq!(kinds, [
+        "setup_finished", "permission_on", "permission_on", "permission_on", "permission_on", "permission_on",
+        "permission_on", "protection",
+    ]);
     assert!(f.view().notes.is_empty());
 
-    // Away: accessibility switched off a moment, a blocked app opened, the
-    // phone restarted. Kept, nothing sent.
+    // Away: accessibility switched off a moment (and with it the guard, so
+    // the protection level), a blocked app opened, the phone restarted.
+    // Kept, nothing sent.
     let sent_before = f.sent.len();
     f.run(MIN);
     f.permissions = PhonePermissions { accessibility: false, ..PhonePermissions::ALL };
@@ -57,23 +69,25 @@ fn notes_go_to_the_master_in_every_report_until_confirmed_and_the_others_stay() 
         .iter()
         .map(|n| match n {
             PhoneNote::PermissionOff { permission: Permission::Accessibility, .. } => "off",
+            PhoneNote::PermissionOn { permission: Permission::Accessibility, .. } => "on",
+            PhoneNote::Protection { .. } => "protection",
             PhoneNote::BlockedAppOpened { .. } => "blocked",
             PhoneNote::Restarted { .. } => "restarted",
             other => panic!("{other:?}"),
         })
         .collect();
-    assert_eq!(kinds, ["off", "blocked", "restarted"]);
+    assert_eq!(kinds, ["off", "protection", "on", "protection", "blocked", "restarted"]);
 
-    // Home, and the master does not answer: the report carries the two the
+    // Home, and the master does not answer: the report carries the five the
     // master takes, numbered on from the first; they stay.
     f.in_reach = true;
     f.master_answers = false;
     f.run(2);
     let unanswered = f.sent.last().unwrap().clone();
     let ids: Vec<String> = carried(&unanswered).into_iter().map(|(id, _)| id).collect();
-    assert_eq!(ids, [format!("{phone}/note/2"), format!("{phone}/note/3")]);
+    assert_eq!(ids, (9..=13).map(|n| format!("{phone}/note/{n}")).collect::<Vec<_>>());
     assert!(matches!(carried(&unanswered)[0].1, limo_core::PhoneNote::PermissionOff { permission: limo_core::PhonePermission::Accessibility, .. }));
-    assert_eq!(f.view().notes.len(), 3);
+    assert_eq!(f.view().notes.len(), 6);
     // It answers: the same ids again, confirmed, and dropped; the blocked
     // app, a kind the master does not take, stays on the phone.
     f.master_answers = true;
@@ -111,22 +125,22 @@ fn a_new_note_in_reach_brings_a_report_at_once_and_a_master_that_never_confirms_
     assert!(matches!(f.sent[quiet].notes.as_slice(), [SentNote { note: limo_core::PhoneNote::PermissionOff { .. }, .. }]));
     assert!(f.view().notes.is_empty());
 
-    // A master from before notes confirms none: the note rides along with
-    // the reports that come anyway, and brings no report of its own after
-    // the first.
+    // A master from before notes confirms none: the notes (the battery on
+    // again, notifications off) ride along with the reports that come
+    // anyway, and bring no report of their own after the first.
     f.old_master = true;
     f.permissions = PhonePermissions::ALL;
     f.run(1);
     f.permissions = PhonePermissions { notifications: false, ..PhonePermissions::ALL };
     f.run(2);
     let after_note = f.sent.len();
-    assert_eq!(f.sent.last().unwrap().notes.len(), 1);
+    assert_eq!(f.sent.last().unwrap().notes.len(), 2);
     f.run(2 * MIN);
     assert_eq!(f.sent.len(), after_note, "no report after report");
-    assert_eq!(f.view().notes.len(), 1, "kept, as nothing confirmed it");
+    assert_eq!(f.view().notes.len(), 2, "kept, as nothing confirmed them");
     f.run(5 * MIN);
     assert!(f.sent.len() > after_note, "the idle report comes");
-    assert_eq!(f.sent.last().unwrap().notes.len(), 1);
+    assert_eq!(f.sent.last().unwrap().notes.len(), 2);
 }
 
 #[test]
@@ -139,9 +153,15 @@ fn setup_finished_in_reach_reaches_the_master_at_the_next_call() {
     assert_eq!(f.way_out(|e, _| e.finish_setup(wall)), Ok(true));
     f.run(1);
     assert_eq!(f.sent.len(), before + 1);
-    assert_eq!(f.sent[before].notes.iter().map(|n| n.note.clone()).collect::<Vec<_>>(), vec![
-        limo_core::PhoneNote::SetupFinished { at: wall }
-    ]);
+    // With it, the protection it brings: the guard covers from now on.
+    let carried: Vec<limo_core::PhoneNote> = f.sent[before].notes.iter().map(|n| n.note.clone()).collect();
+    assert!(
+        matches!(carried.as_slice(), [
+            limo_core::PhoneNote::SetupFinished { at },
+            limo_core::PhoneNote::Protection { level: limo_core::ProtectionLevel::Base, .. },
+        ] if *at == wall),
+        "{carried:?}"
+    );
 }
 
 #[test]
@@ -272,7 +292,8 @@ fn a_state_kept_before_notes_went_anywhere_loads_and_sends_them() {
     book.add_device("phone", DeviceKind::Portable, start).unwrap();
 
     // Home ten seconds after it was kept: the four it keeps for the master
-    // go, numbered from 1.
+    // go, numbered from 1, and after them how the phone stands, which that
+    // engine never told: every step on, and base protection.
     let now = start + 3_913;
     let facts = PhoneFacts {
         wall_secs: now,
@@ -289,23 +310,34 @@ fn a_state_kept_before_notes_went_anywhere_loads_and_sends_them() {
         prodded: false,
         permissions: PhonePermissions::ALL,
         guarded: None,
+        usb_debugging: None,
     };
     assert!(engine.tick(&facts).send_report);
     let report = engine.outgoing_report(now).unwrap();
     assert!(engine.should_save());
-    let ids: Vec<&str> = report.notes.iter().map(|n| n.id.as_str()).collect();
-    assert_eq!(ids, ["phone/note/1", "phone/note/2", "phone/note/3", "phone/note/4"]);
+    let ids: Vec<String> = report.notes.iter().map(|n| n.id.clone()).collect();
+    assert_eq!(ids, (1..=11).map(|n| format!("phone/note/{n}")).collect::<Vec<_>>());
     assert!(matches!(report.notes[0].note, limo_core::PhoneNote::SetupFinished { .. }));
     assert!(matches!(report.notes[3].note, limo_core::PhoneNote::ClockMoved { by_secs: 3_600, followed: true, .. }));
+    let on: Vec<limo_core::PhonePermission> = report.notes[4..10]
+        .iter()
+        .map(|n| match n.note {
+            limo_core::PhoneNote::PermissionOn { permission, .. } => permission,
+            ref other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(on, limo_core::PhonePermission::ALL);
+    assert!(matches!(report.notes[10].note, limo_core::PhoneNote::Protection { level: limo_core::ProtectionLevel::Base, .. }));
     let outcome = book.handle_report(&report, now).unwrap();
-    assert_eq!(outcome.new_notes.len(), 4);
+    assert_eq!(outcome.new_notes.len(), 11);
     assert_eq!(engine.take_grant(&outcome.grant, now).outcome, GrantOutcome::Taken);
     let view = engine.view().unwrap();
     assert!(matches!(view.notes.as_slice(), [PhoneNote::BlockedAppOpened { .. }]));
-    // Kept and loaded again, it goes on numbering after them.
+    // Kept and loaded again, it goes on numbering after them, and the phone
+    // started again tells nothing of how it stands again.
     let mut again = PhoneEngine::load(&engine.save());
     again.tick(&PhoneFacts { wall_secs: now + 1, elapsed_ms: 20_000, boot_count: 9, ..facts.clone() });
     let report = again.outgoing_report(now + 1).unwrap();
-    assert_eq!(report.notes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["phone/note/5"]);
+    assert_eq!(report.notes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["phone/note/12"]);
     assert!(matches!(report.notes[0].note, limo_core::PhoneNote::Restarted { .. }));
 }

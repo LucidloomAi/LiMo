@@ -81,6 +81,7 @@ mod tests {
             prodded: false,
             permissions: PhonePermissions::ALL,
             guarded: None,
+            usb_debugging: None,
         }
     }
 

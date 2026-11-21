@@ -152,6 +152,7 @@ impl Phone {
             prodded: false,
             permissions: self.permissions,
             guarded: self.guarded,
+            usb_debugging: None,
         }
     }
 

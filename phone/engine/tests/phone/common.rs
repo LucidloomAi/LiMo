@@ -129,6 +129,8 @@ pub struct Family {
     pub permissions: PhonePermissions,
     /// The page in front that the host says could switch LiMo off, if any.
     pub guarded: Option<GuardedPage>,
+    /// Whether USB debugging is on, as the host says; None when it does not.
+    pub usb_debugging: Option<bool>,
     /// The orders of the last call.
     pub orders: PhoneOrders,
     /// Every warning shown, with when, in order.
@@ -204,6 +206,7 @@ impl Family {
             master_answers: true,
             permissions: PhonePermissions::ALL,
             guarded: None,
+            usb_debugging: None,
             orders: PhoneOrders {
                 cover: Cover::Nothing,
                 time_left: limo_phone::TimeLeft {
@@ -338,6 +341,7 @@ impl Family {
             prodded,
             permissions: self.permissions,
             guarded: self.guarded,
+            usb_debugging: self.usb_debugging,
         }
     }
 

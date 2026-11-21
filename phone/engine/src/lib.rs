@@ -62,6 +62,7 @@ pub use counts::{app_in_use, may_cover};
 pub use engine::{PhoneEngine, PhoneView, SetupView};
 pub use error::{LoadProblem, PhoneError};
 pub use facts::{CallState, Front, GuardedPage, Permission, PhoneFacts, PhonePermissions};
+pub use limo_core::ProtectionLevel;
 pub use words::MAX_LABEL_CHARS;
 pub use orders::{
     Cover, GrantTaken, GuardScreen, LockScreen, LockWhy, PhoneNote, PhoneOrders, RequestLine, TimeLeft, TryAnswer,

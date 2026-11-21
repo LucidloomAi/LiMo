@@ -6,7 +6,7 @@
 //! and an order missed is given again at the next call. The things given in
 //! one call only are a warning and the notes; each says what it is about.
 
-use limo_core::{RequestView, TryOutcome, WarningCause};
+use limo_core::{ProtectionLevel, RequestView, TryOutcome, WarningCause};
 use serde::{Deserialize, Serialize};
 
 use crate::facts::{GuardedPage, Permission};
@@ -31,8 +31,9 @@ pub struct PhoneOrders {
     /// anything else.
     pub save_state: bool,
     /// Things the guardian should know, noted in this call: a clock moved, a
-    /// restart, a permission switched off, a blocked app opened, a guarded
-    /// page opened. The engine keeps them too, and carries the kinds the
+    /// restart, a permission switched on or off, the protection level, USB
+    /// debugging, a blocked app opened, a guarded page opened. The engine
+    /// keeps them too, and carries the kinds the
     /// master takes in its reports until a grant confirms them
     /// ([`PhoneNote::for_master`]). (Setup finished is noted by
     /// [`crate::PhoneEngine::finish_setup`], not in a call.)
@@ -358,10 +359,36 @@ pub enum PhoneNote {
         /// For how long, in seconds.
         secs: u64,
     },
-    /// A permission LiMo needs was switched off.
+    /// A permission LiMo needs is off, where the master was last told it is
+    /// on: it was switched off.
     PermissionOff {
         /// Which.
         permission: Permission,
+        /// When, by LiMo's clock.
+        at: i64,
+    },
+    /// A permission LiMo needs is on, where the master was not told so yet:
+    /// switched on, during setup or after, or found on (by the first call
+    /// of a LiMo that tells it, on a phone set up before).
+    PermissionOn {
+        /// Which.
+        permission: Permission,
+        /// When, by LiMo's clock.
+        at: i64,
+    },
+    /// The phone's protection level, where the master was not told this
+    /// one: at the first call, and at every change.
+    Protection {
+        /// The level now.
+        level: ProtectionLevel,
+        /// When, by LiMo's clock.
+        at: i64,
+    },
+    /// Whether USB debugging is on, where the master was not told this: at
+    /// the first call the host says it, and at every change.
+    UsbDebugging {
+        /// True when it is on.
+        on: bool,
         /// When, by LiMo's clock.
         at: i64,
     },
@@ -419,6 +446,11 @@ impl PhoneNote {
             PhoneNote::PermissionOff { permission, at } => {
                 Master::PermissionOff { permission: permission.for_master(), at: *at }
             }
+            PhoneNote::PermissionOn { permission, at } => {
+                Master::PermissionOn { permission: permission.for_master(), at: *at }
+            }
+            PhoneNote::Protection { level, at } => Master::Protection { level: *level, at: *at },
+            PhoneNote::UsbDebugging { on, at } => Master::UsbDebugging { on: *on, at: *at },
             PhoneNote::SetupFinished { at } => Master::SetupFinished { at: *at },
             PhoneNote::GuardedPageOpened { page, day, at } => {
                 Master::GuardedPageOpened { page: page.for_master(), day: *day, at: *at }

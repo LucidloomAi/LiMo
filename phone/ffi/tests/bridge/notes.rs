@@ -20,9 +20,13 @@ fn notes_cross_in_the_reports_bytes_and_a_grant_confirms_them() {
     phone.front = app(GAME, "Game");
     phone.run(1);
     let view = phone.engine.view().unwrap().unwrap();
-    assert_eq!(view.notes_kept, 3, "setup finished, accessibility off, the casino");
+    // Setup finished; how the phone stood at the first call (six steps on,
+    // base protection); accessibility off and the protection with it, then
+    // on again (each taking the place of the older note that said the
+    // same); the casino.
+    assert_eq!(view.notes_kept, 11);
 
-    // At home: the report carries the two the master takes, as the core's
+    // At home: the report carries the ten the master takes, as the core's
     // JSON, each with its id.
     phone.in_reach = true;
     phone.wall += 1;
@@ -33,9 +37,10 @@ fn notes_cross_in_the_reports_bytes_and_a_grant_confirms_them() {
     let json: serde_json::Value = serde_json::from_slice(&report).unwrap();
     let ids: Vec<&str> = json["notes"].as_array().unwrap().iter().map(|n| n["id"].as_str().unwrap()).collect();
     let device = phone.device_id.clone();
-    assert_eq!(ids, [format!("{device}/note/1"), format!("{device}/note/2")]);
+    assert_eq!(ids, (1..=10).map(|n| format!("{device}/note/{n}")).collect::<Vec<_>>());
     assert_eq!(json["notes"][0]["note"]["note"], "setup_finished");
-    assert_eq!(json["notes"][1]["note"], serde_json::json!({ "note": "permission_off", "permission": "accessibility", "at": json["notes"][1]["note"]["at"] }));
+    assert_eq!(json["notes"][6]["note"], serde_json::json!({ "note": "permission_off", "permission": "accessibility", "at": json["notes"][6]["note"]["at"] }));
+    assert_eq!(json["notes"][9]["note"], serde_json::json!({ "note": "protection", "level": "base", "at": json["notes"][9]["note"]["at"] }));
     assert!(!String::from_utf8_lossy(&report).contains("blocked_app_opened"), "it stays on the phone");
 
     // The grant's bytes confirm them: dropped, the casino's note kept.

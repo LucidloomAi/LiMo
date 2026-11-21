@@ -70,6 +70,12 @@ pub struct PhoneFacts {
     /// engine holds no package or page name of its own.
     #[serde(default)]
     pub guarded: Option<GuardedPage>,
+    /// Whether USB debugging is on (Android's `Settings.Global.ADB_ENABLED`):
+    /// while it is, any PC with a cable could stop LiMo. Told to the master,
+    /// and of every change (see [`crate::PhoneNote::UsbDebugging`]). None
+    /// when the host does not say: then nothing is told of it.
+    #[serde(default)]
+    pub usb_debugging: Option<bool>,
 }
 
 /// A page that could switch LiMo off or remove it from the phone, as the host
@@ -193,9 +199,10 @@ impl Front {
 }
 
 /// What LiMo has been allowed to do on the phone, in the order setup asks
-/// for it. A permission switched off is noted for the guardian, and while
-/// any is off the child's Today screen says a guardian is needed
-/// ([`crate::TodayView::guardian_needed`]).
+/// for it. The master is told how each stands, and of every change, by
+/// notes for the guardian; while any is off the child's Today screen says a
+/// guardian is needed ([`crate::TodayView::guardian_needed`]), from what the
+/// last call saw, never from the notes.
 ///
 /// Only two change what the engine decides, and neither through this
 /// record: with accessibility off the host cannot say which app is in front
