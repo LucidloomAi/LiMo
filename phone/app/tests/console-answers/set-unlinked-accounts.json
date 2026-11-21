@@ -1,0 +1,21 @@
+{
+  "request": "set_unlinked_accounts",
+  "case": "accounts linked to nobody are free",
+  "asked": {
+    "args": {
+      "unlinked": "free"
+    },
+    "name": "set_unlinked_accounts"
+  },
+  "answer": {
+    "id": 20,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "idle_minutes": 10,
+        "unlinked_accounts": "free"
+      }
+    },
+    "say": "answer"
+  }
+}

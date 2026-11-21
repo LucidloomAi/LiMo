@@ -56,6 +56,68 @@ fn nothing_silences_a_lint() {
     }
 }
 
+/// The string literals on one line of Rust, roughly: enough for words.
+fn literals(line: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut chars = line.chars().peekable();
+    let mut inside: Option<String> = None;
+    let mut before = ' ';
+    while let Some(c) = chars.next() {
+        match &mut inside {
+            None if c == '"' && before != '\'' => inside = Some(String::new()),
+            None => {}
+            Some(text) if c == '\\' => {
+                text.push(c);
+                if let Some(next) = chars.next() {
+                    text.push(next);
+                }
+            }
+            Some(text) if c == '"' => {
+                found.push(std::mem::take(text));
+                inside = None;
+            }
+            Some(text) => text.push(c),
+        }
+        before = c;
+    }
+    // A literal that goes on to the next line counts as far as it goes.
+    if let Some(text) = inside {
+        found.push(text);
+    }
+    found
+}
+
+/// LiMo's words have the typographic apostrophe ("family’s"), as the
+/// screens draw them: the crate's own sentences say so in their literals,
+/// and words from other crates are turned where they leave the crate (the
+/// console's answers, the log, the plain display, the terminal). Tests may
+/// hold either, to check both.
+#[test]
+fn every_apostrophe_in_the_crates_own_words_is_the_typographic_one() {
+    let mut files = Vec::new();
+    files_under(&crate_dir().join("src"), &mut files);
+    files.retain(|p| p.extension().is_some_and(|e| e == "rs") && p.file_name().is_some_and(|n| n != "tests.rs"));
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let body = text.split("#[cfg(test)]").next().unwrap_or("");
+        for (number, line) in body.lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            for literal in literals(line) {
+                let chars: Vec<char> = literal.chars().collect();
+                let straight = chars
+                    .windows(3)
+                    .any(|w| w[1] == '\'' && w[0].is_alphanumeric() && w[2].is_alphanumeric());
+                assert!(!straight, "{}:{} has a straight apostrophe in words: {literal}", file.display(), number + 1);
+            }
+        }
+    }
+    // The rule itself, as the crate applies it to words from elsewhere.
+    assert_eq!(limo_windows::text::typographic("the family's file"), "the family\u{2019}s file");
+    assert_eq!(limo_windows::text::typographic("'quoted' and it's"), "'quoted' and it\u{2019}s");
+}
+
 #[test]
 fn no_dash_punctuation_in_anything_a_person_reads() {
     let mut files = sources();

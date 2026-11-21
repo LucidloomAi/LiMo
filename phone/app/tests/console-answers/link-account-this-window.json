@@ -1,0 +1,26 @@
+{
+  "request": "link_account",
+  "case": "this window’s own account cannot be linked to a child",
+  "asked": {
+    "args": {
+      "account": "S-1-5-21-1000",
+      "link": {
+        "child": {
+          "child_id": "child-0000000000000001"
+        }
+      }
+    },
+    "name": "link_account"
+  },
+  "answer": {
+    "id": 11,
+    "reply": {
+      "outcome": "problem",
+      "problem": {
+        "kind": "refused",
+        "message": "LiMo’s settings are open in this account, so it cannot be linked to a child from here: a guardian would be shut out of them. Link it from another account."
+      }
+    },
+    "say": "answer"
+  }
+}

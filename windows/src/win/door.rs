@@ -517,7 +517,7 @@ impl Connection {
                     let _ = self.events.send((
                         DoorId(0),
                         DoorEvent::Note(format!(
-                            "A program connected to LiMo's settings and sent nothing for {secs} seconds, so its connection was closed."
+                            "A program connected to LiMo’s settings and sent nothing for {secs} seconds, so its connection was closed."
                         )),
                     ));
                     break None;
@@ -578,7 +578,7 @@ impl Acceptor {
                         Ok(pipe) => {
                             if !said_open {
                                 said_open = true;
-                                self.note("The door for LiMo's settings is open.".to_string());
+                                self.note("The door for LiMo’s settings is open.".to_string());
                             }
                             pipe
                         }
@@ -586,7 +586,7 @@ impl Acceptor {
                             if !said_taken {
                                 said_taken = true;
                                 self.note(format!(
-                                    "The door for LiMo's settings could not be opened: {problem}. Another program may hold its name. \
+                                    "The door for LiMo’s settings could not be opened: {problem}. Another program may hold its name. \
                                      LiMo tries again every five seconds."
                                 ));
                             }
@@ -601,7 +601,7 @@ impl Acceptor {
                             if !said_busy {
                                 said_busy = true;
                                 self.note(format!(
-                                    "The door for LiMo's settings could not be made ready for another console while one is connected: {problem}."
+                                    "The door for LiMo’s settings could not be made ready for another console while one is connected: {problem}."
                                 ));
                             }
                             if self.stopped_within(200) {
@@ -652,7 +652,7 @@ impl Acceptor {
                 if !said_full {
                     said_full = true;
                     self.note(format!(
-                        "More connections to LiMo's settings were opened at once than LiMo serves (at most {MAX_LIVE_PER_SESSION} from one session, \
+                        "More connections to LiMo’s settings were opened at once than LiMo serves (at most {MAX_LIVE_PER_SESSION} from one session, \
                          {MAX_LIVE_CONNECTIONS} in all), so the next ones were closed at once."
                     ));
                 }
@@ -745,13 +745,13 @@ impl RealDoor {
             counts: Counts::default(),
         };
         let acceptor = if stop.raw().is_invalid() {
-            let _ = events_tx.send((DoorId(0), DoorEvent::Note("The door for LiMo's settings could not be opened: no event.".into())));
+            let _ = events_tx.send((DoorId(0), DoorEvent::Note("The door for LiMo’s settings could not be opened: no event.".into())));
             None
         } else {
             match std::thread::Builder::new().name("limo door".to_string()).spawn(move || acceptor.run()) {
                 Ok(thread) => Some(thread),
                 Err(_) => {
-                    let text = "The door for LiMo's settings could not be opened: its thread could not be started.";
+                    let text = "The door for LiMo’s settings could not be opened: its thread could not be started.";
                     let _ = events_tx.send((DoorId(0), DoorEvent::Note(text.to_string())));
                     None
                 }

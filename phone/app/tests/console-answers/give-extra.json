@@ -1,0 +1,23 @@
+{
+  "request": "give_extra",
+  "case": "10 minutes more for today",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001",
+      "minutes": 10,
+      "tap_id": "tap-1"
+    },
+    "name": "give_extra"
+  },
+  "answer": {
+    "id": 30,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "given_now": true,
+        "id": "tap/tap-1"
+      }
+    },
+    "say": "answer"
+  }
+}

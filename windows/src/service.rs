@@ -402,8 +402,13 @@ impl<O: Os> Service<O> {
 
     fn log_quiet(&mut self, key: &str, text: &str, now: u64) {
         if let Some(line) = self.quiet.line(key, text, now) {
-            self.os.log(&line);
+            self.log(&line);
         }
+    }
+
+    /// Writes a line to the log, its apostrophes as LiMo writes them.
+    fn log(&mut self, line: &str) {
+        self.os.log(&crate::text::typographic(line));
     }
 
     // ----------------------------------------------------------------------
@@ -473,7 +478,7 @@ impl<O: Os> Service<O> {
                 }
                 slot.about_told = true;
                 let line = about_line(session, slot.pid, uiaccess, integrity, band, process_sddl.as_deref());
-                self.os.log(&line);
+                self.log(&line);
                 Ok(())
             }
             FromHelper::Report { idle_ms, front_pid, full_screen, playing_sound, screen_kept_awake } => {
@@ -574,9 +579,9 @@ impl<O: Os> Service<O> {
                     },
                 ),
             };
-            self.os.log(&format!("Session {session}: {kind} was tried from the lock screen: {}.", answer_words(&answer)));
+            self.log(&format!("Session {session}: {kind} was tried from the lock screen: {}.", answer_words(&answer)));
             if matches!(answer, Answer::Tried { outcome: TryOutcome::ReleaseConfirmed }) {
-                self.os.log(
+                self.log(
                     "A guardian confirmed a release with the PIN. Releasing the master PC is not built yet, so nothing more happens.",
                 );
             }
@@ -629,7 +634,7 @@ impl<O: Os> Service<O> {
                 self.os.end_helper(ending.id);
             } else if now >= ending.deadline {
                 self.os.end_helper(ending.id);
-                self.os.log(&format!("The helper with pid {} did not quit when told, so it was ended.", ending.pid));
+                self.log(&format!("The helper with pid {} did not quit when told, so it was ended.", ending.pid));
             } else {
                 still.push(ending);
             }
@@ -654,7 +659,7 @@ impl<O: Os> Service<O> {
             let wall_ms = wall.saturating_sub(wall_before).saturating_mul(1_000);
             let apart = wall_ms.saturating_sub(i64::try_from(steady).unwrap_or(i64::MAX)).unsigned_abs();
             if steady > GAP_NOTE_MS || apart > GAP_NOTE_MS {
-                self.os.log(&format!(
+                self.log(&format!(
                     "Since the last look, {} s passed by the steady count and {} s by the wall clock. \
                      Through a sleep both move alike; a clock that was set moves them apart.",
                     steady / 1_000,
@@ -766,7 +771,7 @@ impl<O: Os> Service<O> {
         if self.last_tidy.is_none_or(|t| now.saturating_sub(t) >= TIDY_EVERY_MS) {
             self.last_tidy = Some(now);
             if let Err(problem) = self.hub.tidy(wall) {
-                self.log_quiet("tidy", &format!("Tidying the family's file failed: {problem}"), now);
+                self.log_quiet("tidy", &format!("Tidying the family’s file failed: {problem}"), now);
             }
         }
     }
@@ -843,7 +848,7 @@ impl<O: Os> Service<O> {
                 keep.engine_show = order.show;
             }
             for line in lines {
-                self.os.log(&line);
+                self.log(&line);
             }
             self.refresh_name(id, now);
             self.refresh_show(id);
@@ -857,7 +862,7 @@ impl<O: Os> Service<O> {
             self.keeps.remove(&id);
             if let Some(slot) = self.slots.remove(&id) {
                 self.os.end_helper(slot.id);
-                self.os.log(&format!("Session {id} has ended, so its helper (pid {}) is closed.", slot.pid));
+                self.log(&format!("Session {id} has ended, so its helper (pid {}) is closed.", slot.pid));
             }
         }
     }
@@ -951,7 +956,7 @@ impl<O: Os> Service<O> {
                 }
                 if process.path.is_empty() {
                     let text = format!(
-                        "The family's rules block {name} (pid {}) in session {session}, but LiMo cannot read where its file is, so it does not close it.",
+                        "The family’s rules block {name} (pid {}) in session {session}, but LiMo cannot read where its file is, so it does not close it.",
                         process.pid
                     );
                     self.log_quiet(&format!("nopath/{session}/{name}"), &text, now);
@@ -963,8 +968,8 @@ impl<O: Os> Service<O> {
                     // once for the session, never again while it lasts.
                     let first = self.keeps.get_mut(&session).is_some_and(|keep| keep.spared.insert(spared.file));
                     if first {
-                        self.os.log(&format!(
-                            "The family's rules block {name} in session {session}, but it is part of Windows and LiMo never closes it: {}",
+                        self.log(&format!(
+                            "The family’s rules block {name} in session {session}, but it is part of Windows and LiMo never closes it: {}",
                             spared.why
                         ));
                     }
@@ -1037,7 +1042,7 @@ impl<O: Os> Service<O> {
                     text.push_str(&format!(" gap_ms={gap} (its end was noticed within one {STEP_MS} ms step)"));
                 }
                 if let Some(line) = self.launches.line(&format!("launch/{session}"), &text, now) {
-                    self.os.log(&line);
+                    self.log(&line);
                 }
                 for problem in &started.problems {
                     self.log_quiet(&format!("launch-problem/{problem}"), problem, now);
@@ -1076,7 +1081,7 @@ impl<O: Os> Service<O> {
             keep.unconfirmed_since = None;
             keep.state = SessionState::Disconnected;
             match self.os.disconnect_session(session) {
-                Ok(()) => self.os.log(&format!(
+                Ok(()) => self.log(&format!(
                     "No helper confirmed the lock on the screen of session {session} within {} seconds, so LiMo disconnected the session: \
                      the Windows sign in screen covers it, and its programs stay open.",
                     LOCK_CONFIRM_MS / 1_000

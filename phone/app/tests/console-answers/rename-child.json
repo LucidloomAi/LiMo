@@ -1,0 +1,24 @@
+{
+  "request": "rename_child",
+  "case": "Asha renamed, to the same name",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001",
+      "name": "Asha"
+    },
+    "name": "rename_child"
+  },
+  "answer": {
+    "id": 44,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "added_at": 1794997808,
+        "age_band": "ten_to_twelve",
+        "child_id": "child-0000000000000001",
+        "name": "Asha"
+      }
+    },
+    "say": "answer"
+  }
+}

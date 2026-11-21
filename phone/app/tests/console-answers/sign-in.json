@@ -1,0 +1,18 @@
+{
+  "request": "sign_in",
+  "case": "the right password, after the wait",
+  "asked": {
+    "args": {
+      "password": "(a secret: not written here)"
+    },
+    "name": "sign_in"
+  },
+  "answer": {
+    "id": 59,
+    "reply": {
+      "outcome": "done",
+      "value": {}
+    },
+    "say": "answer"
+  }
+}

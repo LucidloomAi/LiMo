@@ -1,0 +1,22 @@
+{
+  "request": "link_account",
+  "case": "an account that is not on this PC",
+  "asked": {
+    "args": {
+      "account": "S-1-5-21-1999",
+      "link": "not_limited"
+    },
+    "name": "link_account"
+  },
+  "answer": {
+    "id": 13,
+    "reply": {
+      "outcome": "problem",
+      "problem": {
+        "kind": "not_found",
+        "message": "There is no such Windows account on this PC."
+      }
+    },
+    "say": "answer"
+  }
+}

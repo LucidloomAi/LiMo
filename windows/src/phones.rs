@@ -16,6 +16,21 @@
 //! clock every [`LINK_POLL_MS`]. The link's timings ([`limo_link`]'s
 //! handshake limit, silence limit) run on a [`LinkClock`], which the tests
 //! make the fake PC's.
+//!
+//! **Where it listens.** On the loopback address always: the USB cable's
+//! tunnel arrives there, and that is all adding a phone needs. On the PC's
+//! home addresses too ([`LinkServer::listen_on_home`]), each bound to its own
+//! address, only while the service asks: once the family has a phone. Never
+//! on a public address, nor on every address at once.
+//!
+//! **Who comes in by the loopback.** Every program on the PC can connect to
+//! the loopback address, a child's too. So, for a connection from the
+//! loopback, Windows is asked which account the process at its other end
+//! runs in ([`LinkHooks::peer_account`]), and one from an account linked to
+//! a child is closed at once, before it takes any place among the
+//! connections served: a program in a child's account can never crowd out
+//! the cable while a guardian adds a phone. Any connection must also open
+//! the link (a first frame the link takes) within [`OPENING_LIMIT_MS`].
 
 #![forbid(unsafe_code)]
 
@@ -55,6 +70,44 @@ pub const MAX_CALLS_PER_MINUTE: u32 = 60;
 pub const CALL_WAIT_MS: u64 = 5_000;
 /// How long a write may wait for a phone to read, in milliseconds.
 pub const WRITE_LIMIT_MS: u64 = 5_000;
+/// A connection must open the link, with a first frame the link takes,
+/// within this long of being accepted, in milliseconds: a phone sends it at
+/// once.
+pub const OPENING_LIMIT_MS: u64 = 1_000;
+/// The most connections whose threads run at once, before any is counted
+/// among those served; more are closed at once.
+pub const MAX_LINK_THREADS: usize = 64;
+
+/// Makes the listener for an address. On the PC, `TcpListener::bind`; the
+/// tests make a loopback listener in the place of a home address, so that
+/// nothing listens on a real network.
+pub type Bind = Arc<dyn Fn(SocketAddr) -> std::io::Result<TcpListener> + Send + Sync>;
+
+/// The account (its security identifier) of the process at the other end
+/// of a loopback connection, given the connection's own address and the
+/// peer's, when Windows says.
+pub type PeerAccount = Arc<dyn Fn(SocketAddr, SocketAddr) -> Option<String> + Send + Sync>;
+
+/// What the listener asks of the system, so that the tests can stand in.
+#[derive(Clone)]
+pub struct LinkHooks {
+    /// Makes a listener.
+    pub bind: Bind,
+    /// Who is at the other end of a loopback connection.
+    pub peer_account: PeerAccount,
+}
+
+impl Default for LinkHooks {
+    fn default() -> LinkHooks {
+        LinkHooks { bind: Arc::new(TcpListener::bind), peer_account: Arc::new(|_, _| None) }
+    }
+}
+
+impl fmt::Debug for LinkHooks {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("LinkHooks")
+    }
+}
 
 /// The time, for the link: a steady count of milliseconds and the wall
 /// clock.
@@ -230,6 +283,9 @@ pub struct LinkBook {
     /// removed: its session opens, and the service tells it itself, so
     /// that the family's file can note that it was told.
     pub phones: Vec<KnownPhone>,
+    /// The Windows accounts linked to a child: a loopback connection from
+    /// a program in one of them is closed at once.
+    pub child_accounts: Vec<String>,
 }
 
 /// The counts of connections served, in all and by address.
@@ -280,6 +336,8 @@ struct Shared {
     clock: Arc<dyn LinkClock>,
     wake: Arc<dyn Fn() + Send + Sync>,
     counts: Counts,
+    threads: Arc<std::sync::atomic::AtomicUsize>,
+    peer_account: PeerAccount,
 }
 
 impl Shared {
@@ -317,6 +375,7 @@ impl Directory for ConnDirectory<'_> {
 struct Connection {
     conn: ConnId,
     peer: SocketAddr,
+    local: SocketAddr,
     stream: TcpStream,
     orders: Receiver<LinkOrder>,
     shared: Shared,
@@ -334,15 +393,37 @@ enum End {
 
 impl Connection {
     fn run(mut self) {
-        let end = self.serve();
+        let end = self.admit().and_then(|()| {
+            let end = self.serve();
+            self.shared.counts.give_back(self.peer.ip());
+            Err(end)
+        });
         let why = match end {
-            End::Quiet => None,
-            End::Problem(why) => Some(why),
+            Ok(()) | Err(End::Quiet) => None,
+            Err(End::Problem(why)) => Some(why),
         };
         self.shared.orders().remove(&self.conn);
         self.shared.call(self.conn, self.peer, LinkAsk::Ended { why });
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
-        self.shared.counts.give_back(self.peer.ip());
+        self.shared.threads.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    /// Before anything is read: a loopback connection from a program in a
+    /// child's account is closed at once; then a place among the
+    /// connections served, in all and for its address, or it is closed.
+    fn admit(&self) -> Result<(), End> {
+        if self.peer.ip().is_loopback()
+            && let Some(account) = (self.shared.peer_account)(self.local, self.peer)
+        {
+            let child = self.shared.book.read().is_ok_and(|book| book.child_accounts.contains(&account));
+            if child {
+                return Err(End::Problem("it came from a program in an account linked to a child".to_string()));
+            }
+        }
+        if !self.shared.counts.take(self.peer.ip()) {
+            return Err(End::Quiet);
+        }
+        Ok(())
     }
 
     /// Writes all of `bytes`, waiting while the phone reads.
@@ -394,12 +475,17 @@ impl Connection {
         let Some(keys) = keys else {
             return End::Problem("there is no family on this PC yet, so no phone can be served".to_string());
         };
-        let mut link = MasterLink::accept(&keys, self.shared.clock.now());
+        let accepted = self.shared.clock.now();
+        let mut link = MasterLink::accept(&keys, accepted);
         drop(keys);
+        let mut opened = false;
         let mut buffer = vec![0u8; 16 * 1024];
         let end = loop {
             if self.shared.stop.load(Ordering::SeqCst) {
                 break End::Quiet;
+            }
+            if !opened && self.shared.clock.now().ms.saturating_sub(accepted.ms) >= OPENING_LIMIT_MS {
+                break End::Problem(format!("it did not open the link within {} second", OPENING_LIMIT_MS / 1_000));
             }
             match self.orders.try_recv() {
                 Ok(LinkOrder::Close) | Err(TryRecvError::Disconnected) => break End::Quiet,
@@ -436,6 +522,9 @@ impl Connection {
             }
             let ticked = link.tick(now);
             let out = link.take_outgoing();
+            // The master's first words are its handshake's reply: the link
+            // took the first frame.
+            opened |= !out.is_empty();
             if !out.is_empty()
                 && let Err(end) = self.write_all(&out)
             {
@@ -499,7 +588,7 @@ impl Connection {
 fn refuse(link: &mut MasterLink, no: NoGo) -> Result<Result<(), LinkError>, End> {
     match no {
         NoGo::Refuse(why) => Ok(link.refuse(why)),
-        NoGo::Close => Err(End::Problem("the family's file could not answer just now".to_string())),
+        NoGo::Close => Err(End::Problem("the family’s file could not answer just now".to_string())),
     }
 }
 
@@ -510,33 +599,36 @@ fn link_problem(error: &LinkError) -> String {
     text.trim_end().trim_end_matches('.').to_string()
 }
 
-/// The thread that takes each connection.
+/// The thread that takes each connection on one address.
 struct Acceptor {
     listener: TcpListener,
     shared: Shared,
+    stop: Arc<AtomicBool>,
+    next: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Acceptor {
     fn run(self) {
-        let mut next: u64 = 0;
-        while !self.shared.stop.load(Ordering::SeqCst) {
+        while !self.shared.stop.load(Ordering::SeqCst) && !self.stop.load(Ordering::SeqCst) {
             match self.listener.accept() {
                 Ok((stream, peer)) => {
-                    if !self.shared.counts.take(peer.ip()) {
+                    if self.shared.threads.load(Ordering::SeqCst) >= MAX_LINK_THREADS {
                         // Closed at once, before anything is read.
                         drop(stream);
                         continue;
                     }
-                    next += 1;
-                    let conn = ConnId(next);
+                    let Ok(local) = stream.local_addr() else { continue };
+                    let conn = ConnId(self.next.fetch_add(1, Ordering::SeqCst) + 1);
                     let (order_tx, orders) = channel();
                     self.shared.orders().insert(conn, order_tx);
-                    let connection = Connection { conn, peer, stream, orders, shared: self.shared.clone(), minute: (0, 0) };
+                    self.shared.threads.fetch_add(1, Ordering::SeqCst);
+                    let connection =
+                        Connection { conn, peer, local, stream, orders, shared: self.shared.clone(), minute: (0, 0) };
                     let shared = self.shared.clone();
                     if std::thread::Builder::new().name("limo link connection".to_string()).spawn(move || connection.run()).is_err()
                     {
                         shared.orders().remove(&conn);
-                        shared.counts.give_back(peer.ip());
+                        shared.threads.fetch_sub(1, Ordering::SeqCst);
                     }
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => {
@@ -548,29 +640,58 @@ impl Acceptor {
     }
 }
 
-/// The listener and its connections. Dropping it ends them all.
+/// One address listened on: its acceptor's thread.
+struct Listening {
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Listening {
+    fn end(mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// The listeners and their connections. Dropping it ends them all.
 pub struct LinkServer {
-    local: SocketAddr,
+    loopback: SocketAddr,
+    port: u16,
+    hooks: LinkHooks,
     calls: Receiver<LinkCall>,
     shared: Shared,
-    acceptor: Option<JoinHandle<()>>,
+    next: Arc<std::sync::atomic::AtomicU64>,
+    listening: std::collections::BTreeMap<SocketAddr, Listening>,
 }
 
 impl fmt::Debug for LinkServer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LinkServer").field("local", &self.local).finish_non_exhaustive()
+        f.debug_struct("LinkServer").field("listening", &self.listening()).finish_non_exhaustive()
     }
 }
 
 impl LinkServer {
-    /// Listens on `bind` (on the PC, every IPv4 address at port 47810; in
-    /// the tests, the loopback address at a port the system chooses).
-    /// `wake` is called, on another thread, whenever a connection asks
-    /// something, so that the service answers it at once.
-    pub fn start(bind: SocketAddr, clock: Arc<dyn LinkClock>, wake: Arc<dyn Fn() + Send + Sync>) -> std::io::Result<LinkServer> {
-        let listener = TcpListener::bind(bind)?;
-        listener.set_nonblocking(true)?;
-        let local = listener.local_addr()?;
+    /// Listens on the loopback address `loopback` (on the PC, 127.0.0.1 at
+    /// port 47810; in the tests, at a port the system chooses), and nowhere
+    /// else until [`LinkServer::listen_on_home`] says. `wake` is called, on
+    /// another thread, whenever a connection asks something, so that the
+    /// service answers it at once.
+    pub fn start(loopback: SocketAddr, clock: Arc<dyn LinkClock>, wake: Arc<dyn Fn() + Send + Sync>) -> std::io::Result<LinkServer> {
+        LinkServer::start_with(loopback, clock, wake, LinkHooks::default())
+    }
+
+    /// As [`LinkServer::start`], with what it asks of the system given.
+    pub fn start_with(
+        loopback: SocketAddr,
+        clock: Arc<dyn LinkClock>,
+        wake: Arc<dyn Fn() + Send + Sync>,
+        hooks: LinkHooks,
+    ) -> std::io::Result<LinkServer> {
+        if !loopback.ip().is_loopback() {
+            return Err(std::io::Error::new(ErrorKind::InvalidInput, "the link starts on the loopback address only"));
+        }
         let (calls_tx, calls) = channel();
         let shared = Shared {
             book: Arc::new(RwLock::new(LinkBook::default())),
@@ -580,15 +701,82 @@ impl LinkServer {
             clock,
             wake,
             counts: Counts::default(),
+            threads: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            peer_account: hooks.peer_account.clone(),
         };
-        let acceptor = Acceptor { listener, shared: shared.clone() };
-        let acceptor = std::thread::Builder::new().name("limo link".to_string()).spawn(move || acceptor.run())?;
-        Ok(LinkServer { local, calls, shared, acceptor: Some(acceptor) })
+        let mut server = LinkServer {
+            loopback,
+            port: 0,
+            hooks,
+            calls,
+            shared,
+            next: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            listening: std::collections::BTreeMap::new(),
+        };
+        let local = server.listen(loopback)?;
+        server.port = local.port();
+        server.loopback = SocketAddr::new(loopback.ip(), local.port());
+        if loopback != server.loopback {
+            // Listed under the port it got.
+            if let Some(listening) = server.listening.remove(&loopback) {
+                server.listening.insert(server.loopback, listening);
+            }
+        }
+        Ok(server)
     }
 
-    /// The address it listens on.
+    /// Starts listening on one address; the address it got.
+    fn listen(&mut self, address: SocketAddr) -> std::io::Result<SocketAddr> {
+        let listener = (self.hooks.bind)(address)?;
+        listener.set_nonblocking(true)?;
+        let local = listener.local_addr()?;
+        let stop = Arc::new(AtomicBool::new(false));
+        let acceptor = Acceptor { listener, shared: self.shared.clone(), stop: stop.clone(), next: self.next.clone() };
+        let thread = std::thread::Builder::new().name("limo link".to_string()).spawn(move || acceptor.run())?;
+        self.listening.insert(address, Listening { stop, thread: Some(thread) });
+        Ok(local)
+    }
+
+    /// Listens on these home addresses too, each bound to its own address
+    /// at the link's port, and on no other but the loopback: an address
+    /// that is not a home one is passed over, an address gone is let go,
+    /// and none means the loopback only. What could not be listened on is
+    /// said, address by address.
+    pub fn listen_on_home(&mut self, addresses: &[std::net::Ipv4Addr]) -> Vec<String> {
+        let wanted: std::collections::BTreeSet<SocketAddr> = addresses
+            .iter()
+            .filter(|a| crate::announce::is_home_address(**a))
+            .take(crate::announce::MAX_HOME_ADDRESSES)
+            .map(|a| SocketAddr::from((*a, self.port)))
+            .collect();
+        let gone: Vec<SocketAddr> =
+            self.listening.keys().filter(|a| **a != self.loopback && !wanted.contains(a)).copied().collect();
+        for address in gone {
+            if let Some(listening) = self.listening.remove(&address) {
+                listening.end();
+            }
+        }
+        let mut problems = Vec::new();
+        for address in wanted {
+            if !self.listening.contains_key(&address)
+                && let Err(problem) = self.listen(address)
+            {
+                problems.push(format!("{}: {problem}", address.ip()));
+            }
+        }
+        problems
+    }
+
+    /// The addresses listened on now, the loopback first.
+    pub fn listening(&self) -> Vec<SocketAddr> {
+        let mut all = vec![self.loopback];
+        all.extend(self.listening.keys().filter(|a| **a != self.loopback));
+        all
+    }
+
+    /// The loopback address it listens on.
     pub fn local_addr(&self) -> SocketAddr {
-        self.local
+        self.loopback
     }
 
     /// Everything the connections asked since the last call.
@@ -601,8 +789,9 @@ impl LinkServer {
         self.shared.orders().get(&conn).is_some_and(|tx| tx.send(order).is_ok())
     }
 
-    /// Replaces what every connection reads: the master's keys and the
-    /// phones. New connections and new handshakes see it at once.
+    /// Replaces what every connection reads: the master's keys, the phones
+    /// and the accounts linked to a child. New connections and new
+    /// handshakes see it at once.
     pub fn set_book(&self, book: LinkBook) {
         if let Ok(mut held) = self.shared.book.write() {
             *held = book;
@@ -621,8 +810,8 @@ impl Drop for LinkServer {
         for order in self.shared.orders().values() {
             let _ = order.send(LinkOrder::Close);
         }
-        if let Some(acceptor) = self.acceptor.take() {
-            let _ = acceptor.join();
+        for (_, listening) in std::mem::take(&mut self.listening) {
+            listening.end();
         }
     }
 }

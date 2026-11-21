@@ -506,6 +506,7 @@ dependencies = [
  "mdns-sd",
  "serde",
  "serde_json",
+ "socket2",
  "tempfile",
  "windows",
  "windows-service",

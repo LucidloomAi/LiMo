@@ -1,0 +1,19 @@
+{
+  "request": "remove_device",
+  "case": "the phone removed",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000002",
+      "password": "(a secret: not written here)"
+    },
+    "name": "remove_device"
+  },
+  "answer": {
+    "id": 61,
+    "reply": {
+      "outcome": "done",
+      "value": {}
+    },
+    "say": "answer"
+  }
+}

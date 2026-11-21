@@ -1,0 +1,107 @@
+{
+  "request": "replace_rules",
+  "case": "rules with a bedtime and a budget that cannot be",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001",
+      "rules": {
+        "always_allowed_apps": [],
+        "away_share_percent": 50,
+        "blocked_apps": [
+          "game.exe"
+        ],
+        "blocked_hours": [
+          {
+            "days": [
+              "sunday",
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday"
+            ],
+            "end_minute": 420,
+            "start_minute": 2000
+          }
+        ],
+        "budgets": {
+          "friday": {
+            "minutes": 2000
+          },
+          "monday": {
+            "minutes": 2000
+          },
+          "saturday": {
+            "minutes": 2000
+          },
+          "sunday": {
+            "minutes": 2000
+          },
+          "thursday": {
+            "minutes": 2000
+          },
+          "tuesday": {
+            "minutes": 2000
+          },
+          "wednesday": {
+            "minutes": 2000
+          }
+        },
+        "day_start_minute": 0,
+        "lease_minutes": 10,
+        "utc_offset_secs": 19800,
+        "version": 1,
+        "warning_minutes": [
+          15,
+          5,
+          1
+        ]
+      }
+    },
+    "name": "replace_rules"
+  },
+  "answer": {
+    "id": 16,
+    "reply": {
+      "outcome": "problem",
+      "problem": {
+        "kind": "rules",
+        "message": "The rules were not taken. Each problem is said beside its field.",
+        "rule_problems": [
+          {
+            "field": "budgets.monday",
+            "message": "Monday’s budget is 2000 minutes, more than a whole day. Use no limit instead."
+          },
+          {
+            "field": "budgets.tuesday",
+            "message": "Tuesday’s budget is 2000 minutes, more than a whole day. Use no limit instead."
+          },
+          {
+            "field": "budgets.wednesday",
+            "message": "Wednesday’s budget is 2000 minutes, more than a whole day. Use no limit instead."
+          },
+          {
+            "field": "budgets.thursday",
+            "message": "Thursday’s budget is 2000 minutes, more than a whole day. Use no limit instead."
+          },
+          {
+            "field": "budgets.friday",
+            "message": "Friday’s budget is 2000 minutes, more than a whole day. Use no limit instead."
+          },
+          {
+            "field": "budgets.saturday",
+            "message": "Saturday’s budget is 2000 minutes, more than a whole day. Use no limit instead."
+          },
+          {
+            "field": "budgets.sunday",
+            "message": "Sunday’s budget is 2000 minutes, more than a whole day. Use no limit instead."
+          },
+          {
+            "field": "blocked_hours[0].start_minute",
+            "message": "Blocked hours number 1 starts at minute 2000, but it must start between 00:00 and 23:59."
+          }
+        ]
+      }
+    },
+    "say": "answer"
+  }
+}

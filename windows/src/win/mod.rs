@@ -6,6 +6,17 @@
 //! whether it plays sound or keeps the screen awake), which change nothing
 //! and pass whatever the answer.
 
+/// `println!` for words a person reads in the terminal, their apostrophes
+/// as LiMo writes them, whatever crate the words came from.
+macro_rules! say {
+    () => {
+        println!()
+    };
+    ($($arg:tt)*) => {
+        println!("{}", $crate::text::typographic(&format!($($arg)*)))
+    };
+}
+
 mod about;
 mod accounts;
 mod clock;
@@ -19,6 +30,7 @@ pub(crate) mod install;
 mod launch;
 mod logfile;
 mod os;
+mod peers;
 mod pipe;
 mod playing;
 mod processes;
@@ -33,7 +45,7 @@ use crate::cli::{self, Command};
 pub(crate) fn run(args: &[String]) -> i32 {
     match cli::parse(args) {
         Ok(Command::Help) => {
-            println!("{}", cli::usage());
+            say!("{}", cli::usage());
             0
         }
         Ok(Command::Service) => service::run(),
@@ -46,7 +58,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Ok(Command::ResetPassword) => install::reset_password(),
         Ok(Command::DevConsole) => devconsole::run(),
         Err(problem) => {
-            println!("{problem}");
+            say!("{problem}");
             2
         }
     }

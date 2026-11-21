@@ -1,0 +1,35 @@
+{
+  "request": "waiting_requests",
+  "case": "Asha asks for 20 minutes",
+  "asked": {
+    "name": "waiting_requests"
+  },
+  "answer": {
+    "id": 27,
+    "reply": {
+      "outcome": "done",
+      "value": [
+        {
+          "child_id": "child-0000000000000001",
+          "child_name": "Asha",
+          "device_name": "Family PC",
+          "request": {
+            "answer": "waiting",
+            "answered_at": null,
+            "reached_master": true,
+            "request": {
+              "asked_at": 1794998128,
+              "child_id": "child-0000000000000001",
+              "day": 20775,
+              "device_id": "device-0000000000000001",
+              "id": "device-0000000000000001/ask/1",
+              "minutes": 20,
+              "reason": "For the school project"
+            }
+          }
+        }
+      ]
+    },
+    "say": "answer"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "request": "family_state",
+  "case": "LiMo just installed: no family yet",
+  "asked": {
+    "name": "family_state"
+  },
+  "answer": {
+    "id": 1,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "children": 0,
+        "has_family": false,
+        "has_pin": false,
+        "signed_in": false,
+        "unlinked_accounts": "free"
+      }
+    },
+    "say": "answer"
+  }
+}

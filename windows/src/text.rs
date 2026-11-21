@@ -4,6 +4,14 @@
 
 #![forbid(unsafe_code)]
 
+/// LiMo's one rule for an apostrophe in words a person reads: an ASCII one
+/// between two letters becomes the typographic one ("family’s"), as the
+/// screens draw it. Everything `windows/` says to a person goes through it
+/// where words from another crate (the family's file's refusals, the
+/// engine's sentences) join its own: the console's answers, the log, the
+/// plain display and the terminal.
+pub use limo_screens::words::typographic;
+
 /// A moment on the PC's own clock, for showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LocalMoment {

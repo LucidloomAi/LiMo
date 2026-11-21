@@ -89,7 +89,7 @@ impl OpenAccounts {
             Err(HubError::NoPin) => TryOutcome::NotSet,
             Err(_) => {
                 return Answer::Refused {
-                    message: "LiMo could not read the family's file just now. Try again in a moment.".to_string(),
+                    message: "LiMo could not read the family’s file just now. Try again in a moment.".to_string(),
                 };
             }
         };

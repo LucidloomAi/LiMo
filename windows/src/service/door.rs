@@ -230,6 +230,24 @@ fn changes(request: &Request) -> bool {
     )
 }
 
+/// A message to a console with every sentence in it as LiMo writes its
+/// words: the door's own, and those of the family's file and the rules it
+/// passes on.
+fn in_words(message: ToConsole) -> ToConsole {
+    use crate::text::typographic;
+    match message {
+        ToConsole::Refused { message } => ToConsole::Refused { message: typographic(&message) },
+        ToConsole::Answer { id, reply: Reply::Problem { mut problem } } => {
+            problem.message = typographic(&problem.message);
+            for rule in &mut problem.rule_problems {
+                rule.message = typographic(&rule.message);
+            }
+            ToConsole::Answer { id, reply: Reply::Problem { problem } }
+        }
+        other => other,
+    }
+}
+
 /// The name of what came, for the log of a slow turn.
 fn event_name(event: &DoorEvent) -> &'static str {
     match event {
@@ -290,7 +308,7 @@ impl<O: Os> Service<O> {
         let ms = took.as_millis();
         if ms >= u128::from(SLOW_REQUEST_MS) {
             let text = format!(
-                "The console's request {name} took {ms} ms between two steps of the service. The PC's counting goes by the steady clock and loses nothing by it."
+                "The console’s request {name} took {ms} ms between two steps of the service. The PC’s counting goes by the steady clock and loses nothing by it."
             );
             self.log_quiet(&format!("door-slow/{name}"), &text, now);
         }
@@ -346,12 +364,12 @@ impl<O: Os> Service<O> {
         }
         if open >= MAX_CONNECTIONS {
             let message = format!(
-                "LiMo's settings are already open in {MAX_CONNECTIONS} windows. Close one of them, then try again."
+                "LiMo’s settings are already open in {MAX_CONNECTIONS} windows. Close one of them, then try again."
             );
             self.refuse(id, message, "as many consoles as LiMo serves at once are open", now);
             return;
         }
-        let text = format!("A console connected to LiMo's settings from {session}.");
+        let text = format!("A console connected to LiMo’s settings from {session}.");
         self.log_quiet(&format!("door-open/{session}"), &text, now);
     }
 
@@ -367,7 +385,7 @@ impl<O: Os> Service<O> {
         self.os.door_close(id);
         self.forget_door(id);
         if let Some(session) = session {
-            let text = format!("The console's connection from {session} was closed, because {why}.");
+            let text = format!("The console’s connection from {session} was closed, because {why}.");
             self.log_quiet(&format!("door-closed/{session}/{why}"), &text, now);
         }
     }
@@ -380,10 +398,10 @@ impl<O: Os> Service<O> {
         conn.close_at = Some(now.saturating_add(REFUSED_CLOSE_MS));
         let session = conn.session();
         self.door.waiting.retain(|(waiting, _)| *waiting != id);
-        if let Ok(frame) = encode_to_console(&ToConsole::Refused { message }) {
+        if let Ok(frame) = encode_to_console(&in_words(ToConsole::Refused { message })) {
             let _ = self.os.door_send(id, frame);
         }
-        let text = format!("LiMo's settings were refused to a console in {session}: {why}.");
+        let text = format!("LiMo’s settings were refused to a console in {session}: {why}.");
         self.log_quiet(&format!("door-refused/{session}/{why}"), &text, now);
     }
 
@@ -392,7 +410,7 @@ impl<O: Os> Service<O> {
     fn refusal(&self, client: &ClientSeen) -> Option<(String, &'static str)> {
         let Some(account) = &client.account_id else {
             return Some((
-                "LiMo could not tell which Windows account this window runs in, so LiMo's settings cannot be opened from it."
+                "LiMo could not tell which Windows account this window runs in, so LiMo’s settings cannot be opened from it."
                     .to_string(),
                 "Windows did not say which account it runs in",
             ));
@@ -401,18 +419,18 @@ impl<O: Os> Service<O> {
             Ok(AccountStanding::Child { child_id }) => {
                 let message = match self.hub.child(&child_id) {
                     Ok(child) => format!(
-                        "LiMo's settings cannot be opened from {}'s account. A guardian opens them from their own.",
+                        "LiMo’s settings cannot be opened from {}'s account. A guardian opens them from their own.",
                         child.name
                     ),
-                    Err(_) => "LiMo's settings cannot be opened from a child's account. A guardian opens them from their own.".to_string(),
+                    Err(_) => "LiMo’s settings cannot be opened from a child’s account. A guardian opens them from their own.".to_string(),
                 };
                 Some((message, "its account is linked to a child"))
             }
             Ok(_) => None,
             Err(_) => Some((
-                "LiMo's settings cannot be opened just now, because the family's file could not be read. Try again in a moment."
+                "LiMo’s settings cannot be opened just now, because the family’s file could not be read. Try again in a moment."
                     .to_string(),
-                "the family's file could not be read to tell whose account it is",
+                "the family’s file could not be read to tell whose account it is",
             )),
         }
     }
@@ -428,7 +446,7 @@ impl<O: Os> Service<O> {
                 if greeted {
                     self.close_door(id, "it said hello twice", now);
                 } else if protocol != CONSOLE_PROTOCOL_VERSION {
-                    let why = format!("it said hello in version {protocol} of the console's protocol, and this LiMo speaks version {CONSOLE_PROTOCOL_VERSION}");
+                    let why = format!("it said hello in version {protocol} of the console’s protocol, and this LiMo speaks version {CONSOLE_PROTOCOL_VERSION}");
                     self.close_door(id, &why, now);
                 } else {
                     conn.greeted = true;
@@ -463,6 +481,7 @@ impl<O: Os> Service<O> {
     /// Hands a message to a console. A console that does not read what it
     /// is sent is closed.
     fn send_to_console(&mut self, id: DoorId, message: &ToConsole, now: u64) {
+        let message = &in_words(message.clone());
         let frame = match encode_to_console(message) {
             Ok(frame) => frame,
             Err(_) => {
@@ -501,7 +520,7 @@ impl<O: Os> Service<O> {
                 Err(problem) if problem.kind == ProblemKind::MustWait => "a sign in was not tried: a wait after wrong passwords is in force".to_string(),
                 Err(problem) => format!("a sign in was not done ({:?})", problem.kind),
             };
-            let text = format!("LiMo's settings in {session}: {what}.");
+            let text = format!("LiMo’s settings in {session}: {what}.");
             self.log_quiet(&format!("door-sign-in/{session}/{what}"), &text, now);
         }
         let reply = match result {
@@ -511,8 +530,8 @@ impl<O: Os> Service<O> {
                     // and the link reads its book again.
                     self.last_tick = None;
                     self.phones.changed();
-                    let text = format!("From LiMo's settings in {session}: {} done.", request.name());
-                    self.os.log(&text);
+                    let text = format!("From LiMo’s settings in {session}: {} done.", request.name());
+                    self.log(&text);
                 }
                 Reply::Done { value }
             }
@@ -555,7 +574,7 @@ impl<O: Os> Service<O> {
     fn hub_fail(&mut self, request: &str, error: &HubError) -> Problem {
         let (problem, failed) = hub_problem(error);
         if failed {
-            let text = format!("The console's request {request} failed: {error:?}");
+            let text = format!("The console’s request {request} failed: {error:?}");
             let now = self.os.steady_ms();
             self.log_quiet(&format!("door-failed/{request}"), &text, now);
         }
@@ -715,7 +734,7 @@ impl<O: Os> Service<O> {
                 Err(OfferNotMade::Hub(error)) => Err(Fail::Hub(error)),
                 Err(OfferNotMade::NoLink) => Err(Fail::Problem(Problem::new(
                     ProblemKind::Failed,
-                    "The link for phones is not running on this PC, so no phone can pair with it now. The service's log says why.",
+                    "The link for phones is not running on this PC, so no phone can pair with it now. The service’s log says why.",
                 ))),
                 Err(OfferNotMade::Link(why)) => Err(Fail::Problem(Problem::new(ProblemKind::Failed, why))),
             },
@@ -790,7 +809,7 @@ impl<O: Os> Service<O> {
         if matches!(link, AccountLink::Child { .. }) && client.account_id.as_deref() == Some(account) {
             return Err(Fail::Problem(Problem::new(
                 ProblemKind::Refused,
-                "LiMo's settings are open in this account, so it cannot be linked to a child from here: a guardian would be shut out of them. Link it from another account.",
+                "LiMo’s settings are open in this account, so it cannot be linked to a child from here: a guardian would be shut out of them. Link it from another account.",
             )));
         }
         let display = found.full_name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&found.name).to_string();
@@ -833,10 +852,10 @@ impl<O: Os> Service<O> {
         }
         for session in ended {
             let text = format!(
-                "The session of LiMo's settings in {session} ended after {} minutes with no request.",
+                "The session of LiMo’s settings in {session} ended after {} minutes with no request.",
                 SESSION_IDLE_MS / 60_000
             );
-            self.os.log(&text);
+            self.log(&text);
         }
     }
 }

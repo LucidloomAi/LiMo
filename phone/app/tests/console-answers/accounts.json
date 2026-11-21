@@ -1,0 +1,54 @@
+{
+  "request": "accounts",
+  "case": "the accounts, linked",
+  "asked": {
+    "name": "accounts"
+  },
+  "answer": {
+    "id": 24,
+    "reply": {
+      "outcome": "done",
+      "value": [
+        {
+          "account_id": "S-1-5-21-1000",
+          "display_name": "guardian",
+          "is_administrator": true,
+          "link": {
+            "kind": "not_limited"
+          },
+          "name": "guardian",
+          "on_this_pc": true,
+          "signed_in": true,
+          "this_window": true
+        },
+        {
+          "account_id": "S-1-5-21-1001",
+          "display_name": "asha",
+          "is_administrator": false,
+          "link": {
+            "child_id": "child-0000000000000001",
+            "child_name": "Asha",
+            "kind": "child"
+          },
+          "name": "asha",
+          "on_this_pc": true,
+          "signed_in": false,
+          "this_window": false
+        },
+        {
+          "account_id": "S-1-5-21-1009",
+          "display_name": "guest",
+          "is_administrator": false,
+          "link": {
+            "kind": "not_limited"
+          },
+          "name": "guest",
+          "on_this_pc": true,
+          "signed_in": false,
+          "this_window": false
+        }
+      ]
+    },
+    "say": "answer"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "request": "lift",
+  "case": "the lock lifted",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "lift"
+  },
+  "answer": {
+    "id": 32,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "mode": "nothing",
+        "set_at": 1794998137,
+        "version": 2
+      }
+    },
+    "say": "answer"
+  }
+}

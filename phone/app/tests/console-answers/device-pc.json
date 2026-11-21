@@ -1,0 +1,26 @@
+{
+  "request": "device",
+  "case": "the PC’s own device",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000001"
+    },
+    "name": "device"
+  },
+  "answer": {
+    "id": 43,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "child_id": "child-0000000000000001",
+        "device_id": "device-0000000000000001",
+        "kind": "on_master",
+        "last_heard_at": 1794998143,
+        "name": "Family PC",
+        "paired_at": 1794997825,
+        "platform": "windows"
+      }
+    },
+    "say": "answer"
+  }
+}

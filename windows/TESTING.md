@@ -98,7 +98,7 @@ Undo: `.\limo uninstall` from the elevated terminal.
    `Blocked for Asha: notepad.exe, explorer.exe.`
 3. Still with the service stopped: `.\limo dev-code --minutes 15`. It says
    it is scaffolding until the guardian's phone app exists, and prints `A
-   one time code for Asha's device on this PC, worth 15 minutes, for today
+   one time code for Asha’s device on this PC, worth 15 minutes, for today
    only:` and the code, as two groups of four digits. Write the code down:
    part J uses it, and it works today only. Run it a second time: a
    different code. Write that down too, as the spare.
@@ -195,7 +195,7 @@ In the child's session:
 
 1. Open Notepad. Within about a second it closes, and a notice shows above
    the time left display: a blocked sign, `Notepad was closed.`, and under
-   it `It is blocked by your family's rules.`, for 10 seconds. The name is
+   it `It is blocked by your family’s rules.`, for 10 seconds. The name is
    the description Notepad's own file carries, without a closing `.exe`
    (Windows 11's Notepad describes itself as "Notepad.exe"); were there
    none, the notice would name the file, `Notepad.exe was closed.`. Open it
@@ -207,7 +207,7 @@ In the child's session:
    times it was opened in ten minutes. The count may be 2 the first time:
    Windows' own starter and the app it starts. A program whose description
    says more than its file name has it in brackets after the file name, as
-   in `Closed gl.exe ("Game Launcher")`. And one line `The family's rules
+   in `Closed gl.exe ("Game Launcher")`. And one line `The family’s rules
    block explorer.exe in session N, but it is part of Windows and LiMo never
    closes it: ...`, said once for the session.
 
@@ -240,7 +240,7 @@ In the child's session, use the PC until the 20 minutes are used up.
 2. At zero the lock covers every monitor. The main monitor shows the
    design's lock screen: the paper with its dots, LiMo's mark and the clock
    at the top, and a card with an hourglass, a `LOCKED` stamp, `ASHA · THIS
-   PC`, `Today's time is used up.`, `Today's screen time is used up.`,
+   PC`, `Today’s time is used up.`, `Today’s screen time is used up.`,
    `OPENS AGAIN` with when, and on its right `WHAT YOU CAN DO`: ask for more
    time, type a one time code, guardian PIN. Every other monitor says to
    look at the main one.
@@ -361,7 +361,7 @@ In the child's session, while the time added in part J runs.
 3. **The closed notice.** Open Notepad: the notice appears above the
    display, their right edges in line (below it, if you dragged the display
    to the top of the screen), with `Notepad was closed.` and `It is
-   blocked by your family's rules.` Click beside OK on the notice: nothing.
+   blocked by your family’s rules.` Click beside OK on the notice: nothing.
    Click OK: it goes. Open Notepad again and leave it: the notice goes by
    itself after 10 seconds.
 4. **Each warning.** At 5 and at 1 minute left, as in part H: each appears
@@ -446,7 +446,7 @@ with no family.
 1. Elevated, from the build folder: `.\limo uninstall` if LiMo is
    installed, then `.\limo install --dev`. Do not run `dev-setup`.
    `.\limo status`: the log ends with `The service started` and `The door
-   for LiMo's settings is open.`
+   for LiMo’s settings is open.`
 2. **Opened from your own account.** From an ordinary PowerShell (not
    elevated), in the build folder: `.\limo dev-console`. Look for `The door
    is served by process P in session 0, where services run.` and `LiMo for
@@ -470,8 +470,8 @@ with no family.
    door counts, with no `dev-setup`.
 5. **Refused from the child's account.** In a PowerShell in the child's
    account: `& "C:\Program Files\LiMo\limo.exe" dev-console`. It says `The
-   door is served by process P in session 0, ...`, then `LiMo's settings
-   cannot be opened from Asha's account. A guardian opens them from their
+   door is served by process P in session 0, ...`, then `LiMo’s settings
+   cannot be opened from Asha’s account. A guardian opens them from their
    own.`, and ends; `$LASTEXITCODE` is 2. Nothing else can be typed. Switch
    back to your own account.
 6. **A wrong password's wait.** In your dev-console: `sign-out` (`Done.`),
@@ -487,10 +487,10 @@ with no family.
    covers the screen (the test cap lifts it after 120 seconds). Switch
    back: `request lift {"child":"CHILD_ID"}`, and the child's account opens
    again within a second or two.
-8. Elevated: `.\limo status`. Look for: `A console connected to LiMo's
-   settings from session N (pid P).` for yours; `LiMo's settings were
+8. Elevated: `.\limo status`. Look for: `A console connected to LiMo’s
+   settings from session N (pid P).` for yours; `LiMo’s settings were
    refused to a console in session M (pid Q): its account is linked to a
-   child.` for the child's; `From LiMo's settings in session N (pid P):
+   child.` for the child's; `From LiMo’s settings in session N (pid P):
    create_family done.` and lines like it; `a wrong guardian password was
    typed`. No line holds the password, the PIN, or the child's name. No line
    says a request `took ... ms between two steps`. If the 20 lines are too
@@ -528,7 +528,7 @@ added by hand, and removed at its end.
 1. Here, in the `windows` folder: `cargo build --release --example
    limo-phone`. Copy `target\release\examples\limo-phone.exe` to the second
    PC (a USB stick will do).
-2. Elevated: `.\limo status`. The log has `The link for the family's phones
+2. Elevated: `.\limo status`. The log has `The link for the family’s phones
    listens on port 47810.` If it says the port could not be had, copy the
    line: another program holds 47810. There is no `announces` line yet: the
    family has no phone, and LiMo says nothing on the network.
@@ -550,7 +550,7 @@ added by hand, and removed at its end.
    the home network, with a pairing offer (device ...).`, then `LiMo
    announces itself on the home network: service _limo._tcp.local.,
    instance "LiMo xxxxxxxx", host limo-xxxxxxxx.local., port 47810, TXT v=1
-   id=..., and the PC's address on each home network.` Write down the id.
+   id=..., and the PC’s address on each home network.` Write down the id.
    No line holds the offer's text.
 7. On the second PC: `.\limo-phone.exe look`: `Found "LiMo
    xxxxxxxx._limo._tcp.local." at` this PC's home address `port 47810`,

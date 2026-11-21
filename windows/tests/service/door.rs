@@ -99,7 +99,7 @@ fn a_family_is_made_through_the_door_with_no_dev_setup() {
     let child = pc.done(door, Request::AddChild { name: "Asha".into(), age_band: AgeBand::TenToTwelve });
     let asha = child["child_id"].as_str().unwrap().to_string();
     let mut rules: RuleSet = serde_json::from_value(pc.done(door, Request::Rules { child: asha.clone() })).unwrap();
-    assert_eq!(rules.utc_offset_secs, IST, "the child's home zone is the PC's");
+    assert_eq!(rules.utc_offset_secs, IST, "the child’s home zone is the PC’s");
     rules.budgets = WeekBudgets::every_day(DailyBudget::Minutes(30));
     rules.blocked_apps = vec!["game.exe".into()];
     pc.done(door, Request::ReplaceRules { child: asha.clone(), rules });
@@ -151,7 +151,7 @@ fn the_childs_account_is_refused_at_the_door_in_the_guardians_words() {
     let asha = pc.add_child("Asha", ASHA, 60);
     let door = pc.console(ASHA, 2);
     let refused = ToConsole::Refused {
-        message: "LiMo's settings cannot be opened from Asha's account. A guardian opens them from their own.".into(),
+        message: "LiMo’s settings cannot be opened from Asha’s account. A guardian opens them from their own.".into(),
     };
     assert_eq!(pc.hello(door), Some(refused.clone()));
     // Nothing it says after is answered, and it is closed a moment later.

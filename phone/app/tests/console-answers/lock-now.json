@@ -1,0 +1,27 @@
+{
+  "request": "lock_now",
+  "case": "Asha locked until a guardian lifts it",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001",
+      "until": null
+    },
+    "name": "lock_now"
+  },
+  "answer": {
+    "id": 31,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "mode": {
+          "lock": {
+            "until": null
+          }
+        },
+        "set_at": 1794998136,
+        "version": 1
+      }
+    },
+    "say": "answer"
+  }
+}

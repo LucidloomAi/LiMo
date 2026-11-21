@@ -52,6 +52,8 @@ pub mod cli;
 pub mod close;
 pub mod console;
 pub mod devconsole;
+#[cfg(all(windows, feature = "door-host"))]
+pub mod door_host;
 pub mod drawn;
 pub mod helper;
 pub mod os;

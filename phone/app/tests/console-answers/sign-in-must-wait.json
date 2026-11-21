@@ -1,0 +1,23 @@
+{
+  "request": "sign_in",
+  "case": "the right password, during the wait",
+  "asked": {
+    "args": {
+      "password": "(a secret: not written here)"
+    },
+    "name": "sign_in"
+  },
+  "answer": {
+    "id": 58,
+    "reply": {
+      "outcome": "problem",
+      "problem": {
+        "kind": "must_wait",
+        "message": "Too many wrong tries. Wait before trying again.",
+        "tries_before_wait": 0,
+        "wait_until": 1794998222
+      }
+    },
+    "say": "answer"
+  }
+}

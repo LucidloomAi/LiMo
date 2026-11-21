@@ -1,0 +1,15 @@
+{
+  "request": "sign_out",
+  "case": "signed out",
+  "asked": {
+    "name": "sign_out"
+  },
+  "answer": {
+    "id": 50,
+    "reply": {
+      "outcome": "done",
+      "value": {}
+    },
+    "say": "answer"
+  }
+}

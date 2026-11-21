@@ -1,0 +1,20 @@
+{
+  "request": "allow_removal",
+  "case": "LiMo may be uninstalled for the next few minutes",
+  "asked": {
+    "args": {
+      "password": "(a secret: not written here)"
+    },
+    "name": "allow_removal"
+  },
+  "answer": {
+    "id": 63,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "until": 1794998829
+      }
+    },
+    "say": "answer"
+  }
+}

@@ -2,7 +2,7 @@
 //! helpers and their channels, and a clock of its own; and a harness around
 //! the real service, with a real family file in a temporary folder.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,7 +13,7 @@ use limo_hub::{AccountLink, AgeBand, Hub};
 use limo_link::{MasterId, Now};
 use limo_windows::RealDoor;
 use limo_windows::announce::Announce;
-use limo_windows::phones::{LinkClock, LinkServer};
+use limo_windows::phones::{LinkClock, LinkHooks, LinkServer};
 use limo_windows::console::{
     CONSOLE_PROTOCOL_VERSION, ConsoleIncoming, ConsoleReader, FromConsole, Reply, Request, ToConsole, answer_decoder, encode_from_console,
 };
@@ -411,6 +411,12 @@ pub struct Pc {
     pub clock: SharedClock,
     /// What the announcer was asked.
     pub announced: Arc<Mutex<Vec<String>>>,
+    /// The home addresses the link was asked to listen on; a loopback
+    /// listener stood in for each, so that nothing listens on a network.
+    pub bound: Arc<Mutex<Vec<SocketAddr>>>,
+    /// The accounts of the programs at the other end of loopback
+    /// connections, by the program's own port, as Windows would say them.
+    pub owners: Arc<Mutex<HashMap<u16, String>>>,
 }
 
 impl Pc {
@@ -440,14 +446,33 @@ impl Pc {
         os.processes.push(ProcessSeen { pid: OWN_PID, session_id: 0, started: 1, name: "limo.exe".into(), path: OWN_EXE.into() });
         let clock = SharedClock::default();
         clock.set(os.steady_ms, os.wall_ms.div_euclid(1_000));
-        Pc { _dir: dir, service: Service::new(os, hub, config), clock, announced: Arc::new(Mutex::new(Vec::new())) }
+        Pc {
+            _dir: dir,
+            service: Service::new(os, hub, config),
+            clock,
+            announced: Arc::new(Mutex::new(Vec::new())),
+            bound: Arc::new(Mutex::new(Vec::new())),
+            owners: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     /// Starts the link on the loopback address, at a port the system
     /// chooses; its address. Its threads read the fake PC's clocks.
     pub fn with_link(&mut self) -> SocketAddr {
         let bind: SocketAddr = "127.0.0.1:0".parse().unwrap();
-        let server = LinkServer::start(bind, Arc::new(self.clock.clone()), Arc::new(|| {})).unwrap();
+        let bound = self.bound.clone();
+        let owners = self.owners.clone();
+        let hooks = LinkHooks {
+            bind: Arc::new(move |asked: SocketAddr| {
+                if asked.ip().is_loopback() {
+                    return std::net::TcpListener::bind(asked);
+                }
+                bound.lock().unwrap().push(asked);
+                std::net::TcpListener::bind("127.0.0.1:0")
+            }),
+            peer_account: Arc::new(move |_local, peer: SocketAddr| owners.lock().unwrap().get(&peer.port()).cloned()),
+        };
+        let server = LinkServer::start_with(bind, Arc::new(self.clock.clone()), Arc::new(|| {}), hooks).unwrap();
         let address = server.local_addr();
         let announcer = NotedAnnouncer { said: self.announced.clone() };
         self.service.open_link(server, Box::new(announcer));

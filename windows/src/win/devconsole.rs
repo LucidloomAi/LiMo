@@ -26,16 +26,16 @@ fn wait_answer(client: &mut DoorClient, id: u32) -> Option<Reply> {
         match client.read(ANSWER_WAIT_MS) {
             Ok(Some(ToConsole::Answer { id: got, reply })) if got == id => return Some(reply),
             Ok(Some(ToConsole::Refused { message })) => {
-                println!("{message}");
+                say!("{message}");
                 return None;
             }
             Ok(Some(_)) => {}
             Ok(None) => {
-                println!("No answer came within {} seconds.", ANSWER_WAIT_MS / 1_000);
+                say!("No answer came within {} seconds.", ANSWER_WAIT_MS / 1_000);
                 return None;
             }
             Err(problem) => {
-                println!("The door closed: {problem}.");
+                say!("The door closed: {problem}.");
                 return None;
             }
         }
@@ -46,7 +46,7 @@ fn ask(client: &mut DoorClient, next_id: &mut u32, request: Request) -> Option<R
     *next_id += 1;
     let id = *next_id;
     if let Err(problem) = client.send(&FromConsole::Request { id, request }) {
-        println!("It could not be sent: {problem}.");
+        say!("It could not be sent: {problem}.");
         return None;
     }
     wait_answer(client, id)
@@ -57,7 +57,7 @@ fn twice(what: &str) -> Option<Secret> {
     let first = read_hidden(&format!("{what} (not shown): "))?;
     let again = read_hidden("The same again: ")?;
     if *first != *again {
-        println!("The two differ. Nothing was sent.");
+        say!("The two differ. Nothing was sent.");
         return None;
     }
     Some(Secret::new(first.to_string()))
@@ -65,40 +65,40 @@ fn twice(what: &str) -> Option<Secret> {
 
 /// `limo dev-console`.
 pub(crate) fn run() -> i32 {
-    println!("dev-console is scaffolding until the guardian's console exists.");
+    say!("dev-console is scaffolding until the guardian’s console exists.");
     let mut client = match DoorClient::connect(CONSOLE_PIPE_NAME, 2_000) {
         Ok(client) => client,
         Err(problem) => {
-            println!("LiMo's settings could not be reached: {problem}. Is the service running? Run limo status.");
+            say!("LiMo’s settings could not be reached: {problem}. Is the service running? Run limo status.");
             return 1;
         }
     };
     let server = client.server();
     match (server.pid, server.session_id) {
-        (Some(pid), Some(0)) => println!("The door is served by process {pid} in session 0, where services run."),
+        (Some(pid), Some(0)) => say!("The door is served by process {pid} in session 0, where services run."),
         (pid, session) => {
-            println!(
-                "The door is served by a process that is not a service (pid {pid:?}, session {session:?}). LiMo's service runs in session 0, so nothing was sent."
+            say!(
+                "The door is served by a process that is not a service (pid {pid:?}, session {session:?}). LiMo’s service runs in session 0, so nothing was sent."
             );
             return 2;
         }
     }
     if let Err(problem) = client.send(&FromConsole::Hello { protocol: CONSOLE_PROTOCOL_VERSION }) {
-        println!("Hello could not be sent: {problem}.");
+        say!("Hello could not be sent: {problem}.");
         return 1;
     }
     match client.read(ANSWER_WAIT_MS) {
-        Ok(Some(ToConsole::Hello { version, .. })) => println!("LiMo for Windows {version} answered. Type help."),
+        Ok(Some(ToConsole::Hello { version, .. })) => say!("LiMo for Windows {version} answered. Type help."),
         Ok(Some(ToConsole::Refused { message })) => {
-            println!("{message}");
+            say!("{message}");
             return 2;
         }
         Ok(_) => {
-            println!("No hello came back.");
+            say!("No hello came back.");
             return 1;
         }
         Err(problem) => {
-            println!("The door closed: {problem}.");
+            say!("The door closed: {problem}.");
             return 1;
         }
     }
@@ -115,14 +115,14 @@ pub(crate) fn run() -> i32 {
         let parsed = match parse_dev_line(&line) {
             Ok(parsed) => parsed,
             Err(problem) => {
-                println!("{problem}");
+                say!("{problem}");
                 continue;
             }
         };
         let request = match parsed {
             DevLine::Nothing => continue,
             DevLine::Help => {
-                println!("{}", dev_console_help());
+                say!("{}", dev_console_help());
                 continue;
             }
             DevLine::Quit => break,
@@ -147,12 +147,12 @@ pub(crate) fn run() -> i32 {
                 Some(Reply::Done { value }) => match serde_json::from_value::<RuleSet>(value) {
                     Ok(rules) => Request::ReplaceRules { child, rules: with_minutes(rules, minutes) },
                     Err(_) => {
-                        println!("The rules that came back could not be read.");
+                        say!("The rules that came back could not be read.");
                         continue;
                     }
                 },
                 Some(other) => {
-                    println!("{}", reply_words(&other));
+                    say!("{}", reply_words(&other));
                     continue;
                 }
                 None => break,
@@ -166,21 +166,21 @@ pub(crate) fn run() -> i32 {
                     .map_err(|problem| problem.to_string())
                     .and_then(|frame| client.write_raw(&frame));
                 if let Err(problem) = sent {
-                    println!("It could not be sent: {problem}.");
+                    say!("It could not be sent: {problem}.");
                     break;
                 }
                 match wait_answer(&mut client, next_id) {
-                    Some(reply) => println!("{}", reply_words(&reply)),
+                    Some(reply) => say!("{}", reply_words(&reply)),
                     None => break,
                 }
                 continue;
             }
         };
         match ask(&mut client, &mut next_id, request) {
-            Some(reply) => println!("{}", reply_words(&reply)),
+            Some(reply) => say!("{}", reply_words(&reply)),
             None => break,
         }
     }
-    println!("Closed.");
+    say!("Closed.");
     0
 }

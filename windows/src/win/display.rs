@@ -64,11 +64,11 @@ struct Line {
 
 impl Line {
     fn title(text: &str) -> Line {
-        Line { text: text.to_string(), size: Size::Title }
+        Line { text: crate::text::typographic(text), size: Size::Title }
     }
 
     fn body(text: &str) -> Line {
-        Line { text: text.to_string(), size: Size::Body }
+        Line { text: crate::text::typographic(text), size: Size::Body }
     }
 }
 

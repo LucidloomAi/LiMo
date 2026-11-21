@@ -1,0 +1,18 @@
+{
+  "request": "set_pin",
+  "case": "the PIN set",
+  "asked": {
+    "args": {
+      "pin": "(a secret: not written here)"
+    },
+    "name": "set_pin"
+  },
+  "answer": {
+    "id": 6,
+    "reply": {
+      "outcome": "done",
+      "value": {}
+    },
+    "say": "answer"
+  }
+}

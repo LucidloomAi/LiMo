@@ -1,0 +1,21 @@
+{
+  "request": "sign_in",
+  "case": "a sign in before there is a family",
+  "asked": {
+    "args": {
+      "password": "(a secret: not written here)"
+    },
+    "name": "sign_in"
+  },
+  "answer": {
+    "id": 3,
+    "reply": {
+      "outcome": "problem",
+      "problem": {
+        "kind": "no_family",
+        "message": "No family is set up yet. Set a guardian password first."
+      }
+    },
+    "say": "answer"
+  }
+}

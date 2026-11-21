@@ -31,12 +31,12 @@ pub const NEVER_CLOSE: &[NeverClose] = &[
     NeverClose { file: "wininit.exe", why: "It starts and watches the core of Windows; closing it stops Windows." },
     NeverClose { file: "smss.exe", why: "It starts every session; closing it stops Windows." },
     NeverClose { file: "lsass.exe", why: "It checks passwords and keeps everyone signed in; closing it restarts Windows." },
-    NeverClose { file: "services.exe", why: "It runs every Windows service, LiMo's own among them." },
+    NeverClose { file: "services.exe", why: "It runs every Windows service, LiMo’s own among them." },
     NeverClose { file: "svchost.exe", why: "It runs Windows services, some of them inside a signed in session." },
     NeverClose { file: "dwm.exe", why: "It draws every window; closing it blanks the screen." },
     NeverClose { file: "fontdrvhost.exe", why: "It draws the fonts every program uses." },
     NeverClose { file: "explorer.exe", why: "It is the desktop, the taskbar and the Start menu; without it the session cannot be used." },
-    NeverClose { file: "sihost.exe", why: "It runs the shell's own parts: notifications, keyboard layouts, the action centre." },
+    NeverClose { file: "sihost.exe", why: "It runs the shell’s own parts: notifications, keyboard layouts, the action centre." },
     NeverClose { file: "startmenuexperiencehost.exe", why: "It is the Start menu." },
     NeverClose { file: "shellexperiencehost.exe", why: "It is the clock, the notification area and other parts of the taskbar." },
     NeverClose { file: "ctfmon.exe", why: "It handles typing: keyboard layouts and input in other languages." },
@@ -47,7 +47,7 @@ pub const NEVER_CLOSE: &[NeverClose] = &[
     NeverClose { file: "dllhost.exe", why: "It runs parts of Windows on behalf of other programs, such as pictures in folders." },
     NeverClose { file: "userinit.exe", why: "It sets up the session when someone signs in." },
     NeverClose { file: "logonui.exe", why: "It is the Windows sign in and lock screen." },
-    NeverClose { file: "consent.exe", why: "It asks for an administrator's permission; closing it would stop a guardian from giving it." },
+    NeverClose { file: "consent.exe", why: "It asks for an administrator’s permission; closing it would stop a guardian from giving it." },
 ];
 
 /// Paths compared as Windows compares them: case ignored, either slash,

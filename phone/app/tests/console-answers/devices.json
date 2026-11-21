@@ -1,0 +1,28 @@
+{
+  "request": "devices",
+  "case": "Asha’s devices: the PC",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "devices"
+  },
+  "answer": {
+    "id": 36,
+    "reply": {
+      "outcome": "done",
+      "value": [
+        {
+          "child_id": "child-0000000000000001",
+          "device_id": "device-0000000000000001",
+          "kind": "on_master",
+          "last_heard_at": 1794998140,
+          "name": "Family PC",
+          "paired_at": 1794997825,
+          "platform": "windows"
+        }
+      ]
+    },
+    "say": "answer"
+  }
+}

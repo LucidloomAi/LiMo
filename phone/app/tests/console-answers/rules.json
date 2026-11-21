@@ -1,0 +1,69 @@
+{
+  "request": "rules",
+  "case": "Asha’s rules",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "rules"
+  },
+  "answer": {
+    "id": 18,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "always_allowed_apps": [],
+        "away_share_percent": 50,
+        "blocked_apps": [
+          "game.exe"
+        ],
+        "blocked_hours": [
+          {
+            "days": [
+              "sunday",
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday"
+            ],
+            "end_minute": 420,
+            "start_minute": 1260
+          }
+        ],
+        "budgets": {
+          "friday": {
+            "minutes": 60
+          },
+          "monday": {
+            "minutes": 60
+          },
+          "saturday": {
+            "minutes": 60
+          },
+          "sunday": {
+            "minutes": 60
+          },
+          "thursday": {
+            "minutes": 60
+          },
+          "tuesday": {
+            "minutes": 60
+          },
+          "wednesday": {
+            "minutes": 60
+          }
+        },
+        "day_start_minute": 0,
+        "lease_minutes": 10,
+        "utc_offset_secs": 19800,
+        "version": 2,
+        "warning_minutes": [
+          15,
+          5,
+          1
+        ]
+      }
+    },
+    "say": "answer"
+  }
+}

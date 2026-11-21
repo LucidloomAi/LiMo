@@ -6,7 +6,10 @@
 //! phone told so, the announcement; and hostile input on the socket, none
 //! of which slows the PC's counting.
 
-use std::net::SocketAddr;
+use std::collections::{HashMap, VecDeque};
+use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use limo_agent::{LockWhy, SessionState, Show};
@@ -51,7 +54,7 @@ fn offer_for(pc: &mut Pc, door: DoorId, child: &str) -> Offer {
 /// A phone paired with Asha over the cable.
 fn paired_phone(pc: &mut Pc, door: DoorId, asha: &str, address: SocketAddr) -> PlayedPhone {
     let offer = offer_for(pc, door, asha);
-    PlayedPhone::pair(address, &offer, "Asha's phone", &mut || pc.answer_link()).unwrap()
+    PlayedPhone::pair(address, &offer, "Asha’s phone", &mut || pc.answer_link()).unwrap()
 }
 
 /// Moves both clocks on by `secs` and steps once.
@@ -95,12 +98,12 @@ fn a_phone_pairs_with_an_offer_from_the_door_and_its_session_comes_through_the_c
     let text = made["offer"].as_str().unwrap().to_string();
     assert!(text.starts_with("limo1:"));
     let offer = Offer::from_text(&text).unwrap();
-    let mut phone = PlayedPhone::pair(address, &offer, "Asha's phone", &mut || pc.answer_link()).unwrap();
+    let mut phone = PlayedPhone::pair(address, &offer, "Asha’s phone", &mut || pc.answer_link()).unwrap();
     assert_eq!(phone.paired.child_id, asha);
     // The family's file keeps it, with its key.
     let phones = pc.hub().phones(&asha).unwrap();
     assert_eq!(phones.len(), 1);
-    assert!(phones[0].has_link_key && phones[0].name == "Asha's phone");
+    assert!(phones[0].has_link_key && phones[0].name == "Asha’s phone");
     // Its session, through the cable: a report and its grant.
     let mut session = phone.open(address, &mut || pc.answer_link()).unwrap();
     let grant = session.exchange(&mut phone, false, &mut || pc.answer_link()).unwrap();
@@ -133,7 +136,7 @@ fn a_phone_pairs_with_an_offer_from_the_door_and_its_session_comes_through_the_c
 fn an_offer_works_once_and_only_while_it_lasts() {
     let (mut pc, asha, address, door) = family_with_the_link(60);
     let offer = offer_for(&mut pc, door, &asha);
-    PlayedPhone::pair(address, &offer, "Asha's phone", &mut || pc.answer_link()).unwrap();
+    PlayedPhone::pair(address, &offer, "Asha’s phone", &mut || pc.answer_link()).unwrap();
     let again = PlayedPhone::pair(address, &offer, "Another phone", &mut || pc.answer_link()).unwrap_err();
     assert_eq!(again, PhoneProblem::Refused(Refusal::OfferUsed));
     let late = offer_for(&mut pc, door, &asha);
@@ -163,7 +166,7 @@ fn a_removed_phone_is_told_so_at_its_next_contact_and_the_family_notes_it() {
     }
     assert_eq!(told, Some(PhoneProblem::Refused(Refusal::Removed)));
     let released = pc.hub().phone(&device).unwrap().released_at;
-    assert!(released.is_some(), "the family's file notes that it was told");
+    assert!(released.is_some(), "the family’s file notes that it was told");
     assert_eq!(pc.logged("connected, and was told so").len(), 1);
     // With no phone left, the announcement is withdrawn.
     assert!(until(&mut pc, |pc| pc.announced.lock().unwrap().last().is_some_and(|l| l == "withdraw")));
@@ -253,7 +256,7 @@ fn a_whole_day_of_one_budget_shared_by_the_pc_and_a_phone() {
     let mut session = phone.open(address, &mut || pc.answer_link()).unwrap();
     let grant = session.exchange(&mut phone, true, &mut || pc.answer_link()).unwrap();
     let others = grant.others_used_secs.unwrap_or(0);
-    assert!(others >= 10 * 60 - 5, "the PC's use is in the grant: {others}");
+    assert!(others >= 10 * 60 - 5, "the PC’s use is in the grant: {others}");
     let now = pc.now();
     let left = phone.decide(now, Some(GAME)).seconds_left.unwrap_or(0);
     assert!((5 * 60..=10 * 60 + 5).contains(&left), "what is left on the phone: {left}");
@@ -290,7 +293,7 @@ fn a_whole_day_of_one_budget_shared_by_the_pc_and_a_phone() {
         other => panic!("{other:?}"),
     }
     let evening = phone_minutes * 60 + pc_secs;
-    assert!((9 * 60..=11 * 60 + 5).contains(&evening), "the evening's ten minutes, on both: {evening}");
+    assert!((9 * 60..=11 * 60 + 5).contains(&evening), "the evening’s ten minutes, on both: {evening}");
 
     // The master's count is one budget: 30 minutes in all, the phone's and
     // the PC's together, and nothing left.
@@ -363,19 +366,118 @@ fn a_handshake_with_a_key_this_pc_never_paired_is_closed() {
 }
 
 #[test]
-fn a_peer_that_connects_and_says_nothing_is_closed_after_five_seconds() {
+fn a_peer_that_connects_and_says_nothing_is_closed_after_a_second() {
     let (mut pc, asha, address, _door) = counting_with_the_link();
     let mut wire = Wire::connect(address).unwrap();
-    assert!(counted_over(&mut pc, &asha, 3) >= 2);
-    assert!(wire.take().is_ok(), "still open after three seconds");
-    let counted = counted_over(&mut pc, &asha, 4);
-    assert!(counted >= 3);
+    std::thread::sleep(Duration::from_millis(30));
+    assert!(wire.take().is_ok(), "still open at once");
+    assert!(counted_over(&mut pc, &asha, 2) >= 1);
     let mut pump = || {
         pc.step();
         pc.link_now()
     };
     assert!(wire.closed(&mut pump));
-    assert!(until(&mut pc, |pc| !pc.logged("the handshake did not finish in time").is_empty()));
+    assert!(until(&mut pc, |pc| !pc.logged("it did not open the link within 1 second").is_empty()));
+}
+
+/// A program in Asha's account connecting to the loopback: its socket is
+/// bound to a port of its own first, which the stand in for Windows then
+/// names as Asha's account's.
+fn childs_program(owners: &Arc<Mutex<HashMap<u16, String>>>, address: SocketAddr) -> Option<TcpStream> {
+    let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None).ok()?;
+    socket.bind(&SocketAddr::from((Ipv4Addr::LOCALHOST, 0)).into()).ok()?;
+    let port = socket.local_addr().ok()?.as_socket()?.port();
+    owners.lock().unwrap().insert(port, ASHA.to_string());
+    socket.connect(&address.into()).ok()?;
+    Some(socket.into())
+}
+
+#[test]
+fn a_program_in_a_childs_account_cannot_crowd_out_the_cable() {
+    let (mut pc, asha, address, door) = family_with_the_link(60);
+    // Twenty at once, saying nothing: each is closed at once, and none
+    // takes a place among the connections served.
+    let owners = pc.owners.clone();
+    let held: Vec<TcpStream> = (0..20).filter_map(|_| childs_program(&owners, address)).collect();
+    assert_eq!(held.len(), 20);
+    for stream in held {
+        let mut wire = Wire::from_stream(stream).unwrap();
+        assert!(wire.closed(&mut || pc.answer_link()), "a child’s program’s connection is closed at once");
+    }
+    assert!(until(&mut pc, |pc| !pc.logged("it came from a program in an account linked to a child").is_empty()));
+    // And while it goes on opening them as fast as it can, holding the
+    // newest twenty, a guardian adds a phone through the cable at once.
+    let stop = Arc::new(AtomicBool::new(false));
+    let crowding = {
+        let (owners, stop) = (owners.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let mut held = VecDeque::new();
+            let mut opened = 0u32;
+            while !stop.load(Ordering::SeqCst) {
+                if let Some(stream) = childs_program(&owners, address) {
+                    held.push_back(stream);
+                    opened += 1;
+                }
+                if held.len() > 20 {
+                    held.pop_front();
+                }
+            }
+            opened
+        })
+    };
+    std::thread::sleep(Duration::from_millis(50));
+    let started = Instant::now();
+    let mut phone = paired_phone(&mut pc, door, &asha, address);
+    let mut session = phone.open(address, &mut || pc.answer_link()).unwrap();
+    session.exchange(&mut phone, false, &mut || pc.answer_link()).unwrap();
+    let took = started.elapsed();
+    stop.store(true, Ordering::SeqCst);
+    let opened = crowding.join().unwrap();
+    assert!(opened > 20, "the child’s program kept opening connections: {opened}");
+    assert!(took < Duration::from_secs(3), "the phone was kept out for {took:?}");
+    assert_eq!(pc.service.phone_sessions().len(), 1);
+}
+
+#[test]
+fn the_link_listens_on_the_loopback_only_until_the_family_has_a_phone_then_on_its_home_networks() {
+    let (mut pc, asha, address, door) = family_with_the_link(60);
+    let port = address.port();
+    let loopback = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    let on = |a: [u8; 4]| SocketAddr::from((Ipv4Addr::from(a), port));
+    assert_eq!(pc.service.link_listening(), vec![loopback]);
+    // An offer alone opens nothing more: the cable pairs.
+    offer_for(&mut pc, door, &asha);
+    pc.run(1);
+    assert_eq!(pc.service.link_listening(), vec![loopback]);
+    assert!(pc.bound.lock().unwrap().is_empty());
+    // With a phone, the home address too, bound to it alone.
+    let phone = paired_phone(&mut pc, door, &asha, address);
+    assert!(until(&mut pc, |pc| pc.service.link_listening().len() == 2));
+    assert_eq!(pc.service.link_listening(), vec![loopback, on([192, 168, 1, 20])]);
+    assert_eq!(*pc.bound.lock().unwrap(), vec![on([192, 168, 1, 20])]);
+    assert_eq!(pc.logged("The link for the family’s phones listens on 127.0.0.1, 192.168.1.20 now.").len(), 1);
+    // A laptop taken to another network: followed within the book's ten
+    // seconds; a public address and the other ranges that are not a home's
+    // never.
+    pc.os().home = vec![
+        Ipv4Addr::new(10, 0, 0, 7),
+        Ipv4Addr::new(8, 8, 8, 8),
+        Ipv4Addr::new(100, 64, 1, 2),
+        Ipv4Addr::new(169, 254, 3, 4),
+        Ipv4Addr::new(172, 32, 0, 1),
+    ];
+    leap(&mut pc, 11);
+    assert_eq!(pc.service.link_listening(), vec![loopback, on([10, 0, 0, 7])]);
+    // Two home networks at once: both.
+    pc.os().home = vec![Ipv4Addr::new(10, 0, 0, 7), Ipv4Addr::new(192, 168, 50, 2)];
+    leap(&mut pc, 11);
+    assert_eq!(pc.service.link_listening(), vec![loopback, on([10, 0, 0, 7]), on([192, 168, 50, 2])]);
+    // The last phone removed: the loopback only, at once.
+    pc.run(1);
+    let device = phone.paired.device_id.clone();
+    pc.done(door, Request::RemoveDevice { device, password: Secret::new(PASSWORD.into()) });
+    assert!(until(&mut pc, |pc| pc.service.link_listening().len() == 1));
+    assert_eq!(pc.service.link_listening(), vec![loopback]);
 }
 
 #[test]

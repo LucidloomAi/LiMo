@@ -1,0 +1,27 @@
+{
+  "request": "unlock_until",
+  "case": "unlocked until 18:00",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001",
+      "until": 1795005000
+    },
+    "name": "unlock_until"
+  },
+  "answer": {
+    "id": 33,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "mode": {
+          "unlock": {
+            "until": 1795005000
+          }
+        },
+        "set_at": 1794998138,
+        "version": 3
+      }
+    },
+    "say": "answer"
+  }
+}

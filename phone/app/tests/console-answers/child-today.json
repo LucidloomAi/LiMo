@@ -1,0 +1,48 @@
+{
+  "request": "child_today",
+  "case": "Asha’s day",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "child_today"
+  },
+  "answer": {
+    "id": 26,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "age_band": "ten_to_twelve",
+        "budget_secs": 3600,
+        "child_id": "child-0000000000000001",
+        "day": 20775,
+        "devices": [
+          {
+            "added_secs": 0,
+            "clock_off_by_secs": null,
+            "device_id": "device-0000000000000001",
+            "giving_back_secs": 0,
+            "holds_secs": 598,
+            "in_use": true,
+            "kind": "on_master",
+            "last_heard_at": 1794998128,
+            "name": "Family PC",
+            "pin_unlocked_until": null,
+            "platform": "windows",
+            "used_secs": 302,
+            "waiting_secs": 0,
+            "wrong_guesses": 0
+          }
+        ],
+        "extra_secs": 0,
+        "guardian": "nothing",
+        "left_secs": 3298,
+        "name": "Asha",
+        "over_secs": 0,
+        "used_secs": 302,
+        "waiting_requests": 1
+      }
+    },
+    "say": "answer"
+  }
+}

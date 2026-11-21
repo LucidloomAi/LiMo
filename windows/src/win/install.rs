@@ -121,23 +121,23 @@ fn folder_access(path: &Path) -> Option<String> {
 /// `limo install [--dev]`.
 pub(crate) fn install(dev: bool) -> i32 {
     if !is_elevated() {
-        println!("install must be run from an administrator terminal. Nothing was changed.");
+        say!("install must be run from an administrator terminal. Nothing was changed.");
         return 2;
     }
     match service_state() {
         Ok(None) => {}
         Ok(Some(_)) => {
-            println!("LiMo is already installed. Run limo uninstall first. Nothing was changed.");
+            say!("LiMo is already installed. Run limo uninstall first. Nothing was changed.");
             return 2;
         }
         Err(problem) => {
-            println!("The service control manager could not be asked whether LiMo is installed: {problem}. Nothing was changed.");
+            say!("The service control manager could not be asked whether LiMo is installed: {problem}. Nothing was changed.");
             return 1;
         }
     }
     let places = Places::here();
     if places.data_dir.exists() {
-        println!(
+        say!(
             "The data folder {} already exists. LiMo makes it itself, so that nobody else can have made it first. \
              If it is left from an earlier test, run limo uninstall, which removes it. Nothing was changed.",
             places.data_dir.display()
@@ -147,8 +147,8 @@ pub(crate) fn install(dev: bool) -> i32 {
     match do_install(&places, dev) {
         Ok(()) => 0,
         Err(problem) => {
-            println!("install failed: {problem}.");
-            println!("Run limo uninstall to remove what was done.");
+            say!("install failed: {problem}.");
+            say!("Run limo uninstall to remove what was done.");
             1
         }
     }
@@ -158,17 +158,17 @@ fn do_install(places: &Places, dev: bool) -> Result<(), String> {
     let source = std::env::current_exe().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&places.install_dir).map_err(|e| format!("making {}: {e}", places.install_dir.display()))?;
     std::fs::copy(&source, places.installed_exe()).map_err(|e| format!("copying the program: {e}"))?;
-    println!("Copied the program to {}.", places.installed_exe().display());
+    say!("Copied the program to {}.", places.installed_exe().display());
 
     make_data_folder(&places.data_dir).map_err(|e| format!("making the data folder {}: {e}", places.data_dir.display()))?;
-    println!("Made the data folder {}, for SYSTEM and Administrators only.", places.data_dir.display());
+    say!("Made the data folder {}, for SYSTEM and Administrators only.", places.data_dir.display());
     if let Some(access) = folder_access(&places.data_dir) {
-        println!("  Its access list, as Windows applied it: {access}");
+        say!("  Its access list, as Windows applied it: {access}");
     }
     if dev {
         std::fs::write(places.settings_file(), settings_text(&Settings { test_cap: true, ..Settings::default() }))
             .map_err(|e| format!("writing the settings: {e}"))?;
-        println!("TEST CAP ON: this is a test install. Any single lock is lifted after 120 seconds, and the log says so each time.");
+        say!("TEST CAP ON: this is a test install. Any single lock is lifted after 120 seconds, and the log says so each time.");
     }
 
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE)
@@ -196,12 +196,12 @@ fn do_install(places: &Places, dev: bool) -> Result<(), String> {
         actions: Some(vec![restart(1), restart(1), restart(10)]),
     };
     if let Err(e) = service.update_failure_actions(failure) {
-        println!("The service's restart on failure could not be set: {e}.");
+        say!("The service’s restart on failure could not be set: {e}.");
     }
     let _ = service.set_failure_actions_on_non_crash_failures(true);
     let no_arguments: [OsString; 0] = [];
     service.start(&no_arguments).map_err(|e| format!("starting the service: {e}"))?;
-    println!("Created the service {SERVICE_NAME} (LocalSystem, automatic, restarted on failure) and started it.");
+    say!("Created the service {SERVICE_NAME} (LocalSystem, automatic, restarted on failure) and started it.");
     append(places, &format!("Installed{}.", if dev { " for testing, with the test cap on" } else { "" }));
     Ok(())
 }
@@ -225,12 +225,12 @@ fn remove_folder(path: &Path) {
     loop {
         match std::fs::remove_dir_all(path) {
             Ok(()) => {
-                println!("Removed {}.", path.display());
+                say!("Removed {}.", path.display());
                 return;
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
             Err(e) if Instant::now() >= give_up => {
-                println!("Could not remove {}: {e}. A LiMo process may still be closing; run uninstall again in a moment.", path.display());
+                say!("Could not remove {}: {e}. A LiMo process may still be closing; run uninstall again in a moment.", path.display());
                 return;
             }
             Err(_) => sleep(Duration::from_millis(500)),
@@ -242,20 +242,20 @@ fn remove_folder(path: &Path) {
 pub(crate) fn uninstall() -> i32 {
     let places = Places::here();
     if running_installed(&places) {
-        println!(
-            "uninstall cannot run from the installed copy in {}, which cannot delete itself. Run it from the build folder's copy. Nothing was changed.",
+        say!(
+            "uninstall cannot run from the installed copy in {}, which cannot delete itself. Run it from the build folder’s copy. Nothing was changed.",
             places.install_dir.display()
         );
         return 2;
     }
     if !is_elevated() {
-        println!("uninstall must be run from an administrator terminal. Nothing was changed.");
+        say!("uninstall must be run from an administrator terminal. Nothing was changed.");
         return 2;
     }
     let manager = match ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT) {
         Ok(manager) => manager,
         Err(e) => {
-            println!("The service control manager could not be reached: {e}.");
+            say!("The service control manager could not be reached: {e}.");
             return 1;
         }
     };
@@ -273,60 +273,60 @@ pub(crate) fn uninstall() -> i32 {
                     _ => sleep(Duration::from_millis(500)),
                 }
             }
-            println!("Stopped and removed the service {SERVICE_NAME}.");
+            say!("Stopped and removed the service {SERVICE_NAME}.");
         }
         Err(windows_service::Error::Winapi(e)) if e.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST) => {
-            println!("The service {SERVICE_NAME} was not installed.");
+            say!("The service {SERVICE_NAME} was not installed.");
         }
         Err(e) => {
-            println!("The service could not be opened: {e}.");
+            say!("The service could not be opened: {e}.");
             return 1;
         }
     }
     remove_folder(&places.install_dir);
     remove_folder(&places.data_dir);
-    println!("Uninstall complete.");
+    say!("Uninstall complete.");
     0
 }
 
 /// `limo status`.
 pub(crate) fn status() -> i32 {
     match service_state() {
-        Ok(Some(state)) => println!("Service {SERVICE_NAME}: {state:?}."),
-        Ok(None) => println!("Service {SERVICE_NAME}: not installed."),
-        Err(problem) => println!("Service {SERVICE_NAME}: could not be asked ({problem})."),
+        Ok(Some(state)) => say!("Service {SERVICE_NAME}: {state:?}."),
+        Ok(None) => say!("Service {SERVICE_NAME}: not installed."),
+        Err(problem) => say!("Service {SERVICE_NAME}: could not be asked ({problem})."),
     }
-    println!("This terminal is {}.", if is_elevated() { "elevated" } else { "not elevated" });
+    say!("This terminal is {}.", if is_elevated() { "elevated" } else { "not elevated" });
     let places = Places::here();
     match std::fs::read_to_string(places.settings_file()) {
         Ok(text) => {
             let settings = read_settings(&text);
             if settings.test_cap {
-                println!("TEST CAP ON: any single lock is lifted after 120 seconds.");
+                say!("TEST CAP ON: any single lock is lifted after 120 seconds.");
             } else {
-                println!("Test cap: off.");
+                say!("Test cap: off.");
             }
             if settings.plain_display {
-                println!("PLAIN DISPLAY: each helper started from now on shows the plain display, not the drawn one.");
+                say!("PLAIN DISPLAY: each helper started from now on shows the plain display, not the drawn one.");
             }
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound && places.data_dir.exists() => println!("Test cap: off."),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && places.data_dir.exists() => say!("Test cap: off."),
         Err(_) => {}
     }
     match tail(&places.log_file(), 20) {
-        Ok(lines) if lines.is_empty() => println!("The log is empty."),
+        Ok(lines) if lines.is_empty() => say!("The log is empty."),
         Ok(lines) => {
-            println!("The last lines of the log:");
+            say!("The last lines of the log:");
             for line in lines {
-                println!("  {line}");
+                say!("  {line}");
             }
         }
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => println!(
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => say!(
             "The log is in a folder only SYSTEM and Administrators may read. From a standard account, or a terminal that is not \
              elevated, only the service's state shows. Run limo status from an elevated terminal to see the log."
         ),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => println!("There is no log yet."),
-        Err(e) => println!("The log could not be read: {e}."),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => say!("There is no log yet."),
+        Err(e) => say!("The log could not be read: {e}."),
     }
     0
 }
@@ -358,7 +358,7 @@ fn account_sid(name: &str) -> Result<String, String> {
         )
         .map_err(|e| format!("Windows could not look up the account {name}: {}.", error_text(&e)))?;
         if kind != SidTypeUser {
-            return Err(format!("{name} is not a user's account."));
+            return Err(format!("{name} is not a user’s account."));
         }
         let mut text = PWSTR::null();
         windows::Win32::Security::Authorization::ConvertSidToStringSidW(PSID(sid.as_mut_ptr() as *mut c_void), &mut text)
@@ -375,24 +375,24 @@ fn account_sid(name: &str) -> Result<String, String> {
 /// when they pass; the exit code when they do not, with the reason printed.
 fn ready_for_family_file(command: &str) -> Result<Places, i32> {
     if !is_elevated() {
-        println!("{command} must be run from an administrator terminal. Nothing was changed.");
+        say!("{command} must be run from an administrator terminal. Nothing was changed.");
         return Err(2);
     }
     let places = Places::here();
     if !places.data_dir.exists() {
-        println!("LiMo is not installed: there is no data folder. Run limo install first. Nothing was changed.");
+        say!("LiMo is not installed: there is no data folder. Run limo install first. Nothing was changed.");
         return Err(2);
     }
     match service_state() {
         Ok(Some(ServiceState::Stopped)) | Ok(None) => Ok(places),
         Ok(Some(state)) => {
-            println!(
-                "The service is {state:?}, and holds the family's file while it runs. Stop it first (sc.exe stop {SERVICE_NAME}), then run {command} again. Nothing was changed."
+            say!(
+                "The service is {state:?}, and holds the family’s file while it runs. Stop it first (sc.exe stop {SERVICE_NAME}), then run {command} again. Nothing was changed."
             );
             Err(2)
         }
         Err(problem) => {
-            println!("The service control manager could not be asked about the service: {problem}. Nothing was changed.");
+            say!("The service control manager could not be asked about the service: {problem}. Nothing was changed.");
             Err(1)
         }
     }
@@ -401,7 +401,7 @@ fn ready_for_family_file(command: &str) -> Result<Places, i32> {
 /// `limo dev-code`: scaffolding until the guardian's phone app exists. The
 /// code is printed here only, never logged.
 pub(crate) fn dev_code(child: Option<&str>, minutes: u32) -> i32 {
-    println!("dev-code is scaffolding until the guardian's phone app exists.");
+    say!("dev-code is scaffolding until the guardian’s phone app exists.");
     let places = match ready_for_family_file("dev-code") {
         Ok(places) => places,
         Err(code) => return code,
@@ -409,7 +409,7 @@ pub(crate) fn dev_code(child: Option<&str>, minutes: u32) -> i32 {
     let mut hub = match Hub::open(&places.family_file()) {
         Ok(hub) => hub,
         Err(problem) => {
-            println!("The family's file could not be opened: {problem}");
+            say!("The family’s file could not be opened: {problem}");
             return 1;
         }
     };
@@ -417,20 +417,20 @@ pub(crate) fn dev_code(child: Option<&str>, minutes: u32) -> i32 {
     let closed = hub.close();
     match made {
         Ok(code) => {
-            println!("A one time code for {}'s device on this PC, worth {} minutes, for today only:", code.child, code.minutes);
-            println!();
-            println!("    {}", code.shown);
-            println!();
-            println!("It works once. On the lock screen, choose \"Type a one time code\" and type its 8 digits.");
+            say!("A one time code for {}'s device on this PC, worth {} minutes, for today only:", code.child, code.minutes);
+            say!();
+            say!("    {}", code.shown);
+            say!();
+            say!("It works once. On the lock screen, choose \"Type a one time code\" and type its 8 digits.");
             if let Err(problem) = closed {
-                println!("The family's file did not close cleanly: {problem}");
+                say!("The family’s file did not close cleanly: {problem}");
             }
-            println!("Start the service again (sc.exe start {SERVICE_NAME}) to use it.");
+            say!("Start the service again (sc.exe start {SERVICE_NAME}) to use it.");
             append(&places, &format!("dev-code made a one time code of {} minutes.", code.minutes));
             0
         }
         Err(problem) => {
-            println!("{problem}");
+            say!("{problem}");
             1
         }
     }
@@ -474,30 +474,30 @@ fn start_again() -> Result<(), String> {
 /// service holds the family's file, so it is stopped for a moment and
 /// started again.
 pub(crate) fn reset_password() -> i32 {
-    println!("reset-password sets a new guardian password without the old one. Everything else is kept.");
+    say!("reset-password sets a new guardian password without the old one. Everything else is kept.");
     if !is_elevated() {
-        println!("reset-password must be run from an administrator terminal. Nothing was changed.");
+        say!("reset-password must be run from an administrator terminal. Nothing was changed.");
         return 2;
     }
     let places = Places::here();
     if !places.data_dir.exists() {
-        println!("LiMo is not installed: there is no data folder. Nothing was changed.");
+        say!("LiMo is not installed: there is no data folder. Nothing was changed.");
         return 2;
     }
     let Some(password) = read_hidden("New guardian password (8 or more characters, not shown): ") else { return 2 };
     let Some(again) = read_hidden("The same password again: ") else { return 2 };
     if *password != *again {
-        println!("The two passwords differ. Nothing was changed.");
+        say!("The two passwords differ. Nothing was changed.");
         return 2;
     }
     if let Some(problem) = crate::setup::new_password_problem(&password) {
-        println!("{problem} Nothing was changed.");
+        say!("{problem} Nothing was changed.");
         return 2;
     }
     let was_running = match stop_for_a_moment() {
         Ok(was_running) => was_running,
         Err(problem) => {
-            println!("The service could not be stopped to reach the family's file: {problem}. Nothing was changed.");
+            say!("The service could not be stopped to reach the family’s file: {problem}. Nothing was changed.");
             return 1;
         }
     };
@@ -505,28 +505,28 @@ pub(crate) fn reset_password() -> i32 {
         Ok(mut hub) => {
             let done = crate::setup::reset_family_password(&mut hub, &password, wall_secs());
             if let Err(problem) = hub.close() {
-                println!("The family's file did not close cleanly: {problem}");
+                say!("The family’s file did not close cleanly: {problem}");
             }
             done
         }
-        Err(problem) => Err(format!("The family's file could not be opened: {problem}")),
+        Err(problem) => Err(format!("The family’s file could not be opened: {problem}")),
     };
     let code = match &done {
         Ok(()) => {
-            println!("The guardian password is set. Sign in to LiMo's settings with the new one.");
+            say!("The guardian password is set. Sign in to LiMo’s settings with the new one.");
             append(&places, "reset-password set a new guardian password.");
             0
         }
         Err(problem) => {
-            println!("{problem}");
+            say!("{problem}");
             append(&places, "reset-password changed nothing.");
             1
         }
     };
     if was_running {
         match start_again() {
-            Ok(()) => println!("The service is started again."),
-            Err(problem) => println!("The service could not be started again: {problem}. Start it with sc.exe start {SERVICE_NAME}."),
+            Ok(()) => say!("The service is started again."),
+            Err(problem) => say!("The service could not be started again: {problem}. Start it with sc.exe start {SERVICE_NAME}."),
         }
     }
     code
@@ -534,7 +534,7 @@ pub(crate) fn reset_password() -> i32 {
 
 /// `limo dev-setup`: scaffolding until the guardian's console exists.
 pub(crate) fn dev_setup(child: &str, account: &str, minutes: u32, block: &[String]) -> i32 {
-    println!("dev-setup is scaffolding until the guardian's console exists.");
+    say!("dev-setup is scaffolding until the guardian’s console exists.");
     let places = match ready_for_family_file("dev-setup") {
         Ok(places) => places,
         Err(code) => return code,
@@ -542,26 +542,26 @@ pub(crate) fn dev_setup(child: &str, account: &str, minutes: u32, block: &[Strin
     let account_id = match account_sid(account) {
         Ok(sid) => sid,
         Err(problem) => {
-            println!("{problem} Nothing was changed.");
+            say!("{problem} Nothing was changed.");
             return 2;
         }
     };
     let Some(password) = read_hidden("Guardian password (8 or more characters, not shown): ") else { return 2 };
     let Some(again) = read_hidden("The same password again: ") else { return 2 };
     if *password != *again {
-        println!("The two passwords differ. Nothing was changed.");
+        say!("The two passwords differ. Nothing was changed.");
         return 2;
     }
     let Some(pin) = read_hidden("Guardian PIN (6 to 8 digits, not shown): ") else { return 2 };
     let Some(pin_again) = read_hidden("The same PIN again: ") else { return 2 };
     if *pin != *pin_again {
-        println!("The two PINs differ. Nothing was changed.");
+        say!("The two PINs differ. Nothing was changed.");
         return 2;
     }
     let mut hub = match Hub::open(&places.family_file()) {
         Ok(hub) => hub,
         Err(problem) => {
-            println!("The family's file could not be opened: {problem}");
+            say!("The family’s file could not be opened: {problem}");
             return 1;
         }
     };
@@ -579,19 +579,19 @@ pub(crate) fn dev_setup(child: &str, account: &str, minutes: u32, block: &[Strin
     let closed = hub.close();
     match made {
         Ok(_) => {
-            println!("Made the family: {child}, linked to the Windows account {account}, with {minutes} minutes a day, and the PIN set.");
+            say!("Made the family: {child}, linked to the Windows account {account}, with {minutes} minutes a day, and the PIN set.");
             if !block.is_empty() {
-                println!("Blocked for {child}: {}.", block.join(", "));
+                say!("Blocked for {child}: {}.", block.join(", "));
             }
             if let Err(problem) = closed {
-                println!("The family's file did not close cleanly: {problem}");
+                say!("The family’s file did not close cleanly: {problem}");
             }
-            println!("Start the service again (sc.exe start {SERVICE_NAME}) to have it count.");
+            say!("Start the service again (sc.exe start {SERVICE_NAME}) to have it count.");
             append(&places, &format!("dev-setup made a family with one child and {minutes} minutes a day."));
             0
         }
         Err(problem) => {
-            println!("{problem}");
+            say!("{problem}");
             1
         }
     }

@@ -1,0 +1,121 @@
+{
+  "request": "replace_rules",
+  "case": "an hour a day, bedtime on school nights, a game blocked",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001",
+      "rules": {
+        "always_allowed_apps": [],
+        "away_share_percent": 50,
+        "blocked_apps": [
+          "game.exe"
+        ],
+        "blocked_hours": [
+          {
+            "days": [
+              "sunday",
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday"
+            ],
+            "end_minute": 420,
+            "start_minute": 1260
+          }
+        ],
+        "budgets": {
+          "friday": {
+            "minutes": 60
+          },
+          "monday": {
+            "minutes": 60
+          },
+          "saturday": {
+            "minutes": 60
+          },
+          "sunday": {
+            "minutes": 60
+          },
+          "thursday": {
+            "minutes": 60
+          },
+          "tuesday": {
+            "minutes": 60
+          },
+          "wednesday": {
+            "minutes": 60
+          }
+        },
+        "day_start_minute": 0,
+        "lease_minutes": 10,
+        "utc_offset_secs": 19800,
+        "version": 1,
+        "warning_minutes": [
+          15,
+          5,
+          1
+        ]
+      }
+    },
+    "name": "replace_rules"
+  },
+  "answer": {
+    "id": 17,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "always_allowed_apps": [],
+        "away_share_percent": 50,
+        "blocked_apps": [
+          "game.exe"
+        ],
+        "blocked_hours": [
+          {
+            "days": [
+              "sunday",
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday"
+            ],
+            "end_minute": 420,
+            "start_minute": 1260
+          }
+        ],
+        "budgets": {
+          "friday": {
+            "minutes": 60
+          },
+          "monday": {
+            "minutes": 60
+          },
+          "saturday": {
+            "minutes": 60
+          },
+          "sunday": {
+            "minutes": 60
+          },
+          "thursday": {
+            "minutes": 60
+          },
+          "tuesday": {
+            "minutes": 60
+          },
+          "wednesday": {
+            "minutes": 60
+          }
+        },
+        "day_start_minute": 0,
+        "lease_minutes": 10,
+        "utc_offset_secs": 19800,
+        "version": 2,
+        "warning_minutes": [
+          15,
+          5,
+          1
+        ]
+      }
+    },
+    "say": "answer"
+  }
+}

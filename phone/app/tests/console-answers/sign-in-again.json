@@ -1,0 +1,18 @@
+{
+  "request": "sign_in",
+  "case": "signed in",
+  "asked": {
+    "args": {
+      "password": "(a secret: not written here)"
+    },
+    "name": "sign_in"
+  },
+  "answer": {
+    "id": 64,
+    "reply": {
+      "outcome": "done",
+      "value": {}
+    },
+    "say": "answer"
+  }
+}

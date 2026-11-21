@@ -1,0 +1,19 @@
+{
+  "request": "about",
+  "case": "what LiMo for Windows is",
+  "asked": {
+    "name": "about"
+  },
+  "answer": {
+    "id": 2,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "pc_name": "Family PC",
+        "protocol": 1,
+        "version": "0.1.0"
+      }
+    },
+    "say": "answer"
+  }
+}

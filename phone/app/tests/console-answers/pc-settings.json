@@ -1,0 +1,18 @@
+{
+  "request": "pc_settings",
+  "case": "the PC’s settings",
+  "asked": {
+    "name": "pc_settings"
+  },
+  "answer": {
+    "id": 22,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "idle_minutes": 10,
+        "unlinked_accounts": "locked"
+      }
+    },
+    "say": "answer"
+  }
+}

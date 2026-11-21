@@ -113,7 +113,7 @@ fn report_now(own_pid: u32, listener: &Listener) -> FromHelper {
 /// drawn display, or the plain one when `plain` is set.
 pub(crate) fn run(channel_handles: Option<(usize, usize)>, plain: bool) -> i32 {
     let refuse = || {
-        println!("limo helper is started by the LiMo service only, with its channel. Run by hand it does nothing.");
+        say!("limo helper is started by the LiMo service only, with its channel. Run by hand it does nothing.");
         2
     };
     let Some((read, write)) = channel_handles else { return refuse() };

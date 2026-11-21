@@ -1,0 +1,19 @@
+{
+  "request": "take_over_the_pc",
+  "case": "a request this LiMo does not know",
+  "asked": {
+    "args": {},
+    "name": "take_over_the_pc"
+  },
+  "answer": {
+    "id": 60,
+    "reply": {
+      "outcome": "problem",
+      "problem": {
+        "kind": "unknown_request",
+        "message": "LiMo does not know that request, or cannot read what came with it."
+      }
+    },
+    "say": "answer"
+  }
+}

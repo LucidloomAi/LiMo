@@ -1,0 +1,58 @@
+{
+  "request": "usage",
+  "case": "Asha’s usage over the last week",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001",
+      "from_day": 20769,
+      "to_day": 20775
+    },
+    "name": "usage"
+  },
+  "answer": {
+    "id": 35,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "apps": [
+          {
+            "app_id": "notes.exe",
+            "counted_secs": 303,
+            "secs": 303
+          },
+          {
+            "app_id": "",
+            "counted_secs": 10,
+            "secs": 10
+          }
+        ],
+        "child_id": "child-0000000000000001",
+        "counted_secs": 313,
+        "devices": [
+          {
+            "apps": [
+              {
+                "app_id": "notes.exe",
+                "counted_secs": 303,
+                "secs": 303
+              },
+              {
+                "app_id": "",
+                "counted_secs": 10,
+                "secs": 10
+              }
+            ],
+            "device_id": "device-0000000000000001",
+            "name": "Family PC",
+            "removed": false,
+            "secs": 313
+          }
+        ],
+        "from_day": 20769,
+        "secs": 313,
+        "to_day": 20775
+      }
+    },
+    "say": "answer"
+  }
+}

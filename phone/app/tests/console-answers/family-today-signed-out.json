@@ -1,0 +1,18 @@
+{
+  "request": "family_today",
+  "case": "a request that needs a sign in",
+  "asked": {
+    "name": "family_today"
+  },
+  "answer": {
+    "id": 51,
+    "reply": {
+      "outcome": "problem",
+      "problem": {
+        "kind": "signed_out",
+        "message": "Signed out. Type the guardian password to go on."
+      }
+    },
+    "say": "answer"
+  }
+}

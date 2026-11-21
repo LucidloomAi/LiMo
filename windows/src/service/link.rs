@@ -31,7 +31,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use limo_hub::{HubError, PhoneApp, PhoneForm, PhoneRequest};
+use limo_hub::{AccountLink, HubError, PhoneApp, PhoneForm, PhoneRequest};
 use limo_link::{CodeSecret, Form, KeyPair, KnownPhone, MasterId, Offer, OfferOnFile, PublicKey, Refusal};
 use serde::Serialize;
 
@@ -166,17 +166,22 @@ impl<O: Os> Service<O> {
     /// `announcer` while the family has a phone.
     pub fn open_link(&mut self, server: LinkServer, announcer: Box<dyn Announce>) {
         let now = self.os.steady_ms();
-        let text = format!("The link for the family's phones listens on port {}.", server.local_addr().port());
+        let text = format!("The link for the family’s phones listens on port {}.", server.local_addr().port());
         self.phones.server = Some(server);
         self.phones.announcer = announcer;
         self.phones.book_dirty = true;
-        self.os.log(&text);
+        self.log(&text);
         self.watch_link(now);
     }
 
     /// The phones' open sessions, for the console and the tests.
     pub fn phone_sessions(&self) -> Vec<PhoneSessionView> {
         self.phones.sessions.keys().flat_map(|device| self.phones.sessions_of(device)).collect()
+    }
+
+    /// The addresses the link listens on now, the loopback first.
+    pub fn link_listening(&self) -> Vec<std::net::SocketAddr> {
+        self.phones.server.as_ref().map(LinkServer::listening).unwrap_or_default()
     }
 
     /// The master id announced now, if the announcement is out.
@@ -233,7 +238,7 @@ impl<O: Os> Service<O> {
                 let answer = match self.hub.pair_device_with_offer(&offer_id.to_hex(), phone_key.as_bytes(), &phone, wall) {
                     Ok(pairing) => {
                         let way = Way::of(&peer);
-                        self.os.log(&format!(
+                        self.log(&format!(
                             "A phone was paired with a child {}, with a pairing offer (device {}).",
                             way.words(),
                             pairing.device_id
@@ -332,7 +337,9 @@ impl<O: Os> Service<O> {
     /// not removed, so that the service tells it itself); then announces or
     /// withdraws.
     fn refresh_link_book(&mut self, now: u64) {
-        let Some(server) = &self.phones.server else { return };
+        if self.phones.server.is_none() {
+            return;
+        }
         self.phones.book_at = Some(now);
         self.phones.book_dirty = false;
         let keys = self.hub.master_key().ok().map(|key| KeyPair::from_private(key.expose_private()));
@@ -342,14 +349,38 @@ impl<O: Os> Service<O> {
             .into_iter()
             .map(|p| KnownPhone { device_id: p.device_id, child_id: p.child_id, key: PublicKey::from_bytes(p.link_key), removed: false })
             .collect();
+        let child_accounts: Vec<String> = self
+            .hub
+            .accounts()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|a| matches!(a.link, AccountLink::Child { .. }))
+            .map(|a| a.account_id)
+            .collect();
         let id = keys.as_ref().map(|k| MasterId::of(&k.public()));
+        // The home addresses only once the family has a phone; the
+        // interfaces are read again each time, so a laptop that changed
+        // networks is followed within the book's ten seconds.
+        let home = if any_phone { self.os.home_addresses() } else { Vec::new() };
+        let Some(server) = self.phones.server.as_mut() else { return };
         let port = server.local_addr().port();
-        server.set_book(LinkBook { keys, phones: known });
+        server.set_book(LinkBook { keys, phones: known, child_accounts });
+        let before = server.listening();
+        let problems = server.listen_on_home(&home);
+        let after = server.listening();
+        for problem in problems {
+            let text = format!("The link could not listen on a home address, {problem}. Phones reach this PC on its other addresses meanwhile.");
+            self.log_quiet(&format!("link-listen/{problem}"), &text, now);
+        }
+        if before != after {
+            let addresses: Vec<String> = after.iter().map(|a| a.ip().to_string()).collect();
+            self.log(&format!("The link for the family’s phones listens on {} now.", addresses.join(", ")));
+        }
         match id.filter(|_| any_phone) {
             Some(id) if self.phones.announced != Some(id) => match self.phones.announcer.announce(&id, port) {
                 Ok(()) => {
                     self.phones.announced = Some(id);
-                    self.os.log(&format!("LiMo announces itself on the home network: {}.", what_is_announced(&id, port)));
+                    self.log(&format!("LiMo announces itself on the home network: {}.", what_is_announced(&id, port)));
                 }
                 Err(problem) => {
                     let text = format!("LiMo could not announce itself on the home network: {problem}. Phones find it by its address meanwhile.");
@@ -360,7 +391,7 @@ impl<O: Os> Service<O> {
             None => {
                 if self.phones.announced.take().is_some() {
                     self.phones.announcer.withdraw();
-                    self.os.log("LiMo withdrew its announcement on the home network: the family has no phone now.");
+                    self.log("LiMo withdrew its announcement on the home network: the family has no phone now.");
                 }
             }
         }

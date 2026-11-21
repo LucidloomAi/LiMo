@@ -1,0 +1,24 @@
+{
+  "request": "set_age_band",
+  "case": "Asha is 13 now",
+  "asked": {
+    "args": {
+      "age_band": "thirteen_to_seventeen",
+      "child": "child-0000000000000001"
+    },
+    "name": "set_age_band"
+  },
+  "answer": {
+    "id": 45,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "added_at": 1794997808,
+        "age_band": "thirteen_to_seventeen",
+        "child_id": "child-0000000000000001",
+        "name": "Asha"
+      }
+    },
+    "say": "answer"
+  }
+}

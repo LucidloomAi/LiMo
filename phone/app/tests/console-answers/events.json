@@ -1,0 +1,121 @@
+{
+  "request": "events",
+  "case": "what happened, newest first",
+  "asked": {
+    "args": {
+      "before": null,
+      "limit": 50
+    },
+    "name": "events"
+  },
+  "answer": {
+    "id": 49,
+    "reply": {
+      "outcome": "done",
+      "value": [
+        {
+          "at": 1794998153,
+          "child_id": null,
+          "id": 11,
+          "what": {
+            "kind": "password_changed"
+          }
+        },
+        {
+          "at": 1794998143,
+          "child_id": "child-0000000000000001",
+          "id": 10,
+          "what": {
+            "device_id": "device-0000000000000002",
+            "kind": "device_paired",
+            "name": "Asha’s phone"
+          }
+        },
+        {
+          "at": 1794998139,
+          "child_id": "child-0000000000000001",
+          "id": 9,
+          "what": {
+            "kind": "lifted"
+          }
+        },
+        {
+          "at": 1794998138,
+          "child_id": "child-0000000000000001",
+          "id": 8,
+          "what": {
+            "kind": "unlocked",
+            "until": 1795005000
+          }
+        },
+        {
+          "at": 1794998137,
+          "child_id": "child-0000000000000001",
+          "id": 7,
+          "what": {
+            "kind": "lifted"
+          }
+        },
+        {
+          "at": 1794998136,
+          "child_id": "child-0000000000000001",
+          "id": 6,
+          "what": {
+            "kind": "locked",
+            "until": null
+          }
+        },
+        {
+          "at": 1794998128,
+          "child_id": "child-0000000000000001",
+          "id": 5,
+          "what": {
+            "device_id": "device-0000000000000001",
+            "kind": "request_arrived",
+            "minutes": 20,
+            "request_id": "device-0000000000000001/ask/1"
+          }
+        },
+        {
+          "at": 1794997825,
+          "child_id": "child-0000000000000001",
+          "id": 4,
+          "what": {
+            "device_id": "device-0000000000000001",
+            "kind": "device_paired",
+            "name": "Family PC"
+          }
+        },
+        {
+          "at": 1794997818,
+          "child_id": "child-0000000000000001",
+          "id": 3,
+          "what": {
+            "kind": "rules_changed",
+            "version": 2
+          }
+        },
+        {
+          "at": 1794997807,
+          "child_id": null,
+          "id": 2,
+          "what": {
+            "kind": "pin_set"
+          }
+        },
+        {
+          "at": 1794997800,
+          "child_id": null,
+          "id": 1,
+          "what": {
+            "account_id": "S-1-5-21-1000",
+            "account_name": "guardian",
+            "day": 20775,
+            "kind": "unlinked_account_used"
+          }
+        }
+      ]
+    },
+    "say": "answer"
+  }
+}

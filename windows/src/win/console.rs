@@ -26,7 +26,7 @@ pub(crate) fn read_hidden(prompt: &str) -> Option<Zeroizing<String>> {
             let _ = SetConsoleMode(input, mode);
         }
     }
-    println!();
+    say!();
     match read {
         Ok(0) | Err(_) => None,
         Ok(_) => {

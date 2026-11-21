@@ -58,6 +58,9 @@ features = [
     # The accounts of this PC and the Administrators group's members, for
     # the guardian to say whose each account is.
     "Win32_NetworkManagement_NetManagement",
+    # Which process is at the other end of a loopback connection to the
+    # link, so that one from a child's account is closed at once.
+    "Win32_NetworkManagement_IpHelper",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
@@ -88,12 +91,19 @@ features = [
 # A phone played over the link, for the tests and the example program.
 # Never part of the service.
 played-phone = []
+# A small host of the console's door, for other crates' tests: the real
+# service and door on a named pipe of the test's own, with no Os of their
+# own to implement. Never part of the service.
+door-host = []
 
 [dev-dependencies]
 # A real family file in a temporary folder, for the stories.
 tempfile = "3.27.0"
 # The tests and the example play a phone over real loopback sockets.
-limo-windows = { path = ".", features = ["played-phone"] }
+limo-windows = { path = ".", features = ["played-phone", "door-host"] }
+# Tests only: a loopback socket bound to its own port before it connects,
+# to play a program in a child's account. Already under mdns-sd.
+socket2 = "0.6.5"
 
 [[example]]
 name = "limo-phone"

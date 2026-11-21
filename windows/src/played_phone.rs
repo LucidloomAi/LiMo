@@ -39,6 +39,12 @@ impl Wire {
         Ok(Wire { stream })
     }
 
+    /// A socket connected already.
+    pub fn from_stream(stream: TcpStream) -> Result<Wire, String> {
+        stream.set_nonblocking(true).map_err(|e| e.to_string())?;
+        Ok(Wire { stream })
+    }
+
     /// Writes all of `bytes`, whatever they are.
     pub fn send(&mut self, mut bytes: &[u8]) -> Result<(), String> {
         let give_up = Instant::now() + Duration::from_secs(5);

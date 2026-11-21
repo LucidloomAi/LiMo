@@ -118,7 +118,7 @@ fn a_blocked_program_is_closed_in_its_own_session_only_every_copy_and_logged_onc
     for other in [miras, mums, pid] {
         assert!(pc.os().processes.iter().any(|p| p.pid == other), "{other} was closed");
     }
-    let closed = pc.logged("Closed blocks.exe in session 1 (2 running copies): blocks.exe is blocked by your family's rules");
+    let closed = pc.logged("Closed blocks.exe in session 1 (2 running copies): blocks.exe is blocked by your family’s rules");
     assert_eq!(closed.len(), 1, "{:?}", pc.os().log);
     // The sentence, with the program's name beside it for the drawn notice.
     assert!(pc.helper(1).unwrap().got.iter().any(|m| matches!(
@@ -303,7 +303,7 @@ fn a_part_of_windows_the_rules_block_is_said_once_for_each_session_and_never_aga
     let shell_pid = pc.start(1, shell);
     pc.step();
     pc.greet(1);
-    let spared = "The family's rules block explorer.exe in session 1, but it is part of Windows and LiMo never closes it";
+    let spared = "The family’s rules block explorer.exe in session 1, but it is part of Windows and LiMo never closes it";
 
     // The engine orders the close every second, all afternoon: one line,
     // with no count, past the ten minutes after which a quiet line comes

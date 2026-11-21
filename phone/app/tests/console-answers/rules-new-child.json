@@ -1,0 +1,55 @@
+{
+  "request": "rules",
+  "case": "a new child’s rules, as LiMo starts them",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "rules"
+  },
+  "answer": {
+    "id": 15,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "always_allowed_apps": [],
+        "away_share_percent": 50,
+        "blocked_apps": [],
+        "blocked_hours": [],
+        "budgets": {
+          "friday": {
+            "minutes": 120
+          },
+          "monday": {
+            "minutes": 120
+          },
+          "saturday": {
+            "minutes": 120
+          },
+          "sunday": {
+            "minutes": 120
+          },
+          "thursday": {
+            "minutes": 120
+          },
+          "tuesday": {
+            "minutes": 120
+          },
+          "wednesday": {
+            "minutes": 120
+          }
+        },
+        "day_start_minute": 0,
+        "lease_minutes": 10,
+        "utc_offset_secs": 19800,
+        "version": 1,
+        "warning_minutes": [
+          15,
+          5,
+          1
+        ]
+      }
+    },
+    "say": "answer"
+  }
+}

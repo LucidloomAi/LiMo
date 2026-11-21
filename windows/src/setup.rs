@@ -51,7 +51,7 @@ impl std::fmt::Debug for DevFamily<'_> {
 /// part way is reported, and the file keeps the steps before it.
 pub fn make_dev_family(hub: &mut Hub, family: &DevFamily<'_>, now: i64) -> Result<String, String> {
     if hub.has_family().map_err(|e| e.to_string())? {
-        return Err("The family's file already has a family. To start again, run limo uninstall and limo install.".to_string());
+        return Err("The family’s file already has a family. To start again, run limo uninstall and limo install.".to_string());
     }
     hub.create_family(family.password, now).map_err(|e| format!("The family could not be made: {e}"))?;
     let child = hub
@@ -91,7 +91,7 @@ impl fmt::Debug for DevCode {
 /// service runs again. Each call makes a new code, and the hub records it,
 /// so a device takes at most ten a day.
 pub fn make_dev_code(hub: &mut Hub, child: Option<&str>, minutes: u32, pc_name: &str, now: i64) -> Result<DevCode, String> {
-    let children = hub.children().map_err(|e| format!("The family's children could not be read: {e}"))?;
+    let children = hub.children().map_err(|e| format!("The family’s children could not be read: {e}"))?;
     let found = match child {
         Some(name) => children.iter().find(|c| c.name.trim().eq_ignore_ascii_case(name.trim())),
         None if children.len() == 1 => children.first(),
@@ -103,7 +103,7 @@ pub fn make_dev_code(hub: &mut Hub, child: Option<&str>, minutes: u32, pc_name: 
     };
     let device = hub
         .pair_master_pc(&found.child_id, pc_name, now)
-        .map_err(|e| format!("The child's device on this PC could not be had: {e}"))?;
+        .map_err(|e| format!("The child’s device on this PC could not be had: {e}"))?;
     let code = hub.make_code(&device.device_id, minutes, now).map_err(|e| format!("The code could not be made: {e}"))?;
     Ok(DevCode { child: found.name.clone(), shown: code.shown.clone(), minutes: code.minutes })
 }
@@ -128,7 +128,7 @@ pub fn new_password_problem(password: &str) -> Option<String> {
 /// children, their rules and their devices. Refused, changing nothing, when
 /// there is no family yet or the new password cannot be taken.
 pub fn reset_family_password(hub: &mut Hub, new: &str, now: i64) -> Result<(), String> {
-    if !hub.has_family().map_err(|e| format!("The family's file could not be read: {e}"))? {
+    if !hub.has_family().map_err(|e| format!("The family’s file could not be read: {e}"))? {
         return Err("There is no family on this PC yet, so there is no password to reset. Nothing was changed.".to_string());
     }
     if let Some(problem) = new_password_problem(new) {

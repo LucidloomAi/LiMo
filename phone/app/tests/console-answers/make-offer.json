@@ -1,0 +1,27 @@
+{
+  "request": "make_offer",
+  "case": "an offer for a phone of Asha’s",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "make_offer"
+  },
+  "answer": {
+    "id": 38,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "addresses": [
+          "192.168.1.20"
+        ],
+        "expires_at": 1794998743,
+        "master_id": "0000000000000001",
+        "offer": "limo1:(an offer for a phone: it holds a secret, so it is not written here)",
+        "offer_id": "0000000000000001",
+        "port": 47810
+      }
+    },
+    "say": "answer"
+  }
+}

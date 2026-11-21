@@ -1,0 +1,18 @@
+{
+  "request": "delete_family",
+  "case": "the family deleted",
+  "asked": {
+    "args": {
+      "password": "(a secret: not written here)"
+    },
+    "name": "delete_family"
+  },
+  "answer": {
+    "id": 66,
+    "reply": {
+      "outcome": "done",
+      "value": {}
+    },
+    "say": "answer"
+  }
+}

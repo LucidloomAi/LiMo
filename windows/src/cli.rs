@@ -137,7 +137,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             let child =
                 value_of(rest, "--child").map(str::trim).filter(|s| !s.is_empty() && !s.starts_with("--")).map(String::from);
             if rest.iter().any(|a| a == "--child") && child.is_none() {
-                return Err("--child takes the child's name, for example: limo dev-code --child Asha".to_string());
+                return Err("--child takes the child’s name, for example: limo dev-code --child Asha".to_string());
             }
             let minutes = match value_of(rest, "--minutes") {
                 None if rest.iter().any(|a| a == "--minutes") => {
@@ -164,8 +164,8 @@ pub fn usage() -> String {
         "                         --dev also switches on the test cap: any single",
         "                         lock is lifted after 120 seconds. For testing only.",
         "  limo uninstall         stop and remove the service, the program and the",
-        "                         data folder with the family's file (administrator).",
-        "  limo status            the service's state, and the end of its log when",
+        "                         data folder with the family’s file (administrator).",
+        "  limo status            the service’s state, and the end of its log when",
         "                         this account may read it.",
         "  limo reset-password    (administrator) sets a new guardian password when",
         "                         the family forgot it: asked for at the prompt, not",
@@ -173,7 +173,7 @@ pub fn usage() -> String {
         "                         stopped for a moment and started again.",
         "  limo dev-setup --child NAME --account WINDOWS_ACCOUNT [--minutes N] [--block PROGRAM]...",
         "                         (administrator, with the service stopped)",
-        "                         SCAFFOLDING until the guardian's console exists:",
+        "                         SCAFFOLDING until the guardian’s console exists:",
         "                         makes a family with a guardian password and PIN",
         "                         typed at the prompt, one child, links the Windows",
         "                         account to the child, and gives the child N",
@@ -181,15 +181,15 @@ pub fn usage() -> String {
         "                         blocking each PROGRAM given, such as notepad.exe.",
         "  limo dev-code [--minutes 15|30|60] [--child NAME]",
         "                         (administrator, with the service stopped)",
-        "                         SCAFFOLDING until the guardian's phone app exists:",
+        "                         SCAFFOLDING until the guardian’s phone app exists:",
         "                         makes and prints a one time code for the test",
-        "                         child's device on this PC, for today only, worth",
+        "                         child’s device on this PC, for today only, worth",
         "                         the minutes given (15 when not given). Each run",
         "                         makes a new code; a device takes ten a day.",
-        "  limo dev-console       SCAFFOLDING until the guardian's console exists:",
-        "                         knocks on the door of LiMo's settings from this",
+        "  limo dev-console       SCAFFOLDING until the guardian’s console exists:",
+        "                         knocks on the door of LiMo’s settings from this",
         "                         account, and sends what is typed (type help).",
-        "  limo service           the service control manager's entry only.",
+        "  limo service           the service control manager’s entry only.",
         "  limo helper            started by the service only.",
     ]
     .join("\n")
@@ -257,6 +257,6 @@ mod tests {
         for bad in ["dev-code --minutes 20", "dev-code --minutes", "dev-code --minutes x", "dev-code --child", "dev-code --child --minutes 30"] {
             assert!(parse(&args(bad)).is_err(), "{bad}");
         }
-        assert!(usage().contains("dev-code") && usage().contains("SCAFFOLDING until the guardian's phone app exists"));
+        assert!(usage().contains("dev-code") && usage().contains("SCAFFOLDING until the guardian’s phone app exists"));
     }
 }

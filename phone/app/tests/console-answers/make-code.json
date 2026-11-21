@@ -1,0 +1,24 @@
+{
+  "request": "make_code",
+  "case": "a one time code for the PC, worth 15 minutes",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000001",
+      "minutes": 15
+    },
+    "name": "make_code"
+  },
+  "answer": {
+    "id": 37,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "day": 20775,
+        "device_id": "device-0000000000000001",
+        "minutes": 15,
+        "shown": "1234 5678"
+      }
+    },
+    "say": "answer"
+  }
+}

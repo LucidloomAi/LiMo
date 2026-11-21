@@ -1,0 +1,21 @@
+{
+  "request": "family_state",
+  "case": "the family, signed out",
+  "asked": {
+    "name": "family_state"
+  },
+  "answer": {
+    "id": 52,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "children": 1,
+        "has_family": true,
+        "has_pin": true,
+        "signed_in": false,
+        "unlinked_accounts": "locked"
+      }
+    },
+    "say": "answer"
+  }
+}

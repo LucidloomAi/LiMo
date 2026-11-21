@@ -17,7 +17,7 @@ use crate::common::*;
 static NEXT: AtomicU32 = AtomicU32::new(0);
 
 /// A pipe name of this test's own, never the real door's.
-fn pipe_name() -> String {
+pub(crate) fn pipe_name() -> String {
     format!(r"\\.\pipe\limo.console.test.{}.{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst))
 }
 
@@ -46,7 +46,7 @@ fn settle(pc: &mut Pc) {
 }
 
 /// Connects, waiting a moment for the door's thread to make the pipe.
-fn connect(name: &str) -> DoorClient {
+pub(crate) fn connect(name: &str) -> DoorClient {
     let give_up = Instant::now() + Duration::from_secs(5);
     loop {
         match DoorClient::connect(name, 1_000) {
@@ -129,7 +129,7 @@ fn the_tests_own_account_linked_to_a_child_is_refused_over_the_real_pipe() {
     assert_eq!(
         next(&mut pc, &mut client).unwrap(),
         ToConsole::Refused {
-            message: "LiMo's settings cannot be opened from Asha's account. A guardian opens them from their own.".into()
+            message: "LiMo’s settings cannot be opened from Asha’s account. A guardian opens them from their own.".into()
         }
     );
     // A password sent after is never answered: the connection is closed.
@@ -156,7 +156,7 @@ fn two_clients_at_once_over_the_real_pipe_each_have_their_own_session() {
     while pc.service.door_sessions() > 0 && Instant::now() < give_up {
         pc.step();
     }
-    assert_eq!(pc.service.door_sessions(), 0, "the closed connection's session ended");
+    assert_eq!(pc.service.door_sessions(), 0, "the closed connection’s session ended");
     assert!(matches!(ask(&mut pc, &mut second, 2, Request::About), Reply::Done { .. }));
 }
 

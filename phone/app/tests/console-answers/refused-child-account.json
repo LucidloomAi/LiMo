@@ -1,0 +1,12 @@
+{
+  "request": "hello",
+  "case": "a console opened from Asha’s account",
+  "asked": {
+    "protocol": 1,
+    "say": "hello"
+  },
+  "answer": {
+    "message": "LiMo’s settings cannot be opened from Asha’s account. A guardian opens them from their own.",
+    "say": "refused"
+  }
+}

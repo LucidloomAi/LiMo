@@ -1,0 +1,28 @@
+{
+  "request": "device_link",
+  "case": "the phone’s session, through the cable",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000002"
+    },
+    "name": "device_link"
+  },
+  "answer": {
+    "id": 41,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "device_id": "device-0000000000000002",
+        "sessions": [
+          {
+            "device_id": "device-0000000000000002",
+            "last_report_at": 1794998143,
+            "opened_at": 1794998143,
+            "way": "cable"
+          }
+        ]
+      }
+    },
+    "say": "answer"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "request": "add_child",
+  "case": "a child with no name",
+  "asked": {
+    "args": {
+      "age_band": "six_to_nine",
+      "name": "  "
+    },
+    "name": "add_child"
+  },
+  "answer": {
+    "id": 8,
+    "reply": {
+      "outcome": "problem",
+      "problem": {
+        "kind": "invalid",
+        "message": "A child’s name cannot be empty."
+      }
+    },
+    "say": "answer"
+  }
+}

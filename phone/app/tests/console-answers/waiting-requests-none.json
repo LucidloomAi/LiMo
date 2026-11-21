@@ -1,0 +1,15 @@
+{
+  "request": "waiting_requests",
+  "case": "nothing waiting",
+  "asked": {
+    "name": "waiting_requests"
+  },
+  "answer": {
+    "id": 29,
+    "reply": {
+      "outcome": "done",
+      "value": []
+    },
+    "say": "answer"
+  }
+}

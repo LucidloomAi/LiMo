@@ -1,0 +1,26 @@
+{
+  "request": "device",
+  "case": "the phone",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000002"
+    },
+    "name": "device"
+  },
+  "answer": {
+    "id": 40,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "child_id": "child-0000000000000001",
+        "device_id": "device-0000000000000002",
+        "kind": "portable",
+        "last_heard_at": 1794998143,
+        "name": "Asha’s phone",
+        "paired_at": 1794998143,
+        "platform": "android"
+      }
+    },
+    "say": "answer"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "request": "finish_first_start",
+  "case": "the first start finished: accounts linked to nobody are locked",
+  "asked": {
+    "name": "finish_first_start"
+  },
+  "answer": {
+    "id": 21,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "idle_minutes": 10,
+        "unlinked_accounts": "locked"
+      }
+    },
+    "say": "answer"
+  }
+}

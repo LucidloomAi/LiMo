@@ -1,0 +1,21 @@
+{
+  "request": "child_today",
+  "case": "a child that is not in the family",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000002"
+    },
+    "name": "child_today"
+  },
+  "answer": {
+    "id": 46,
+    "reply": {
+      "outcome": "problem",
+      "problem": {
+        "kind": "not_found",
+        "message": "That child is not in the family."
+      }
+    },
+    "say": "answer"
+  }
+}

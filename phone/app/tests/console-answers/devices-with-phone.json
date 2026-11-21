@@ -1,0 +1,37 @@
+{
+  "request": "devices",
+  "case": "Asha’s devices: the PC and a phone",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001"
+    },
+    "name": "devices"
+  },
+  "answer": {
+    "id": 39,
+    "reply": {
+      "outcome": "done",
+      "value": [
+        {
+          "child_id": "child-0000000000000001",
+          "device_id": "device-0000000000000001",
+          "kind": "on_master",
+          "last_heard_at": 1794998143,
+          "name": "Family PC",
+          "paired_at": 1794997825,
+          "platform": "windows"
+        },
+        {
+          "child_id": "child-0000000000000001",
+          "device_id": "device-0000000000000002",
+          "kind": "portable",
+          "last_heard_at": 1794998143,
+          "name": "Asha’s phone",
+          "paired_at": 1794998143,
+          "platform": "android"
+        }
+      ]
+    },
+    "say": "answer"
+  }
+}

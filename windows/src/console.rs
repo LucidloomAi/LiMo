@@ -571,7 +571,7 @@ pub fn answer_decoder() -> Decoder {
 pub fn closed_because(problem: &ChannelProblem) -> String {
     match problem {
         ChannelProblem::WrongVersion { got } => format!(
-            "it spoke version {got} of the console's protocol, and this LiMo speaks version {CONSOLE_PROTOCOL_VERSION}"
+            "it spoke version {got} of the console’s protocol, and this LiMo speaks version {CONSOLE_PROTOCOL_VERSION}"
         ),
         ChannelProblem::TooBig { bytes } => {
             format!("it sent a message of {bytes} bytes, more than the {MAX_CONSOLE_MESSAGE_BYTES} a message may have")
@@ -696,7 +696,7 @@ mod tests {
         let mut reader = ConsoleReader::new();
         reader.push(&header).unwrap();
         assert_eq!(reader.next_frame(), Err(ChannelProblem::TooBig { bytes: MAX_CONSOLE_MESSAGE_BYTES + 1 }));
-        assert!(closed_because(&ChannelProblem::WrongVersion { got: 3 }).contains("console's protocol"));
+        assert!(closed_because(&ChannelProblem::WrongVersion { got: 3 }).contains("console’s protocol"));
         // A flood of bytes is refused before it is kept.
         let mut reader = ConsoleReader::new();
         assert!(reader.push(&vec![0u8; 2 * (HEADER_BYTES + MAX_CONSOLE_MESSAGE_BYTES) + 1]).is_err());

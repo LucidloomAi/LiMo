@@ -23,7 +23,7 @@ use super::logfile::append;
 use super::os::WinOs;
 use crate::announce::MdnsAnnouncer;
 use crate::console::CONSOLE_PIPE_NAME;
-use crate::phones::{LinkServer, SystemClock};
+use crate::phones::{LinkHooks, LinkServer, SystemClock};
 use crate::quiet::Quiet;
 use crate::service::{STEP_MS, Service, ServiceConfig};
 use crate::settings::{Places, SERVICE_NAME};
@@ -40,11 +40,11 @@ pub(crate) fn run() -> i32 {
     match service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
         Ok(()) => 0,
         Err(windows_service::Error::Winapi(e)) if e.raw_os_error() == Some(ERROR_FAILED_SERVICE_CONTROLLER_CONNECT) => {
-            println!("limo service is the service control manager's entry, and does nothing run from a terminal. Use limo install.");
+            say!("limo service is the service control manager’s entry, and does nothing run from a terminal. Use limo install.");
             2
         }
         Err(e) => {
-            println!("The service could not start: {e}.");
+            say!("The service could not start: {e}.");
             1
         }
     }
@@ -93,15 +93,19 @@ enum Wake {
 /// seconds.
 const LINK_RETRY_SECS: u64 = 60;
 
-/// Starts the link for the phones on every IPv4 address, loopback included
-/// (the USB cable's tunnel arrives there), at the link's port.
+/// Starts the link for the phones on the loopback address, at the link's
+/// port: the USB cable's tunnel arrives there. The service adds the home
+/// addresses once the family has a phone. A loopback connection's other end
+/// is asked of Windows, so that one from a child's account is closed at
+/// once.
 fn start_link(wake_tx: &Sender<Wake>) -> std::io::Result<LinkServer> {
     let tx = wake_tx.clone();
     let wake = Arc::new(move || {
         let _ = tx.send(Wake::Door);
     });
-    let bind = SocketAddr::from((Ipv4Addr::UNSPECIFIED, limo_link::DEFAULT_PORT));
-    LinkServer::start(bind, Arc::new(SystemClock::new()), wake)
+    let loopback = SocketAddr::from((Ipv4Addr::LOCALHOST, limo_link::DEFAULT_PORT));
+    let hooks = LinkHooks { peer_account: Arc::new(super::peers::loopback_peer_account), ..LinkHooks::default() };
+    LinkServer::start_with(loopback, Arc::new(SystemClock::new()), wake, hooks)
 }
 
 fn run_service(places: &Places) -> windows_service::Result<()> {
@@ -135,7 +139,7 @@ fn run_service(places: &Places) -> windows_service::Result<()> {
                 // goes on after it.
                 let problem = problem.to_string();
                 let why = problem.trim_end().trim_end_matches('.');
-                if let Some(line) = quiet.line("hub", &format!("The family's file could not be opened: {why}. LiMo tries again every five seconds; until then it limits nothing."), waited) {
+                if let Some(line) = quiet.line("hub", &format!("The family’s file could not be opened: {why}. LiMo tries again every five seconds; until then it limits nothing."), waited) {
                     append(places, &line);
                 }
                 waited += 5_000;
@@ -173,7 +177,7 @@ fn run_service(places: &Places) -> windows_service::Result<()> {
                     }
                     Err(problem) if link_tried.is_none() => {
                         append(places, &format!(
-                            "The link for the family's phones could not listen on port {}: {problem}. Phones cannot reach this PC until it can; LiMo tries again every minute.",
+                            "The link for the family’s phones could not listen on port {}: {problem}. Phones cannot reach this PC until it can; LiMo tries again every minute.",
                             limo_link::DEFAULT_PORT
                         ));
                         link_tried = Some(Instant::now());

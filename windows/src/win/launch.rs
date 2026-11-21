@@ -118,12 +118,12 @@ pub(crate) enum DaclStage {
 pub(crate) fn dacl_failure_text(variant: DaclVariant, stage: DaclStage, error: &str) -> String {
     let name = variant.name();
     let what = match stage {
-        DaclStage::Build => format!("The helper's protective access list, variant {name}, could not be built: {error}."),
+        DaclStage::Build => format!("The helper’s protective access list, variant {name}, could not be built: {error}."),
         DaclStage::Launch => format!("Starting the helper with its protective access list, variant {name}, failed: {error}."),
     };
     match variant.next() {
         Some(next) => format!("{what} Variant {} is tried next.", next.name()),
-        None => format!("{what} It is started without one, so the user's own programs may be able to end it."),
+        None => format!("{what} It is started without one, so the user’s own programs may be able to end it."),
     }
 }
 
@@ -329,19 +329,19 @@ pub(crate) fn launch_helper(session: u32, exe: &Path, plain: bool) -> Result<Lau
     set_inheritable(&helper_reads, true).map_err(channel)?;
     set_inheritable(&helper_writes, true).map_err(channel)?;
 
-    let token = user_primary_token(session).map_err(|e| format!("the user's token could not be had: {}", error_text(&e)))?;
+    let token = user_primary_token(session).map_err(|e| format!("the user’s token could not be had: {}", error_text(&e)))?;
     let mut problems = Vec::new();
     let uiaccess = set_uiaccess(token.raw());
     if let Err(e) = &uiaccess {
         problems.push(format!(
-            "UIAccess could not be set on the helper's token: {}. It was started without it, so other always on top windows can show over the lock.",
+            "UIAccess could not be set on the helper’s token: {}. It was started without it, so other always on top windows can show over the lock.",
             error_text(e)
         ));
     }
     let integrity = set_medium_plus(token.raw());
     if let Err(e) = &integrity {
         problems.push(format!(
-            "The helper's token could not be raised to medium plus integrity: {}. It was started at the user's own level, so the user's own programs can reach into it.",
+            "The helper’s token could not be raised to medium plus integrity: {}. It was started at the user’s own level, so the user’s own programs can reach into it.",
             error_text(e)
         ));
     }
@@ -374,7 +374,7 @@ pub(crate) fn launch_helper(session: u32, exe: &Path, plain: bool) -> Result<Lau
     unsafe {
         let _ = CloseHandle(info.hThread);
     }
-    let process = Owned::new(info.hProcess).ok_or_else(|| "the helper's process handle was not given".to_string())?;
+    let process = Owned::new(info.hProcess).ok_or_else(|| "the helper’s process handle was not given".to_string())?;
     let detail = format!(
         "uiaccess={} integrity={} dacl={dacl} channel=inherited display={}",
         if uiaccess.is_ok() { 1 } else { 0 },

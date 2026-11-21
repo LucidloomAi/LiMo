@@ -1,0 +1,21 @@
+{
+  "request": "set_idle_minutes",
+  "case": "idle after 10 minutes",
+  "asked": {
+    "args": {
+      "minutes": 10
+    },
+    "name": "set_idle_minutes"
+  },
+  "answer": {
+    "id": 19,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "idle_minutes": 10,
+        "unlinked_accounts": "free"
+      }
+    },
+    "say": "answer"
+  }
+}

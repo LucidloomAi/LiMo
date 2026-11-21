@@ -1,0 +1,27 @@
+{
+  "request": "rename_device",
+  "case": "the phone renamed",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000002",
+      "name": "Asha’s tablet"
+    },
+    "name": "rename_device"
+  },
+  "answer": {
+    "id": 42,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "child_id": "child-0000000000000001",
+        "device_id": "device-0000000000000002",
+        "kind": "portable",
+        "last_heard_at": 1794998143,
+        "name": "Asha’s tablet",
+        "paired_at": 1794998143,
+        "platform": "android"
+      }
+    },
+    "say": "answer"
+  }
+}

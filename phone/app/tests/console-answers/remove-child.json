@@ -1,0 +1,19 @@
+{
+  "request": "remove_child",
+  "case": "Asha removed",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001",
+      "password": "(a secret: not written here)"
+    },
+    "name": "remove_child"
+  },
+  "answer": {
+    "id": 65,
+    "reply": {
+      "outcome": "done",
+      "value": {}
+    },
+    "say": "answer"
+  }
+}

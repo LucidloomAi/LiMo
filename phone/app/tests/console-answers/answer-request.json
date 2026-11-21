@@ -1,0 +1,41 @@
+{
+  "request": "answer_request",
+  "case": "15 of them granted",
+  "asked": {
+    "args": {
+      "child": "child-0000000000000001",
+      "reply": {
+        "grant": {
+          "minutes": 15
+        }
+      },
+      "request": "device-0000000000000001/ask/1"
+    },
+    "name": "answer_request"
+  },
+  "answer": {
+    "id": 28,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "answer": {
+          "granted": {
+            "minutes": 15
+          }
+        },
+        "answered_at": 1794998133,
+        "reached_master": true,
+        "request": {
+          "asked_at": 1794998128,
+          "child_id": "child-0000000000000001",
+          "day": 20775,
+          "device_id": "device-0000000000000001",
+          "id": "device-0000000000000001/ask/1",
+          "minutes": 20,
+          "reason": "For the school project"
+        }
+      }
+    },
+    "say": "answer"
+  }
+}

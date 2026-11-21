@@ -1,0 +1,18 @@
+{
+  "request": "create_family",
+  "case": "the family made, and this window signed in",
+  "asked": {
+    "args": {
+      "password": "(a secret: not written here)"
+    },
+    "name": "create_family"
+  },
+  "answer": {
+    "id": 4,
+    "reply": {
+      "outcome": "done",
+      "value": {}
+    },
+    "say": "answer"
+  }
+}

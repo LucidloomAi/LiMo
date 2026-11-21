@@ -62,7 +62,7 @@ pub fn home_addresses() -> Vec<Ipv4Addr> {
 pub fn what_is_announced(id: &MasterId, port: u16) -> String {
     let txt: Vec<String> = txt_records(id).into_iter().map(|(k, v)| format!("{k}={v}")).collect();
     format!(
-        "service {SERVICE_TYPE}, instance \"{}\", host {}, port {port}, TXT {}, and the PC's address on each home network",
+        "service {SERVICE_TYPE}, instance \"{}\", host {}, port {port}, TXT {}, and the PC’s address on each home network",
         instance_name(id),
         host_name(id),
         txt.join(" ")
@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(
             said,
             "service _limo._tcp.local., instance \"LiMo 1a2b3c4d\", host limo-1a2b3c4d.local., port 47810, \
-             TXT v=1 id=1a2b3c4d5e6f7a8b, and the PC's address on each home network"
+             TXT v=1 id=1a2b3c4d5e6f7a8b, and the PC’s address on each home network"
         );
     }
 

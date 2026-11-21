@@ -1,0 +1,21 @@
+{
+  "request": "family_state",
+  "case": "a family with no child yet, signed in",
+  "asked": {
+    "name": "family_state"
+  },
+  "answer": {
+    "id": 5,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "children": 0,
+        "has_family": true,
+        "has_pin": false,
+        "signed_in": true,
+        "unlinked_accounts": "free"
+      }
+    },
+    "say": "answer"
+  }
+}

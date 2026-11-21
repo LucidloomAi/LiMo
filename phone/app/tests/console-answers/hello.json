@@ -1,0 +1,13 @@
+{
+  "request": "hello",
+  "case": "the door says hello back, with its protocol and LiMo’s version",
+  "asked": {
+    "protocol": 1,
+    "say": "hello"
+  },
+  "answer": {
+    "protocol": 1,
+    "say": "hello",
+    "version": "0.1.0"
+  }
+}
