@@ -595,6 +595,34 @@ pub struct PairRequest {
     pub android_version: Option<i32>,
 }
 
+/// What the phone is, as Android gives it, for the guardian's list of
+/// devices on the master. The link cleans each text as it cleans a phone's
+/// name, puts the maker before the model unless the model starts with it,
+/// and cuts both at their limits (`limo_link::PhoneAbout::new`). It goes to
+/// the family's own PC only, inside the link; never log it.
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
+pub struct PhoneAbout {
+    /// `Build.MANUFACTURER`, such as "samsung".
+    pub maker: String,
+    /// `Build.MODEL`, such as "SM-S911B".
+    pub model: String,
+    /// `Build.VERSION.SDK_INT`, such as 34, as at pairing.
+    pub android_version: Option<i32>,
+    /// LiMo's version on the phone: the app's version name, such as "0.4.0".
+    pub app_version: String,
+}
+
+impl std::fmt::Debug for PhoneAbout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PhoneAbout")
+            .field("maker", &"(left out)")
+            .field("model", &"(left out)")
+            .field("android_version", &self.android_version)
+            .field("app_version", &self.app_version)
+            .finish()
+    }
+}
+
 /// One app on the phone, for the app list the master keeps.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AppEntry {

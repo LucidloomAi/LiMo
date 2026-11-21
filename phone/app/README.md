@@ -585,7 +585,11 @@ What the phone sends the PC, and nothing more: its reports (which app was
 used and for how long, by package name, the time added on it, its requests
 for more time with the reason typed, its wrong guesses, its notes such as
 setup finished or a permission switched off), its list of apps with their
-labels, and, at pairing, its own name and Android version. What it gets
+labels, what it is (its maker and model as Android gives them, such as
+"samsung SM-S911B", its Android version, and LiMo's version on it, once
+after each session opens and again when any of it changed, for the
+guardian's list of devices; never written in the phone's log), and, at
+pairing, its own name and Android version. What it gets
 back: the grants (its time, the rules, the PIN record, the guardian's lock
 or unlock, the answers to its requests, the use on the child's other
 devices), the child's name at pairing, and requests to report.

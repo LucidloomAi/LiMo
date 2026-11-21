@@ -56,7 +56,7 @@ pub use link::{Offer, PairedMaster, PhonePairing, PhoneSession};
 pub use shapes::{
     AppEntry, BlockCover, CallState, Cover, CoverKind, EngineError, Front, FrontKind, GrantOutcome, GrantTaken,
     GuardCover, GuardedPage, LinkError, LinkEvent, LinkEventKind, LoadProblem, LoadProblemKind, LockCover, LockWhy,
-    NothingToDo, PairRequest,
+    NothingToDo, PairRequest, PhoneAbout,
     PhoneFacts, PhoneOrders, PhonePermissions, PhoneView, PinAction, PinActionKind, RequestAnswer, RequestLine,
     RequestShown, TimeLeft, TimeRequest, TryAnswer, TryKind, Versions, WarningCause, WarningShown, Way, WayRow,
 };

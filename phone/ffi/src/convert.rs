@@ -16,7 +16,7 @@ use serde::Serialize;
 use crate::shapes::{
     AppEntry, BlockCover, CallState, Cover, CoverKind, EngineError, Front, FrontKind, GrantOutcome, GrantTaken,
     GuardCover, GuardedPage, LinkError, LinkEvent, LinkEventKind, LoadProblem, LoadProblemKind, LockCover, LockWhy,
-    NothingToDo, PhoneFacts,
+    NothingToDo, PhoneAbout, PhoneFacts,
     PhoneOrders, PhoneView, PinAction, PinActionKind, RequestAnswer, RequestLine, RequestShown, TimeLeft,
     TimeRequest, TryAnswer, TryKind, WarningCause, WarningShown, Way, WayRow,
 };
@@ -446,6 +446,16 @@ pub(crate) fn event_out(event: PhoneEvent) -> Result<LinkEvent, LinkError> {
 /// An app on the phone, as the link takes it.
 pub(crate) fn app_in(app: AppEntry) -> limo_link::AppEntry {
     limo_link::AppEntry { package: app.package_name, label: app.label }
+}
+
+/// What the phone is, as the link takes it: cleaned, joined and cut by the
+/// link. An Android version below zero is refused.
+pub(crate) fn about_in(about: PhoneAbout) -> Result<limo_link::PhoneAbout, &'static str> {
+    let android_version = match about.android_version {
+        Some(v) => Some(count_in(v, "the Android version is below zero")?),
+        None => None,
+    };
+    Ok(limo_link::PhoneAbout::new(&about.maker, &about.model, android_version, &about.app_version))
 }
 
 /// The link's errors, each to its own variant, with its words.

@@ -8,6 +8,7 @@ import ai.lucidloom.limo.child.ffi.LinkException
 import ai.lucidloom.limo.child.ffi.Offer
 import ai.lucidloom.limo.child.ffi.PairRequest
 import ai.lucidloom.limo.child.ffi.PairedMaster
+import ai.lucidloom.limo.child.ffi.PhoneAbout
 import ai.lucidloom.limo.child.ffi.PhoneEngineInterface
 import ai.lucidloom.limo.child.ffi.PhonePairing
 import ai.lucidloom.limo.child.ffi.PhoneSession
@@ -106,6 +107,16 @@ fun interface AppsSource {
 
 /** What the phone says of itself when it pairs: the name the family will see, and Android's API level. */
 data class PhoneSelf(val name: String, val androidVersion: Int)
+
+/**
+ * What the phone is, for the guardian's list of devices on the family's PC
+ * ([PhoneAbout]: the maker, the model and the API level as Android gives
+ * them, and LiMo's version name). Asked often, so it must be cheap. It goes
+ * to the PC only, inside the link, and is never logged.
+ */
+fun interface AboutSource {
+  fun about(): PhoneAbout
+}
 
 /** Where the link's log lines go (tag `LiMo`): never an offer, a key, a code, a name or an address. */
 fun interface LinkLog {
@@ -217,8 +228,9 @@ object Addresses {
 /**
  * The phone's half of the link to the family's PC: pairing once from the
  * offer the cable door took, then a session whenever the PC is in reach,
- * carrying the engine's reports and the master's grants, the app list, and
- * the PC's word that it removed the phone. The engine stays the judge: out
+ * carrying the engine's reports and the master's grants, the app list,
+ * what the phone is (once a session, and again when it changed), and the
+ * PC's word that it removed the phone. The engine stays the judge: out
  * of reach it keeps to its last grant and the away share, as the core says.
  *
  * Driven by [step], on one thread only (the link's own on the phone, the
@@ -235,7 +247,7 @@ object Addresses {
  * **Never too often.** One connection at a time; after a try that reached
  * nothing it waits 5 seconds, doubling to a minute (a refusal it should not
  * argue with: ten minutes); at most [MAX_CALLS_A_MINUTE] calls on the PC
- * (sessions opened, reports, app lists) in any minute.
+ * (sessions opened, reports, app lists, what the phone is) in any minute.
  */
 class LinkCore(
   private val host: LinkHostSide,
@@ -245,6 +257,7 @@ class LinkCore(
   private val finder: MasterFinder,
   private val apps: AppsSource,
   private val self: () -> PhoneSelf,
+  private val about: AboutSource,
   private val log: LinkLog,
 ) : LinkPort {
   private class Waiting(val offer: Offer, val takenAt: Long) {
@@ -254,6 +267,9 @@ class LinkCore(
   private class Session(val conn: LinkConn, val session: PhoneSession, val route: Route) {
     var opened = false
     var appsCheckedAt = Long.MIN_VALUE
+
+    /** What this session last told the PC the phone is. */
+    var aboutSaid: PhoneAbout? = null
   }
 
   private sealed class Paired {
@@ -604,6 +620,7 @@ class LinkCore(
       }
       if (session !== s) return 0
       if (s.opened && at - s.appsCheckedAt >= APPS_EVERY_MS) sendApps(s, at)
+      if (s.opened) sayAbout(s, at)
       s.session.tick(at)
       flush(s)
     } catch (e: LinkException) {
@@ -631,6 +648,7 @@ class LinkCore(
         // A report at once, as the PC expects when a session opens.
         prodded.set(true)
         sendApps(s, at)
+        sayAbout(s, at)
         host.reachChanged()
       }
       LinkEventKind.GRANT -> event.grant?.let { host.grant(it) }
@@ -652,6 +670,30 @@ class LinkCore(
     countCall(at)
     appsSent = hash
     log.line("link apps sent count=${list.size}")
+  }
+
+  /**
+   * What the phone is, when this session has not said it yet or it changed
+   * (an update of the app changes its version). Never logged: the line says
+   * only that it went.
+   */
+  private fun sayAbout(s: Session, at: Long) {
+    val now = safely("about", null) { about.about() } ?: return
+    if (now == s.aboutSaid || !roomForCall(at)) return
+    // Said, or refused for good: either way not tried again for the same.
+    s.aboutSaid = now
+    val sent = try {
+      s.session.sendAbout(now, at)
+    } catch (e: LinkException.OutOfRange) {
+      failed("about", e)
+      false
+    } catch (e: LinkException.OutOfBounds) {
+      failed("about", e)
+      false
+    }
+    if (!sent) return
+    countCall(at)
+    log.line("link about sent")
   }
 
   /** The session is over: closed, and why. A report waiting is a contact lost. */

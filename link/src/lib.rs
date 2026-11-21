@@ -51,16 +51,17 @@ pub use error::LinkError;
 pub use frame::MAX_MESSAGE_BYTES;
 pub use keys::{KEY_BYTES, KeyPair, PublicKey};
 pub use master::{Directory, DirectoryList, KnownPhone, MasterEvent, MasterLink, OfferOnFile};
-pub use messages::{AppEntry, CodeSecret, Form, PairRequest, Refusal, apps_hash};
+pub use messages::{AppEntry, CodeSecret, Form, PairRequest, PhoneAbout, Refusal, apps_hash};
 pub use offer::{MAX_OFFER_ADDRESSES, OFFER_LIFETIME_SECS, OFFER_PREFIX, Offer, OfferId, OfferProblem};
 pub use phone::{PairedMaster, PhoneEvent, PhonePairing, PhoneSession, Welcomed};
 
 /// The version of the link this crate speaks. It goes in the clear at the
 /// start of every link, in the handshake's prologue, and in the `v` TXT
 /// record. A later version keeps the frames, the handshakes and the
-/// `refused` message as they are, and may add messages; a master that meets
-/// a phone of a version it does not speak finishes the handshake and
-/// refuses it with [`Refusal::Version`].
+/// `refused` message as they are, and may add messages, which a side that
+/// does not know them passes over; a master that meets a phone of a version
+/// it does not speak finishes the handshake and refuses it with
+/// [`Refusal::Version`].
 pub const LINK_VERSION: u8 = 1;
 
 /// The handshake must finish within 5 seconds of the connection, on both

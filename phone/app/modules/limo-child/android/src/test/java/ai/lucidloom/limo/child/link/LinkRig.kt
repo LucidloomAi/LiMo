@@ -1,6 +1,7 @@
 package ai.lucidloom.limo.child.link
 
 import ai.lucidloom.limo.child.ffi.AppEntry
+import ai.lucidloom.limo.child.ffi.PhoneAbout
 import ai.lucidloom.limo.child.ffi.PhoneEngine
 import ai.lucidloom.limo.child.ffi.PhoneEngineInterface
 import ai.lucidloom.limo.child.ffi.WEDNESDAY_7_AM
@@ -172,6 +173,12 @@ internal class LinkRig(folder: File, start: Long = WEDNESDAY_7_AM) : AutoCloseab
   /** The phone's apps, as the watch would list them. */
   var apps = listOf(AppEntry("org.example.game", "Game"), AppEntry("org.example.maps", "Maps"))
 
+  /** What the phone is, as Android would give it. */
+  var about = PhoneAbout("samsung", "SM-G988B", 33, "0.4.0")
+
+  /** How often the link asked what the phone is. */
+  var aboutAsked = 0
+
   val core = LinkCore(
     host = RigSide(rig),
     store = pairing,
@@ -180,6 +187,10 @@ internal class LinkRig(folder: File, start: Long = WEDNESDAY_7_AM) : AutoCloseab
     finder = NoFinder,
     apps = { apps },
     self = { PhoneSelf("Galaxy S20 Ultra", 33) },
+    about = {
+      aboutAsked += 1
+      about
+    },
     log = { log += it },
   )
 

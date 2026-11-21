@@ -5,6 +5,7 @@
 //! | `pair` | On a pairing link, once: the phone's name, form, platform and Android version. |
 //! | `report` | The core's `Report`. |
 //! | `apps` | The phone's apps with their labels, and a hash of the list. |
+//! | `about` | What the phone is: its maker and model, its Android version, and LiMo's version on it. |
 //! | `ping` | Nothing; asks for a `pong`. The first message of every session, and every minute after when nothing else went. |
 //! | `bye` | The phone is leaving; nothing more comes. |
 //!
@@ -17,7 +18,9 @@
 //! | `pong` | The answer to `ping`, with the master's clock. |
 //!
 //! A message with a field it should not have, or without one it must
-//! have, is refused, as is a message of the wrong kind for its side.
+//! have, is refused, as is a message of the wrong kind for its side. A
+//! message of a kind this version does not know at all, from a newer
+//! version on the other side, is passed over.
 
 use std::fmt;
 use std::io;
@@ -45,6 +48,10 @@ pub const MAX_APPS: usize = 2_000;
 pub const MAX_PACKAGE_BYTES: usize = 255;
 /// The longest app label, in characters.
 pub const MAX_LABEL_CHARS: usize = 120;
+/// The longest maker and model an `about` carries, in characters.
+pub const MAX_MODEL_CHARS: usize = 120;
+/// The longest app version an `about` carries, in characters.
+pub const MAX_APP_VERSION_CHARS: usize = 40;
 
 /// Which form of the phone app is pairing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,6 +217,89 @@ impl PairRequest {
     }
 }
 
+/// What a phone is, for the guardian's list of devices on the master: its
+/// maker and model, its Android version, and LiMo's version on it. It goes
+/// to the family's own master only, inside the link like everything else;
+/// neither side logs it, and its `Debug` output leaves the model out.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PhoneAbout {
+    /// The maker and the model, such as "samsung SM-S911B"; at most
+    /// [`MAX_MODEL_CHARS`] characters, and may be empty.
+    pub model: String,
+    /// Android's API level (`Build.VERSION.SDK_INT`), as at pairing; none on
+    /// anything else.
+    pub android_version: Option<u32>,
+    /// LiMo's version on the phone (the app's version name), such as
+    /// "0.4.0"; at most [`MAX_APP_VERSION_CHARS`] characters, and may be
+    /// empty.
+    pub app_version: String,
+}
+
+impl PhoneAbout {
+    /// What a phone is, from what Android gives (`Build.MANUFACTURER`,
+    /// `Build.MODEL`, `Build.VERSION.SDK_INT`, the app's version name). The
+    /// maker goes before the model, unless the model starts with it already
+    /// ("Pixel 7" from "Google" is "Google Pixel 7"; "Galaxy" from
+    /// "samsung" is "samsung Galaxy"). Both texts are cleaned as a phone's
+    /// name is: control characters and direction marks dropped, trimmed,
+    /// and cut at their limits, so that nothing Android gives is refused.
+    pub fn new(maker: &str, model: &str, android_version: Option<u32>, app_version: &str) -> PhoneAbout {
+        let maker = cleaned(maker, MAX_MODEL_CHARS);
+        let model = cleaned(model, MAX_MODEL_CHARS);
+        let joined = if maker.is_empty() || model.to_lowercase().starts_with(&maker.to_lowercase()) {
+            model
+        } else if model.is_empty() {
+            maker
+        } else {
+            format!("{maker} {model}")
+        };
+        PhoneAbout {
+            model: cleaned(&joined, MAX_MODEL_CHARS),
+            android_version,
+            app_version: cleaned(app_version, MAX_APP_VERSION_CHARS),
+        }
+    }
+
+    fn check(&self) -> Result<(), LinkError> {
+        if self.model.chars().count() > MAX_MODEL_CHARS || !plain(&self.model) {
+            return Err(LinkError::OutOfBounds { what: "a phone model that is too long or not plain text" });
+        }
+        if self.app_version.chars().count() > MAX_APP_VERSION_CHARS || !plain(&self.app_version) {
+            return Err(LinkError::OutOfBounds { what: "an app version that is too long or not plain text" });
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for PhoneAbout {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PhoneAbout")
+            .field("model", &format_args!("(left out, {} characters)", self.model.chars().count()))
+            .field("android_version", &self.android_version)
+            .field("app_version", &self.app_version)
+            .finish()
+    }
+}
+
+/// A character a phone's name or model never carries: a control character,
+/// or a mark that changes the direction of the text around it.
+fn hidden(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
+
+/// True when a text has no [`hidden`] character, and no space at either end.
+fn plain(text: &str) -> bool {
+    !text.chars().any(hidden) && text.trim() == text
+}
+
+/// A text with its [`hidden`] characters dropped, trimmed, and cut at `max`
+/// characters (and trimmed again).
+fn cleaned(raw: &str, max: usize) -> String {
+    let kept: String = raw.chars().filter(|&c| !hidden(c)).collect();
+    let cut: String = kept.trim().chars().take(max).collect();
+    cut.trim().to_string()
+}
+
 /// What a phone says to the master.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "say", rename_all = "snake_case", deny_unknown_fields)]
@@ -238,6 +328,16 @@ pub enum PhoneSays {
         /// [`apps_hash`] of the list.
         hash: String,
     },
+    /// What the phone is ([`PhoneAbout`]): once after each session opens,
+    /// and again when any of it changes. Not answered.
+    About {
+        /// The maker and the model.
+        model: String,
+        /// Android's API level.
+        android_version: Option<u32>,
+        /// LiMo's version on the phone.
+        app_version: String,
+    },
     /// Asks for a pong. (An empty struct, not a bare name, so that a field
     /// it should not have is refused.)
     Ping {},
@@ -257,9 +357,66 @@ impl PhoneSays {
             }
             .check(),
             PhoneSays::Apps { apps, hash } => check_apps(apps, Some(hash)),
+            PhoneSays::About { model, android_version, app_version } => PhoneAbout {
+                model: model.clone(),
+                android_version: *android_version,
+                app_version: app_version.clone(),
+            }
+            .check(),
             PhoneSays::Report { .. } | PhoneSays::Ping {} | PhoneSays::Bye {} => Ok(()),
         }
     }
+
+    /// The `about` message for what a phone is.
+    pub(crate) fn about(about: &PhoneAbout) -> Result<PhoneSays, LinkError> {
+        about.check()?;
+        Ok(PhoneSays::About {
+            model: about.model.clone(),
+            android_version: about.android_version,
+            app_version: about.app_version.clone(),
+        })
+    }
+}
+
+/// Every kind of message this version knows, from either side. A message
+/// of one of these kinds is read strictly; a message of any other kind
+/// comes from a newer version on the other side, and is passed over.
+pub(crate) const KNOWN_KINDS: [&str; 11] =
+    ["pair", "report", "apps", "about", "ping", "bye", "welcome", "grant", "report_now", "refused", "pong"];
+
+/// The longest kind a message may name, in bytes.
+const MAX_KIND_BYTES: usize = 64;
+
+/// One message from the other side, as [`from_json`] reads it, or None for
+/// a message of a kind this version does not know, which is passed over: a
+/// newer version may add kinds, and an older one on the other side must
+/// not end the link for one. The kind must still look like one (1 to 64
+/// small letters, digits and underscores). A message of a known kind that
+/// is misshapen, or of the reader's own side, is refused as before, and so
+/// is anything that is not a JSON object with its kind in `say`.
+pub(crate) fn read_message<T: DeserializeOwned>(text: &[u8]) -> Result<Option<T>, LinkError> {
+    let error = match from_json::<T>(text) {
+        Ok(said) => return Ok(Some(said)),
+        Err(error) => error,
+    };
+    #[derive(Deserialize)]
+    struct Kind {
+        say: String,
+    }
+    // An object only: serde would read a struct from an array too.
+    if text.iter().find(|b| !b.is_ascii_whitespace()) != Some(&b'{') {
+        return Err(error);
+    }
+    let Ok(Kind { say }) = serde_json::from_slice::<Kind>(text) else {
+        return Err(error);
+    };
+    let looks_like_a_kind = !say.is_empty()
+        && say.len() <= MAX_KIND_BYTES
+        && say.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+    if looks_like_a_kind && !KNOWN_KINDS.contains(&say.as_str()) {
+        return Ok(None);
+    }
+    Err(error)
 }
 
 /// Checks an app list, and its hash when one is given.
@@ -412,6 +569,8 @@ mod tests {
         for message in [
             PhoneSays::Pair { name: "Asha's phone".into(), form: Form::Child, platform: "android".into(), android_version: Some(33) },
             PhoneSays::Apps { hash: apps_hash(&apps), apps },
+            PhoneSays::About { model: "samsung SM-S911B".into(), android_version: Some(34), app_version: "0.4.0".into() },
+            PhoneSays::About { model: String::new(), android_version: None, app_version: String::new() },
             PhoneSays::Ping {},
             PhoneSays::Bye {},
         ] {
@@ -428,6 +587,11 @@ mod tests {
             assert_eq!(from_json::<MasterSays>(&json).unwrap(), message);
         }
         assert_eq!(&*to_json(&PhoneSays::Ping {}).unwrap(), br#"{"say":"ping"}"#);
+        let about = PhoneSays::About { model: "Google Pixel 7".into(), android_version: Some(34), app_version: "0.4.0".into() };
+        assert_eq!(
+            &*to_json(&about).unwrap(),
+            br#"{"say":"about","model":"Google Pixel 7","android_version":34,"app_version":"0.4.0"}"#
+        );
         assert_eq!(
             &*to_json(&MasterSays::Refused { why: Refusal::Version, speaks: 1 }).unwrap(),
             br#"{"say":"refused","why":"version","speaks":1}"#
@@ -456,6 +620,83 @@ mod tests {
         assert!(from_json::<PhoneSays>(&pong).is_err());
         let ping = to_json(&PhoneSays::Ping {}).unwrap();
         assert!(from_json::<MasterSays>(&ping).is_err());
+        // An about must carry all three.
+        let short = br#"{"say":"about","model":"x","android_version":33}"#;
+        assert!(matches!(from_json::<PhoneSays>(short), Err(LinkError::Malformed { .. })));
+    }
+
+    #[test]
+    fn a_kind_this_version_does_not_know_is_passed_over() {
+        // From a newer version on the other side, either way.
+        for json in [
+            r#"{"say":"take_over"}"#,
+            r#"{"say":"battery","level":40,"charging":true}"#,
+            r#"{"at":1,"say":"photo_v2","nested":{"say":"ping"}}"#,
+        ] {
+            assert_eq!(read_message::<PhoneSays>(json.as_bytes()).unwrap(), None, "{json}");
+            assert_eq!(read_message::<MasterSays>(json.as_bytes()).unwrap(), None, "{json}");
+        }
+        // A kind this version knows is read, strictly.
+        assert_eq!(read_message::<PhoneSays>(br#"{"say":"ping"}"#).unwrap(), Some(PhoneSays::Ping {}));
+        for json in [
+            "",
+            "null",
+            "[]",
+            r#"["take_over"]"#,
+            r#"{"say":"take_over","say":"again"}"#,
+            r#"{"say":7}"#,
+            r#"{"nothing":"here"}"#,
+            r#"{"say":"ping","extra":1}"#,
+            r#"{"say":"about","model":"x","android_version":33}"#,
+            // Of the other side's kinds: the reader's own.
+            r#"{"say":"pong","master_now":1}"#,
+            r#"{"say":"welcome"}"#,
+            // Not the shape of a kind.
+            r#"{"say":""}"#,
+            r#"{"say":"Take_Over"}"#,
+            r#"{"say":"take over"}"#,
+            r#"{"say":"take-over"}"#,
+        ] {
+            assert!(matches!(read_message::<PhoneSays>(json.as_bytes()), Err(LinkError::Malformed { .. })), "{json}");
+        }
+        let long = format!(r#"{{"say":"{}"}}"#, "k".repeat(MAX_KIND_BYTES + 1));
+        assert!(read_message::<PhoneSays>(long.as_bytes()).is_err());
+        let longest = format!(r#"{{"say":"{}"}}"#, "k".repeat(MAX_KIND_BYTES));
+        assert_eq!(read_message::<PhoneSays>(longest.as_bytes()).unwrap(), None);
+        assert!(matches!(
+            read_message::<MasterSays>(br#"{"say":"ping"}"#),
+            Err(LinkError::Malformed { .. })
+        ));
+        // Every kind either side says is known, and only those.
+        for kind in KNOWN_KINDS {
+            let json = format!(r#"{{"say":"{kind}","surely":"not a field"}}"#);
+            assert!(read_message::<PhoneSays>(json.as_bytes()).is_err(), "{kind}");
+        }
+    }
+
+    #[test]
+    fn what_a_phone_is_cleaned_as_its_name_is() {
+        let about = PhoneAbout::new("samsung", "SM-S911B", Some(34), "0.4.0");
+        assert_eq!(about, PhoneAbout { model: "samsung SM-S911B".into(), android_version: Some(34), app_version: "0.4.0".into() });
+        // The maker once, when the model starts with it already.
+        assert_eq!(PhoneAbout::new("Google", "Pixel 7", None, "1").model, "Google Pixel 7");
+        assert_eq!(PhoneAbout::new("OnePlus", "OnePlus 12", None, "1").model, "OnePlus 12");
+        assert_eq!(PhoneAbout::new("Xiaomi", "xiaomi 14", None, "1").model, "xiaomi 14");
+        assert_eq!(PhoneAbout::new("", "Pixel 7", None, "1").model, "Pixel 7");
+        assert_eq!(PhoneAbout::new("Fairphone", "", None, "1").model, "Fairphone");
+        assert_eq!(PhoneAbout::new(" ", "\u{7}", None, " ").model, "");
+        // Control characters and direction marks dropped, then trimmed.
+        let odd = PhoneAbout::new(" sam\u{0}sung\n", "\u{202e}Tab\u{200f} S9 ", Some(33), "\u{2066}0.4.0\t");
+        assert_eq!(odd.model, "samsung Tab S9");
+        assert_eq!(odd.app_version, "0.4.0");
+        // Cut at the limits, never refused.
+        let long = PhoneAbout::new("m", &"é".repeat(300), None, &"9".repeat(100));
+        assert_eq!(long.model.chars().count(), MAX_MODEL_CHARS);
+        assert_eq!(long.app_version.chars().count(), MAX_APP_VERSION_CHARS);
+        assert!(PhoneSays::about(&long).unwrap().check().is_ok());
+        // A cut that ends on a space is trimmed again.
+        let spaced = PhoneAbout::new("", &format!("{} tail", "a".repeat(MAX_MODEL_CHARS - 1)), None, "");
+        assert_eq!(spaced.model, "a".repeat(MAX_MODEL_CHARS - 1));
     }
 
     #[test]
@@ -481,6 +722,21 @@ mod tests {
         assert!(check_apps(&[app("a", "b")], Some("00")).is_err());
         let list = [app("a", "b")];
         assert!(check_apps(&list, Some(&apps_hash(&list))).is_ok());
+        let about = |model: &str, app_version: &str| PhoneSays::About {
+            model: model.into(),
+            android_version: Some(34),
+            app_version: app_version.into(),
+        };
+        assert!(about("", "").check().is_ok());
+        assert!(about(&"m".repeat(MAX_MODEL_CHARS), &"v".repeat(MAX_APP_VERSION_CHARS)).check().is_ok());
+        assert!(about(&"m".repeat(MAX_MODEL_CHARS + 1), "1").check().is_err());
+        assert!(about("Pixel", &"v".repeat(MAX_APP_VERSION_CHARS + 1)).check().is_err());
+        for odd in ["Pixel\n7", " Pixel", "Pixel ", "\u{202e}Pixel"] {
+            assert!(about(odd, "1").check().is_err(), "{odd:?}");
+            assert!(about("Pixel", odd).check().is_err(), "{odd:?}");
+        }
+        let bad = PhoneAbout { model: "a\u{0}b".into(), android_version: None, app_version: String::new() };
+        assert!(PhoneSays::about(&bad).is_err());
     }
 
     #[test]

@@ -225,11 +225,23 @@ before the screens show it.
 | `Offer` | `Offer.fromText(bytes)`; `masterId()` (16 hex), `port()`, `addresses()` (dotted IPv4), `expiresAt()`, `looksOld(wallSecs)` |
 | `PhonePairing` | `PhonePairing.start(offer, PairRequest(name, platform, androidVersion), nowMs)`; `takeOutgoing()`, `receive(bytes, nowMs)` (true once welcomed), `tick(nowMs)`, `isDone()`, `masterNow()`, `childName()` (the child's name the master's welcome gave, null from a master that does not say it), `pairedMaster()` (the bytes to keep), `makeEngine(wallSecs)` (once) |
 | `PairedMaster` | `PairedMaster.fromBytes(bytes)`; `childId()`, `deviceId()`, `masterId()`, `port()`, `addresses()` |
-| `PhoneSession` | `PhoneSession.start(paired, nowMs)`; `takeOutgoing()`, `isOpen()`, `reportWaiting()`, `receive(bytes, nowMs)` (a list of `LinkEvent`), `sendReport(bytes, nowMs)`, `sendApps(list of AppEntry(packageName, label), nowMs)`, `sendBye(nowMs)`, `tick(nowMs)` |
+| `PhoneSession` | `PhoneSession.start(paired, nowMs)`; `takeOutgoing()`, `isOpen()`, `reportWaiting()`, `receive(bytes, nowMs)` (a list of `LinkEvent`), `sendReport(bytes, nowMs)`, `sendApps(list of AppEntry(packageName, label), nowMs)`, `sendAbout(PhoneAbout(maker, model, androidVersion, appVersion), nowMs)` (true when sent, false when this session said exactly that already), `sendBye(nowMs)`, `tick(nowMs)` |
 
 `appsHash(list of AppEntry)` (a function) gives the link's own hash of an
 app list, 32 hex characters, so the host sends its list again only when it
 changed.
+
+`PhoneAbout` is what the phone is, for the guardian's list of devices:
+`maker` and `model` exactly as Android gives them (`Build.MANUFACTURER`,
+`Build.MODEL`), `androidVersion` (`Build.VERSION.SDK_INT`) and `appVersion`
+(the app's version name). The link cleans each text as it cleans a phone's
+name, puts the maker before the model unless the model starts with it, and
+cuts the two at 120 and 40 characters, so nothing Android gives is refused;
+only an Android version below zero is. Send it when a session opens, and
+whenever any of it may have changed: the session sends it only when it
+differs from what it said last. It goes to the family's own PC only, inside
+the link; its `Debug` output here leaves the maker and the model out, and
+the host never logs them.
 
 A `LinkEvent` is a `kind` (`OPENED`, `GRANT`, `REPORT_NOW`, `PONG`), with
 `grant` (the core's `Grant` as JSON bytes) for a grant and `masterNow` for a
@@ -378,8 +390,9 @@ child's PC (`use_pc`, `usePc` in Kotlin), answers a report with a grant,
 makes a pairing offer, removes a phone, plays the master's end of a
 connection (its welcome names the child), asks the connected phone to
 report when the family's file wants it to (`prod`), and says what the
-family's file holds: the day's use (`used_today`) and the app list a phone
-sent (`apps_of`). The Rust tests here and the JVM tests of the app's child
+family's file holds: the day's use (`used_today`), the app list a phone
+sent (`apps_of`), and what a phone said it is, each time (`abouts_of`, a
+list of `TestAbout(model, androidVersion, appVersion)`). The Rust tests here and the JVM tests of the app's child
 module use it.
 
 The library on a phone never has it:
@@ -477,7 +490,7 @@ proof three measured.
 | Where | What | Count |
 | --- | --- | --- |
 | `src/convert.rs`, `src/engine.rs` | The facts field by field, each of the six permissions to its own field, each guarded page to its own and none to none; every kind in front, and an app without its package refused; numbers below zero refused, big ones held; a PIN's action with what its kind needs; every refusal of the core and every error of the link to a variant of its own with the same words; JSON that is not a grant or a report; typed bytes that are not text; an engine whose lock was poisoned saying `Broken` | 9 |
-| `tests/bridge/` | Through this layer's API only, against the testkit (its phone set up at once, but in the setup story): a phone just paired counting and covering nothing, its words and its view saying setup is not finished, then finished, noted, covering and counting, kept, finishing again changing nothing, a state that cannot be read refusing it; a report out and a grant in as bytes, a stale grant, bytes that are not a grant; the notes as the engine's JSON and the view; the view's JSON carrying Today, the rules in words and what is switched off, by the names Kotlin reads; a ringing call never covered and a call in progress offering the way back; asking for time and the core refusing a second; codes wrong, malformed, the wait after five surviving a crash; the PIN adding, unlocking, confirming a release, refused before it is looked at; four kinds of unreadable state locking the phone and never written over; a welcome that is not one and a secret of the wrong length; crashes after any call; a whole pairing over the link making the engine, a session carrying the report and the grant, the app list and the goodbye; a report unanswered ending the session as `NoAnswerToReport`; a removed phone refused by its reason; bad offers and kept pairings refused without quoting them; the guard crossing as its own record in the engine's words, noted, a wrong and a right PIN on it as records, open through a crash and guarded again five minutes on, bytes that are not text refused, the accessibility settings guarded and nothing before setup is finished; the notes crossing in the report's bytes with their ids, a grant's bytes confirming them and the phone dropping them, the blocked app's note staying; the view's JSON saying how much of the day went on the PC; the child's name from the master's welcome; an app list's hash, the link's own; the versions | 22 |
+| `tests/bridge/` | Through this layer's API only, against the testkit (its phone set up at once, but in the setup story): a phone just paired counting and covering nothing, its words and its view saying setup is not finished, then finished, noted, covering and counting, kept, finishing again changing nothing, a state that cannot be read refusing it; a report out and a grant in as bytes, a stale grant, bytes that are not a grant; the notes as the engine's JSON and the view; the view's JSON carrying Today, the rules in words and what is switched off, by the names Kotlin reads; a ringing call never covered and a call in progress offering the way back; asking for time and the core refusing a second; codes wrong, malformed, the wait after five surviving a crash; the PIN adding, unlocking, confirming a release, refused before it is looked at; four kinds of unreadable state locking the phone and never written over; a welcome that is not one and a secret of the wrong length; crashes after any call; a whole pairing over the link making the engine, a session carrying the report and the grant, the app list and the goodbye; what the phone is, sent once a session and again when it changed, cleaned and joined by the link, never before the session is open, an Android version below zero refused; a report unanswered ending the session as `NoAnswerToReport`; a removed phone refused by its reason; bad offers and kept pairings refused without quoting them; the guard crossing as its own record in the engine's words, noted, a wrong and a right PIN on it as records, open through a crash and guarded again five minutes on, bytes that are not text refused, the accessibility settings guarded and nothing before setup is finished; the notes crossing in the report's bytes with their ids, a grant's bytes confirming them and the phone dropping them, the blocked app's note staying; the view's JSON saying how much of the day went on the PC; the child's name from the master's welcome; an app list's hash, the link's own; the versions | 23 |
 | `tests/house_rules.rs` | No line written here unsafe; the conversions forbid it and no UniFFI macro expands there; the testkit only behind its feature; nothing silences a lint; no dash punctuation; no machine paths | 6 |
 
 `npm run test:child` (in the app) runs the child module's **JVM tests**,

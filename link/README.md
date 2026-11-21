@@ -96,7 +96,11 @@ loop {
     match session.receive(&read_or_wait_until(next_tick), now) {
         Ok(events) => for event in events {
             match event {
-                PhoneEvent::Opened => session.send_report(&state.report(now.unix, want_more), now)?,
+                PhoneEvent::Opened => {
+                    session.send_report(&state.report(now.unix, want_more), now)?;
+                    // what the phone is: sent once a session, and again if it changed
+                    session.send_about(&PhoneAbout::new(maker, model, Some(api_level), app_version), now)?;
+                }
                 PhoneEvent::Grant { grant, .. } => { state.take_grant(&grant, now.unix); save(&state); }
                 PhoneEvent::ReportNow => session.send_report(&state.report(now.unix, false), now)?,
                 PhoneEvent::Pong { master_now } => note_the_masters_clock(master_now),
@@ -129,6 +133,7 @@ loop {
             MasterEvent::Opened { device_id, .. } => replace_any_older_session_of(device_id),
             MasterEvent::Report { report } => link.grant(&hub.handle_report(&report, now.unix)?, now)?,
             MasterEvent::Apps { apps, hash } => keep_apps(apps, hash),
+            MasterEvent::About { about } => keep_for_the_guardian(about),   // never logged
             MasterEvent::Bye => break,
         }
     }
@@ -379,14 +384,27 @@ caller marks it used in the same step as pairing, and refuses the second.
 
 JSON inside the encryption, each named by its `say` field. A message with a
 field it should not have, without one it must have (`android_version` may
-be left out), or of the other side's kind, ends the link. The JSON reader's
-errors say only where the reading stopped.
+be left out of a `pair`), or of the other side's kind, ends the link. The
+JSON reader's errors say only where the reading stopped.
+
+**A kind this version does not know** is passed over, by either side, on a
+session and on a pairing: no event, no answer, and the link goes on (it
+still counts as hearing from the other side, and as a session's first
+message). So a newer phone may say something an older master does not know,
+and the other way, and neither ends the link for it. The kind must look like
+one (1 to 64 small letters, digits and underscores, in a JSON object);
+anything else, a known kind misshapen, or a kind of the reader's own side,
+still ends the link. A later version therefore adds what it needs as a new
+kind, never as a new field on a kind this one knows. Versions of the link
+before `about` came end the link on a kind they do not know; none of them
+is in a family's hands.
 
 | Phone to master | |
 | --- | --- |
 | `{"say":"pair","name":...,"form":"child","platform":"android","android_version":33}` | On a pairing link, once. The name is 1 to 120 characters, the platform 1 to 40. |
 | `{"say":"report","report":{...}}` | The core's `Report`. Answered by `grant`. |
 | `{"say":"apps","apps":[{"package":...,"label":...}],"hash":...}` | The phone's apps, at most 2,000; a package is 1 to 255 bytes, a label at most 120 characters. The hash is checked. Not answered. |
+| `{"say":"about","model":"samsung SM-S911B","android_version":34,"app_version":"0.4.0"}` | What the phone is, for the guardian's list of devices: the maker and model as Android gives them (at most 120 characters), the API level as at pairing (null on anything else), and LiMo's version on the phone, its version name (at most 40 characters). Either text may be empty; neither holds a control character or a direction mark, nor a space at either end. `PhoneAbout::new` makes it from what Android gives, cleaned as a phone's name is and cut at the limits, and puts the maker first unless the model starts with it; `PhoneSession::send_about` sends it when the session has not said exactly that yet. Sent once after each session opens and again when any of it changes (an update of the app changes its version); never on a pairing, so the first session after it says it. Not answered. The master refuses one out of bounds, and the link ends. Neither side logs it, and `PhoneAbout`'s `Debug` output leaves the model out. |
 | `{"say":"ping"}` | The first message of every session, and after any minute with nothing else sent. Answered by `pong`. |
 | `{"say":"bye"}` | The phone is leaving. |
 
@@ -412,7 +430,9 @@ order between the two kinds.
 The link version (now 1) is in the clear at the start of the first frame,
 in the handshake's prologue, and in the `v` TXT record. Every later version
 keeps the frames, the handshakes and the `refused` message exactly as they
-are, and may add messages (guardian messages, say). A master that meets a
+are, and may add kinds of message (guardian messages, say), which a side
+that does not know them passes over (see [The messages](#the-messages)): so
+`about` came without a new version. A master that meets a
 phone speaking a version it does not speak still finishes the handshake
 (the crypto is the same), then refuses it with `version` and the version
 it speaks, so the phone can tell its family to update LiMo on the PC. A
@@ -494,7 +514,7 @@ real family file in a folder the caller gives (a temporary one): it keeps
 its offers and the phones it paired in memory, pairs a phone with the hub
 (`Hub::pair_device`) and names the child in its welcome, answers reports with the hub's grants
 (`Hub::handle_report`), refuses a removed or unknown device as the hub
-says, keeps app lists, and asks a phone to report when the hub wants it
+says, keeps app lists and what each phone said it is (`abouts_of`), and asks a phone to report when the hub wants it
 (`Hub::wanted_reports`). A phone's side can be tested against it with no PC
 service; the stories here do exactly that. `cargo run --example
 limo-link-dev` plays a pairing and a short session, all in memory, and
@@ -553,8 +573,8 @@ with `cargo test --release --test link cost -- --ignored --nocapture`:
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | Unit tests: hex and base32 with the known answers of RFC 4648; X25519 with those of RFC 7748; BLAKE2s with RFC 7693's; this crate's resolver against snow's own, byte for byte, both protocols, every pairing of the two, and a rekey; the handshake message sizes; the cipher refusing short, altered and keyless text without a panic; the frame limits, piece counts, lengths refused from four bytes, frames from any pieces; preambles; offers to text and back, with 0, 1, 2 and 8 addresses, and every broken form refused without quoting it; ids and secrets never shared; the master id's known answer (worked out with Python's `hashlib`) and TXT records; the app list hash's known answers; every message to JSON and back; unknown and misshapen messages; bounds; key pairs saved and read again, and refused when they do not fit; secrets out of `Debug` | 32 |
-| `tests/link/` | The stories, both ends in memory with the dev master over a real family file. Pairing: a whole pairing, frame by frame; an offer used twice, an offer expired (and one at its last second), a wrong secret, an offer naming another key, an impostor that holds the whole offer, an offer from another master, a guardian's phone, two phones racing for one offer, a phone of a newer version, and a phone written by hand on snow from this README's description. Sessions: opening with a ping, reports and grants, prods, apps, goodbyes, a phone with another key, a phone that pinned another master, a removed phone (before and during its session), a forgotten one, a report for another device (refused by both sides), a grant for another device or nobody, every timing (a report unanswered, a quiet minute's ping, three minutes of silence, a handshake too slow on both sides), a replayed start, a newer version, a new session taking over. A whole day: pairing at 07:00, use and a report every two minutes, a goodbye, school out of reach, home again with the school's slices, a lock from the master and its lift arriving by prods, the evening until the day is used up, the master's count equal to the phone's at every exchange; and a PC asleep mid exchange. The welcome naming the child, or not, and a name empty or too long refused before anything is sent. Hostile: every frame of a whole pairing and a whole session, both ways, garbled in nine places, cut, lengthened, shortened, said to be 4 GiB, replayed, swapped, dropped, replaced with junk and followed by a stray byte (252 runs), each ending the link or the clock, never bringing anything an honest run does not, and refusing everything after; lengths refused from four bytes at every step; a message cut at a piece boundary; a flag that is neither; a long message in seven pieces; a message too long to send. Random: random bytes at every step on both sides, random changes to whole conversations, and random JSON inside good encryption both ways (written by hand on snow), never a panic. Secrets: never in `Debug`, errors or the wire. One more, not run by default, measures the costs above | 42, and 1 |
+| `src/*.rs` | Unit tests: hex and base32 with the known answers of RFC 4648; X25519 with those of RFC 7748; BLAKE2s with RFC 7693's; this crate's resolver against snow's own, byte for byte, both protocols, every pairing of the two, and a rekey; the handshake message sizes; the cipher refusing short, altered and keyless text without a panic; the frame limits, piece counts, lengths refused from four bytes, frames from any pieces; preambles; offers to text and back, with 0, 1, 2 and 8 addresses, and every broken form refused without quoting it; ids and secrets never shared; the master id's known answer (worked out with Python's `hashlib`) and TXT records; the app list hash's known answers; every message to JSON and back; unknown and misshapen messages; a kind this version does not know passed over, and what still is not; what a phone is, cleaned and cut as a name is, the maker once; bounds; key pairs saved and read again, and refused when they do not fit; secrets out of `Debug` | 34 |
+| `tests/link/` | The stories, both ends in memory with the dev master over a real family file. Pairing: a whole pairing, frame by frame; an offer used twice, an offer expired (and one at its last second), a wrong secret, an offer naming another key, an impostor that holds the whole offer, an offer from another master, a guardian's phone, two phones racing for one offer, a phone of a newer version, and a phone written by hand on snow from this README's description. Sessions: opening with a ping, reports and grants, prods, apps, goodbyes, a phone with another key, a phone that pinned another master, a removed phone (before and during its session), a forgotten one, a report for another device (refused by both sides), a grant for another device or nobody, every timing (a report unanswered, a quiet minute's ping, three minutes of silence, a handshake too slow on both sides), a replayed start, a newer version, a new session taking over. A whole day: pairing at 07:00, use and a report every two minutes, a goodbye, school out of reach, home again with the school's slices, a lock from the master and its lift arriving by prods, the evening until the day is used up, the master's count equal to the phone's at every exchange; and a PC asleep mid exchange. The welcome naming the child, or not, and a name empty or too long refused before anything is sent. What a phone is: said once a session and again when it changed, on the wire as above and cleaned, refused past its bounds by both sides, its model out of `Debug`; an older phone that never says it served as ever. A kind neither side knows: a newer phone's first message, one mid session and one before a pairing request, passed over by the master; a newer master's, passed over by the phone; a known kind misshapen still ending the link. Hostile: every frame of a whole pairing and a whole session, both ways, garbled in nine places, cut, lengthened, shortened, said to be 4 GiB, replayed, swapped, dropped, replaced with junk and followed by a stray byte (252 runs), each ending the link or the clock, never bringing anything an honest run does not, and refusing everything after; lengths refused from four bytes at every step; a message cut at a piece boundary; a flag that is neither; a long message in seven pieces; a message too long to send. Random: random bytes at every step on both sides, random changes to whole conversations, and random JSON inside good encryption both ways (written by hand on snow), never a panic. Secrets: never in `Debug`, errors or the wire. One more, not run by default, measures the costs above | 47, and 1 |
 | `tests/house_rules.rs` | No unsafe code, no attribute that silences a lint, no dash punctuation in anything a person reads, no machine paths | 4 |
 
 `LIMO_LINK_RANDOM=<n> cargo test --test link random` runs the random tests
@@ -576,7 +596,8 @@ link/
     keys.rs       KeyPair and PublicKey
     offer.rs      the pairing offer and its text form
     discovery.rs  the master id, the names and the TXT records
-    messages.rs   what each side says, the app list hash, the code secret
+    messages.rs   what each side says, what a phone is, passing over a kind
+                  not known, the app list hash, the code secret
     phone.rs      PhonePairing, PhoneSession, PairedMaster
     master.rs     MasterLink, Directory
     encoding.rs   hex and base32

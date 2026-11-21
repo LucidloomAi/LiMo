@@ -1,8 +1,10 @@
 package ai.lucidloom.limo.child.link
 
 import ai.lucidloom.limo.child.ffi.AppEntry
+import ai.lucidloom.limo.child.ffi.PhoneAbout
 import ai.lucidloom.limo.child.watch.Watch
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -47,6 +49,7 @@ class LinkHost internal constructor(context: Context, side: LinkHostSide) {
     finder = finder,
     apps = WatchApps(app),
     self = { phoneSelf(app) },
+    about = AndroidAbout(app),
     log = AndroidLinkLog,
   )
 
@@ -387,6 +390,33 @@ internal fun phoneSelf(context: Context): PhoneSelf {
     null
   }
   return PhoneSelf(PhoneName.clean(named) ?: PhoneName.clean(Build.MODEL) ?: PhoneName.FALLBACK, Build.VERSION.SDK_INT)
+}
+
+/**
+ * What the phone is, from Android: `Build.MANUFACTURER`, `Build.MODEL` and
+ * `Build.VERSION.SDK_INT` as they are (the link cleans and cuts them), and
+ * the app's version name, read once: an update of the app starts a new
+ * process, which reads it again.
+ */
+internal class AndroidAbout(private val context: Context) : AboutSource {
+  private val about: PhoneAbout by lazy {
+    PhoneAbout(Build.MANUFACTURER.orEmpty(), Build.MODEL.orEmpty(), Build.VERSION.SDK_INT, versionName())
+  }
+
+  override fun about(): PhoneAbout = about
+
+  private fun versionName(): String = try {
+    val packages = context.packageManager
+    val info = if (Build.VERSION.SDK_INT >= 33) {
+      packages.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+    } else {
+      @Suppress("DEPRECATION")
+      packages.getPackageInfo(context.packageName, 0)
+    }
+    info.versionName.orEmpty()
+  } catch (_: PackageManager.NameNotFoundException) {
+    ""
+  }
 }
 
 /** The phone's name for the pairing, cleaned. Pure, so the JVM tests check it. */

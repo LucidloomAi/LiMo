@@ -16,7 +16,7 @@ use zeroize::Zeroizing;
 
 use crate::convert;
 use crate::engine::PhoneEngine;
-use crate::shapes::{AppEntry, EngineError, LinkError, LinkEvent, PairRequest};
+use crate::shapes::{AppEntry, EngineError, LinkError, LinkEvent, PairRequest, PhoneAbout};
 
 /// The link's clock from Kotlin's elapsed count.
 fn now(now_ms: i64) -> Result<Now, LinkError> {
@@ -337,6 +337,18 @@ impl PhoneSession {
         let at = now(now_ms)?;
         let apps = apps.into_iter().map(convert::app_in).collect();
         Ok(hold(&self.inner)?.send_apps(apps, at)?)
+    }
+
+    /// Tells the master what the phone is, when this session has not said
+    /// exactly that yet: call it when the session opens, and again whenever
+    /// any of it may have changed. True when it was sent, false when the
+    /// session had said it already. Nothing answers it. What Android gives
+    /// is never refused for its length or its characters: the link cleans
+    /// and cuts it.
+    pub fn send_about(&self, about: PhoneAbout, now_ms: i64) -> Result<bool, LinkError> {
+        let at = now(now_ms)?;
+        let about = convert::about_in(about).map_err(|what| LinkError::OutOfRange { what })?;
+        Ok(hold(&self.inner)?.send_about(&about, at)?)
     }
 
     /// Says goodbye and ends the session; write what

@@ -89,7 +89,9 @@ class LinkSocketTest {
           assertEquals(Way.CABLE, route.way)
           SocketConn.connect(Socket(), Route(Way.CABLE, Addresses.LOOPBACK, pc.server.localPort))
         }
-        val core = LinkCore(RigSide(r.rig), r.pairing, dialer, r.clock, NoFinder, { r.apps }, { PhoneSelf("Galaxy S20 Ultra", 33) }, { r.log += it })
+        val core = LinkCore(
+          RigSide(r.rig), r.pairing, dialer, r.clock, NoFinder, { r.apps }, { PhoneSelf("Galaxy S20 Ultra", 33) }, { r.about }, { r.log += it },
+        )
         r.rig.link = core
         r.rig.core = r.rig.newCore()
         fun step(times: Int) = repeat(times) {

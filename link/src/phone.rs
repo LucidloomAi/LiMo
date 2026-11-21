@@ -25,8 +25,8 @@ use crate::error::LinkError;
 use crate::frame::{Allowed, FrameReader, Kind, Preamble, frame, handshake_read, handshake_write, open, seal};
 use crate::keys::{KeyPair, PublicKey};
 use crate::messages::{
-    AppEntry, CODE_SECRET_BYTES, CodeSecret, MAX_NAME_CHARS, MasterSays, PairRequest, PhoneSays, apps_hash, check_apps,
-    from_json, to_json,
+    AppEntry, CODE_SECRET_BYTES, CodeSecret, MAX_NAME_CHARS, MasterSays, PairRequest, PhoneAbout, PhoneSays, apps_hash,
+    check_apps, from_json, read_message, to_json,
 };
 use crate::offer::Offer;
 use crate::{ANSWER_LIMIT_MS, HANDSHAKE_LIMIT_MS, LINK_VERSION, MAX_WAITING, Now, PING_EVERY_MS};
@@ -205,9 +205,14 @@ impl PhonePairing {
                         deadline: now.ms.saturating_add(ANSWER_LIMIT_MS),
                     };
                 }
-                PairingStage::AwaitWelcome { mut noise, .. } => {
+                PairingStage::AwaitWelcome { mut noise, deadline } => {
                     let text = open(&mut noise, &body)?;
-                    match from_json::<MasterSays>(&text)? {
+                    let Some(said) = read_message::<MasterSays>(&text)? else {
+                        // A kind this version does not know: passed over.
+                        self.stage = PairingStage::AwaitWelcome { noise, deadline };
+                        continue;
+                    };
+                    match said {
                         MasterSays::Welcome { welcome, code_secret, master_now, child_name } => {
                             if !input.is_empty() {
                                 return Err(LinkError::Unexpected { what: "more after the welcome" });
@@ -309,6 +314,8 @@ pub struct PhoneSession {
     out: Vec<u8>,
     waiting: VecDeque<(Asked, u64)>,
     last_sent: u64,
+    /// What this session last told the master the phone is.
+    about_said: Option<PhoneAbout>,
 }
 
 impl fmt::Debug for PhoneSession {
@@ -344,6 +351,7 @@ impl PhoneSession {
             out: frame(&body),
             waiting: VecDeque::new(),
             last_sent: now.ms,
+            about_said: None,
         })
     }
 
@@ -408,9 +416,13 @@ impl PhoneSession {
                 }
                 SessionStage::Open { mut noise } => {
                     let text = open(&mut noise, &body)?;
-                    let said = from_json::<MasterSays>(&text);
+                    let said = read_message::<MasterSays>(&text);
                     self.stage = SessionStage::Open { noise };
-                    match said? {
+                    let Some(said) = said? else {
+                        // A kind this version does not know: passed over.
+                        continue;
+                    };
+                    match said {
                         MasterSays::Grant { grant, master_now } => {
                             if grant.device_id != self.device_id || grant.child_id != self.child_id {
                                 return Err(LinkError::OtherDevice);
@@ -476,6 +488,21 @@ impl PhoneSession {
         check_apps(&apps, None)?;
         let hash = apps_hash(&apps);
         self.send(&PhoneSays::Apps { apps, hash }, None, now)
+    }
+
+    /// Tells the master what the phone is, when this session has not said
+    /// exactly that yet: call it when the session opens, and again whenever
+    /// any of it may have changed (an update of the app changes its
+    /// version). True when it was sent, false when the session had said it
+    /// already. Nothing answers it. Never on a pairing: the first session
+    /// after it says it.
+    pub fn send_about(&mut self, about: &PhoneAbout, now: Now) -> Result<bool, LinkError> {
+        if self.about_said.as_ref() == Some(about) {
+            return Ok(false);
+        }
+        self.send(&PhoneSays::about(about)?, None, now)?;
+        self.about_said = Some(about.clone());
+        Ok(true)
     }
 
     /// Says goodbye and ends the session; write what

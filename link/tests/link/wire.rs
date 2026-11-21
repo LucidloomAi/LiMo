@@ -173,6 +173,7 @@ fn master_kind(e: &MasterEvent) -> String {
         MasterEvent::Opened { .. } => "opened",
         MasterEvent::Report { .. } => "report",
         MasterEvent::Apps { .. } => "apps",
+        MasterEvent::About { .. } => "about",
         MasterEvent::Bye => "bye",
     }
     .to_string()

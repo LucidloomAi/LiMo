@@ -7,7 +7,7 @@
 //! It makes what only the master PC can make: a child with rules, a
 //! welcome and a code secret for a phone, one time codes, use on the
 //! child's PC, the grant that answers a report, a pairing offer, and the
-//! master's end of a link.
+//! master's end of a link, which keeps what each phone said it is.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -56,6 +56,17 @@ pub struct TestRules {
     pub away_share_percent: i32,
     /// The home time zone, seconds from UTC.
     pub utc_offset_secs: i32,
+}
+
+/// What a phone said it is, as the master took it from the link.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TestAbout {
+    /// The maker and the model, as the link joined and cleaned them.
+    pub model: String,
+    /// The API level.
+    pub android_version: Option<i32>,
+    /// LiMo's version on the phone.
+    pub app_version: String,
 }
 
 /// What the master hands a phone at pairing, made without the link.
@@ -222,6 +233,22 @@ impl TestFamily {
     pub fn apps_of(&self, device_id: String) -> Result<Vec<String>, TestkitError> {
         let family = self.family()?;
         Ok(family.master.apps_of(&device_id).map(|apps| apps.iter().map(|a| a.package.clone()).collect()).unwrap_or_default())
+    }
+
+    /// What a phone said it is, every time it said it, oldest first; empty
+    /// when it never said.
+    pub fn abouts_of(&self, device_id: String) -> Result<Vec<TestAbout>, TestkitError> {
+        let family = self.family()?;
+        Ok(family
+            .master
+            .abouts_of(&device_id)
+            .iter()
+            .map(|a| TestAbout {
+                model: a.model.clone(),
+                android_version: a.android_version.map(convert::int),
+                app_version: a.app_version.clone(),
+            })
+            .collect())
     }
 
     /// Feeds bytes from the phone into the master's end, which acts on what

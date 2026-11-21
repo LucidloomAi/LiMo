@@ -7,7 +7,8 @@
 //! it keeps the offers it made and the phones it paired in memory, pairs a
 //! phone with the hub (`Hub::pair_device`) and tells it the child's name in
 //! the welcome, answers reports with the hub's
-//! grants (`Hub::handle_report`), keeps each phone's app list, and asks a
+//! grants (`Hub::handle_report`), keeps each phone's app list and what it
+//! said it is, and asks a
 //! phone to report when the hub wants it to (`Hub::wanted_reports`). The
 //! hub does not keep link keys yet (a later piece), which is why this keeps
 //! them itself.
@@ -24,7 +25,7 @@ use crate::discovery::{DEFAULT_PORT, MasterId};
 use crate::error::LinkError;
 use crate::keys::KeyPair;
 use crate::master::{Directory, KnownPhone, MasterEvent, MasterLink, OfferOnFile};
-use crate::messages::{AppEntry, Form, Refusal};
+use crate::messages::{AppEntry, Form, PhoneAbout, Refusal};
 use crate::offer::{Offer, OfferId};
 use crate::Now;
 
@@ -75,6 +76,7 @@ pub struct DevMaster {
     offers: Vec<DevOffer>,
     phones: Vec<KnownPhone>,
     apps: BTreeMap<String, Vec<AppEntry>>,
+    abouts: BTreeMap<String, Vec<PhoneAbout>>,
     port: u16,
 }
 
@@ -112,6 +114,7 @@ impl DevMaster {
             offers: Vec::new(),
             phones: Vec::new(),
             apps: BTreeMap::new(),
+            abouts: BTreeMap::new(),
             port: DEFAULT_PORT,
         })
     }
@@ -208,6 +211,11 @@ impl DevMaster {
                         self.apps.insert(phone.device_id.clone(), apps.clone());
                     }
                 }
+                MasterEvent::About { about } => {
+                    if let Some(phone) = link.phone() {
+                        self.abouts.entry(phone.device_id.clone()).or_default().push(about.clone());
+                    }
+                }
                 MasterEvent::Opened { .. } | MasterEvent::Bye => {}
             }
         }
@@ -249,5 +257,11 @@ impl DevMaster {
     /// The app list a phone sent last.
     pub fn apps_of(&self, device_id: &str) -> Option<&[AppEntry]> {
         self.apps.get(device_id).map(Vec::as_slice)
+    }
+
+    /// What a phone said it is, every time it said it, oldest first; the
+    /// last is what the guardian would see.
+    pub fn abouts_of(&self, device_id: &str) -> &[PhoneAbout] {
+        self.abouts.get(device_id).map_or(&[], Vec::as_slice)
     }
 }

@@ -23,7 +23,8 @@ use crate::frame::{
 };
 use crate::keys::{KEY_BYTES, KeyPair, PublicKey};
 use crate::messages::{
-    AppEntry, CODE_SECRET_BYTES, CodeSecret, MasterSays, PairRequest, PhoneSays, Refusal, from_json, to_json,
+    AppEntry, CODE_SECRET_BYTES, CodeSecret, MasterSays, PairRequest, PhoneAbout, PhoneSays, Refusal, read_message,
+    to_json,
 };
 use crate::offer::{Offer, OfferId};
 use crate::{ANSWER_LIMIT_MS, HANDSHAKE_LIMIT_MS, LINK_VERSION, Now, SILENCE_LIMIT_MS};
@@ -118,6 +119,14 @@ pub enum MasterEvent {
         apps: Vec<AppEntry>,
         /// Their hash, checked.
         hash: String,
+    },
+    /// What the session's phone is (its maker and model, its Android
+    /// version, LiMo's version on it), checked to be within its bounds and
+    /// plain text: once after each session opens, and again when any of it
+    /// changed. Keep it for the guardian; never log it.
+    About {
+        /// What the phone is.
+        about: PhoneAbout,
     },
     /// The phone said goodbye; the link has ended.
     Bye,
@@ -269,7 +278,11 @@ impl MasterLink {
                     self.stage = Stage::PairAwaitRequest { noise, offer_id, phone_key: PublicKey::from_bytes(key) };
                 }
                 Stage::PairAwaitRequest { mut noise, offer_id, phone_key } => {
-                    match self.hear(&mut noise, &body)? {
+                    let Some(said) = self.hear(&mut noise, &body)? else {
+                        self.stage = Stage::PairAwaitRequest { noise, offer_id, phone_key };
+                        continue;
+                    };
+                    match said {
                         PhoneSays::Pair { name, form, platform, android_version } => {
                             let request = PairRequest { name, form, platform, android_version };
                             events.push(MasterEvent::PairRequest { offer_id, phone_key, request });
@@ -282,14 +295,25 @@ impl MasterLink {
                         _ => return Err(LinkError::Unexpected { what: "something other than a pairing request" }),
                     }
                 }
-                Stage::PairAsked { mut noise } | Stage::PairDone { mut noise, .. } => match self.hear(&mut noise, &body)? {
-                    PhoneSays::Bye {} => {
+                Stage::PairAsked { mut noise } => match self.hear(&mut noise, &body)? {
+                    None => self.stage = Stage::PairAsked { noise },
+                    Some(PhoneSays::Bye {}) => {
                         events.push(MasterEvent::Bye);
                         self.stage = Stage::Ended;
                     }
-                    _ => return Err(LinkError::Unexpected { what: "a message after the pairing request" }),
+                    Some(_) => return Err(LinkError::Unexpected { what: "a message after the pairing request" }),
+                },
+                Stage::PairDone { mut noise, until } => match self.hear(&mut noise, &body)? {
+                    None => self.stage = Stage::PairDone { noise, until },
+                    Some(PhoneSays::Bye {}) => {
+                        events.push(MasterEvent::Bye);
+                        self.stage = Stage::Ended;
+                    }
+                    Some(_) => return Err(LinkError::Unexpected { what: "a message after the pairing request" }),
                 },
                 Stage::SessionFresh { mut noise, phone } => {
+                    // Even a message of a kind this version does not know
+                    // proves the phone is live.
                     let said = self.hear(&mut noise, &body)?;
                     events.push(MasterEvent::Opened { device_id: phone.device_id.clone(), child_id: phone.child_id.clone() });
                     self.session_message(noise, phone, 0, said, now, events)?;
@@ -380,10 +404,15 @@ impl MasterLink {
         mut noise: Box<TransportState>,
         phone: KnownPhone,
         mut reports_waiting: usize,
-        said: PhoneSays,
+        said: Option<PhoneSays>,
         now: Now,
         events: &mut Vec<MasterEvent>,
     ) -> Result<(), LinkError> {
+        let Some(said) = said else {
+            // A kind this version does not know: passed over.
+            self.stage = Stage::SessionOpen { noise, phone, reports_waiting };
+            return Ok(());
+        };
         match said {
             PhoneSays::Ping {} => self.say(&mut noise, &MasterSays::Pong { master_now: now.unix })?,
             PhoneSays::Report { report } => {
@@ -396,6 +425,9 @@ impl MasterLink {
                 events.push(MasterEvent::Report { report: *report });
             }
             PhoneSays::Apps { apps, hash } => events.push(MasterEvent::Apps { apps, hash }),
+            PhoneSays::About { model, android_version, app_version } => {
+                events.push(MasterEvent::About { about: PhoneAbout { model, android_version, app_version } });
+            }
             PhoneSays::Bye {} => {
                 events.push(MasterEvent::Bye);
                 self.stage = Stage::Ended;
@@ -407,12 +439,16 @@ impl MasterLink {
         Ok(())
     }
 
-    /// Decrypts and reads one message from the phone, and checks its bounds.
-    fn hear(&mut self, noise: &mut TransportState, body: &[u8]) -> Result<PhoneSays, LinkError> {
+    /// Decrypts and reads one message from the phone, and checks its
+    /// bounds; None for a message of a kind this version does not know,
+    /// which is passed over.
+    fn hear(&mut self, noise: &mut TransportState, body: &[u8]) -> Result<Option<PhoneSays>, LinkError> {
         let text = open(noise, body)?;
-        let said: PhoneSays = from_json(&text)?;
+        let Some(said) = read_message::<PhoneSays>(&text)? else {
+            return Ok(None);
+        };
         said.check()?;
-        Ok(said)
+        Ok(Some(said))
     }
 
     /// Encrypts one message to the phone into the outgoing bytes.

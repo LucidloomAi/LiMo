@@ -120,7 +120,7 @@ reading at most half a second at a time:
 
 | What comes | What the link does |
 | --- | --- |
-| `Opened` | in reach: the engine is told at its next tick (at once), with a report asked for, as the PC expects when a session opens; the app list is sent if it changed |
+| `Opened` | in reach: the engine is told at its next tick (at once), with a report asked for, as the PC expects when a session opens; the app list is sent if it changed, and what the phone is |
 | a grant | to the host, which hands it to the engine (`takeGrant`), keeps the state before acting on it, and ticks at once |
 | `report_now` | a report asked for at once: the host ticks |
 | a refusal: `removed` | see [Removed on the PC](#removed-on-the-pc) |
@@ -139,6 +139,19 @@ a session opens and every ten minutes while one is open, whenever its hash
 (`appsHash`, the link's own) differs from the list sent last in this
 process.
 
+**What the phone is.** For the guardian's list of devices on the PC:
+`Build.MANUFACTURER`, `Build.MODEL` and `Build.VERSION.SDK_INT` as Android
+gives them, and the app's version name (`AndroidAbout`, read once a
+process: an update of the app starts a new one). The link cleans the texts
+as it cleans a phone's name, puts the maker before the model unless the
+model starts with it, and cuts them at 120 and 40 characters (the link's
+README, "The messages"). Told once after each session opens, and again
+whenever it differs from what the session said last (asked at every round,
+which costs a comparison); a call on the PC like the others. An Android
+version the bridge refuses (below zero) is logged once as a failure and not
+tried again for the same; the session goes on. Never written in the log:
+the line says only that it went.
+
 **Closing.** A connection is always closed both ways at once, never its
 sending side alone: the cable's tunnel (adb's streams) has no half close,
 and bytes still on their way back would be lost (phone/cable/README.md).
@@ -149,7 +162,7 @@ and bytes still on their way back would be lost (phone/cable/README.md).
 - After a try that reached nothing: 5 seconds, doubling to a minute; after a
   refusal the PC will say again: ten minutes. Wi-Fi coming tries at once.
 - At most 40 calls on the PC in any minute (sessions opened, reports, app
-  lists; the service cuts a phone off past 60): beyond them the host does
+  lists, what the phone is; the service cuts a phone off past 60): beyond them the host does
   not write a report, and the engine orders it again a moment later.
 
 ## Removed on the PC
@@ -181,7 +194,7 @@ again.
 ## What it logs
 
 Android's log, tag `LiMo`. Never an offer, a key, a code, a name, an
-address or a report.
+address, a report, or what the phone is.
 
 | Line | When |
 | --- | --- |
@@ -191,6 +204,7 @@ address or a report.
 | `link paired` | Paired and kept |
 | `link open via=<cable, wifi>` | A session opened, and which way |
 | `link apps sent count=<n>` | The app list sent |
+| `link about sent` | What the phone is, sent; never what it said |
 | `link closed` | A session ended: the PC out of reach |
 | `link refused why=<unknown, version, other_device>` | A session the PC refused |
 | `link removed releasing` | The PC removed this phone |
@@ -218,6 +232,7 @@ says the cable is in, or the PC is on the Wi-Fi, and either can be pulled.
 | `LinkDayTest.contactLostWithAReportWaitingIsTheEnginesAndComesBack` | The PC stops answering: ten seconds after a report the session ends, the engine is told, the phone is away; the PC answers again and the phone is back by itself |
 | `LinkDayTest.aPhoneRemovedOnThePcReleasesItselfAtItsNextContact` | Removed while away; back in reach, told so: the kept pairing, the state and the name gone, the keeper stopped, nothing tried any more; a new offer pairs it again |
 | `LinkDayTest.neverMoreThanFortyCallsOnThePcInAMinute` | A PC asking for a report every second for a minute: the phone answers until forty calls, then waits; the session stays |
+| `LinkAboutTest` (2) | What the phone is at the played PC once a session opens, asked at every round and said once, said again when the app's version changes, again once in a new session, and never in the log; what Android gives arriving cleaned, joined and cut, and an Android version below zero refused once without ending the session |
 | `LinkPairingTest` (7) | The door's rules (its path, writing only, the caller's permission, at most 1,024 bytes, none read beyond); an offer taken before the PC's tunnel is up, tried over the cable only, paired as soon as the tunnel is, the offer wiped, the child's name kept, the door then refusing as paired, the log holding neither offer nor name; nothing, too long, not an offer and a second offer refused, one never answered dropped after ten minutes; an offer used already refused by the PC and dropped, the pairing of a forgotten phone gone; a pairing whose kept pairing or state cannot be written leaving the phone as it was; a stranger on the phone's loopback passed by for the Wi-Fi; addresses and the phone's name |
 | `LinkSocketTest` (2) | A pairing and a session through real sockets on this PC's loopback (`SocketConn`), a minute of use counted at the played PC behind a server socket, the PC closing the connection read as out of reach; a close that ends both ways at once; the cable never to another address, the Wi-Fi never to the loopback, a public address or a name, port 0 never |
 | `LinkHouseRulesTest` (3) | Only link/ reaches the network; no server or datagram socket, web request, web view or half close anywhere in the module; the link writes down no address but the loopback and no port; no web request in the app's screens and no analytics in its `package.json` |
@@ -266,12 +281,14 @@ link/
   LinkCore.kt    the link with no Android in it: the door's offers, pairing,
                  finding the master, the session, the limits, the interfaces
                  it needs (LinkConn, LinkDialer, PairingStore, MasterFinder,
-                 AppsSource, LinkHostSide) and the host's view of it (LinkPort)
+                 AppsSource, AboutSource, LinkHostSide) and the host's view of
+                 it (LinkPort)
   LinkHost.kt    on Android: the link's thread, SocketConn, the Wi-Fi network
                  and its sockets, NsdManager, the kept pairing in AtomicFile,
-                 the watch's apps, the phone's name
+                 the watch's apps, the phone's name, what the phone is
   CableDoor.kt   the cable door, a content provider, and its rules
 src/test/java/ai/lucidloom/limo/child/link/
   LinkRig.kt     the played cable and Wi-Fi, the host's side, a phone with its link
-  LinkDayTest.kt, LinkPairingTest.kt, LinkSocketTest.kt, LinkHouseRulesTest.kt
+  LinkDayTest.kt, LinkAboutTest.kt, LinkPairingTest.kt, LinkSocketTest.kt,
+  LinkHouseRulesTest.kt
 ```

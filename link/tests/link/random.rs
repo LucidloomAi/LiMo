@@ -126,6 +126,8 @@ fn phone_messages(phone: &mut Phone, now: i64) -> Vec<Vec<u8>> {
         serde_json::to_vec(&serde_json::json!({"say": "report", "report": report})).unwrap(),
         serde_json::to_vec(&serde_json::json!({"say": "apps", "apps": apps, "hash": apps_hash(&apps)})).unwrap(),
         br#"{"say":"pair","name":"x","form":"child","platform":"android","android_version":33}"#.to_vec(),
+        br#"{"say":"about","model":"samsung SM-S911B","android_version":34,"app_version":"0.4.0"}"#.to_vec(),
+        br#"{"say":"something_newer","at":1}"#.to_vec(),
         format!("{}{}", "[".repeat(5_000), "]".repeat(5_000)).into_bytes(),
         br#"{"say":"report","report":{"child_id":"","device_id":"","message_number":18446744073709551615}}"#.to_vec(),
         format!(r#"{{"say":"apps","apps":[{}],"hash":""}}"#, vec![r#"{"package":"a","label":"b"}"#; 3_000].join(",")).into_bytes(),
@@ -142,6 +144,7 @@ fn master_messages(grant_json: &serde_json::Value) -> Vec<Vec<u8>> {
         serde_json::to_vec(&serde_json::json!({"say": "welcome", "welcome": grant_json, "code_secret": "00", "master_now": 1}))
             .unwrap(),
         br#"{"say":"pong","master_now":-9223372036854775808}"#.to_vec(),
+        br#"{"say":"something_newer","at":1}"#.to_vec(),
     ]
 }
 

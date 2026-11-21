@@ -6,9 +6,10 @@
 use std::sync::Arc;
 
 use limo_phone_ffi::testkit::TestFamily;
+use limo_phone_ffi::testkit::TestAbout;
 use limo_phone_ffi::{
-    AppEntry, EngineError, GrantOutcome, LinkError, LinkEventKind, Offer, PairRequest, PairedMaster, PhoneEngine,
-    PhonePairing, PhoneSession,
+    AppEntry, EngineError, GrantOutcome, LinkError, LinkEventKind, Offer, PairRequest, PairedMaster, PhoneAbout,
+    PhoneEngine, PhonePairing, PhoneSession,
 };
 
 use crate::common::{GAME, IST, all_permissions, app, at, rules};
@@ -161,6 +162,52 @@ fn a_pairing_over_the_link_makes_the_engine_and_a_session_carries_report_and_gra
     assert!(!session.take_outgoing().unwrap().is_empty());
     assert_eq!(session.tick(2_070).unwrap(), None);
     assert!(matches!(session.send_bye(2_080), Err(LinkError::Closed { .. })));
+}
+
+#[test]
+fn a_session_tells_the_master_what_the_phone_is_once_and_again_when_it_changed() {
+    let start = at(7, 15);
+    let Paired { family, kept_pairing, engine, .. } = pair(start);
+    let device = engine.view().unwrap().unwrap().device_id;
+    let about = |version: &str| PhoneAbout {
+        maker: "samsung".into(),
+        model: "SM-S911B
+".into(),
+        android_version: Some(34),
+        app_version: version.into(),
+    };
+    // What Android gives never shows in a log.
+    assert!(!format!("{:?}", about("0.4.0")).contains("SM-S911B"));
+    let session = PhoneSession::start(PairedMaster::from_bytes(kept_pairing).unwrap(), 3_000).unwrap();
+    // Not before the session is open.
+    assert!(matches!(session.send_about(about("0.4.0"), 3_000), Err(LinkError::NotOpen { .. })));
+    family.connect(3_000, start).unwrap();
+    shuttle(
+        &family,
+        || session.take_outgoing().unwrap(),
+        |back| {
+            session.receive(back, 3_010).unwrap();
+        },
+        3_010,
+        start,
+    );
+    assert!(session.send_about(about("0.4.0"), 3_020).unwrap());
+    // Nothing answers it.
+    assert!(family.exchange(session.take_outgoing().unwrap(), 3_020, start).unwrap().is_empty());
+    assert!(!session.send_about(about("0.4.0"), 3_030).unwrap());
+    assert!(session.take_outgoing().unwrap().is_empty());
+    assert!(session.send_about(about("0.5.0"), 3_040).unwrap());
+    family.exchange(session.take_outgoing().unwrap(), 3_040, start).unwrap();
+    let said = |version: &str| TestAbout {
+        model: "samsung SM-S911B".into(),
+        android_version: Some(34),
+        app_version: version.into(),
+    };
+    assert_eq!(family.abouts_of(device).unwrap(), vec![said("0.4.0"), said("0.5.0")]);
+    // An Android version below zero is refused, and the session goes on.
+    let below = PhoneAbout { android_version: Some(-1), ..about("0.5.0") };
+    assert!(matches!(session.send_about(below, 3_050), Err(LinkError::OutOfRange { .. })));
+    assert!(session.is_open().unwrap());
 }
 
 #[test]
