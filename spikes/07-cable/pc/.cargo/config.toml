@@ -1,0 +1,6 @@
+# The program is copied, alone, onto a PC that never had any developer tools
+# for the second sitting. With the C runtime linked in, it needs no Visual C++
+# runtime there; libusb's C code is built the same way (the cc crate follows
+# this flag).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

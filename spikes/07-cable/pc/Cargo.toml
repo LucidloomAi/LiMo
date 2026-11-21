@@ -1,0 +1,59 @@
+[package]
+name = "limo-cable-spike"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "Apache-2.0"
+description = "LiMo spike 07: can the PC reach a phone over the USB cable by itself? A throwaway proof"
+publish = false
+
+[lib]
+name = "limo_cable_spike"
+
+[[bin]]
+name = "limo-cable-spike"
+path = "src/main.rs"
+
+[dependencies]
+# The adb protocol in Rust, straight to the phone over USB with no adb server.
+# Pinned: two major versions came within eleven months. Its `usb` feature
+# brings rusb, and with it libusb, compiled into this program (see README.md,
+# "Licences"). No default features: the screenshot part is not needed.
+adb_client = { version = "=4.0.0", default-features = false, features = ["usb"] }
+# adb_client's own USB layer, named here only to read its errors. The same
+# version adb_client pins; adb_client turns on its `vendored` feature.
+rusb = "=0.9.4"
+# The second USB layer tried: pure Rust, no C. adb_client keeps its transport
+# trait to itself, so this program carries the bytes between nusb and
+# adb_client's own TCP device through a loopback socket (src/route_nusb.rs).
+nusb = "=0.2.9"
+# This program's own adb key: made once, kept in the user's own folder, so
+# that "Always allow from this computer" means something. Same version as
+# adb_client's own.
+rsa = "0.9.10"
+# The key's fingerprint as the phone shows it on "Allow USB debugging?" (MD5,
+# as Android's own dialog computes it).
+md-5 = "0.10.6"
+# The check of the sample secret, the same on the PC and in the test app.
+sha2 = "0.10.9"
+# Wiping the sample secret from memory.
+zeroize = "1.8.1"
+# Reading the manifest inside the test APK before it is installed.
+miniz_oxide = "0.8.9"
+# adb_client and nusb say what they do through `log`; --verbose prints it.
+log = { version = "0.4.28", features = ["std"] }
+
+[target.'cfg(windows)'.dependencies]
+# Windows' own lists of devices and drivers, read only, for `drivers`.
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_Properties",
+    "Win32_Foundation",
+    "Win32_System_Registry",
+] }
+
+# The RSA key is made once; optimised dependencies keep that quick in tests.
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test.package."*"]
+opt-level = 3

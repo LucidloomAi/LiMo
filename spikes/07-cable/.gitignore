@@ -1,0 +1,15 @@
+# Rust build output
+target/
+
+# Android and Gradle build output
+build/
+.gradle/
+.kotlin/
+.idea/
+*.iml
+local.properties
+*.apk
+
+# The test app's throwaway signing key and its password: made by the first
+# build, never committed
+phone/throwaway-key/
