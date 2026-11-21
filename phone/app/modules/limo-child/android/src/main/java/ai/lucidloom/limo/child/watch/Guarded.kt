@@ -56,10 +56,12 @@ internal object Guarded {
    *   LiMo's accessibility service is switched off. Seen on a phone: the
    *   Galaxy S20 Ultra (Android 13, One UI 5.1) on 20 November 2026, where
    *   setup's Accessibility step opened it and time was counted under it.
-   *   Kept beside Android's answer ([GuardReach]), which names such a
-   *   package on any maker, for a phone where the package manager cannot be
-   *   asked. Android's own source keeps accessibility inside Settings
-   *   instead, where no name tells LiMo's page apart (see the README).
+   *   Needed beside Android's answer ([GuardReach]): on that phone the
+   *   package manager names Settings for the accessibility settings, which
+   *   hand on to this package (seen 21 November 2026), so only this name
+   *   guards it there. Android's own source keeps accessibility inside
+   *   Settings instead, where no name tells LiMo's page apart (see the
+   *   README).
    */
   val PACKAGES: Map<String, GuardedPage> = mapOf(
     "com.samsung.accessibility" to GuardedPage.ACCESSIBILITY,
@@ -277,34 +279,62 @@ internal data class GuardReach(
  *   it the same page coming back (its first resume after the phone was put
  *   down) from another page of the same app (a resume while in use), which
  *   the engine, seeing only the kind of page, cannot tell apart.
- * - **For a moment after it is raised** ([WatchTimes.CONFIRM_GRACE_MS]) it
- *   holds while usage shows nothing newer than the raise, since Android may
- *   write the page's own resume after its window told the service; an app
- *   that usage shows resumed after the raise ends it at once.
+ * - **Raised at the window, not waiting for Android's record.** A window
+ *   event of a package guarded whole, or inside Settings of a page by its
+ *   class, raises the guard at once. While usage shows nothing newer than
+ *   that window it holds, for at most [WatchTimes.GUARD_WINDOW_HOLD_MS]: a
+ *   settings app started cold may resume seconds after its first window
+ *   (2.2 seconds on the Galaxy), and usage may still show the app before it,
+ *   LiMo's own setup screen among them once LiMo says that screen is gone.
+ *   It is taken back as soon as usage shows another app resumed after that
+ *   window. A package guarded whole needs it only until usage shows the
+ *   package in front, which guards it from then on.
+ * - **A late window raises nothing.** When usage shows the window's own app
+ *   paused or stopped at most [WatchTimes.GUARD_LATE_WINDOW_MS] before the
+ *   window, with another app in front since, the window is a late one of an
+ *   app that already left (proof two's after "Go home"), and the guard it
+ *   raised is taken back at that same reading, before anything is told.
+ * - **An event raise holds for a moment** ([WatchTimes.CONFIRM_GRACE_MS])
+ *   while usage shows nothing newer; an app that usage shows resumed after
+ *   the raise ends it at once.
  * - **With usage access off**, the front is the package that last sent a
  *   window event, and another package's window ends it (after that moment).
  * - **A package guarded whole** ([GuardReach.wholePackage]) is guarded while
  *   usage shows it in front, or, with usage access off, while it was the
- *   last to send a window event.
+ *   last to send a window event; and from its window event, as above.
  */
 internal class GuardWatch(private val log: WatchLog) {
   private class Raised(
     val page: GuardedPage,
     val packageName: String,
-    /** How it was raised, for the log: `page` (a window's class matched) or `event` (the admin's switch off asked). */
+    /**
+     * How it was raised, for the log: `page` (a window's class matched),
+     * `window` (a window of a package guarded whole) or `event` (the
+     * admin's switch off asked).
+     */
     val by: String,
     var sinceWallMs: Long,
     val sinceMs: Long,
     var aside: Boolean,
-  )
+  ) {
+    /** Raised by a window event, by its class or its package. */
+    val byWindow: Boolean get() = by == "page" || by == "window"
+  }
 
   private var raised: Raised? = null
   private var said: Pair<GuardedPage, String>? = null
 
-  /** A window event from [packageName]; [page] is what its class name matched, for the packages the guard reads only. */
-  fun windowEvent(packageName: String?, page: GuardedPage?, wallMs: Long, nowMs: Long) {
-    if (page == null || packageName == null) return
-    raised = Raised(page, packageName, "page", wallMs, nowMs, aside = false)
+  /**
+   * A window event from [packageName]: [page] is what its class name
+   * matched, for the packages the guard reads only; [whole] the page its
+   * package is when it is guarded whole. Either raises the guard at once.
+   */
+  fun windowEvent(packageName: String?, page: GuardedPage?, whole: GuardedPage?, wallMs: Long, nowMs: Long) {
+    if (packageName == null) return
+    when {
+      page != null -> raised = Raised(page, packageName, "page", wallMs, nowMs, aside = false)
+      whole != null -> raised = Raised(whole, packageName, "window", wallMs, nowMs, aside = false)
+    }
   }
 
   /**
@@ -334,8 +364,10 @@ internal class GuardWatch(private val log: WatchLog) {
    * ([frontPage], null for any other and with usage access off), the
    * package that last sent a window event ([lastWindow]), whether usage can
    * be read ([usageOn]), whether the phone is put down ([putDown]: its
-   * screen off, or Android's lock screen up) and how far the guard reaches
-   * ([reach]). Logs one line when the answer changes.
+   * screen off, or Android's lock screen up), how far the guard reaches
+   * ([reach]), whether LiMo's own screens say one is shown ([limoShown]),
+   * and when a package's activity last left the front ([leftAtWallMs], as
+   * [UsageTrack.leftAtWallMs]). Logs one line when the answer changes.
    */
   fun now(
     pick: Pick,
@@ -346,10 +378,20 @@ internal class GuardWatch(private val log: WatchLog) {
     putDown: Boolean,
     nowMs: Long,
     reach: GuardReach,
+    limoShown: Boolean = false,
+    leftAtWallMs: (String) -> Long? = { null },
   ): GuardedPage? {
     val inFront = if (usageOn) pick.packageName ?: lastWindow else lastWindow
+    takeBackLate(inFront, usageOn, leftAtWallMs)
     val r = raised
-    if (pick.kind == FrontKind.LIMO || pick.kind == FrontKind.DIALLER || pick.kind == FrontKind.EMERGENCY_DIALLER) {
+    // Usage still shows LiMo's own screen, from before the window, though
+    // LiMo says no screen of its own is shown: the window is in front.
+    val overOldLimo = r != null && r.byWindow && usageOn && !limoShown && pick.kind == FrontKind.LIMO &&
+      (frontSinceWallMs == null || frontSinceWallMs <= r.sinceWallMs) &&
+      nowMs - r.sinceMs < WatchTimes.GUARD_WINDOW_HOLD_MS
+    if (!overOldLimo &&
+      (pick.kind == FrontKind.LIMO || pick.kind == FrontKind.DIALLER || pick.kind == FrontKind.EMERGENCY_DIALLER)
+    ) {
       r?.aside = true
       return answer(null, null, null)
     }
@@ -376,12 +418,23 @@ internal class GuardWatch(private val log: WatchLog) {
       }
       return answer(frontPage, shown, by)
     }
-    if (r != null) {
+    if (r != null && r.by == "window") {
+      // A window of a package guarded whole: needed only until usage (or,
+      // with usage access off, the windows) shows the package in front,
+      // which the package's own rule below then guards.
+      val since = frontSinceWallMs.takeIf { usageOn }
+      val older = since == null || since <= r.sinceWallMs
+      if (inFront != r.packageName && older && nowMs - r.sinceMs < holdOf(r, usageOn)) {
+        return answer(r.page, r.packageName, r.by)
+      }
+      raised = null
+    } else if (r != null) {
       // Usage has said nothing newer than the raise yet: what it shows in
       // front may be from before the page came up.
       val since = frontSinceWallMs.takeIf { usageOn }
       val older = since == null || since <= r.sinceWallMs
       val same = inFront == r.packageName || (r.packageName.isEmpty() && inFront == null)
+      val hold = holdOf(r, usageOn)
       if (putDown) {
         // The phone put down: the page waits under the dark screen or the
         // lock screen, and its next resume is the page coming back. What
@@ -401,8 +454,8 @@ internal class GuardWatch(private val log: WatchLog) {
           r.aside = false
           return answer(r.page, r.packageName, r.by)
         }
-      } else if (older && nowMs - r.sinceMs < WatchTimes.CONFIRM_GRACE_MS) {
-        // Another app is in front by what usage last read: for a moment
+      } else if (older && nowMs - r.sinceMs < hold) {
+        // Another app is in front by what usage last read: for a while
         // after the raise that may be from before the page came up, unless
         // usage shows it resumed after the raise.
         return answer(r.page, r.packageName, r.by)
@@ -412,6 +465,28 @@ internal class GuardWatch(private val log: WatchLog) {
     }
     val pkg = if (usageOn) pick.packageName else lastWindow
     return answer(reach.wholePackage(pkg), pkg, "package")
+  }
+
+  /**
+   * How long [r] holds while what is in front says nothing newer: a window's
+   * raise waits for Android's record, up to [WatchTimes.GUARD_WINDOW_HOLD_MS];
+   * the event's, and any with usage access off (another window is all there
+   * is to wait for), only [WatchTimes.CONFIRM_GRACE_MS].
+   */
+  private fun holdOf(r: Raised, usageOn: Boolean): Long =
+    if (r.byWindow && usageOn) WatchTimes.GUARD_WINDOW_HOLD_MS else WatchTimes.CONFIRM_GRACE_MS
+
+  /**
+   * A guard raised by a window is taken back when usage shows that
+   * window's own app paused or stopped at most
+   * [WatchTimes.GUARD_LATE_WINDOW_MS] before it and another app in front
+   * since: the window came late, from an app that already left.
+   */
+  private fun takeBackLate(inFront: String?, usageOn: Boolean, leftAtWallMs: (String) -> Long?) {
+    val r = raised ?: return
+    if (!r.byWindow || !usageOn || inFront == null || inFront == r.packageName) return
+    val left = leftAtWallMs(r.packageName) ?: return
+    if (left <= r.sinceWallMs && r.sinceWallMs - left <= WatchTimes.GUARD_LATE_WINDOW_MS) raised = null
   }
 
   /** [page] for [packageName], with one log line when it differs from the last answer: the page and the package, never a class name. */

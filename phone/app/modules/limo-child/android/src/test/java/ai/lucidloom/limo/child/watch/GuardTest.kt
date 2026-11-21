@@ -1,5 +1,6 @@
 package ai.lucidloom.limo.child.watch
 
+import ai.lucidloom.limo.child.ffi.FrontKind
 import ai.lucidloom.limo.child.ffi.GuardedPage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -458,7 +459,7 @@ class GuardTest {
   }
 
   @Test
-  fun aPageWhoseOwnResumeAndroidWritesLateIsGuardedAtOnceAndALateWindowOverHomeOnlyForAMoment() {
+  fun aPageWhoseOwnResumeAndroidWritesLateIsGuardedAtOnceAndALateWindowOverHomeRaisesNothing() {
     val rig = Rig()
     rig.open(LAUNCHER)
     // The device admin's page straight from a notification, Settings' resume
@@ -475,15 +476,21 @@ class GuardTest {
     rig.phone.pass(10_000)
     assertEquals("Settings' resume came before the page's window", GuardedPage.DEVICE_ADMIN, rig.guarded())
 
-    // A late window of that page after the home screen came up: guarded for
-    // the moment usage takes to say so, then not.
-    rig.open(LAUNCHER)
+    // Home: Settings pauses, the home screen resumes, Settings stops. A late
+    // window of that page after it raises nothing at all: usage, read at the
+    // window, shows Settings left just before.
+    rig.phone.pass(10)
+    rig.phone.paused(settings)
+    rig.phone.pass(30)
+    rig.phone.resumed(LAUNCHER)
+    rig.phone.stopped(settings)
+    rig.phone.pass(20)
+    rig.core.windowEvent(LAUNCHER)
     assertNull(rig.guarded())
     rig.phone.pass(50)
-    rig.settingsWindow(adminPage)
-    assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
+    assertFalse("nothing to tell", rig.settingsWindow(adminPage))
+    assertNull(rig.guarded())
     rig.settle()
-    rig.phone.pass(WatchTimes.CONFIRM_GRACE_MS)
     assertNull(rig.guarded())
   }
 
@@ -596,6 +603,195 @@ class GuardTest {
     assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
     rig.core.windowEvent(GAME)
     assertNull(rig.guarded())
+  }
+
+  /**
+   * The Galaxy, 21 November 2026: setup's Accessibility step opened One
+   * UI's accessibility settings, whose first window came 2.2 seconds before
+   * Android's usage record showed them resumed (a cold start), and the page
+   * was bare all that while. Now the window itself raises the guard.
+   */
+  @Test
+  fun aPackageGuardedWholeIsGuardedAtItsWindowWhileUsageStillShowsLimosSetupScreen() {
+    val rig = Rig()
+    rig.open(LAUNCHER)
+    // LiMo's own setup screen, in front by usage and by LiMo's own word.
+    rig.phone.pass(10)
+    rig.phone.paused(LAUNCHER)
+    rig.phone.pass(30)
+    rig.phone.resumed(LIMO)
+    rig.core.limoScreen(true)
+    rig.phone.pass(20)
+    rig.phone.stopped(LAUNCHER)
+    assertNull(rig.guarded())
+    // The Accessibility step: LiMo's screen pauses and says so, and the
+    // settings' first window comes at once.
+    rig.phone.pass(3_000)
+    rig.core.limoScreen(false)
+    rig.phone.paused(LIMO)
+    rig.phone.pass(30)
+    assertTrue("told at the window", rig.core.windowEvent(oneUiAccessibility))
+    assertEquals(GuardedPage.ACCESSIBILITY, rig.guarded())
+    assertTrue(rig.log.lines.contains("guard now accessibility by=window package=com.samsung.accessibility"))
+    // The rechecks give up on the front; the guard holds, past a second.
+    rig.settle()
+    assertTrue(rig.log.lines.any { it.startsWith("front window_event package=com.samsung.accessibility not_confirmed front=$LIMO") })
+    rig.phone.pass(1_000)
+    assertEquals(GuardedPage.ACCESSIBILITY, rig.guarded())
+    // Usage shows the settings resumed, 2.2 seconds after their window: guarded throughout, by the package now.
+    rig.phone.pass(10)
+    rig.phone.resumed(oneUiAccessibility)
+    rig.phone.stopped(LIMO)
+    rig.phone.pass(600)
+    assertEquals(GuardedPage.ACCESSIBILITY, rig.guarded())
+    assertEquals(FrontKind.APP, rig.front().kind)
+    assertEquals(1, rig.log.lines.count { it.startsWith("guard now accessibility") })
+    assertEquals(0, rig.log.lines.count { it == "guard now none" })
+  }
+
+  @Test
+  fun aPageByItsClassIsGuardedAtItsWindowAndHeldPastASecondUntilItResumes() {
+    val rig = Rig()
+    rig.open(LAUNCHER)
+    rig.open(GAME)
+    // The device admin's page straight from a notification over the game,
+    // Settings started cold: its window first, its activity resumed two
+    // seconds later.
+    rig.phone.pass(10)
+    rig.phone.paused(GAME)
+    rig.phone.pass(30)
+    assertTrue(rig.settingsWindow(adminPage))
+    assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
+    rig.settle()
+    rig.phone.pass(500)
+    assertEquals("past a second, usage still showing the game", GuardedPage.DEVICE_ADMIN, rig.guarded())
+    rig.phone.pass(500)
+    rig.phone.resumed(settings, activity = adminPage)
+    rig.phone.stopped(GAME)
+    rig.phone.pass(600)
+    assertEquals(GuardedPage.DEVICE_ADMIN, rig.guarded())
+    assertEquals(1, rig.log.lines.count { it.startsWith("guard now device_admin") })
+  }
+
+  @Test
+  fun aGuardRaisedAtAWindowIsTakenBackWhenUsageShowsAnotherAppAfterItOrAfterFiveSeconds() {
+    // Another app resumed after the window: taken back at the first read that shows it.
+    val rig = Rig()
+    rig.open(LAUNCHER)
+    rig.phone.pass(10)
+    rig.phone.paused(LAUNCHER)
+    rig.phone.pass(30)
+    assertTrue(rig.core.windowEvent(oneUiAccessibility))
+    assertEquals(GuardedPage.ACCESSIBILITY, rig.guarded())
+    rig.phone.pass(300)
+    rig.phone.resumed(GAME)
+    rig.phone.pass(20)
+    assertTrue(rig.core.windowEvent(GAME))
+    assertNull(rig.guarded())
+    // With no window event from it, at the host's next look.
+    val quiet = Rig()
+    quiet.open(LAUNCHER)
+    quiet.phone.pass(10)
+    quiet.phone.paused(LAUNCHER)
+    quiet.phone.pass(30)
+    quiet.core.windowEvent(oneUiAccessibility)
+    quiet.phone.pass(300)
+    quiet.phone.resumed(GAME)
+    quiet.phone.pass(600)
+    assertNull(quiet.guarded())
+    // A window of it that never resumes (a floating window over the game):
+    // guarded at most five seconds, then not.
+    val floating = Rig()
+    floating.open(LAUNCHER)
+    floating.open(GAME)
+    floating.phone.pass(60_000)
+    floating.core.windowEvent(oneUiAccessibility)
+    assertEquals(GuardedPage.ACCESSIBILITY, floating.guarded())
+    floating.settle()
+    floating.phone.pass(WatchTimes.GUARD_WINDOW_HOLD_MS - 1_500)
+    assertEquals(GuardedPage.ACCESSIBILITY, floating.guarded())
+    floating.phone.pass(1_000)
+    assertNull(floating.guarded())
+    assertEquals(GAME, floating.front().packageName)
+  }
+
+  /**
+   * Proof two's flaw, for a guarded package: after "Go home" the app that
+   * was in front sent one more window event after the home screen's. Here
+   * that app is One UI's accessibility settings, and its late window must
+   * not leave a guard over the home screen; fourteen tries, as on the first
+   * phone.
+   */
+  @Test
+  fun aLateWindowFromAGuardedPackageAfterGoingHomeRaisesNothing() {
+    val rig = Rig()
+    rig.open(LAUNCHER)
+    repeat(14) { round ->
+      rig.open(oneUiAccessibility)
+      assertEquals("round $round", GuardedPage.ACCESSIBILITY, rig.guarded())
+      // Home: the settings pause, the home screen resumes, they stop; then their late window.
+      rig.open(LAUNCHER)
+      assertNull("round $round", rig.guarded())
+      rig.phone.pass(50)
+      assertFalse("round $round: nothing told", rig.core.windowEvent(oneUiAccessibility))
+      assertNull("round $round", rig.guarded())
+      rig.settle()
+      rig.phone.pass(2_000)
+      assertNull("round $round", rig.guarded())
+      assertEquals(FrontKind.HOME, rig.front().kind)
+      rig.phone.pass(10_000)
+    }
+    // The guard went up once in each round, by the package, and never by a late window.
+    assertEquals(14, rig.log.lines.count { it == "guard now accessibility by=package package=com.samsung.accessibility" })
+    assertFalse(rig.log.lines.any { it.contains("by=window") })
+
+    // The home screen's resume written late, the late window before it:
+    // usage still shows the settings in front, so they are guarded as by
+    // usage alone, and not once usage shows the home screen.
+    val late = Rig()
+    late.open(LAUNCHER)
+    late.open(oneUiAccessibility)
+    late.phone.pass(10)
+    late.phone.paused(oneUiAccessibility)
+    late.phone.pass(30)
+    late.phone.resumed(LAUNCHER, late = true)
+    late.phone.pass(20)
+    late.core.windowEvent(LAUNCHER)
+    late.phone.pass(50)
+    late.core.windowEvent(oneUiAccessibility)
+    late.phone.pass(200)
+    late.phone.catchUp()
+    late.phone.stopped(oneUiAccessibility)
+    late.core.recheck()
+    late.phone.pass(600)
+    assertNull(late.guarded())
+    assertEquals(FrontKind.HOME, late.front().kind)
+  }
+
+  @Test
+  fun aWindowRaisedGuardNeverCoversLimosOwnScreenNorADialler() {
+    // The guard's PIN on LiMo's own screen, a late window of the settings under it: LiMo's word wins.
+    val rig = Rig()
+    rig.open(LAUNCHER)
+    rig.open(oneUiAccessibility)
+    rig.phone.pass(500)
+    rig.phone.paused(oneUiAccessibility)
+    rig.core.limoScreen(true)
+    rig.phone.pass(10)
+    rig.core.windowEvent(oneUiAccessibility)
+    assertNull(rig.guarded())
+    rig.phone.resumed(LIMO)
+    rig.phone.pass(600)
+    assertNull(rig.guarded())
+    // A call's screen in front by usage: a window of the settings over it raises nothing while it is in front.
+    val call = Rig()
+    call.open(LAUNCHER)
+    call.phone.audioMode = 1
+    call.core.callChanged()
+    call.open(PHONE_APP)
+    call.phone.pass(5_000)
+    call.core.windowEvent(oneUiAccessibility)
+    assertNull(call.guarded())
   }
 
   @Test

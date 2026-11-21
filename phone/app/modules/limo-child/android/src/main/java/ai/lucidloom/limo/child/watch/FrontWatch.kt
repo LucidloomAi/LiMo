@@ -63,6 +63,9 @@ internal class FrontWatch(private val ownPackage: String, private val log: Watch
    */
   val lastWindow: String? get() = latestProposal
   private var ownScreenSince: Long? = null
+
+  /** LiMo's own screens say one of them is shown ([limoScreen]): a fact, whatever usage shows. */
+  val limoShown: Boolean get() = ownScreenSince != null
   private val learnedCall = LinkedHashSet<String>()
   private val learnedEmergency = LinkedHashSet<String>()
   private var call = CallState.IDLE

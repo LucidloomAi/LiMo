@@ -245,9 +245,9 @@ least sure:
 | How | What | Recognised by | Seen on a phone |
 | --- | --- | --- | --- |
 | By event | LiMo's device admin asked to switch off (Deactivate on its page) | Android calls keep/AdminReceiver's `onDisableRequested`, which calls `deviceAdminOffAsked()` | not yet |
-| By Android's answer | the device admin's page, whatever its maker named it; accessibility settings in a package of their own, on any maker | the package manager, asked which activity opens `ACTION_ADD_DEVICE_ADMIN` and `ACTION_ACCESSIBILITY_SETTINGS` (below): the page then by its package and class, the accessibility settings' package whole | not yet |
-| By package | `com.samsung.accessibility`: One UI's accessibility settings, where LiMo's accessibility service is switched off; kept for a phone whose package manager cannot be asked | the package in front, as usage shows it | the package, yes (the first run, 20 November 2026, Galaxy S20 Ultra, One UI 5.1); under the guard, not yet |
-| By the page's name | the device admin's page in `com.android.settings`: `com.android.settings.DeviceAdminAdd` (Android 8.0 to 9) and `com.android.settings.applications.specialaccess.deviceadmin.DeviceAdminAdd` (Android 10 to 15); kept beside Android's answer | its class (below) | no: from Android's source only |
+| By Android's answer | the device admin's page, whatever its maker named it; accessibility settings that the package manager names in a package of their own | the package manager, asked which activity opens `ACTION_ADD_DEVICE_ADMIN` and `ACTION_ACCESSIBILITY_SETTINGS` (below): the page then by its package and class, the accessibility settings' package whole | yes (21 November 2026, the Galaxy, One UI 5.1): the device admin's page named as Android's own class; the accessibility settings named inside Settings, which hand on to One UI's own package |
+| By package | `com.samsung.accessibility`: One UI's accessibility settings, where LiMo's accessibility service is switched off; needed there, since the package manager names Settings for them | its window at once, then the package in front as usage shows it | yes: the package on the first run (20 November 2026, Galaxy S20 Ultra, One UI 5.1); under the guard on 21 November, then covered about two seconds late, before its window raised the guard |
+| By the page's name | the device admin's page in `com.android.settings`: `com.android.settings.DeviceAdminAdd` (Android 8.0 to 9) and `com.android.settings.applications.specialaccess.deviceadmin.DeviceAdminAdd` (Android 10 to 15); kept beside Android's answer | its class (below) | yes: the Android 10 to 15 name, on One UI 5.1, opened from App info's Uninstall (`by=page`, the cover drawn in 326 ms) |
 
 A page known by its class, by Android's answer or by the fixed name, is
 told two ways: by the class of its window, which the accessibility event
@@ -317,10 +317,15 @@ Uninstall opens another activity is not covered by the answer on those
 ways; only the probe on its phone can tell (dev/README.md, "The page
 probe").
 
-**The accessibility settings, as Android answers.** On One UI the action
-opens a package of its own (on the first run's phone, setup's
-Accessibility step opened `com.samsung.accessibility`): guarded whole, by
-the answer, on any maker that does the same. On Android's own source the
+**The accessibility settings, as Android answers.** On a maker whose
+package manager names a package of their own for the action, that package
+is guarded whole, by the answer. One UI 5.1 does not: on the Galaxy (21
+November 2026) the answer was inside Settings (`guard pages
+accessibility=in_settings package=com.android.settings`), and Settings then
+hands on to `com.samsung.accessibility`, the page that comes to the front,
+which the fixed name guards (`guard now accessibility by=package`). So
+`IN_SETTINGS` says what Android answered, not that nothing is guarded: a
+package on the fixed list is guarded all the same. On Android's own source the
 action opens an activity of Settings (`Settings$AccessibilitySettingsActivity`),
 but Settings' own first page opens the same list as a fragment in
 `com.android.settings.SubSettings`, and LiMo's own page, where its switch
@@ -386,20 +391,38 @@ was in front when it was raised, as Android's usage record tells:
   coming back (its first resume after the phone was put down) from another
   page of the same app (a resume while in use), and the engine sees only
   the kind of page;
-- for a second after it is raised (`CONFIRM_GRACE_MS`) it holds while
-  usage shows nothing newer than the raise, since Android may write the
-  page's own resume late; so a page's window sent late over the home screen
-  covers it for at most that second, and an app that usage shows resumed
-  after the raise ends it at once;
+- **raised at its window, not after Android's record:** for up to five
+  seconds after a page's window raised it (`GUARD_WINDOW_HOLD_MS`) it holds
+  while usage shows nothing newer than that window, since a settings app
+  started cold may resume seconds after its first window; usage may show
+  the app before it meanwhile, LiMo's own setup screen among them once LiMo
+  says that screen is gone. An app that usage shows resumed after the
+  window ends it at once. A raise by Android's event holds only a second
+  so (`CONFIRM_GRACE_MS`), as it is raised for what usage shows in front;
+- **a late window raises nothing:** when usage, read at the window, shows
+  that window's own app paused or stopped at most five seconds before it
+  (`GUARD_LATE_WINDOW_MS`) and another app in front since, the window is a
+  late one of an app that already left, as proof two saw after "Go home",
+  and its guard is taken back at that same reading, before the host is told
+  anything; Android writes an app's pause before the next app's resume, so
+  a record that shows the home screen in front shows the pause too;
 - with usage access off, the front is the package that last sent a
-  window event, and only another package ends it; Android's record says
-  nothing then, so a page with no window event is not seen;
+  window event, and another package's window ends it after a second;
+  Android's record says nothing then, so a page with no window event is
+  not seen;
 - a raised guard follows Android's record when that record names the same
   app's page in front, so that another page after it ends it as above.
 
-A package guarded whole is guarded while usage shows it in front (a
-window event alone, which may come late, never does), or, with usage
-access off, while it was the last to send a window event.
+A package guarded whole is guarded from its window event at once, in the
+same way: held while usage shows nothing newer than that window, for up to
+five seconds, taken back when usage shows another app resumed after it,
+and never raised by a late window of an app that already left. Once usage
+shows the package in front it is guarded for as long as usage shows it
+there, window or none; with usage access off, while it was the last to
+send a window event. Before 21 November 2026 only usage raised it: on the
+Galaxy, One UI's accessibility settings, started cold from setup, were
+bare for about two seconds (their first window 2.2 seconds before usage
+showed them resumed).
 
 **What a class name alone can and cannot tell.** An activity's window
 event carries the activity's own class (`Activity` sets it to
@@ -537,7 +560,7 @@ the code writes it:
 | `front emergency_wait ended because=<ten_seconds, clock_set, no_usage>` | The wait after Emergency call ended with nothing learned: nothing new in front within ten seconds, the clock set, or a read of usage that failed. |
 | `front emergency_wait not_started because=<no_usage, no_dialler>` | Emergency call while usage cannot be read, or where Android names no dialler and no emergency dialler: nothing will be learned. |
 | `call now <idle, ringing, ongoing>` | The call state changed. |
-| `guard now <device_admin, accessibility> by=<page, usage, event, package> package=<package>` | A page that could switch LiMo off or remove it is in front: recognised by its window's class, by the class of the activity Android's usage record shows in front, by Android asking the device admin, or by its package. Never the class name. |
+| `guard now <device_admin, accessibility> by=<page, window, usage, event, package> package=<package>` | A page that could switch LiMo off or remove it is in front: recognised by its window's class, by a window of a package guarded whole (before usage shows it), by the class of the activity Android's usage record shows in front, by Android asking the device admin, or by its package in front as usage shows it. Never the class name. |
 | `guard now none` | No such page is in front any more. |
 | `guard pages device_admin=named package=<packages>`, `guard pages device_admin=not_named` | What the package manager named for the device admin's page, by its packages only; at the first need in LiMo's process, and when it changes. With `not_named`, the fixed list alone. |
 | `guard pages accessibility=<own_package, in_settings, not_named>` with ` package=<packages>` but for `not_named` | Where the accessibility settings open, as Android answered: in a package of their own (guarded whole), inside Android's Settings (not guarded), or not named (the fixed list alone). |
@@ -638,11 +661,11 @@ back to write them late.
 | Where | What | Count |
 | --- | --- | --- |
 | `FrontTest` | An app in front once its activity resumed and its window said so; proof two's late event after "Go home", fourteen tries, the home screen in front throughout, the event dropped after three rechecks; the home screen's resume written late with the late event first; an event usage has not written yet, confirmed by a recheck; a floating window never in front; the shade, system dialogs, keyboards and LiMo's cover proposing nothing, older phones' recent apps and a permission dialog leaving the app in front; LiMo's activity and its cover; LiMo's word for its screen with usage access off, and a missed word put right; the dialler, a call's own screen learned and still the dialler after the call, a game during a call still a game; a screen with no icon the call's only during a call and learned only as it starts; an in call screen Android names; a package with no icon brought up after the call's own screen never learned, whether that screen was learned or named; one that came up before the call never learned, read before the call was seen or only as it was; the call's own screen, unnamed and first to come up as a call rings or after one answered from a heads up notification, learned and still the dialler after the call; the emergency dialler named, learned, never learned for an app with an icon or after ten seconds; the first run's sequence (the named emergency dialler, the home screen, Settings, then a package with no icon 8.7 seconds after the tap) learning nothing; an emergency dialler Android does not name learned as the first screen after the tap, from LiMo's own screen, when left before the watch read the record, and when brought up again while already in front, and a second package with no icon after it never learned; the dialler, the home screen, LiMo or an app with an icon coming first and ending the wait; no wait where Android names no dialler or with usage off; the wait ended by ten seconds, the clock set and a refused read; usage access off: unknown, a dialler still saying so, LiMo's covers changing nothing, back on at once; split screen; picture in picture, and Android 9 and older; an app with no label, a blank one, an unseen one, one that cannot be read; the clock set back, told or not; a restart of the phone in the record; events read twice near the edge, written late, the clock gone back | 27 |
-| `GuardTest` | The device admin's page guarded by its name, through a dialog over it (minutes), ended by another page of Settings and by home, Android 8.0 to 9's name too, the log naming page and package and never a class; a page whose own resume Android writes late guarded at once, and a page's late window over home guarded for at most a second; LiMo's own screen (the PIN) and the emergency dialler setting it aside, the same page guarded again on its return, another page ending it; Android asking the device admin to switch off raising it over its question, held through the dialog, ended by home; One UI's accessibility package guarded while usage shows it, never by a late window alone, and with usage access off by the last window, a page by name held until another app's window; a class name read for Settings and the installer only, the same name from any other app nothing; a page raised by its name, by Android's event and by One UI's package, after the PIN on LiMo's own screen, coming back as the same page with no window event and guarded again after each way away (the screen off with the lock screen, the screen off alone, the lock screen alone, the lock screen's camera, LiMo's own screen, a call), and another page or app after it still ending it; Android's screen signal alone keeping it when nothing looks while the screen is off, and a window event with no guard raised reading nothing of the screen; a device admin's page under a maker's name, which the package manager names (directly, and by an alias), guarded when App info's Uninstall opens it with no window event and no question to the admin, by Android's record alone, and with usage access off by its window, while the same phone with no answer leaves it open; the same page in a maker's own package, its classes and Settings' the only ones read; a guard raised at Deactivate over Android's question, Home, then back from the recent apps with no window event: guarded again where Android names the page, still open where it names nothing; LiMo's process starting again with each kind of page in front, guarded at the first look, except a page known by the question alone, guarded only when Deactivate asks again; accessibility settings that Android opens in a package of their own guarded whole and never read, also after a restart; accessibility settings inside Android's Settings, or inside a maker's Settings under its own package, said as they are (`IN_SETTINGS`) and nothing guarded; Settings' own answer refused, so no package guarded whole but the fixed list's; Android naming nothing, said as it is; the answer kept for the process, asked again when apps change, a refusal keeping the last answer, logged once and asked again a minute later, and a process Android refuses from the start still guarding Android's own names; an activity that also opens Settings' first page never taken for the device admin's page; the fixed lists alone reading as before | 16 |
+| `GuardTest` | The device admin's page guarded by its name, through a dialog over it (minutes), ended by another page of Settings and by home, Android 8.0 to 9's name too, the log naming page and package and never a class; a page whose own resume Android writes late guarded at once, and a page's late window over home, Settings paused just before, raising nothing; LiMo's own screen (the PIN) and the emergency dialler setting it aside, the same page guarded again on its return, another page ending it; Android asking the device admin to switch off raising it over its question, held through the dialog, ended by home; One UI's accessibility package guarded while usage shows it, never by a late window alone, and with usage access off by the last window, a page by name held until another app's window; a class name read for Settings and the installer only, the same name from any other app nothing; a page raised by its name, by Android's event and by One UI's package, after the PIN on LiMo's own screen, coming back as the same page with no window event and guarded again after each way away (the screen off with the lock screen, the screen off alone, the lock screen alone, the lock screen's camera, LiMo's own screen, a call), and another page or app after it still ending it; Android's screen signal alone keeping it when nothing looks while the screen is off, and a window event with no guard raised reading nothing of the screen; a device admin's page under a maker's name, which the package manager names (directly, and by an alias), guarded when App info's Uninstall opens it with no window event and no question to the admin, by Android's record alone, and with usage access off by its window, while the same phone with no answer leaves it open; the same page in a maker's own package, its classes and Settings' the only ones read; a guard raised at Deactivate over Android's question, Home, then back from the recent apps with no window event: guarded again where Android names the page, still open where it names nothing; LiMo's process starting again with each kind of page in front, guarded at the first look, except a page known by the question alone, guarded only when Deactivate asks again; accessibility settings that Android opens in a package of their own guarded whole and never read, also after a restart; accessibility settings inside Android's Settings, or inside a maker's Settings under its own package, said as they are (`IN_SETTINGS`) and nothing guarded; Settings' own answer refused, so no package guarded whole but the fixed list's; Android naming nothing, said as it is; the answer kept for the process, asked again when apps change, a refusal keeping the last answer, logged once and asked again a minute later, and a process Android refuses from the start still guarding Android's own names; an activity that also opens Settings' first page never taken for the device admin's page; the fixed lists alone reading as before; the Galaxy's sequence (LiMo's setup screen still last in usage, its word gone, One UI's accessibility settings' first window 2.2 seconds before their resume) guarded at the window and throughout, by one line; the device admin's page from a notification over a game, Settings started cold, guarded at its window and past a second until it resumes; a window's guard taken back when usage shows another app after it, with or without that app's window, and a window that never resumes covering for at most five seconds; proof two's fourteen tries with One UI's accessibility settings in place of the blocked app, the late window after "Go home" raising nothing and telling nothing, and the home screen's resume written late after it guarding only as usage did; a window's guard never over LiMo's own screen while it says so, nor over a call's screen | 21 |
 | `FactsTest` | Every fact from its reading in one place; each fact's fallback, its last good reading and then its default; every reading refused at once, logged once each, and the facts back when Android answers; a refusal logged once a minute without its message or a label; the call state from the audio mode and the telephony state, against Android's own numbers, a silent ring on Android 8 to 11 with or without the Phone permission; on Android 12 and later a silent ring read with the Phone permission, and without it the telephony state never asked for and the audio mode alone the fallback, a permission granted while LiMo runs taken within five seconds, a refused reading falling back to the audio mode, logged once; usage event kinds against Android's numbers; the accessibility permission switched on, connected, starting; the permissions read again after five seconds or when told; the accessibility setting in both forms; the launchable apps sorted, LiMo left out, the dialler never counted; labels kept and forgotten; the roles asked again and kept when refused; usage that cannot be read; the Phone permission as Android grants it, each of the six reaching the engine's own field, off when it cannot be read | 15 |
 | `HouseRulesTest` | No source here reads a window's content, its text, or changes the service's settings at run time; a class name read from Android in exactly two places, the service (a window's) and `AndroidPhone` (a resumed activity's in the usage record), each on one line that first asks the guard's reach and hands the name only to `WindowPage`; the package manager's own class names taken in one place; its release copy only matches (no log, no probe), its debug copy hands each name to the probe and matches as release does; the fixed list's packages exactly Settings and the installer; a usage event holding no class, the reach holding only what the package manager named; on a phone where a child's own game claims the guard's intents (chosen to open one) and names its activities like the device admin's pages: only preinstalled answers believed, never Android's chooser, class names read for Settings, the installer and the maker's named package only, for resumed activities Settings and that package only, the game's never read nor guarded, no class in the log; no log line names a class; a caller's number is never used; package names only in the framework's list (`Roles.kt`) and the guard's (`Guarded.kt`); no dash punctuation in a comment or this README | 4 |
 
-All 62 pass, with the module's other tests (the engine and the link from
+All 67 pass, with the module's other tests (the engine and the link from
 Kotlin, host/, keep/ and dev/), in well under a second of test time each.
 
 ## The first run
@@ -674,7 +697,12 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
    not_confirmed front=<the launcher's package>`.
 2. **How long usage takes to confirm.** The cover's delay over proof two's
    25 to 226 ms. If a `not_confirmed` line ever names the app that really came
-   up, usage was later than a second, and the rechecks need stretching.
+   up, usage was later than a second, and the rechecks need stretching. Seen
+   on 21 November 2026: One UI's accessibility settings, started cold from
+   setup, logged `front window_event package=com.samsung.accessibility
+   not_confirmed front=ai.lucidloom.limo.child`, and usage showed them
+   resumed 2.2 seconds after their first window. The front still waits for
+   usage; the guard no longer does (see [The guard](#the-guard)).
 3. **The call screen on One UI.** Not yet seen: the first run's phone had
    no SIM. Dial a number from the Phone app and look for `front learned
    call_screen package=<package>` or `front call_wait ended first=<package>`
@@ -720,10 +748,15 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
    in Settings; it must be (Android switches the service off then).
 10. **Battery.** The host reads the facts once a second while the screen is
     on: about five binder calls each time. Worth a look over a day.
-11. **The guard's names on One UI.** At LiMo's start the log should say
-    `guard pages device_admin=named package=com.android.settings` and
-    `guard pages accessibility=own_package package=com.samsung.accessibility`.
-    With the debug build's probe on (dev/README.md, "The page probe"), the
+11. **The guard's names on One UI.** Seen on 21 November 2026 (One UI
+    5.1): `probe answered intent=device_admin
+    opens=com.android.settings/com.android.settings.applications.specialaccess.deviceadmin.DeviceAdminAdd
+    preinstalled`, so One UI keeps Android's own class, and `guard pages
+    accessibility=in_settings package=com.android.settings`, the page that
+    comes to the front being `com.samsung.accessibility`, guarded by its
+    fixed name. Still to note: whether the `probe answered
+    intent=accessibility handler=` lines name Samsung's package at all. With
+    the debug build's probe on (dev/README.md, "The page probe"), the
     `probe answered` lines give the package manager's answer, and walking
     the pages listed there gives each page's `probe window` and `probe
     resumed` lines. The device admin's page, reached from the list of
@@ -743,15 +776,24 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
     from this phone."); Cancel. Then App info, Uninstall: covered again only
     after the five minutes, or at once after the screen was off.
 13. **One UI's accessibility settings under the guard.** Settings,
-    Accessibility: covered (`guard now accessibility by=package
-    package=com.samsung.accessibility`). A guardian's PIN opens them.
-    Whether One UI reaches LiMo's accessibility switch by any page outside
-    that package (Settings' search, a quick settings tile, the
-    accessibility shortcut One UI offered at setup in the first run): each
-    one found is a way around the guard.
-14. **Timing.** How long after the device admin's page comes up the guard
-    is drawn (`show cover drawn ms=`), and whether a quick tap on
-    Deactivate can beat it.
+    Accessibility, and setup's Accessibility step: covered at their first
+    window (`guard now accessibility by=window
+    package=com.samsung.accessibility`, then no `guard now none` when usage
+    shows them; or `by=package` when usage was first). Seen on 21 November
+    2026 before this rule: covered, but about two seconds late. A
+    guardian's PIN opens them. Whether One UI reaches LiMo's accessibility
+    switch by any page outside that package (Settings' search, a quick
+    settings tile, the accessibility shortcut One UI offered at setup in the
+    first run): each one found is a way around the guard.
+14. **Timing.** How long after a guarded page comes up the guard is drawn
+    (`show cover drawn ms=`), and whether a quick tap can beat it. Seen on
+    21 November 2026: App info's Uninstall to the device admin's page,
+    drawn in 326 ms. For One UI's accessibility settings, `guard now` to
+    `show cover now` took 0.38 s: the host's own part (its look, the
+    engine, the state kept) was about 33 ms, since the cover's clock starts
+    when show/ takes the order (06.506 against `guard now` at 06.473); the
+    rest is show/ building and adding its window on the main thread, then
+    its first frame (show/README.md).
 15. **The same page after the screen off.** With the device admin's page,
     and then One UI's accessibility settings, open under the PIN: the
     screen off, the lock screen, the screen on, unlocked. The guard must be
@@ -777,6 +819,13 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
     the class of Settings' resumed activities at all (the `probe resumed`
     lines name a class, not `none`); if it gives none, the guard has the
     window's class and the event only.
+19. **A late window raises nothing.** Proof two's test (1) with One UI's
+    accessibility settings in place of the blocked app: open them (covered),
+    the PIN, then Home, fourteen times. The home screen must never be
+    covered: no `guard now accessibility` line after `guard now none` until
+    the settings are opened again. And a floating window of that package,
+    if One UI has one (an accessibility menu), over a game: covered for at
+    most five seconds.
 
 ## Left open
 
@@ -863,6 +912,17 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
   tap on Uninstall's one button can come first is for a phone to show
   ([What only a phone can prove](#what-only-a-phone-can-prove), 14); with
   its window event, as is usual, it is covered at once.
+- **What a window raise can cover that it should not.** A window of a
+  package guarded whole that is not a page (a floating menu, if One UI's
+  accessibility package draws one over a game) covers what is under it for
+  up to five seconds, each time it tells. A late window that comes more
+  than five seconds after its app left (none seen so far; proof two's came
+  at once) covers the home screen, or whatever came up, for up to five
+  seconds; never the dialler, the emergency dialler or LiMo's own screens
+  while they say they are shown, since those set every raise aside. And an app that leaves a
+  guarded package and opens it again within five seconds waits for usage
+  to confirm it, as before this rule: a few hundred milliseconds when it is
+  still running.
 - **Usage access switched off** leaves the guard the windows' class names
   and the event: a page that sends no window event, or one already in front
   when a new process starts, is then not seen.

@@ -312,7 +312,13 @@ LiMo`:
    storage greyed out, as Android's own Settings does, or not; and
    Uninstall from App info going to the device admin's page, covered as it
    comes up (`guard now device_admin`), with no Deactivate and no `keep
-   admin_off asked` on that way.
+   admin_off asked` on that way. Seen on 21 November 2026 (the Galaxy, One
+   UI 5.1): Force stop greyed out; App info's Uninstall opened the device
+   admin's page under Android's own class, guarded `by=page` and drawn in
+   326 ms; the right PIN opened it, and the page then showed One UI's
+   "Deactivate and uninstall". Android would not start that page from the
+   shell as a new task (it closed at once), so only a person's taps reach
+   it. Still to note: Clear storage.
 
 ## Left open
 

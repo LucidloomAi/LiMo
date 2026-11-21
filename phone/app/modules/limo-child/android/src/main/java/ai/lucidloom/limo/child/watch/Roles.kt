@@ -47,6 +47,21 @@ internal object WatchTimes {
   /** A window event usage has not confirmed by this age is dropped: a late event, an overlay, a dialog. */
   const val CONFIRM_GRACE_MS = 1_000L
 
+  /**
+   * A guard raised by a window event (a package guarded whole, or a page by
+   * its class) holds this long at most while usage shows nothing newer than
+   * that window: long enough for a settings app started cold (2.2 seconds on
+   * the Galaxy, 21 November 2026) to resume.
+   */
+  const val GUARD_WINDOW_HOLD_MS = 5_000L
+
+  /**
+   * A window event of a package whose activity usage shows paused or stopped
+   * this little before it, with another app in front since, is a late one of
+   * an app that already left: it raises no guard.
+   */
+  const val GUARD_LATE_WINDOW_MS = 5_000L
+
   /** [WatchCore.look] reads usage again when the last read is older than this. */
   const val USAGE_FRESH_MS = 500L
 

@@ -120,6 +120,15 @@ internal class UsageTrack(
   fun visible(stopsReported: Boolean): Set<String> =
     latest.filter { (_, seen) -> seen.kind == UsageKind.RESUMED || (stopsReported && seen.kind == UsageKind.PAUSED) }.keys
 
+  /**
+   * When [packageName]'s activity last paused or stopped, when that is the
+   * latest the record holds of it (it has not resumed since); null when it
+   * resumed last, or nothing of it was seen. The guard tells a late window
+   * event of an app that already left by it.
+   */
+  fun leftAtWallMs(packageName: String): Long? =
+    latest[packageName]?.takeIf { it.kind == UsageKind.PAUSED || it.kind == UsageKind.STOPPED }?.atWallMs
+
   /** Forgets the record: the next [window] reads it again from [lookbackMs] back. */
   fun forget() {
     front = null

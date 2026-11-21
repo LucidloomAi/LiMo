@@ -185,11 +185,15 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
   fun windowEvent(packageName: String?, page: GuardedPage? = null): Boolean {
     val now = elapsedNow()
     refreshRoles(now)
+    refreshReach(now)
     val wallMs = remembered(wall, now) { phone.wallMs() }
     // A page held by the guard may have been left: usage says at once.
     val held = guard.holdsFor(packageName)
-    guard.windowEvent(packageName, page, wallMs, now)
-    if (front.proposal(packageName, now, roles) || page != null || held) {
+    // A package guarded whole raises the guard at its window, by its name
+    // alone; usage, read at once, may take it back (a late window).
+    val whole = reach.wholePackage(packageName)
+    guard.windowEvent(packageName, page, whole, wallMs, now)
+    if (front.proposal(packageName, now, roles) || page != null || whole != null || held) {
       callNow(now)
       readUsage(now, wallMs)
     }
@@ -340,6 +344,8 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
       putDown = putDown,
       nowMs = nowMs,
       reach = reach,
+      limoShown = front.limoShown,
+      leftAtWallMs = front.track::leftAtWallMs,
     )
   }
 
