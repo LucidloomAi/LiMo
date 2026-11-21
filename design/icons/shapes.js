@@ -183,6 +183,19 @@
         ['dot', 'rect', { x: 20.2, y: 37.5, width: 7.6, height: 2.6, rx: 1.3 }],
       ],
     },
+    // A guardian's own phone: the phone, with the guardian's shield at its
+    // foot, parted from it by a gap in the body's colour.
+    guardianphone: {
+      clay: 'ink', use: 'A guardian’s own phone',
+      shapes: [
+        ['body', 'rect', { x: 6, y: 4, width: 23, height: 40, rx: 7 }],
+        ['screen', 'rect', { x: 9.5, y: 8.2, width: 16, height: 26.4, rx: 3.4 }],
+        ['dot', 'rect', { x: 13.7, y: 37.5, width: 7.6, height: 2.6, rx: 1.3 }],
+        ['gap', 'path', { d: 'M35 23.6 C37.5 25.5 40.3 26.4 43.2 26.5 a1.2 1.2 0 0 1 1.2 1.2 V32.6 C44.4 38 40.8 42 35 44.2 C29.2 42 25.6 38 25.6 32.6 V27.7 a1.2 1.2 0 0 1 1.2 -1.2 C29.7 26.4 32.5 25.5 35 23.6 Z', 'stroke-width': 4 }],
+        ['body', 'path', { d: 'M35 23.6 C37.5 25.5 40.3 26.4 43.2 26.5 a1.2 1.2 0 0 1 1.2 1.2 V32.6 C44.4 38 40.8 42 35 44.2 C29.2 42 25.6 38 25.6 32.6 V27.7 a1.2 1.2 0 0 1 1.2 -1.2 C29.7 26.4 32.5 25.5 35 23.6 Z' }],
+        ['line', 'path', { d: 'M30.9 33.4 l2.8 2.8 l5.2 -5.7', 'stroke-width': 2.8 }],
+      ],
+    },
     // A handset, drawn upright (the ear at the top, the mouth at the bottom,
     // both facing right, the back bowed) and turned as handsets are drawn.
     // Not a phone: the phone permission is about calls, so it has its own
