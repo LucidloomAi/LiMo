@@ -113,6 +113,8 @@ export type FamilyState = {
   /** Locked once the first start is finished. */
   readonly unlinkedAccounts: 'free' | 'locked';
   readonly signedIn: boolean;
+  /** Until when LiMo may be removed from this PC, after a guardian allowed it; null when it may not. */
+  readonly removalAllowedUntil: number | null;
 };
 
 export type ChildView = { readonly childId: string; readonly name: string; readonly ageBand: AgeBand };
@@ -123,6 +125,13 @@ export type GuardianMode =
   | { readonly mode: 'lock'; readonly until: number | null }
   | { readonly mode: 'unlock'; readonly until: number };
 
+/** What a phone needs from Android that is switched off, by the core's names (`PhonePermission`), in setup order. */
+export type PhonePermission = 'notifications' | 'phone' | 'usage_access' | 'accessibility' | 'battery' | 'protection';
+export const PHONE_PERMISSIONS: readonly PhonePermission[] = ['notifications', 'phone', 'usage_access', 'accessibility', 'battery', 'protection'];
+
+/** One thing a device needs a guardian for: a permission switched off, and the engine's sentence for it. */
+export type DeviceNeed = { readonly permission: PhonePermission; readonly words: string };
+
 export type DeviceToday = {
   readonly deviceId: string;
   readonly name: string;
@@ -131,11 +140,36 @@ export type DeviceToday = {
   readonly lastHeardAt: number | null;
   readonly inUse: boolean;
   readonly usedSecs: number;
+  /** How far its clock was from this PC's at its newest report (ahead is positive), when far; null when close enough. */
+  readonly clockOffBySecs: number | null;
+  /**
+   * The steps switched off now, in setup order, each with the engine's
+   * sentence: null while none is off (and for the PC's own device).
+   */
+  readonly needs: readonly DeviceNeed[] | null;
+  /** How a phone stands, from its notes: null for the PC's own device, or a phone whose notes cannot be read. */
+  readonly standing: Standing | null;
+};
+
+/** One of a phone's six setup steps: on, off, or null while no note said; and since when, by the phone's clock. */
+export type PhoneStep = { readonly permission: PhonePermission; readonly on: boolean | null; readonly since: number | null };
+
+/** How a phone stands (`standing`, with `setup_finished` and `usb_debugging_on`): what Devices shows of it. */
+export type Standing = {
+  /** The six, in setup order. */
+  readonly steps: readonly PhoneStep[];
+  /** Its protection, or null while no note said. */
+  readonly protection: 'off' | 'base' | 'strict' | null;
+  readonly setupFinished: boolean;
+  readonly usbDebuggingOn: boolean;
 };
 
 export type ChildToday = {
   readonly childId: string;
   readonly name: string;
+  readonly ageBand: AgeBand;
+  /** Today's home day number, by the child's rules. */
+  readonly day: number;
   readonly budgetSecs: number | null;
   readonly extraSecs: number;
   readonly usedSecs: number;
@@ -173,6 +207,32 @@ export type AccountRow = {
   readonly link: AccountLink;
 };
 
+/** A device paired with a child, as the family's file keeps it (`devices`, `device`, `rename_device`). */
+export type DeviceInfo = {
+  readonly deviceId: string;
+  readonly childId: string;
+  readonly name: string;
+  readonly kind: 'on_master' | 'portable';
+  readonly platform: string;
+  readonly pairedAt: number;
+  readonly lastHeardAt: number | null;
+};
+
+/** Time used on one device over some days, app by app (`usage`). An app the device could not name has an empty id. */
+export type DeviceUsage = {
+  readonly deviceId: string;
+  readonly name: string;
+  readonly removed: boolean;
+  readonly secs: number;
+  readonly apps: readonly { readonly appId: string; readonly secs: number }[];
+};
+
+/** The PC's settings a guardian can change. */
+export type PcSettings = { readonly idleMinutes: number; readonly unlinkedAccounts: 'free' | 'locked' };
+
+/** A one time code, as the door makes it: the code as shown, in two groups of four. */
+export type OneTimeCode = { readonly shown: string; readonly minutes: number; readonly deviceId: string };
+
 /** A guardian's answer to a request, as the door takes it. */
 export type RequestReply = { readonly grant: { readonly minutes: number } } | 'refuse';
 
@@ -206,6 +266,18 @@ export type DoorRequests = {
   lock_now: { args: { child: string; until?: number }; answer: GuardianMode };
   unlock_until: { args: { child: string; until: number }; answer: GuardianMode };
   lift: { args: { child: string }; answer: GuardianMode };
+  usage: { args: { child: string; from_day: number; to_day: number }; answer: readonly DeviceUsage[] };
+  remove_child: { args: { child: string; password: string }; answer: Nothing };
+  devices: { args: { child: string }; answer: readonly DeviceInfo[] };
+  rename_device: { args: { device: string; name: string }; answer: DeviceInfo };
+  remove_device: { args: { device: string; password: string }; answer: Nothing };
+  pc_settings: { args: None; answer: PcSettings };
+  set_idle_minutes: { args: { minutes: number }; answer: PcSettings };
+  set_unlinked_accounts: { args: { unlinked: 'free' | 'locked' }; answer: PcSettings };
+  make_code: { args: { device: string; minutes: number }; answer: OneTimeCode };
+  change_password: { args: { old: string; new: string }; answer: Nothing };
+  allow_removal: { args: { password: string }; answer: { readonly until: number } };
+  delete_family: { args: { password: string }; answer: Nothing };
 };
 
 export type DoorName = keyof DoorRequests;
@@ -325,6 +397,7 @@ export function readFamilyState(x: unknown): FamilyState {
     children: count(o, 'children', 'family_state'),
     unlinkedAccounts: oneOf(o, 'unlinked_accounts', ['free', 'locked'] as const, 'family_state'),
     signedIn: bool(o, 'signed_in', 'family_state'),
+    removalAllowedUntil: maybeWhole(o, 'removal_allowed_until', 'family_state'),
   };
 }
 
@@ -398,6 +471,27 @@ export function readGuardianSetting(x: unknown): GuardianMode {
   return readGuardianMode(obj(x, 'the setting').mode, 'the setting.mode');
 }
 
+/**
+ * What a device needs a guardian for, in the shape the phone's engine gives
+ * the child's own Today (`guardian_needed`): `{ "off": [ { "permission",
+ * "words" } ] }`. The door sends null while none is off, and for the PC's
+ * own device: no mark. A permission these screens do not know is left out
+ * with its sentence; the rest are put in setup order, each once. What is on
+ * is read from `standing`, not from here.
+ */
+export function readDeviceNeeds(x: unknown, what = 'guardian_needed'): DeviceNeed[] | null {
+  if (x === undefined || x === null) return null;
+  const o = obj(x, what);
+  const off = list(o.off, `${what}.off`).map((n, i) => {
+    const one = obj(n, `${what}.off[${i}]`);
+    return { permission: str(one, 'permission', `${what}.off[${i}]`), words: words(one, 'words', `${what}.off[${i}]`) };
+  });
+  return PHONE_PERMISSIONS.flatMap((p) => {
+    const found = off.find((n) => n.permission === p);
+    return found ? [{ permission: p, words: found.words }] : [];
+  });
+}
+
 function readDevice(x: unknown, what: string): DeviceToday {
   const o = obj(x, what);
   return {
@@ -407,7 +501,92 @@ function readDevice(x: unknown, what: string): DeviceToday {
     lastHeardAt: maybeWhole(o, 'last_heard_at', what),
     inUse: bool(o, 'in_use', what),
     usedSecs: count(o, 'used_secs', what),
+    clockOffBySecs: maybeWhole(o, 'clock_off_by_secs', what),
+    needs: readDeviceNeeds(o.guardian_needed, `${what}.guardian_needed`),
+    standing: readStanding(o, what),
   };
+}
+
+/**
+ * How a phone stands, from a device's `standing`, `setup_finished` and
+ * `usb_debugging_on` (LiMo for Windows' README, "What a device needs a
+ * guardian for"). All null, or left out, is null: nothing known. Of the
+ * standing's many fields only what Devices shows is read; a step these
+ * screens do not know is left out, and the six come back in setup order.
+ */
+export function readStanding(o: Obj, what = 'the device'): Standing | null {
+  if (o.standing === undefined || o.standing === null) return null;
+  const s = obj(o.standing, `${what}.standing`);
+  const steps = list(s.steps, `${what}.standing.steps`).map((x, i) => {
+    const w = `${what}.standing.steps[${i}]`;
+    const step = obj(x, w);
+    if (step.on !== null && typeof step.on !== 'boolean') throw new SeamError(`${w}.on is not true, false or null`);
+    return { permission: str(step, 'permission', w), on: step.on as boolean | null, since: maybeWhole(step, 'since', w) };
+  });
+  const protection = s.protection === null || s.protection === undefined ? null : oneOf(obj(s.protection, `${what}.standing.protection`), 'level', ['off', 'base', 'strict'] as const, `${what}.standing.protection`);
+  return {
+    steps: PHONE_PERMISSIONS.map((p) => {
+      const found = steps.find((x) => x.permission === p);
+      return { permission: p, on: found ? found.on : null, since: found ? found.since : null };
+    }),
+    protection,
+    setupFinished: bool(s, 'setup_finished', `${what}.standing`),
+    usbDebuggingOn: o.usb_debugging_on === true,
+  };
+}
+
+function readDeviceInfo(x: unknown, what = 'the device'): DeviceInfo {
+  const o = obj(x, what);
+  return {
+    deviceId: words(o, 'device_id', what),
+    childId: words(o, 'child_id', what),
+    name: str(o, 'name', what),
+    kind: oneOf(o, 'kind', ['on_master', 'portable'] as const, what),
+    platform: str(o, 'platform', what),
+    pairedAt: whole(o.paired_at, `${what}.paired_at`),
+    lastHeardAt: maybeWhole(o, 'last_heard_at', what),
+  };
+}
+
+export function readDevices(x: unknown): DeviceInfo[] {
+  return list(x, 'devices').map((d, i) => readDeviceInfo(d, `devices[${i}]`));
+}
+
+/** A child's usage: each device, with each app's time. */
+export function readUsage(x: unknown): DeviceUsage[] {
+  const o = obj(x, 'usage');
+  return list(o.devices, 'usage.devices').map((d, i) => {
+    const what = `usage.devices[${i}]`;
+    const od = obj(d, what);
+    return {
+      deviceId: words(od, 'device_id', what),
+      name: str(od, 'name', what),
+      removed: bool(od, 'removed', what),
+      secs: count(od, 'secs', what),
+      apps: list(od.apps, `${what}.apps`).map((a, j) => {
+        const oa = obj(a, `${what}.apps[${j}]`);
+        return { appId: str(oa, 'app_id', `${what}.apps[${j}]`), secs: count(oa, 'secs', `${what}.apps[${j}]`) };
+      }),
+    };
+  });
+}
+
+export function readPcSettings(x: unknown): PcSettings {
+  const o = obj(x, 'the PC’s settings');
+  return {
+    idleMinutes: count(o, 'idle_minutes', 'the PC’s settings'),
+    unlinkedAccounts: oneOf(o, 'unlinked_accounts', ['free', 'locked'] as const, 'the PC’s settings'),
+  };
+}
+
+export function readCode(x: unknown): OneTimeCode {
+  const o = obj(x, 'the code');
+  return { shown: words(o, 'shown', 'the code'), minutes: count(o, 'minutes', 'the code'), deviceId: words(o, 'device_id', 'the code') };
+}
+
+function readUntil(x: unknown): { until: number } {
+  const o = obj(x, 'the answer');
+  return { until: whole(o.until, 'the answer.until') };
 }
 
 export function readFamilyToday(x: unknown): ChildToday[] {
@@ -417,6 +596,8 @@ export function readFamilyToday(x: unknown): ChildToday[] {
     return {
       childId: words(o, 'child_id', what),
       name: words(o, 'name', what),
+      ageBand: oneOf(o, 'age_band', AGE_BANDS, what),
+      day: whole(o.day, `${what}.day`),
       budgetSecs: maybeCount(o, 'budget_secs', what),
       extraSecs: count(o, 'extra_secs', what),
       usedSecs: count(o, 'used_secs', what),
@@ -510,6 +691,18 @@ const READ: { [N in DoorName]: (x: unknown) => DoorRequests[N]['answer'] } = {
   lock_now: readGuardianSetting,
   unlock_until: readGuardianSetting,
   lift: readGuardianSetting,
+  usage: readUsage,
+  remove_child: readNothing,
+  devices: readDevices,
+  rename_device: (x) => readDeviceInfo(x),
+  remove_device: readNothing,
+  pc_settings: readPcSettings,
+  set_idle_minutes: readPcSettings,
+  set_unlinked_accounts: readPcSettings,
+  make_code: readCode,
+  change_password: readNothing,
+  allow_removal: readUntil,
+  delete_family: readNothing,
 };
 
 /** Said when an answer of the door cannot be read: something the screens were not built for. */

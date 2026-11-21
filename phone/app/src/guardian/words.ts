@@ -9,7 +9,8 @@
 // The words name the child and never say "her" or "him": the screens know a
 // name, not how a child is spoken of.
 
-import type { AgeBand, Weekday } from '../guardianSeam';
+import type { AgeBand, PhonePermission, Weekday } from '../guardianSeam';
+import { andList } from './time';
 
 /** A name and a typographic apostrophe s: the child’s, by name. */
 export const possessive = (name: string) => `${name}’s`;
@@ -175,7 +176,239 @@ export const today = {
   notHeard: 'Not heard yet',
   notAdded: (name: string) => `${possessive(name)} phone is not added yet.`,
   addPhone: (name: string) => `Add ${possessive(name)} phone`,
+  needsGuardian: 'Needs a guardian',
+  seeWhatToDo: 'See what to do',
+  /** Under the first thing switched off, when there are more: how many more. */
+  more: (count: number) => `And ${count} more`,
+};
+
+/** The mark under a device that needs a guardian, by what is switched off on it: short, in coral capitals. */
+export const NEED_MARK: Readonly<Record<PhonePermission, string>> = {
+  notifications: 'Notifications are off',
+  phone: 'Phone access is off',
+  usage_access: 'Usage access is off',
+  accessibility: 'Accessibility is off',
+  battery: 'Battery is off',
+  protection: 'Protection is off',
 };
 
 /** The tabs and the screens not drawn yet. */
 export const coming = 'This part of LiMo’s settings is still being drawn, and comes in a later version.';
+
+/** How many, in words, up to ten; past ten the number itself. */
+const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+export const countWords = (n: number) => COUNT[n] ?? String(n);
+
+// ---------------------------------------------------------------------------
+// The second sheet
+
+export const sheet = {
+  back: 'Back',
+  change: 'Change',
+};
+
+export const rules = {
+  timeADay: 'Time a day',
+  bedtime: 'Bedtime',
+  away: 'Away from home',
+  /** How much of the day a phone away from home may use, by the share. */
+  awayLine: (name: string, percent: number) => {
+    const share =
+      percent === 0
+        ? 'none of the day'
+        : percent === 25
+          ? 'up to a quarter of the day'
+          : percent === 50
+            ? 'up to half of the day'
+            : percent === 100
+              ? 'all of the day'
+              : `up to ${percent} percent of the day`;
+    return `When ${possessive(name)} phone cannot reach this PC, it may use ${share}.`;
+  },
+  awayChoices: [
+    [0, 'None'],
+    [25, 'A quarter'],
+    [50, 'Half'],
+    [100, 'All'],
+  ] as const,
+  blocked: 'Blocked',
+  allowed: 'Always allowed',
+  allowedLine: (name: string) => `They never use up ${possessive(name)} time, and stay open when ${possessive(name)} devices are locked.`,
+  neverBlocked: 'The phone call app and emergency calls are never blocked.',
+  /** The phone call app, in the list of always allowed apps on a child with a phone. */
+  phoneApp: 'Phone',
+  neverBlockedMark: 'Never blocked',
+  offer: (name: string) => `Add from what ${name} used today`,
+  addApp: 'Add an app',
+  addAppComing: 'Choosing from all of a device’s apps comes in the next version of LiMo’s settings. Until then, add an app from what was used today.',
+  takeOff: 'Take it off',
+  use: 'Today’s use',
+  onThisPc: 'On this PC',
+  onDevice: (device: string) => `On ${device}`,
+  more: (name: string) => `More for ${name}`,
+  dayStarts: 'A new day starts',
+  atMidnight: 'At midnight',
+  at: (time: string) => `At ${time}`,
+  nameAndAge: 'Name and age',
+  remove: (name: string) => `Remove ${name}`,
+  asksAgain: 'Asks for the password again.',
+  undo: 'Undo changes',
+  save: 'Save',
+  saveFirst: 'Save or undo these changes first.',
+  notSaved: (count: number) => `Not saved. ${countWords(count)} ${count === 1 ? 'thing' : 'things'} to fix.`,
+  saved: (name: string) => `Saved. ${possessive(name)} devices have the new rules within a minute.`,
+};
+
+export const devices = {
+  rename: 'Rename',
+  itsName: 'Its name',
+  saveName: 'Save the name',
+  child: 'Child',
+  paired: 'Paired',
+  lastHeard: 'Last heard',
+  justNow: 'Just now',
+  now: 'Now',
+  inUse: 'In use',
+  notInUse: 'Not in use',
+  needs: 'What LiMo needs on it',
+  six: {
+    notifications: 'Notifications',
+    phone: 'Phone',
+    usage_access: 'Usage access',
+    accessibility: 'Accessibility',
+    battery: 'Battery',
+    protection: 'Protection',
+  } as const,
+  on: 'On',
+  notOn: 'Not on',
+  /** A step no note has said yet, as Add a phone draws it. */
+  notYet: 'Not yet',
+  protection: 'Protection',
+  protectionLevel: { off: 'Off', base: 'On', strict: 'On, strict' } as const,
+  usbTitle: 'USB debugging is still on.',
+  usbText: 'While it is on, any PC with a cable could stop LiMo on this phone.',
+  clockAhead: (span: string) => `Its clock is ${span} ahead of this PC’s.`,
+  clockBehind: (span: string) => `Its clock is ${span} behind this PC’s.`,
+  clockLine: 'LiMo keeps its own count, so no time is gained.',
+  removePhone: 'Remove this phone',
+  removeLine: 'Asks for the password again. The phone is told at its next contact, lets go of its limits, and says LiMo can be removed.',
+  addPhone: 'Add a phone',
+  thisPc: 'This PC',
+  accounts: 'Windows accounts',
+  guardians: 'A guardian’s, no limit',
+  notSaid: 'Not said yet',
+  /** The choices for whose an account is, under its row once Change is tapped. */
+  guardiansChoice: 'A guardian’s',
+  notSaidChoice: 'Not said',
+  pause: 'Pause the count',
+  pauseLine: 'After this long with no keyboard or mouse input, unless something plays: in full screen, with sound, or keeping the screen awake.',
+  unlinked: 'An account LiMo was not told about',
+  locked: 'Locked',
+  free: 'Used freely',
+  lockedLine: 'It stays locked until a guardian says whose it is. An administrator’s account is never locked.',
+  freeLine: 'It is used freely, and a guardian is told once a day. An administrator’s account is never locked.',
+  /** Add a phone is the next sheet's. */
+  addComing: 'Adding a phone over the cable comes in the next version of LiMo’s settings.',
+};
+
+export const code = {
+  heading: 'A one time code',
+  line: 'Time for a child whose device is out of reach or locked, read out over a call.',
+  for: 'For',
+  on: 'On',
+  howMuch: 'How much',
+  make: 'Make a code',
+  later: 'A guardian who goes out can note a code now and read it out later today.',
+  made: 'The code',
+  what: (device: string, span: string) => `${device} · ${span}`,
+  read: (name: string, device: string) => `Read it to ${name}. It works once, today only, on ${device}, when its time is used up.`,
+  thisPcInSentence: 'this PC',
+  another: 'Make another',
+  done: 'Done',
+  howMuchChoices: [
+    [15, '15 min'],
+    [30, '30 min'],
+    [60, '1 hour'],
+  ] as const,
+};
+
+export const more = {
+  rows: [
+    { key: 'code', icon: 'code', title: 'A one time code', text: 'Time for a child out of reach, read out over a call.' },
+    { key: 'secrets', icon: 'key', title: 'Password and PIN', text: 'Change either one.' },
+    { key: 'about', icon: 'info', title: 'About LiMo', text: 'Its version, its licences, and removing it.' },
+  ] as const,
+  back: 'More',
+};
+
+export const secrets = {
+  password: 'The guardian password',
+  now: 'The one you use now',
+  newOne: 'A new one',
+  again: 'The same again',
+  changePassword: 'Change the password',
+  pin: 'The guardian PIN',
+  choose: 'Choose one your child does not know.',
+  newPin: 'A new PIN',
+  changePin: 'Change the PIN',
+  passwordChanged: 'The password is changed.',
+  pinChanged: 'The PIN is changed.',
+};
+
+export const about = {
+  heading: 'About LiMo',
+  forWindows: 'For Windows',
+  carries: 'This PC carries LiMo for phones, and puts it on a phone over the cable.',
+  licences: 'Licences',
+  limo: 'LiMo',
+  licence: 'Apache License 2.0',
+  others: 'Others',
+  notices: 'Third party notices',
+  remove: 'Remove',
+  removeLimo: 'Remove LiMo from this PC',
+  removeLimoLine: 'Asks for the password, then opens Windows’ own uninstaller.',
+  deleteFamily: 'Delete the family',
+  asksAgain: 'Asks for the password again.',
+  read: 'Read',
+  readComing: 'Reading the licences here comes in the next version of LiMo’s settings.',
+  moreInfo: 'More info on',
+  address: 'https://lucidloom.ai',
+};
+
+/** Asking for the password again before something that cannot be undone: deleting the family is the drawn pattern for all four. */
+export const confirm = {
+  password: 'Guardian password',
+  deleteFamily: {
+    heading: 'Delete the family?',
+    line: (children: readonly string[]) =>
+      children.length
+        ? `Everything LiMo keeps on this PC is deleted: ${andList(children)}, their rules, their time and their devices. It cannot be undone.`
+        : 'Everything LiMo keeps on this PC is deleted. It cannot be undone.',
+    phones: (phones: readonly string[]) =>
+      phones.length === 0
+        ? ''
+        : phones.length > 1
+          ? `${andList(phones)} are told at their next contact, let go of their limits, and say LiMo can be removed. `
+          : `${phones[0]} is told at its next contact, lets go of its limits, and says LiMo can be removed. `,
+    stays: 'LiMo stays on this PC and starts again from the first step.',
+    button: 'Delete the family',
+  },
+  removeChild: {
+    heading: (name: string) => `Remove ${name}?`,
+    line: (name: string) => `Everything LiMo keeps for ${name} is deleted: the rules, the time and the devices. It cannot be undone.`,
+    button: (name: string) => `Remove ${name}`,
+  },
+  removePhone: {
+    heading: (phone: string) => `Remove ${phone}?`,
+    line: 'It is told at its next contact, lets go of its limits, and says LiMo can be removed.',
+    button: 'Remove this phone',
+  },
+  removeLimo: {
+    heading: 'Remove LiMo from this PC?',
+    line: 'The password allows LiMo to be removed for a few minutes. Then remove it in Windows’ own list of apps.',
+    button: 'Allow removing LiMo',
+    allowed: (time: string) => `LiMo can be removed until ${time}. Remove it in Windows Settings, Apps, Installed apps.`,
+  },
+  /** After too many wrong tries. */
+  wait: (time: string) => `Too many wrong tries. Try again at ${time}.`,
+};

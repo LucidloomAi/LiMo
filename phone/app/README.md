@@ -29,12 +29,16 @@ foreground service that shows the time left, starts it again after a
 restart, wakes it with an alarm, and installs the covers when it starts;
 the seam (`seam/`) answers the screens' requests and opens Android's own
 screens for setup; and a debug build can be paired with a test family over
-the USB cable (`dev/`). Each folder has a README. `link/` and `strict/`
-hold nothing yet.
+the USB cable (`dev/`); the link (`link/`) pairs the phone with the
+family's PC through the cable door and keeps a session with it, through the
+cable or over the home Wi-Fi. Each folder has a README. `strict/` holds
+nothing yet.
 
-**What it is not.** It has no link to the master PC yet, so a phone runs on
-a test family put on it over the cable (`../devtool`). It holds no
-permission to open a network socket. It has been built and its files
+**What it is not.** It talks to no one but the family's own PC: the child
+form's link reaches only the PC, through the cable or on the home network,
+and the guardian form holds no permission to open a network socket (see
+[Nothing leaves the phone](#nothing-leaves-the-phone)). A debug build can
+still run on a test family put on it over the cable (`../devtool`). It has been built and its files
 inspected on the development PC only: nothing here has run on a phone or an
 emulator.
 
@@ -51,6 +55,7 @@ emulator.
 - [The design in the app](#the-design-in-the-app)
 - [The host seam](#the-host-seam)
 - [The child form's screens](#the-child-forms-screens)
+- [The guardian's screens](#the-guardians-screens)
 - [The child's seam](#the-childs-seam)
 - [The preview](#the-preview)
 - [Tests](#tests)
@@ -114,9 +119,9 @@ debug build, `out/limo-child-debug.apk`, beside the release files. It is
 for the development tool on the PC only: it is debuggable, so the tool can
 put a test family's pairing into the app's files with `run-as` (which works
 on nothing else), and it holds the development receiver (`dev/`). A debug
-build has no `INTERNET` either, so it could not load JavaScript from a
-development server; `scripts/debug-bundle.gradle` makes it carry its
-JavaScript inside, as a release build does. Same package name as the
+build carries its JavaScript inside, as a release build does
+(`scripts/debug-bundle.gradle`): it needs no development server, though the
+child form's debug build now holds `INTERNET` for the link. Same package name as the
 release build, but always signed with Android's debug key, so it replaces a
 release build only when that one carries the debug key too (see
 [Debug and release builds on one phone](#debug-and-release-builds-on-one-phone)).
@@ -357,8 +362,15 @@ src/
   form.ts                 which form this build is (from the app's embedded config)
   host.ts                 THE seam: host.request(name, args), childHost and guardianHost, see below
   childSeam.ts            the child's part of the seam, as plain data, and its readers
-  guardianSeam.ts         the guardian's part of the seam, and the reader of the door's answers
-  guardian/               the guardian's screens: SignIn.tsx (G0) and its words
+  guardianSeam.ts         the guardian's part of the seam: the door's requests by name, typed, and a reader for each answer
+  guardian/               the guardian's screens (see The guardian's screens)
+    GuardianApp.tsx       which screen shows: the first start, sign in, Today
+    SignIn.tsx            C0 to C0d
+    FirstStart.tsx        F1 to F8
+    Today.tsx             T1 to T3, and the tabs not drawn yet
+    time.ts               every span of time and time of day, in the engine's words
+    words.ts              the screens' own words
+    parts.tsx, Page.tsx, GuardianTabs.tsx, text.ts, clock.ts   the parts, arranged by the width they get
   console/                the console's page: ConsoleApp.tsx, the page's key guard, the self check's driver
   child/                  the child form's screens
     ChildApp.tsx          which screen shows, and what each tap asks of the host
@@ -373,6 +385,7 @@ src/
     parts.tsx             card, button, label, stamp, tile, divider, top row, dots, maker
     text.tsx              the type styles, measured from the drawings
   mock/childMock.ts       a made up phone in every state: the preview and the tests only
+  mock/guardianMock.ts    a made up family behind a made up door, in the door's own shapes: the preview and the tests only
   preview/                the preview's page (App.web.tsx): every screen in every state
   theme/                  Paper and Ink for React Native
     index.ts              colours, radius, border, space, the hard shadow
@@ -384,6 +397,7 @@ src/
   generated/              written by scripts/make-design.mjs, git ignored
 tests/                    the screens' tests (jest)
   seam-answers/           the child module's real answers, written by its JVM tests, read by seamContract.test.ts
+  console-answers/        the console door's real answers, written by LiMo for Windows' tests, read by guardianContract.test.ts
 jest.config.js
 modules/limo-child/       the child module (a local Expo module)
   expo-module.config.json, index.ts
@@ -433,7 +447,7 @@ clash with the app's.
 | `dev/` (debug only) | `DevReceiver` | receiver in `src/debug`, exported: `ai.lucidloom.limo.child.dev.PAIR`, `ai.lucidloom.limo.child.dev.FORGET` | `android.permission.DUMP` (only adb and the system hold it) | a test family's pairing over the cable, and forgetting it |
 | `host/` | `LimoChildModule` | none (an Expo module) | | the child's side of the host seam; starts the keeper when the app opens |
 | `seam/` | none | none | | answers the screens' `child.*` requests and sends the `change` event: the engine's view turned into the screens' shapes, Android's screens opened for each step; tells the watch when the main activity is LiMo's own screen in front |
-| `link/` | none | none | | not built yet: the link to the master PC, to run inside `KeepService` |
+| `link/` | `CableDoor` | content provider, exported, authority `ai.lucidloom.limo.child.cable`, path `/offer` | `android.permission.DUMP` (only adb and the system hold it) | the cable door: the family's PC writes a pairing offer into it over the USB cable; then the link (its own thread, started by the host) pairs and keeps a session with the PC |
 | `strict/` | none | none | | not built yet: strict mode, whose device owner will be `keep/AdminReceiver` |
 
 The class names are part of the app: Android remembers an accessibility
@@ -519,9 +533,12 @@ What each built APK holds, as `aapt2` reads it (see [Checks](#checks)):
 | `PACKAGE_USAGE_STATS` | yes | no | usage access for `watch/`; a person grants it in Settings |
 | `READ_PHONE_STATE` | yes | no | the Phone permission (the owner, 20 Nov 2026), asked at setup: `watch/` knows that a call rings or is on, a silent ring among them, so a lock never hides a call. Never a number, never who, never how long |
 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | yes | no | lets setup show Android's own question whether LiMo may be left out of battery optimisation (`keep/Battery`); Android asks the person |
+| `INTERNET` | yes | no | `link/`: sockets to the family's PC only, through the USB cable's tunnel (the phone's own loopback) and on the home network; Android's `NsdManager`, which finds the PC's announcement, needs it too |
+| `ACCESS_NETWORK_STATE` | yes | no | `link/`: which network is Wi-Fi, so the home network's sockets go through it even when mobile data is the default network, and word when Wi-Fi comes. The network's name is never read |
 | `<package>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` | yes | yes | AndroidX's own, signature level: lets the app's receivers registered in code stay private on Android 12 and older. No other app can hold it |
 
-That is all: the guardian form holds nothing but AndroidX's private one.
+That is all: the guardian form holds nothing but AndroidX's private one,
+and opens no socket at all.
 
 Besides LiMo's own, the merged manifest of both forms has three components
 from libraries: `androidx.startup.InitializationProvider` (not exported),
@@ -543,29 +560,55 @@ of the child's can reach it by accident. `plugins/with-limo-android.js`
 removes `SYSTEM_ALERT_WINDOW` from the debug manifests too, where React
 Native's template adds it.
 
-Not declared yet, for the piece that needs them to decide: `INTERNET` and
-`ACCESS_NETWORK_STATE` (the link). Exact alarms are not needed: the host's
-alarm is an ordinary one (`keep/README.md`).
+Never declared: `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE` and
+`NEARBY_WIFI_DEVICES` (Android's `NsdManager` does the discovery, with no
+multicast of LiMo's own), and exact alarms (the host's alarm is an ordinary
+one, `keep/README.md`).
+
+The child form also has one exported component of LiMo's own beside the
+accessibility service and the device admin: the cable door,
+`link.CableDoor`, a content provider at `ai.lucidloom.limo.child.cable`,
+guarded by `DUMP`, through which the family's PC hands the phone a pairing
+offer over the USB cable (`link/README.md`).
 
 ## Nothing leaves the phone
 
-LiMo sends nothing to anyone. What in this app could contact anything, and
-what is done about it:
+LiMo sends nothing to anyone but the family's own PC. The child form talks
+to that PC, and to nothing else: through the USB cable while it is plugged
+in (the PC's console carries the phone's own loopback to the service), and
+on the home network, encrypted (the link's Noise handshakes, the PC known by
+its key), on the port the PC gave. No server is anywhere, and no address
+outside the home network is ever connected to. The guardian form opens no
+socket at all.
+
+What the phone sends the PC, and nothing more: its reports (which app was
+used and for how long, by package name, the time added on it, its requests
+for more time with the reason typed, its wrong guesses, its notes such as
+setup finished or a permission switched off), its list of apps with their
+labels, and, at pairing, its own name and Android version. What it gets
+back: the grants (its time, the rules, the PIN record, the guardian's lock
+or unlock, the answers to its requests, the use on the child's other
+devices), the child's name at pairing, and requests to report.
+
+What in this app could contact anything, and what is done about it:
 
 | What | Could | Done |
 | --- | --- | --- |
-| Any socket at all | React Native carries OkHttp for `fetch`, `XMLHttpRequest` and WebSocket; `expo` carries `expo/fetch`; `expo-file-system` can download; `expo-asset` and `expo-font` can load from a URL | Neither form holds `INTERNET`, so Android gives the app no network socket at all, whatever code asks. Nothing in the app calls any of them. |
+| The link to the family's PC | the child form's `link/`, the only code that opens a socket | Only the phone's own loopback (the cable) and IPv4 addresses of home networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), checked before every connection, never a name looked up; only the PC's port; never a server socket, never datagrams of its own. `link/README.md`, "The phone talks to the family's PC, and to nothing else" |
+| Any other socket | React Native carries OkHttp for `fetch`, `XMLHttpRequest` and WebSocket; `expo` carries `expo/fetch`; `expo-file-system` can download; `expo-asset` and `expo-font` can load from a URL | The child form holds `INTERNET` for the link, so Android would let any code open a socket; nothing in the app calls any of them, and a house rule keeps it so: `LinkHouseRulesTest` fails on a web request (`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `openURL`) in any of the app's screens, on any Kotlin of the child module outside `link/` that reaches the network, and on a web view or a web address anywhere in it. The guardian form holds no `INTERNET`, so Android gives it no network socket at all. |
 | Expo's command line tool | sends usage data from the build PC by default | `scripts/build.mjs` sets `EXPO_NO_TELEMETRY=1` |
 | Over the air updates (`expo-updates`) | checks a server for new JavaScript | not installed; `updates.enabled: false` and `checkAutomatically: NEVER` in case it ever were |
 | Android's backup | copies the app's files to the Google account, or to a new phone in a transfer | `allowBackup="false"`, and data extraction rules that exclude every file from both |
-| The development server link | debug builds of React Native fetch JavaScript from the PC | release builds carry the JavaScript inside; debug builds have no `INTERNET` either |
-| `@expo/dom-webview` (a WebView, linked by `expo`) | a WebView can load pages | nothing renders one; with no `INTERNET` it could reach nothing |
+| The development server link | debug builds of React Native fetch JavaScript from the PC | release builds carry the JavaScript inside and never ask for it; a debug build of the child form, which now holds `INTERNET`, can reach the development PC as React Native's debug builds do (the guardian form's debug build cannot) |
+| `@expo/dom-webview` (a WebView, linked by `expo`) | a WebView can load pages | nothing renders one, and the house rule above fails on any import of it or of another web view |
 | A link into the app | another app opening a screen inside LiMo | no `scheme`, no `VIEW` intent filter; the template's `<queries>` for web links is removed |
-| Crash reporting, analytics, ads | | none is installed; `AD_ID` is refused |
+| Crash reporting, analytics, ads | | none is installed; `AD_ID` is refused; the house rule above fails when `package.json` names one |
 
 `npm run inspect` checks the permissions and the intent filters in the
-built files, and that the build PC's user name and home folder appear in
-none of the APK's files.
+built files (the child form holding `INTERNET` and `ACCESS_NETWORK_STATE`
+and its cable door exported at its one authority, guarded by `DUMP`; the
+guardian form holding neither permission and no door), and that the build
+PC's user name and home folder appear in none of the APK's files.
 
 ## The design in the app
 
@@ -636,7 +679,7 @@ further place, not in the screens. JavaScript is never on the enforcement
 path: the Kotlin side calls the Rust engine itself, and on the PC the
 service alone holds the family's file.
 
-**The guardian's part** is `guardianHost` (`src/guardianSeam.ts`):
+**The guardian's part** is `guardianHost` (`src/guardianSeam.ts`): first
 `about()` and `signIn(password)`, the door's `about` and `sign_in` as LiMo
 for Windows serves them (`../../windows/README.md`, "The console's door"),
 each answered with one `DoorOutcome`: done with the family file's own
@@ -650,6 +693,28 @@ guardian form on a phone), it answers with a problem that says the
 settings open in the console on the family's PC. `console.moreInfo` asks
 the console to open LucidLoom AI's page in the PC's own browser; the
 console fixes the address.
+
+The rest of the guardian's screens ask a `GuardianDoor`, which takes any of
+the door's requests by its own name with its own arguments
+(`../../windows/src/console.rs`), and `ask(door, name, args)` reads each
+answer with the reader for that request: `family_state`, `create_family`,
+`set_pin`, `add_child`, `rename_child`, `set_age_band`, `rules` and
+`replace_rules` (the rules sent back whole, as they came), `accounts`,
+`link_account`, `unlink_account`, `finish_first_start`, `family_today`,
+`waiting_requests`, `answer_request`, `give_extra`, `lock_now`,
+`unlock_until`, `lift`, `sign_in`, `sign_out` and `about`. A reader refuses
+an answer of another shape (`SeamError`, naming the field), and `ask` then
+answers with a problem in the screens' own words; it never throws. A wrong
+password carries the wait it set, if it set one, and the rules' refusal
+carries their own problems, each with its field. In the console the door is
+`guardianHost` itself (`makeGuardianHost` in `src/guardianSeam.ts`): the app's
+host sends each request as `guardian.door`, which goes to the console's one
+command by the door's own name with its own arguments, and the console
+forwards it as it is. In the preview and the tests the door is
+`src/mock/guardianMock.ts`, which answers in the hub's own shapes, so every
+reader is used by every test; and `tests/guardianContract.test.ts` reads the
+door's real answers (`tests/console-answers/`, written by LiMo for Windows'
+own test from a real family file) through the same readers.
 
 ## The child form's screens
 
@@ -743,6 +808,96 @@ the section labels are read as such; icons and dots are skipped, except
 the introduction's "1 of 3". Each screen reads in the order it is drawn,
 with the pinned button and then the tab bar last.
 
+## The guardian's screens
+
+The guardian's screens are the approved drawings
+(`../../design/screens/console.html`): sign in, the first start and Today
+from its first sheet; Rules, Devices, the one time code and More from its
+second. They are shown in the console's window on the family's PC
+now (about 1100 by 760) and will be on a guardian's phone later (390): one
+set of screens arranged by the width they get. Under 700 wide a screen takes
+a phone's arrangement, from 700 up the console's (`src/guardian/parts.tsx`),
+where things to tap are 40 high (48 on a phone), fields and pinned buttons
+44 (48), headings 30 (28), and the forms sit in one column of 560 in the
+middle.
+
+| Screen | What | States |
+| --- | --- | --- |
+| C0 | Sign in with the guardian password | a wrong password in the door's words (C0b); after too many, the field and the button off until the time the door gave, said on the PC's clock (C0c); from a child's Windows account, the door's refusal and no field (C0d); a service that cannot be asked, in the console's words |
+| F1 | What LiMo does, and the guardian agrees | Continue switched off until the box is ticked; the window's sentence about WebView2 in the console only |
+| F2, F3 | The guardian password, then the PIN, each twice | the door makes the family with the password (and signs the window in), then sets the PIN; the two not the same, or what the door will not take, said under the fields |
+| F4 | The child: a name and an age band | Continue switched off until both are given |
+| F5, F5b | Time a day: one figure for every day, or each day on its own | a quarter hour a tap, from 0 to 24 h; sent as the child's whole rules |
+| F6 | Bedtime: every day, school nights only (Sunday to Thursday), or none; from and to | the ends chosen from a list of half hours; the rules' own sentence when they will not take it |
+| F7, F7b | Whose each Windows account of this PC is | said to the door at each tap; an administrator chosen for a child said plainly in coral; this window's own account refused in the door's words |
+| F8 | The family is set up | what was made, the phone to add, the maker's mark; Later, or Add the phone now |
+| T1 to T3 | Today | each child: the time left, used of the day, the bar, each device, "+15 min", "+30 min", "Lock now", "Open until", "Lift" (switched off unless a lock or an unlock is in force); what waits: each request with "Give", "Give 15 min" and "No"; at the console's width two columns, the children at the left |
+
+**Which one shows** (`GuardianApp.tsx`): the door's `family_state` when the
+screens open. No family: the first start. A family and this window signed
+out: sign in, then Today. A first start left before its PIN or its child
+goes on from there after sign in. A session the service ended (15 minutes
+with nothing done) comes back to sign in with "LiMo’s settings closed
+themselves after 15 minutes with nothing done. Type the guardian password to
+open them again."; a refusal, at any time, shows the sign in's refusal.
+
+**Rules, Devices and More** follow the second sheet:
+
+| Screen | What |
+| --- | --- |
+| R1 to R3 | A child's rules: time a day, bedtime, the apps always allowed, today's use; a change is kept until Save, a problem is shown at its own row, and "Saved" is said |
+| D1, D2 | This PC (whose each Windows account is, the pause of the count, an account LiMo was not told about) and each phone: its child, when it was paired and last heard, its protection, the six things LiMo needs on it each on or not, and in coral what needs a guardian (a step off, USB debugging still on, a clock far off) |
+| K1, K2 | A one time code: for whom, on which device, how much; then the code in large figures to read out |
+| M1 to M4 | More: the one time code, the password and the PIN, About LiMo; removing a child, a phone or LiMo asks for the guardian password again |
+
+Each request goes by the door's own name. What the door does not send is
+left out, never made up: so an app shows by the name the door has for it,
+and a phone's model and versions are not shown yet. Adding a phone is the
+next piece; until then its place says so.
+
+**Today asks again** every 5 seconds while it is open and the window is in
+front, and stops when it is not (Android's and the browser's own word that
+the app went to the back) or when Today is closed. A tap asks the door,
+switches its button off until the answer is in, and asks for the day
+again, so its result shows on the screen: the time left grows, a lock is
+stamped, a request goes. More time carries a tap id the screen makes, so a
+tap that arrives twice gives once.
+
+**Spans of time and times of day** are written by one module,
+`src/guardian/time.ts`, from the service's numbers, by the phone engine's
+rules (`../engine/src/words.rs`): the time left rounded up ("1 h 12 min",
+"0:42" under a minute), time used rounded down ("48 min used of 2 h"), "No
+limit today", "Open until 9:30 pm", a span in a sentence ("30 min", "1
+hour"), and times on the PC's own clock, in 12 or 24 hours as the PC shows
+them. One difference, from the drawing: no time left at all is "0 min",
+where a child's countdown says "0:00".
+
+**Words.** The screens' own are in `src/guardian/words.ts`, word for word
+as drawn. What the door says (a wrong password, a refusal, a problem) is
+shown as it comes. "This PC" is the screens' word for the family PC's own
+device, whose name in the family's file is the PC's name. The words name
+the child and never say "her" or "him".
+
+**What the door's answers do not carry yet**, so the screens leave it out:
+which of a phone's six steps is switched off ("Accessibility is off" under
+the phone on T3, and the "Needs a guardian" card beside the request, with
+"See what to do"): `family_today` has no phone notes yet.
+
+**Not drawn, decided here:** the list of half hours for bedtime's ends;
+"Open until" offering three times (half an hour, an hour and two hours on,
+each up to the next quarter hour); a line under a child's card when a tap
+was not done, in the door's words; a line under the top row when Today
+cannot be asked; "Give 15 min" only when more than 15 was asked; a phone
+not added yet offered only right after the first start (as T1, not T3, has
+it); the words for a device never heard, or heard more than a day ago; the
+password and PIN fields show the font's dots, not the drawing's circles.
+
+**Measured against the drawings** in a browser at two pixels per point, at
+1100 by 760 and at 390 by 844: every run of text of every frame lands within
+1.6 points of the drawing's, apart from T3, which has no phone notes (above)
+and so runs 20 points shorter. Half a point a dashed divider of that is the
+browser drawing the drawing's 1.5 borders 1 wide.
+
 ## The child's seam
 
 The screens ask for everything through one interface, `ChildHost` in
@@ -830,7 +985,12 @@ by 640, the states the drawings do not show (each step on, the Battery
 step on a phone that is not a Samsung, three steps off on Today, other
 times left, no limit, open until), and a long name with long app names at
 1.3 and 2 times the text size. Taps work: opening a step's Android screen
-switches the step on after a moment, as a guardian would.
+switches the step on after a moment, as a guardian would. Then the
+guardian's screens (`src/preview/guardianFrames.ts`), each from the made up
+family (`src/mock/guardianMock.ts`) at a fixed afternoon on the PC's clock:
+in the console's window at 1100 by 760, with Windows' own title bar drawn
+in its top 32 (`src/preview/WindowFrame.tsx`), and at 390 by 844 as on a
+guardian's phone. Their taps work too: the made up door answers.
 
 Open `dist/preview/index.html` from disk, in any browser; there is no
 server. Expo's web export names its script and pictures from the root of a
@@ -838,7 +998,8 @@ web server, which from disk would be the root of the drive, so
 `scripts/preview.mjs` makes those names relative and stops if any is left;
 it copies the three fonts and their licences beside the page. Add
 `#one=S5b&size=390` (or `360`, and `&scale=1.3` for larger text) to the
-address for one phone alone, for a picture.
+address for one phone alone, for a picture; `#guardian=T3&size=1100` (or
+`390`) for one of the guardian's screens.
 
 It is a development tool. `App.web.tsx` is its page: Metro takes it only
 for the web, and Android's bundle takes `App.tsx`. The preview is never in
@@ -852,8 +1013,9 @@ itself.
 
 ## Tests
 
-`npm test` runs 130 tests with jest (Expo's preset for Android), against the
-mock host. Nothing in them runs on a phone.
+`npm test` runs 346 tests with jest (Expo's preset for Android), against the
+mock hosts and the answers the child module and the door wrote. Nothing in
+them runs on a phone.
 
 | File | What |
 | --- | --- |
@@ -863,7 +1025,11 @@ mock host. Nothing in them runs on a phone.
 | `tests/access.test.tsx` | a role, a label and 48 of height for everything to tap, the way on and the banner with three off among them; headings; the reading order |
 | `tests/release.test.ts` | no screen names a native module, the network or a link out, or holds the engine's sentences for a step that is off; only `src/host.ts` reaches the child module; the app's imports, as Android resolves them from `index.ts`, never reach the mock, the preview or the tests |
 | `tests/seamContract.test.ts` | the child module's real answers (`tests/seam-answers/`, written by its JVM tests) each pass the reader the app's host checks it with, unchanged; none missing and none unknown; the engine's kinds turned, apps by their names only, what is switched off in setup order with its sentences |
-| `tests/console.test.tsx` | the console's sign in (G0): one password field after the door answered, the door's own words for a wrong password, a wait and a busy door, the field emptied after each try, a child's account told at once with no field (and after a sign in too), an absent or lost service said plainly, three lines of room under the field; the reader of the door's replies as the console hands them on; the `console` place found by Tauri's bridge, each request and "More info" sent to the one command by its name; the page's key guard, which stops the browser's keys and leaves a field's own alone; the console's entry reaching neither the mock, the preview nor the child's screens |
+| `tests/guardian.test.tsx` | the guardian's screens against the made up door: which one shows (no family, signed out, signed in, a first start left before its PIN); sign in with a wrong password, a wait said on the PC's clock with the field and button off, a child's account, a service not running; the first start made step by step, each step's request and its arguments, the door's and the rules' own refusals, Back keeping what was typed, each day on its own, the bedtime list, an administrator chosen for a child, this window's own account refused, the window's sentence on the PC only; Today in the engine's words, a request answered and refused with one tap, more time, a lock and its lift, open until a time, asking again every few seconds and stopping when the window is not in front or Today is closed, a session ended by the service, two columns at the console's width and what waits first on a phone, the tabs not drawn yet; 48 (or 40 at the console's width) for everything to tap; no "her" or "him" and no dash in the words |
+| `tests/guardianTime.test.ts` | the one module for spans of time and times of day, on the phone engine's own cases (`../engine/src/words.rs`) |
+| `tests/guardianSeam.test.ts` | the guardian's readers on the door's shapes, written by hand from its code, and their refusals; asking, which never throws; the made up door answering in the same shapes |
+| `tests/guardianContract.test.ts` | the door's real answers (`tests/console-answers/`, written by `windows/tests/service/answers.rs`): every reply through the reader the console's replies go through, every answer to a request the screens make through that request's own reader, a file for every such request, the arguments the screens send by the door's own names; to refresh the files, run `cargo test --test service answers` in `../../windows`, then `npm test` |
+| `tests/console.test.tsx` | the console's sign in (C0): one password field after the door answered, the door's own words for a wrong password, a wait said at its time and a busy door, the field emptied after each try, a child's account told at once with no field (and after a sign in too), an absent or lost service said plainly, two lines of room under the field; the reader of the door's replies as the console hands them on; the `console` place found by Tauri's bridge, each request and "More info" sent to the one command by its name; the page's key guard, which stops the browser's keys and leaves a field's own alone; the console's entry reaching neither the mock, the preview nor the child's screens |
 
 `npm run check:release-js` shows the last on the bundles themselves: it
 makes each form's JavaScript as Gradle's release build does (`expo
@@ -1137,9 +1303,9 @@ follow Expo's blank template (0BSD).
   `console.tsx`, so `App.web.tsx` stays the preview's. The theme's font
   families are Android ones (`Fraunces 28` and so on); in a browser
   `display()` quotes the name, as CSS needs, and the console's page
-  declares the families with `@font-face`, as the preview does. The sign in
-  is built from the console's description, ahead of its drawing; the
-  drawing, once approved, decides its look and words.
+  declares the families with `@font-face`, as the preview does. Its page
+  mounts the guardian's screens (`GuardianApp`); once signed in they are
+  marked `signed-in`, which the console's self check waits for.
 - **The launcher icon** is a stand in from the icon set until LiMo has its
   own mark.
 - **The maker's logo** is 22 on the child form's screens, as the phone

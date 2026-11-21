@@ -10,14 +10,15 @@
 import { createContext, type ReactNode, useContext, useState } from 'react';
 import { Image, Platform, Pressable, StyleSheet, TextInput, type TextInputProps, View, type ViewStyle } from 'react-native';
 import { useSafeAreaFrame, useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 
 import logo from '../generated/lucidloom-logo.png';
 import { Icon, type IconName } from '../icons/Icon';
 import { borderWidth, color, hardShadow, radius, tokens } from '../theme';
-import { Shadow } from '../ui/paper/parts';
+import { Dashed, Shadow } from '../ui/paper/parts';
 import { Txt } from '../ui/paper/text';
 import { gtype } from './text';
+import * as W from './words';
 
 type Style = ViewStyle | (ViewStyle | false | null | undefined)[];
 
@@ -77,10 +78,10 @@ export function H1({ children, style }: { children: string; style?: Style }) {
 }
 
 /** The room under a field for a message: two lines, kept when empty, so nothing moves when one comes. */
-export function Room({ words, testID = 'message' }: { words: string; testID?: string }) {
+export function Room({ words, testID = 'message', done = false }: { words: string; testID?: string; done?: boolean }) {
   return (
     <View style={styles.room} testID={`${testID}-room`}>
-      <Txt style={gtype.err} wrap="pretty" testID={testID} accessibilityLiveRegion="polite">
+      <Txt style={done ? gtype.done : gtype.err} wrap="pretty" testID={testID} accessibilityLiveRegion="polite">
         {words}
       </Txt>
     </View>
@@ -104,6 +105,14 @@ export const Mark = {
   plus: (tint: string = color.ink) => <Stroke size={18} d="M9 3.5v11M3.5 9h11" tint={tint} width={2} />,
   minus: (tint: string = color.ink) => <Stroke size={18} d="M3.5 9h11" tint={tint} width={2} />,
   tick: (tint: string = color.teal) => <Stroke size={18} d="M3.5 9.5l3.6 3.6L14.5 5" tint={tint} width={2} />,
+  cross: (tint: string = color.ink) => <Stroke size={18} d="M5 5l8 8M13 5l-8 8" tint={tint} width={2} />,
+  right: (tint: string = color.ink) => <Stroke size={16} d="M6 3l5 5-5 5" tint={tint} />,
+  /** A hollow ring: a step not on yet. */
+  ring: (tint: string = color.ink) => (
+    <Svg width={18} height={18} viewBox="0 0 18 18" fill="none" importantForAccessibility="no-hide-descendants">
+      <Circle cx={9} cy={9} r={5.5} stroke={tint} strokeWidth={2} />
+    </Svg>
+  ),
 };
 
 // ---------------------------------------------------------------------------
@@ -187,11 +196,13 @@ export function Btn({
   style,
   outer,
   children,
+  lead,
   testID,
 }: {
   label: string;
   onPress: () => void;
-  look?: BtnLook;
+  /** "danger" is filled with coral: the last button before something that cannot be undone. */
+  look?: BtnLook | 'danger';
   mono?: boolean;
   /** The answers to a request: 15 high type. */
   answer?: boolean;
@@ -202,12 +213,14 @@ export function Btn({
   style?: Style;
   outer?: Style;
   children?: ReactNode;
+  /** A mark before the words, such as a plus. */
+  lead?: ReactNode;
   testID?: string;
 }) {
   const { tap } = useSizes();
   const [down, setDown] = useState(false);
   const push = down && !off ? 2 : 0;
-  const tint = off ? (look === 'go' ? 'rgba(27,38,56,0.5)' : 'rgba(27,38,56,0.45)') : look === 'coral' ? color.coral : color.ink;
+  const tint = off ? (look === 'go' ? 'rgba(27,38,56,0.5)' : 'rgba(27,38,56,0.45)') : look === 'coral' ? color.coral : look === 'danger' ? color.card : color.ink;
   return (
     <Pressable
       testID={testID}
@@ -227,11 +240,13 @@ export function Btn({
           { minHeight: height ?? tap, paddingHorizontal: padding },
           look === 'go' && styles.go,
           look === 'coral' && styles.coralEdge,
+          look === 'danger' && styles.danger,
           off && (look === 'go' ? styles.goOff : styles.dim),
           push ? { transform: [{ translateX: push }, { translateY: push }] } : null,
           style,
         ]}
       >
+        {lead ?? null}
         <Txt style={[mono ? gtype.buttonMono : answer ? gtype.buttonAnswer : gtype.button, { color: tint }]} numberOfLines={1}>
           {label}
         </Txt>
@@ -248,17 +263,35 @@ export function PinBtn(props: { label: string; onPress: () => void; look?: BtnLo
 }
 
 /** One choice of several: ink outlined, mono; the picked one filled with ink, the same size. */
-export function Chip({ label, on, onPress, testID, style, a11y }: { label: string; on: boolean; onPress: () => void; testID?: string; style?: Style; a11y?: string }) {
+export function Chip({
+  label,
+  on,
+  onPress,
+  testID,
+  style,
+  a11y,
+  add = false,
+}: {
+  label: string;
+  on: boolean;
+  onPress: () => void;
+  testID?: string;
+  style?: Style;
+  a11y?: string;
+  /** A chip that adds what it names: a plus before it, and a button, not a choice. */
+  add?: boolean;
+}) {
   const { tap } = useSizes();
   return (
     <Pressable
       testID={testID}
       onPress={onPress}
-      accessibilityRole="radio"
+      accessibilityRole={add ? 'button' : 'radio'}
       accessibilityLabel={a11y ?? label}
-      accessibilityState={{ checked: on, selected: on }}
-      style={[styles.chip, { minHeight: tap }, on && styles.chipOn, style]}
+      accessibilityState={add ? undefined : { checked: on, selected: on }}
+      style={[styles.chip, { minHeight: tap }, on && styles.chipOn, add && styles.chipAdd, style]}
     >
+      {add ? Mark.plus() : null}
       <Txt style={[gtype.chip, on && { color: color.card }]} numberOfLines={1}>
         {label}
       </Txt>
@@ -314,6 +347,104 @@ export function PickField({ value, onPress, off = false, open = false, label, te
   );
 }
 
+/** − figure +: the figure keeps its width, so the buttons never move. Large, the figure is the time a day in Fraunces. */
+export function Stepper({ value, onLess, onMore, big = false, name }: { value: string; onLess: () => void; onMore: () => void; big?: boolean; name: string }) {
+  const { tap } = useSizes();
+  const side = big ? 48 : tap;
+  const sq = (label: string, mark: ReactNode, press: () => void, id: string) => (
+    <Pressable onPress={press} accessibilityRole="button" accessibilityLabel={`${label}, ${name}`} testID={id} style={[styles.sq, { width: side, height: side }]}>
+      {mark}
+    </Pressable>
+  );
+  return (
+    <View style={[styles.stepper, big && styles.stepperBig]}>
+      {sq(W.timeADay.less, Mark.minus(), onLess, `less-${name}`)}
+      <Txt style={big ? [gtype.bigFigure, styles.bigFig] : [gtype.figure, styles.fig]} testID={`figure-${name}`}>
+        {value}
+      </Txt>
+      {sq(W.timeADay.more, Mark.plus(), onMore, `more-${name}`)}
+    </View>
+  );
+}
+
+/** A square button with a mark and no words: its name is said to a screen reader. */
+export function Square({ mark, label, onPress, testID }: { mark: ReactNode; label: string; onPress: () => void; testID?: string }) {
+  const { tap } = useSizes();
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} testID={testID} style={[styles.sq, { width: tap, height: tap }]}>
+      {mark}
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The second sheet's parts
+
+/** A card's head on a screen with tabs: the icon on a tile, the heading at 22, and what stands at its right. */
+export function Head2({ icon, title, right }: { icon: IconName; title: string; right?: ReactNode }) {
+  return (
+    <View style={styles.head2}>
+      <Tile icon={icon} />
+      <View style={styles.head2Title}>
+        <Txt style={gtype.h2} wrap="balance" accessibilityRole="header">
+          {title}
+        </Txt>
+      </View>
+      {right ?? null}
+    </View>
+  );
+}
+
+/** Back at the left, and at the right the place it goes back to. */
+export function SubHead({ to, onBack }: { to: string; onBack: () => void }) {
+  const { tap } = useSizes();
+  return (
+    <View style={[styles.subHead, { minHeight: tap }]}>
+      <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel={`Back to ${to}`} testID="back" style={[styles.back, { height: tap }]}>
+        {Mark.left()}
+        <Txt style={gtype.button}>Back</Txt>
+      </Pressable>
+      <Label>{to}</Label>
+    </View>
+  );
+}
+
+/** Facts: each its name in mono, its value, and what can be done about it, with dashed lines between. */
+export function Kvs({ rows, testID }: { rows: readonly { k: string; v: string; after?: ReactNode; teal?: boolean }[]; testID?: string }) {
+  const wide = useWide();
+  return (
+    <View style={styles.kvs} testID={testID}>
+      {rows.map((r, i) => (
+        <View key={r.k}>
+          {i > 0 ? <Dashed /> : null}
+          <View style={[styles.kv, i > 0 && styles.kvAfter]} accessible={!r.after} accessibilityLabel={`${r.k}: ${r.v}`}>
+            <View style={{ width: wide ? 128 : 104 }}>
+              <Txt style={gtype.kvKey}>{r.k}</Txt>
+            </View>
+            <Txt style={[gtype.kvValue, styles.flex, r.teal && styles.teal]}>{r.v}</Txt>
+            {r.after ?? null}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** An app's first letter on a tile, standing for its own icon. */
+export function Letter({ name, small = false }: { name: string; small?: boolean }) {
+  const first = (Array.from(name.trim())[0] ?? '').toUpperCase();
+  return (
+    <View style={[styles.letter, small && styles.letterSmall]} importantForAccessibility="no-hide-descendants">
+      <Txt style={small ? gtype.letterSmall : gtype.letter}>{first}</Txt>
+    </View>
+  );
+}
+
+/** A group's label inside a card: 18 above it, 14 when it comes straight after the card's head. */
+export function GroupLabel({ children, first = false }: { children: string; first?: boolean }) {
+  return <Label style={first ? styles.groupFirst : styles.group}>{children}</Label>;
+}
+
 // ---------------------------------------------------------------------------
 // The maker's mark
 
@@ -357,6 +488,7 @@ const styles = StyleSheet.create({
   pinWide: { minWidth: 200 },
   go: { backgroundColor: color.marigold },
   coralEdge: { borderColor: color.coral },
+  danger: { backgroundColor: color.coral },
   goOff: { backgroundColor: '#f5d194', borderColor: 'rgba(27,38,56,0.4)' },
   dim: { borderStyle: 'dashed', borderColor: 'rgba(27,38,56,0.42)' },
   chip: {
@@ -369,6 +501,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   chipOn: { backgroundColor: color.ink },
+  chipAdd: { flexDirection: 'row', gap: 6, paddingLeft: 10 },
   field: {
     marginTop: 8,
     flexDirection: 'row',
@@ -390,4 +523,32 @@ const styles = StyleSheet.create({
   pickMark: { marginLeft: 'auto' },
   focusEdge: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 4, backgroundColor: color.marigold },
   maker: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 'auto', paddingTop: 20 },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  stepperBig: { gap: 18 },
+  sq: { alignItems: 'center', justifyContent: 'center', backgroundColor: color.card, borderWidth, borderColor: color.ink, borderRadius: 10 },
+  bigFig: { minWidth: 168 },
+  fig: { minWidth: 104 },
+  flex: { flex: 1, minWidth: 0 },
+  teal: { color: color.teal, fontWeight: '600' },
+  head2: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  head2Title: { flex: 1, minWidth: 0 },
+  subHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 14 },
+  back: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingLeft: 10,
+    paddingRight: 16,
+    backgroundColor: color.card,
+    borderWidth,
+    borderColor: color.ink,
+    borderRadius: 10,
+  },
+  kvs: { marginTop: 10 },
+  kv: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 40, paddingVertical: 5 },
+  kvAfter: { minHeight: 38.5 },
+  letter: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: color.card, borderWidth, borderColor: color.ink, borderRadius: 9, flexShrink: 0 },
+  letterSmall: { width: 30, height: 30, borderRadius: 8 },
+  group: { marginTop: 18, marginBottom: 4 },
+  groupFirst: { marginTop: 14, marginBottom: 4 },
 });

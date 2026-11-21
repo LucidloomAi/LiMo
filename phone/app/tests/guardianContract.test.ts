@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ask, type DoorName, type DoorRequests, type GuardianDoor, readDoorAnswer } from '../src/guardianSeam';
+import { ask, type DoorName, type DoorRequests, type GuardianDoor, readDoorAnswer, readStanding } from '../src/guardianSeam';
 
 const DIR = path.resolve(__dirname, 'console-answers');
 
@@ -55,6 +55,18 @@ const SCREENS_ASK: readonly DoorName[] = [
   'lock_now',
   'unlock_until',
   'lift',
+  'usage',
+  'remove_child',
+  'devices',
+  'rename_device',
+  'remove_device',
+  'pc_settings',
+  'set_idle_minutes',
+  'set_unlinked_accounts',
+  'make_code',
+  'change_password',
+  'allow_removal',
+  'delete_family',
 ] satisfies readonly (keyof DoorRequests)[];
 
 /** A door that gives one reply, as the console hands it on. */
@@ -93,12 +105,15 @@ describe('the door’s answers (tests/console-answers)', () => {
         {
           childId: 'child-0000000000000001',
           name: 'Asha',
+          ageBand: 'ten_to_twelve',
+          day: 20_775,
           budgetSecs: 3_600,
           extraSecs: 0,
           usedSecs: 302,
           leftSecs: 3_298,
           guardian: { mode: 'nothing' },
-          devices: [{ deviceId: 'device-0000000000000001', name: 'Family PC', kind: 'on_master', lastHeardAt: 1_794_998_128, inUse: true, usedSecs: 302 }],
+          // The PC's own device: no needs and no standing.
+          devices: [{ deviceId: 'device-0000000000000001', name: 'Family PC', kind: 'on_master', lastHeardAt: 1_794_998_128, inUse: true, usedSecs: 302, clockOffBySecs: null, needs: null, standing: null }],
         },
       ],
     });
@@ -165,6 +180,76 @@ describe('the door’s answers (tests/console-answers)', () => {
     });
   });
 
+  it('reads Rules’, Devices’ and More’s answers', async () => {
+    const use = await readAs('usage', files.usage);
+    expect(use).toEqual({
+      kind: 'done',
+      value: [
+        {
+          deviceId: 'device-0000000000000001',
+          name: 'Family PC',
+          removed: false,
+          secs: 313,
+          // An app the device could not name has an empty id: Rules leaves it out.
+          apps: [
+            { appId: 'notes.exe', secs: 303 },
+            { appId: '', secs: 10 },
+          ],
+        },
+      ],
+    });
+    const devices = await readAs('devices', files['devices-with-phone']);
+    expect(devices.kind === 'done' && devices.value.map((d) => [d.name, d.kind, d.pairedAt])).toEqual([
+      ['Family PC', 'on_master', 1_794_997_825],
+      ['Asha’s phone', 'portable', 1_794_998_143],
+    ]);
+    expect(await readAs('rename_device', files['rename-device'])).toMatchObject({ kind: 'done', value: { name: 'Asha’s tablet', kind: 'portable' } });
+    expect(await readAs('pc_settings', files['pc-settings'])).toEqual({ kind: 'done', value: { idleMinutes: 10, unlinkedAccounts: 'locked' } });
+    expect(await readAs('set_idle_minutes', files['set-idle-minutes'])).toEqual({ kind: 'done', value: { idleMinutes: 10, unlinkedAccounts: 'free' } });
+    expect(await readAs('make_code', files['make-code'])).toEqual({ kind: 'done', value: { shown: '1234 5678', minutes: 15, deviceId: 'device-0000000000000001' } });
+    expect(await readAs('change_password', files['change-password-wrong'])).toMatchObject({ kind: 'wrong', triesBeforeWait: 4 });
+    expect(await readAs('allow_removal', files['allow-removal'])).toEqual({ kind: 'done', value: { until: expect.any(Number) } });
+    for (const [name, file] of [
+      ['remove_child', 'remove-child'],
+      ['remove_device', 'remove-device'],
+      ['delete_family', 'delete-family'],
+      ['change_password', 'change-password'],
+    ] as const) {
+      expect(await readAs(name, files[file])).toEqual({ kind: 'done', value: {} });
+    }
+    expect(await readAs('family_state', files['family-state-deleted'])).toMatchObject({ kind: 'done', value: { hasFamily: false, signedIn: false, removalAllowedUntil: null } });
+  });
+
+  it('reads what a phone needs a guardian for, and how it stands, as Today and Devices show them', async () => {
+    const today = await readAs('family_today', files['family-today-phone-step-off']);
+    if (today.kind !== 'done') throw new Error(today.kind);
+    const [pc, phone] = today.value[0].devices;
+    expect(pc).toMatchObject({ kind: 'on_master', needs: null, standing: null });
+    expect(phone.needs).toEqual([{ permission: 'accessibility', words: 'Accessibility is switched off, so LiMo cannot see which app is open.' }]);
+    expect(phone.standing).toMatchObject({ protection: 'base', setupFinished: true, usbDebuggingOn: false });
+    expect(phone.standing?.steps.map((s) => [s.permission, s.on])).toEqual([
+      ['notifications', true],
+      ['phone', true],
+      ['usage_access', true],
+      ['accessibility', false],
+      ['battery', true],
+      ['protection', true],
+    ]);
+    // The other answers that carry a device's standing read with the same reader.
+    const read = async (file: string) => {
+      const reply = files[file].answer.reply as { value: Record<string, unknown> };
+      return readStanding(reply.value);
+    };
+    expect(await read('device-phone-all-well')).toMatchObject({ setupFinished: true, usbDebuggingOn: false });
+    expect((await read('device-phone-all-well'))?.steps.every((s) => s.on === true)).toBe(true);
+    // Paired and not set up yet: no step said, so none claimed.
+    const notYet = await read('device-phone-setup-not-finished');
+    expect(notYet?.setupFinished).toBe(false);
+    expect(notYet?.steps.every((s) => s.on === null)).toBe(true);
+    expect(await read('device-phone-usb-debugging-on')).toMatchObject({ usbDebuggingOn: true });
+    expect(await read('device-pc')).toBeNull();
+  });
+
   it('takes the arguments the screens send, by the door’s own names', () => {
     // What the screens send for each request, beside what the door was sent.
     const SENT: Partial<Record<DoorName, readonly string[]>> = {
@@ -182,6 +267,17 @@ describe('the door’s answers (tests/console-answers)', () => {
       give_extra: ['child', 'minutes', 'tap_id'],
       unlock_until: ['child', 'until'],
       lift: ['child'],
+      usage: ['child', 'from_day', 'to_day'],
+      remove_child: ['child', 'password'],
+      devices: ['child'],
+      rename_device: ['device', 'name'],
+      remove_device: ['device', 'password'],
+      set_idle_minutes: ['minutes'],
+      set_unlinked_accounts: ['unlinked'],
+      make_code: ['device', 'minutes'],
+      change_password: ['new', 'old'],
+      allow_removal: ['password'],
+      delete_family: ['password'],
     };
     for (const [name, keys] of Object.entries(SENT)) {
       const theirs = answers.filter(([, f]) => f.request === name).map(([, f]) => Object.keys(f.asked.args ?? {}).sort());

@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
 
 import { ask, type Asked, type ChildToday, type DeviceToday, type GuardianDoor, type WaitingRequest } from '../guardianSeam';
+import { Icon } from '../icons/Icon';
 import { color } from '../theme';
 import { Dashed } from '../ui/paper/parts';
 import { Txt } from '../ui/paper/text';
@@ -45,6 +46,34 @@ function deviceState(d: DeviceToday, now: number, clock: ReturnType<typeof useCl
   if (d.lastHeardAt === null) return W.today.notHeard;
   if (now - d.lastHeardAt < JUST_HEARD_SECS) return W.today.notInUse;
   return W.today.lastHeard(heardAgo(now, d.lastHeardAt, clock));
+}
+
+/** What a device needs a guardian for; nothing when the door says nothing of it. */
+const needsOf = (d: DeviceToday) => d.needs ?? [];
+
+/** The mark under a device that needs a guardian: the first thing switched off, and how many more. */
+function needWords(d: DeviceToday): string[] {
+  if (!needsOf(d).length) return [];
+  const first = W.NEED_MARK[needsOf(d)[0].permission];
+  return needsOf(d).length > 1 ? [first, W.today.more(needsOf(d).length - 1)] : [first];
+}
+
+/** A device that needs a guardian, beside what waits: the engine's sentence for the first thing switched off. */
+function Need({ child, d, onSee }: { child: ChildToday; d: DeviceToday; onSee: () => void }) {
+  return (
+    <Card testID={`needs-${d.deviceId}`}>
+      <View style={styles.needTop}>
+        <Tile icon="alert" large />
+        <Stamp tone="coral">{W.today.needsGuardian}</Stamp>
+      </View>
+      <Txt style={[gtype.rowTitle, styles.needName]}>{d.kind === 'on_master' ? W.today.thisPc : d.name}</Txt>
+      <Txt style={[gtype.needWords, styles.needWords]} wrap="pretty">
+        {needsOf(d)[0].words}
+      </Txt>
+      {needsOf(d).length > 1 ? <Label style={styles.needMore}>{W.today.more(needsOf(d).length - 1)}</Label> : null}
+      <Btn label={W.today.seeWhatToDo} onPress={onSee} outer={styles.needButton} testID={`see-${child.childId}-${d.deviceId}`} />
+    </Card>
+  );
 }
 
 /** "Open until" offers: half an hour, an hour and two hours on, each up to the next quarter hour. */
@@ -123,11 +152,21 @@ function Kid({
       {k.devices.map((d, i) => (
         <View key={d.deviceId}>
           {i > 0 ? <Dashed /> : null}
-          <View style={styles.dev} accessible accessibilityLabel={`${d.kind === 'on_master' ? W.today.thisPc : d.name}, ${deviceState(d, t, clock)}, ${usedSpan(d.usedSecs)}`}>
+          <View
+            style={styles.dev}
+            accessible
+            accessibilityLabel={[d.kind === 'on_master' ? W.today.thisPc : d.name, deviceState(d, t, clock), ...needWords(d), usedSpan(d.usedSecs)].join(', ')}
+          >
             <Tile icon={d.kind === 'on_master' ? 'pc' : 'phone'} />
             <View style={styles.devName}>
               <Txt style={gtype.rowTitle}>{d.kind === 'on_master' ? W.today.thisPc : d.name}</Txt>
               <Txt style={[gtype.state, styles.devState, d.inUse && styles.live]}>{deviceState(d, t, clock)}</Txt>
+              {needsOf(d).length ? (
+                <View style={styles.need} testID={`need-${d.deviceId}`}>
+                  <Icon name="alert" size={20} />
+                  <Txt style={[gtype.need, styles.flex]}>{needWords(d).join(' · ')}</Txt>
+                </View>
+              ) : null}
             </View>
             <Txt style={[gtype.minutes, styles.devMin]}>{usedSpan(d.usedSecs)}</Txt>
           </View>
@@ -332,10 +371,12 @@ export function Today({
   const kidWidth = wide ? width - 64 - ASIDE - 24 : width - 32;
   const today = data?.today ?? [];
   const requests = data?.requests ?? [];
+  // A request and something that needs a guardian both wait for a guardian, so they share one heading.
+  const needs = today.flatMap((child) => child.devices.filter((d) => needsOf(d).length).map((d) => ({ child, d })));
 
   const aside = (
     <View style={[styles.column, wide && styles.aside]}>
-      {data === null ? null : requests.length === 0 ? (
+      {data === null ? null : requests.length === 0 && needs.length === 0 ? (
         <View style={styles.quiet} testID="nothing-waiting">
           <Txt style={gtype.quietBold}>{W.today.nothingWaiting}</Txt>
           {fromFirstStart && today.length === 1 ? (
@@ -351,6 +392,10 @@ export function Today({
           </Label>
           {requests.map((r) => (
             <Request key={r.requestId} r={r} today={today} busy={busy} onAnswer={answer(r)} />
+          ))}
+          {/* What to do is on the phone's own page in Devices, still being drawn. */}
+          {needs.map(({ child, d }) => (
+            <Need key={d.deviceId} child={child} d={d} onSee={() => onTab('devices')} />
           ))}
         </>
       )}
@@ -467,6 +512,12 @@ const styles = StyleSheet.create({
   quote: { marginTop: 12, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: 'rgba(27,38,56,0.42)', borderRadius: 10 },
   answers: { flexDirection: 'row', gap: 8, marginTop: 12 },
   no: { minWidth: 64 },
+  need: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 5 },
+  needTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  needName: { marginTop: 12 },
+  needWords: { marginTop: 4 },
+  needMore: { marginTop: 8 },
+  needButton: { marginTop: 12 },
   quiet: { paddingVertical: 14, paddingHorizontal: 16, borderWidth: 1.5, borderStyle: 'dashed', borderColor: 'rgba(27,38,56,0.42)', borderRadius: 12 },
   coming: { marginTop: 14 },
 });

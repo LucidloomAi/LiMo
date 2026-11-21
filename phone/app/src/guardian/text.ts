@@ -82,6 +82,8 @@ export const gtype = StyleSheet.create({
   state: { ...mono('500', 12, 15.6, 0.08), textTransform: 'uppercase', color: color.inkSoft },
   /** .cn-dev .need: what needs a guardian on a device. */
   need: { ...mono('600', 12, 15.6, 0.08), textTransform: 'uppercase', color: color.coral },
+  /** .cn-need p: the sentence for what is switched off. */
+  needWords: { fontSize: 15, lineHeight: 21, color: color.inkSoft },
   /** .cn-dev .min: a device's use today. */
   minutes: { ...mono('500', 14, 14), color: color.ink },
   /** .cn-dev.missing p. */
@@ -97,6 +99,35 @@ export const gtype = StyleSheet.create({
   /** .cn-quiet. */
   quiet: { fontSize: 15, lineHeight: 21.75, color: color.inkSoft },
   quietBold: { fontSize: 15, lineHeight: 21.75, fontWeight: '600', color: color.ink },
+  /** .cn-h2: a card's heading on a screen with tabs. */
+  h2: { fontFamily: display(22), fontWeight: '600', fontSize: 22, lineHeight: 25.3, letterSpacing: em(-0.008, 22), color: color.ink },
+  /** .cn-kv .k: a fact's name. */
+  kvKey: { ...mono('500', 12, 16.2, 0.1), textTransform: 'uppercase', color: color.inkSoft },
+  /** .cn-kv .v: a fact. */
+  kvValue: { fontSize: 16, lineHeight: 21.6, color: color.ink },
+  /** .cn-letter: an app's first letter on its tile. */
+  letter: { ...mono('600', 15, 15), color: color.ink },
+  letterSmall: { ...mono('600', 13, 13), color: color.ink },
+  /** .cn-app .nm: an app's name in a list. */
+  appName: { fontSize: 16, lineHeight: 20.8, color: color.ink },
+  /** .cn-urow .nm. */
+  useName: { fontSize: 16, lineHeight: 22.4, color: color.ink },
+  /** .cn-fixed: what cannot be taken off, and why. */
+  fixed: { ...mono('600', 12, 12, 0.08), textTransform: 'uppercase', color: color.teal },
+  /** .cn-okst: a step's state at the end of its row. */
+  okState: { ...mono('600', 12, 12, 0.1), textTransform: 'uppercase' },
+  /** .cn-acc .who .cn-label: an account's facts on Devices. */
+  accFacts: { ...mono('500', 12, 16.8, 0.08), textTransform: 'uppercase', color: color.inkSoft },
+  /** .cn-acc .whose: whose an account is. */
+  whose: { fontSize: 15, lineHeight: 19.5, color: color.ink },
+  /** .cn-saved p, .cn-update p. */
+  notice: { fontSize: 15, lineHeight: 21, color: color.ink },
+  /** .cn-code: a one time code, large. */
+  code: { ...mono('600', 44, 44, 0.08), color: color.ink },
+  /** .cn-addr: a web address in a sentence. */
+  address: { ...mono('500', 14, 19.6), color: color.ink },
+  /** A line that says a change was made, in teal. */
+  done: { fontSize: 14, lineHeight: 20, fontWeight: '600', color: color.teal },
   /** .cn-maker span: "MADE BY". */
   makerWords: { ...mono('500', 12, 12, 0.12), textTransform: 'uppercase', color: color.inkSoft },
   /** .cn-maker b. */

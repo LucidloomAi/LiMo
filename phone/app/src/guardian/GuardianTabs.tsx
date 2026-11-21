@@ -1,8 +1,8 @@
 // The guardian's tabs: Today, Rules, Devices, More. The floating bar the
 // child's app has (src/ui/paper/Tabs.tsx): on a phone set in 14 from the
 // sides and the bottom; at the console's width it keeps a width of 440 in
-// the middle, 14 above the window's edge. Rules uses the edit icon: the set
-// has no icon of its own for rules.
+// the middle, 14 above the window's edge. Rules has its own icon, a
+// clipboard of ticked rows.
 
 import { StyleSheet, View } from 'react-native';
 
@@ -14,7 +14,7 @@ export type TabKey = 'today' | 'rules' | 'devices' | 'more';
 
 const ITEMS = [
   { key: 'today', label: W.tabs.today, icon: 'sun' },
-  { key: 'rules', label: W.tabs.rules, icon: 'edit' },
+  { key: 'rules', label: W.tabs.rules, icon: 'rules' },
   { key: 'devices', label: W.tabs.devices, icon: 'devices' },
   { key: 'more', label: W.tabs.more, icon: 'gear' },
 ] as const;

@@ -37,7 +37,7 @@ import { Dashed, Shadow } from '../ui/paper/parts';
 import { Txt } from '../ui/paper/text';
 import { useClock } from './clock';
 import { Column, Page } from './Page';
-import { Card, CardHead, Chip, Field, H1, Label, MakerMark, Mark, PickField, PinBtn, Room, Tile, TopRow, usePlace, useSizes } from './parts';
+import { Card, CardHead, Chip, Field, H1, Label, MakerMark, Mark, PickField, PinBtn, Room, Stepper, Tile, TopRow, usePlace, useSizes } from './parts';
 import { gtype } from './text';
 import { minutesFigure, minuteOfDay, timeADayWords } from './time';
 import * as W from './words';
@@ -149,32 +149,6 @@ function StepHead({ at, onBack }: { at: number; onBack: () => void }) {
           ))}
         </View>
       </View>
-    </View>
-  );
-}
-
-/** − figure +: the figure keeps its width, so the buttons never move. */
-function Stepper({ value, onLess, onMore, big = false, name }: { value: string; onLess: () => void; onMore: () => void; big?: boolean; name: string }) {
-  const { tap } = useSizes();
-  const side = big ? 48 : tap;
-  const sq = (label: string, mark: ReactElement, press: () => void, id: string) => (
-    <Pressable
-      onPress={press}
-      accessibilityRole="button"
-      accessibilityLabel={`${label}, ${name}`}
-      testID={id}
-      style={[styles.sq, { width: side, height: side }]}
-    >
-      {mark}
-    </Pressable>
-  );
-  return (
-    <View style={[styles.stepper, big && styles.stepperBig]}>
-      {sq(W.timeADay.less, Mark.minus(), onLess, `less-${name}`)}
-      <Txt style={big ? [gtype.bigFigure, styles.bigFig] : [gtype.figure, styles.fig]} testID={`figure-${name}`}>
-        {value}
-      </Txt>
-      {sq(W.timeADay.more, Mark.plus(), onMore, `more-${name}`)}
     </View>
   );
 }
@@ -820,11 +794,6 @@ const styles = StyleSheet.create({
   chipsTime: { marginTop: 16 },
   one: { marginTop: 22 },
   oneIn: { alignItems: 'center', paddingTop: 14, paddingBottom: 6 },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  stepperBig: { gap: 18 },
-  sq: { alignItems: 'center', justifyContent: 'center', backgroundColor: color.card, borderWidth, borderColor: color.ink, borderRadius: 10 },
-  bigFig: { minWidth: 168 },
-  fig: { minWidth: 104 },
   days: { marginTop: 14 },
   daysWide: { marginTop: 12 },
   day: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 2 },

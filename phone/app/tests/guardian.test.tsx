@@ -7,58 +7,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, screen, within } from '@testing-library/react-native';
 import { AppState, type AppStateStatus, StyleSheet } from 'react-native';
-import { SafeAreaFrameContext, SafeAreaInsetsContext } from 'react-native-safe-area-context';
 
-import { ClockContext } from '../src/guardian/clock';
-import { GuardianApp, type GuardianRoute } from '../src/guardian/GuardianApp';
-import { type Place, PlaceContext } from '../src/guardian/parts';
 import { ASK_AGAIN_MS } from '../src/guardian/Today';
 import * as W from '../src/guardian/words';
-import { type GuardianMock, guardianMock, type GuardianMockState, guardianStates, NOW, PC_CLOCK } from '../src/mock/guardianMock';
+import { guardianMock, guardianStates, NOW } from '../src/mock/guardianMock';
+import { asked, pick, press, renderGuardian, type } from './guardianRender';
 import { inOrder, textsInOrder, type TreeNode } from './render';
-
-const PHONE = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 32, bottom: 24, left: 0, right: 0 } };
-const CONSOLE = { frame: { x: 0, y: 0, width: 1100, height: 728 }, insets: { top: 0, bottom: 0, left: 0, right: 0 } };
-
-function renderGuardian(state: GuardianMockState, options: { route?: GuardianRoute; wide?: boolean; place?: Place } = {}): { door: GuardianMock; unmount: () => void } {
-  const door = guardianMock(state);
-  const at = options.wide ? CONSOLE : PHONE;
-  const { unmount } = render(
-    <SafeAreaFrameContext.Provider value={at.frame}>
-      <SafeAreaInsetsContext.Provider value={at.insets}>
-        <ClockContext.Provider value={{ now: () => NOW, clock: PC_CLOCK }}>
-          <PlaceContext.Provider value={options.place ?? (options.wide ? 'pc' : 'phone')}>
-            <GuardianApp door={door} initial={options.route} />
-          </PlaceContext.Provider>
-        </ClockContext.Provider>
-      </SafeAreaInsetsContext.Provider>
-    </SafeAreaFrameContext.Provider>,
-  );
-  return { door, unmount };
-}
-
-/** A press whose answer comes a moment later: the press and the answer are one act. */
-async function press(name: string | RegExp) {
-  await act(async () => {
-    fireEvent.press(screen.getByRole('button', { name }));
-  });
-}
-async function pick(name: string | RegExp) {
-  await act(async () => {
-    fireEvent.press(screen.getByRole('radio', { name }));
-  });
-}
-/** Types into a field once the screen can take it (the sign in asks the door first). */
-async function type(testID: string, words: string) {
-  await screen.findByTestId(testID);
-  await waitFor(() => expect(screen.getByTestId(testID).props.editable).not.toBe(false));
-  await act(async () => {
-    fireEvent.changeText(screen.getByTestId(testID), words);
-  });
-}
-const asked = (door: GuardianMock, name: string) => door.calls.filter((c) => c.name === name);
 
 describe('which screen shows', () => {
   it('no family yet: the first start, on its first step, with Back’s room empty', async () => {
@@ -310,11 +266,13 @@ describe('the first start (F1 to F8)', () => {
     expect(screen.queryByText(W.welcome.window)).toBeNull();
   });
 
-  it('Add the phone now leads to Devices, which is still being drawn', async () => {
+  it('Add the phone now leads to adding a phone, which says plainly that it comes next', async () => {
     renderGuardian(guardianStates.withAsha(false, true), { route: { at: 'first', initial: { step: 7, child: { childId: 'child-asha', name: 'Asha', ageBand: 'ten_to_twelve' } } } });
     await press('Add Asha’s phone now');
-    expect(await screen.findByText(W.coming)).toBeOnTheScreen();
+    expect(await screen.findByText(W.devices.addComing)).toBeOnTheScreen();
     expect(screen.getByRole('tab', { name: W.tabs.devices })).toBeSelected();
+    await press(`Back to ${W.tabs.devices}`);
+    expect(await screen.findByTestId('screen-devices')).toBeOnTheScreen();
   });
 });
 
@@ -358,13 +316,38 @@ describe('Today (T1 to T3)', () => {
     expect(screen.queryByText('Mira’s phone is not added yet.')).toBeNull();
   });
 
+  it('a phone that needs a guardian: a coral mark under it, and a card beside the request in the engine’s sentence (T3)', async () => {
+    renderGuardian(guardianStates.twoChildren());
+    await screen.findByText('Mira asks for 30 min');
+    expect(within(screen.getByTestId('need-phone-asha')).getByText(W.NEED_MARK.accessibility)).toBeOnTheScreen();
+    const card = screen.getByTestId('needs-phone-asha');
+    expect(within(card).getByText(W.today.needsGuardian)).toBeOnTheScreen();
+    expect(within(card).getByText('Asha’s phone')).toBeOnTheScreen();
+    expect(within(card).getByText('Accessibility is switched off, so LiMo cannot see which app is open.')).toBeOnTheScreen();
+    inOrder(textsInOrder(), [W.today.waitingForYou, 'Mira asks for 30 min', W.today.needsGuardian, 'Asha’s phone', W.today.seeWhatToDo]);
+    // What to do is on the phone's card in Devices: its six steps, accessibility not on.
+    await press(W.today.seeWhatToDo);
+    const phone = await screen.findByTestId('phone-phone-asha');
+    expect(screen.getByRole('tab', { name: W.tabs.devices })).toBeSelected();
+    expect(within(phone).getByLabelText(`${W.devices.six.accessibility}: ${W.devices.notOn}`)).toBeOnTheScreen();
+  });
+
+  it('with nothing said of a device, no mark and no card', async () => {
+    renderGuardian(guardianStates.oneChild());
+    await screen.findByText('1 h 12 min');
+    expect(screen.queryByText(W.today.needsGuardian)).toBeNull();
+    expect(screen.queryByText(W.NEED_MARK.accessibility)).toBeNull();
+    expect(screen.getByText(W.today.nothingWaiting)).toBeOnTheScreen();
+  });
+
   it('a request answered with one tap: given, gone, and the time left grows', async () => {
     const { door } = renderGuardian(guardianStates.twoChildren());
     await screen.findByText('Mira asks for 30 min');
     await press('Give 30 min');
     expect(asked(door, 'answer_request')[0].args).toEqual({ child: 'child-mira', request: 'pc-mira/ask/1', reply: { grant: { minutes: 30 } } });
     expect(screen.queryByText('Mira asks for 30 min')).toBeNull();
-    expect(screen.getByText(W.today.nothingWaiting)).toBeOnTheScreen();
+    // Asha's phone still waits for a guardian.
+    expect(screen.getByTestId('needs-phone-asha')).toBeOnTheScreen();
     expect(within(screen.getByTestId('kid-child-mira')).getByText('30 min')).toBeOnTheScreen();
     expect(within(screen.getByTestId('kid-child-mira')).queryByText(W.today.locked)).toBeNull();
   });
@@ -459,12 +442,16 @@ describe('Today (T1 to T3)', () => {
     inOrder(textsInOrder(), [W.today.waitingForYou, 'Mira asks for 30 min', 'Asha', 'Mira']);
   });
 
-  it('Rules, Devices and More say in one sentence that they are still being drawn', async () => {
+  it('the tabs open Rules, Devices and More, and Today again', async () => {
     renderGuardian(guardianStates.oneChild());
     await screen.findByText('1 h 12 min');
-    for (const tab of [W.tabs.rules, W.tabs.devices, W.tabs.more]) {
+    for (const [tab, id] of [
+      [W.tabs.rules, 'screen-rules'],
+      [W.tabs.devices, 'screen-devices'],
+      [W.tabs.more, 'screen-more'],
+    ] as const) {
       fireEvent.press(screen.getByRole('tab', { name: tab }));
-      expect(await screen.findByText(W.coming)).toBeOnTheScreen();
+      expect(await screen.findByTestId(id)).toBeOnTheScreen();
       expect(screen.getByRole('tab', { name: tab })).toBeSelected();
     }
     fireEvent.press(screen.getByRole('tab', { name: W.tabs.today }));

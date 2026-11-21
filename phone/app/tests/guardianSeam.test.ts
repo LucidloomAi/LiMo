@@ -14,6 +14,7 @@ import {
   type GuardianDoor,
   MISREAD,
   readAccounts,
+  readDeviceNeeds,
   readDoorAnswer,
   readFamilyState,
   readFamilyToday,
@@ -63,7 +64,10 @@ describe('the readers', () => {
       children: 1,
       unlinkedAccounts: 'free',
       signedIn: true,
+      removalAllowedUntil: null,
     });
+    // Removing LiMo allowed until a time, once a guardian said so.
+    expect(readFamilyState({ has_family: true, has_pin: true, children: 1, unlinked_accounts: 'locked', signed_in: true, removal_allowed_until: 1_800_000_600 }).removalAllowedUntil).toBe(1_800_000_600);
     for (const bad of [null, {}, { has_family: 'yes', has_pin: false, children: 1, unlinked_accounts: 'free', signed_in: true }, { has_family: true, has_pin: false, children: -1, unlinked_accounts: 'free', signed_in: true }, { has_family: true, has_pin: false, children: 1, unlinked_accounts: 'open', signed_in: true }]) {
       expect(() => readFamilyState(bad)).toThrow(SeamError);
     }
@@ -74,17 +78,47 @@ describe('the readers', () => {
     expect(asha).toEqual({
       childId: 'child-1',
       name: 'Asha',
+      ageBand: 'ten_to_twelve',
+      day: 20_778,
       budgetSecs: 7_200,
       extraSecs: 0,
       usedSecs: 2_880,
       leftSecs: 4_320,
       guardian: { mode: 'nothing' },
-      devices: [{ deviceId: 'dev-1', name: 'FAMILY-PC', kind: 'on_master', lastHeardAt: 1_800_000_000, inUse: false, usedSecs: 1_020 }],
+      devices: [{ deviceId: 'dev-1', name: 'FAMILY-PC', kind: 'on_master', lastHeardAt: 1_800_000_000, inUse: false, usedSecs: 1_020, clockOffBySecs: null, needs: null, standing: null }],
     });
     // No limit today: no budget and no time left.
     expect(readFamilyToday([{ ...CHILD_TODAY, budget_secs: null, left_secs: null }])[0]).toMatchObject({ budgetSecs: null, leftSecs: null });
-    for (const bad of [{}, [{ ...CHILD_TODAY, devices: [{ ...DEVICE, kind: 'tablet' }] }], [{ ...CHILD_TODAY, used_secs: 1.5 }], [{ ...CHILD_TODAY, guardian: 'lockdown' }]]) {
+    // A clock far off: how far, ahead positive.
+    expect(readFamilyToday([{ ...CHILD_TODAY, devices: [{ ...DEVICE, clock_off_by_secs: -540 }] }])[0].devices[0].clockOffBySecs).toBe(-540);
+    for (const bad of [{}, [{ ...CHILD_TODAY, devices: [{ ...DEVICE, kind: 'tablet' }] }], [{ ...CHILD_TODAY, used_secs: 1.5 }], [{ ...CHILD_TODAY, guardian: 'lockdown' }], [{ ...CHILD_TODAY, age_band: 'teen' }], [{ ...CHILD_TODAY, day: 'today' }]]) {
       expect(() => readFamilyToday(bad)).toThrow(SeamError);
+    }
+  });
+
+  it('read what a device needs a guardian for, in the shape asked of the door; nothing said is no mark and claims nothing', () => {
+    const OFF = 'Accessibility is switched off, so LiMo cannot see which app is open.';
+    const PHONE = 'Phone access is switched off, so a lock could hide a call.';
+    // Nothing said: null, so no mark and nothing claimed of the six. An empty list: all six on.
+    for (const nothing of [undefined, null]) expect(readDeviceNeeds(nothing)).toBeNull();
+    expect(readDeviceNeeds({ off: [] })).toEqual([]);
+    // In setup order, each once; a permission these screens do not know left out with its sentence.
+    expect(
+      readDeviceNeeds({
+        off: [
+          { permission: 'accessibility', words: OFF },
+          { permission: 'camera', words: 'Not one of LiMo’s.' },
+          { permission: 'phone', words: PHONE },
+        ],
+      }),
+    ).toEqual([
+      { permission: 'phone', words: PHONE },
+      { permission: 'accessibility', words: OFF },
+    ]);
+    const [asha] = readFamilyToday([{ ...CHILD_TODAY, devices: [{ ...DEVICE, kind: 'portable', guardian_needed: { off: [{ permission: 'accessibility', words: OFF }] } }] }]);
+    expect(asha.devices[0].needs).toEqual([{ permission: 'accessibility', words: OFF }]);
+    for (const bad of [{ off: 'accessibility' }, { off: [{ permission: 'accessibility' }] }, { off: [{ permission: 'accessibility', words: '' }] }, 'accessibility']) {
+      expect(() => readDeviceNeeds(bad)).toThrow(SeamError);
     }
   });
 

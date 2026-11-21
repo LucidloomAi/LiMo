@@ -1,7 +1,9 @@
 // Every guardian screen the drawings draw (design/screens/console.html), each
 // from the made up family (src/mock/guardianMock.ts), by the drawings' own
-// ids: C0 to C0d, F1 to F8 with F5b and F7b, T1 to T3. Each is shown at the
-// console's width (1100 by 760) and at a phone's (390 by 844).
+// ids: C0 to C0d, F1 to F8 with F5b and F7b, T1 to T3, and from the second
+// sheet R1 to R3, D1 and D2, K1 and K2, M1 to M4; A0 is the one screen
+// that says adding a phone comes next. Each is shown at the console's width
+// (1100 by 760) and at a phone's (390 by 844).
 
 import type { GuardianRoute } from '../guardian/GuardianApp';
 import type { AccountRow, Weekday } from '../guardianSeam';
@@ -93,6 +95,24 @@ export const GUARDIAN_FRAMES: readonly GuardianFrame[] = [
   { id: 'T1', title: 'T1 · Right after the first start', state: guardianStates.firstToday, route: { at: 'app', tab: 'today', fromFirstStart: true } },
   { id: 'T2', title: 'T2 · One child', state: guardianStates.oneChild, route: { at: 'app', tab: 'today' } },
   { id: 'T3', title: 'T3 · Two children, a request waiting', state: guardianStates.twoChildren, route: { at: 'app', tab: 'today' } },
+  // The second sheet.
+  { id: 'R1', title: 'R1 · Asha’s rules', state: () => guardianStates.family(), route: { at: 'app', tab: 'rules' } },
+  {
+    id: 'R2',
+    title: 'R2 · Save found a problem: the rules’ own sentence beside the row',
+    state: () => guardianStates.family(),
+    route: { at: 'app', tab: 'rules', show: { rulesDraft: (r) => ({ ...r, blocked_apps: [...r.blocked_apps, 'Maps'] }), rulesSave: true } },
+  },
+  { id: 'R3', title: 'R3 · Saved', state: () => guardianStates.family(), route: { at: 'app', tab: 'rules', show: { rulesSaved: true } } },
+  { id: 'D1', title: 'D1 · Devices', state: () => guardianStates.family(), route: { at: 'app', tab: 'devices' } },
+  { id: 'D2', title: 'D2 · A phone that needs a guardian', state: () => guardianStates.family(true), route: { at: 'app', tab: 'devices' } },
+  { id: 'K1', title: 'K1 · A one time code: for whom, on what, how much', state: () => guardianStates.family(), route: { at: 'app', tab: 'more', sub: { at: 'code' } } },
+  { id: 'K2', title: 'K2 · The code, to read out', state: () => guardianStates.family(), route: { at: 'app', tab: 'more', sub: { at: 'code' }, show: { codeMade: true } } },
+  { id: 'M1', title: 'M1 · More', state: () => guardianStates.family(), route: { at: 'app', tab: 'more' } },
+  { id: 'M2', title: 'M2 · The password and the PIN', state: () => guardianStates.family(), route: { at: 'app', tab: 'more', sub: { at: 'secrets' } } },
+  { id: 'M3', title: 'M3 · About LiMo', state: () => guardianStates.family(), route: { at: 'app', tab: 'more', sub: { at: 'about' } } },
+  { id: 'M4', title: 'M4 · Delete the family: the password again', state: () => guardianStates.family(), route: { at: 'app', tab: 'more', sub: { at: 'delete-family' } } },
+  { id: 'A0', title: 'Add a phone comes next', state: () => guardianStates.family(), route: { at: 'app', tab: 'devices', sub: { at: 'add-phone' } } },
 ];
 
 export function findGuardianFrame(id: string): GuardianFrame | undefined {

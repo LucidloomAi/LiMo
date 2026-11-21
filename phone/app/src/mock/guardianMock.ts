@@ -49,6 +49,21 @@ export type MockDevice = {
   last_heard_at: number | null;
   in_use: boolean;
   used_secs: number;
+  /** When it was paired, unix seconds. */
+  paired_at: number;
+  /** Today's use, app by app; its whole is used_secs. */
+  apps?: { app_id: string; secs: number }[];
+  /** How far its clock is from the PC's, when far (ahead is positive). */
+  clock_off_by_secs?: number | null;
+  /**
+   * What it needs a guardian for and how it stands, in the door's shapes
+   * (LiMo for Windows' README, "What a device needs a guardian for"); left
+   * out when nothing is known, as for a phone whose notes cannot be read.
+   */
+  guardian_needed?: { off: { permission: string; words: string }[] } | null;
+  setup_finished?: boolean | null;
+  usb_debugging_on?: boolean | null;
+  standing?: Record<string, unknown> | null;
 };
 
 export type MockChild = {
@@ -91,6 +106,10 @@ export type GuardianMockState = {
   accounts: MockAccount[];
   requests: MockRequest[];
   taps: string[];
+  /** After how many idle minutes the PC's count pauses. */
+  idleMinutes: number;
+  /** Until when LiMo may be removed, once a guardian allowed it. */
+  removalUntil?: number | null;
 };
 
 export type GuardianMock = GuardianDoor & {
@@ -147,6 +166,43 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
     return b === 'no_limit' ? null : b.minutes * 60;
   };
   const setting = (c: MockChild) => done({ version: 1, mode: c.guardian, set_at: now() });
+  const pcSettings = () => done({ idle_minutes: state.idleMinutes, unlinked_accounts: state.unlinked });
+  const deviceOf = (id: unknown) => {
+    for (const c of state.children) {
+      const d = c.devices.find((x) => x.device_id === id);
+      if (d) return { c, d };
+    }
+    return null;
+  };
+  const info = (c: MockChild, d: MockDevice) => ({
+    device_id: d.device_id,
+    child_id: c.child_id,
+    name: d.name,
+    kind: d.kind,
+    platform: d.platform,
+    paired_at: d.paired_at,
+    last_heard_at: d.last_heard_at,
+  });
+
+  /** The password, at sign in or asked for again: wrong tries counted together, and a wait after too many. Null when it is right. */
+  function passwordAgain(typed: unknown): DoorOutcome | null {
+    const t = now();
+    if (state.waitUntil !== null && t < state.waitUntil) return problem('must_wait', DOOR_WORDS.mustWait, { wait_until: state.waitUntil, tries_before_wait: 0 });
+    if (typed === state.password) {
+      state.wrongGuesses = 0;
+      state.waitUntil = null;
+      return null;
+    }
+    state.wrongGuesses += 1;
+    if (state.wrongGuesses > FREE_WRONG) {
+      state.waitUntil = t + Math.min(3_600, 60 * 2 ** (state.wrongGuesses - FREE_WRONG - 1));
+      return problem('wrong_password', DOOR_WORDS.wrongWithWait, { wait_until: state.waitUntil, tries_before_wait: 0 });
+    }
+    const left = FREE_WRONG - state.wrongGuesses;
+    const message =
+      left === 0 ? 'That password is not right.' : left === 1 ? 'That password is not right. 1 more try before a wait.' : `That password is not right. ${left} more tries before a wait.`;
+    return problem('wrong_password', message, { tries_before_wait: left });
+  }
 
   function answer(name: DoorName, args: Record<string, unknown>): DoorOutcome {
     if (state.notRunning) return { kind: 'problem', code: 'not_running', words: DOOR_WORDS.notRunning };
@@ -162,26 +218,14 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
           children: state.children.length,
           unlinked_accounts: state.unlinked,
           signed_in: state.signedIn,
+          removal_allowed_until: state.removalUntil ?? null,
         });
       case 'sign_in': {
         if (!state.hasFamily) return problem('no_family', 'No family is set up yet. Set a guardian password first.');
-        const t = now();
-        if (state.waitUntil !== null && t < state.waitUntil) return problem('must_wait', DOOR_WORDS.mustWait, { wait_until: state.waitUntil, tries_before_wait: 0 });
-        if (args.password === state.password) {
-          state.wrongGuesses = 0;
-          state.waitUntil = null;
-          state.signedIn = true;
-          return done({});
-        }
-        state.wrongGuesses += 1;
-        if (state.wrongGuesses > FREE_WRONG) {
-          state.waitUntil = t + Math.min(3_600, 60 * 2 ** (state.wrongGuesses - FREE_WRONG - 1));
-          return problem('wrong_password', DOOR_WORDS.wrongWithWait, { wait_until: state.waitUntil, tries_before_wait: 0 });
-        }
-        const left = FREE_WRONG - state.wrongGuesses;
-        const message =
-          left === 0 ? 'That password is not right.' : left === 1 ? 'That password is not right. 1 more try before a wait.' : `That password is not right. ${left} more tries before a wait.`;
-        return problem('wrong_password', message, { tries_before_wait: left });
+        const wrong = passwordAgain(args.password);
+        if (wrong) return wrong;
+        state.signedIn = true;
+        return done({});
       }
       case 'sign_out':
         state.signedIn = false;
@@ -226,9 +270,15 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
         const c = child(args.child);
         if (!c) return noChild();
         const rules = args.rules as RuleSet;
-        const problems = rules.blocked_hours
-          .map((w, i) => (w.start_minute === w.end_minute ? { field: `blocked_hours[${i}].end_minute`, message: `Blocked hours number ${i + 1} starts and ends at the same time.` } : null))
-          .filter((p) => p !== null);
+        const problems = [
+          ...rules.blocked_hours.map((w, i) =>
+            w.start_minute === w.end_minute ? { field: `blocked_hours[${i}].end_minute`, message: `Blocked hours number ${i + 1} starts and ends at the same time.` } : null,
+          ),
+          // The core's own sentence for an app in both lists.
+          ...rules.blocked_apps.map((app, i) =>
+            rules.always_allowed_apps.includes(app) ? { field: `blocked_apps[${i}]`, message: `${app} is both always allowed and blocked. Choose one.` } : null,
+          ),
+        ].filter((p) => p !== null);
         if (problems.length) return problem('rules', DOOR_WORDS.rulesNotTaken, { rule_problems: problems });
         c.rules = { ...rules, version: c.rules.version + 1 };
         return done(c.rules);
@@ -294,7 +344,7 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
                 added_secs: 0,
                 wrong_guesses: 0,
                 pin_unlocked_until: null,
-                clock_off_by_secs: null,
+                clock_off_by_secs: d.clock_off_by_secs ?? null,
               })),
             };
           }),
@@ -356,6 +406,83 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
         c.guardian = 'nothing';
         return setting(c);
       }
+      case 'usage': {
+        const c = child(args.child);
+        if (!c) return noChild();
+        const devices = c.devices.map((d) => ({
+          device_id: d.device_id,
+          name: d.name,
+          removed: false,
+          secs: d.used_secs,
+          apps: (d.apps ?? []).map((a) => ({ app_id: a.app_id, secs: a.secs, counted_secs: a.secs })),
+        }));
+        const secs = devices.reduce((s, d) => s + d.secs, 0);
+        return done({ child_id: c.child_id, from_day: args.from_day, to_day: args.to_day, secs, counted_secs: secs, apps: devices.flatMap((d) => d.apps), devices });
+      }
+      case 'remove_child': {
+        const wrong = passwordAgain(args.password);
+        if (wrong) return wrong;
+        if (!child(args.child)) return noChild();
+        state.children = state.children.filter((c) => c.child_id !== args.child);
+        state.accounts = state.accounts.map((a) => (a.link === args.child ? { ...a, link: null } : a));
+        return done({});
+      }
+      case 'devices': {
+        const c = child(args.child);
+        return c ? done(c.devices.map((d) => info(c, d))) : noChild();
+      }
+      case 'rename_device': {
+        const found = deviceOf(args.device);
+        if (!found) return problem('not_found', 'That device is not paired with this family. Pair it again.');
+        const n = String(args.name ?? '').trim();
+        if (n === '') return problem('invalid', 'The device’s name cannot be empty.');
+        found.d.name = n;
+        return done(info(found.c, found.d));
+      }
+      case 'remove_device': {
+        const wrong = passwordAgain(args.password);
+        if (wrong) return wrong;
+        const found = deviceOf(args.device);
+        if (!found) return problem('not_found', 'That device is not paired with this family. Pair it again.');
+        found.c.devices = found.c.devices.filter((d) => d !== found.d);
+        return done({});
+      }
+      case 'pc_settings':
+        return pcSettings();
+      case 'set_idle_minutes': {
+        const m = Number(args.minutes);
+        if (!Number.isInteger(m) || m < 1 || m > 60) return problem('invalid', 'Choose a number from 1 to 60.');
+        state.idleMinutes = m;
+        return pcSettings();
+      }
+      case 'set_unlinked_accounts':
+        state.unlinked = args.unlinked === 'free' ? 'free' : 'locked';
+        return pcSettings();
+      case 'make_code': {
+        const found = deviceOf(args.device);
+        if (!found) return problem('not_found', 'That device is not paired with this family. Pair it again.');
+        return done({ shown: '4718 2093', minutes: args.minutes, day: 0, device_id: found.d.device_id });
+      }
+      case 'change_password': {
+        const wrong = passwordAgain(args.old);
+        if (wrong) return wrong;
+        const p = String(args.new ?? '');
+        if (p.length < 8) return problem('invalid', DOOR_WORDS.tooShort);
+        state.password = p;
+        return done({});
+      }
+      case 'allow_removal': {
+        const wrong = passwordAgain(args.password);
+        if (wrong) return wrong;
+        state.removalUntil = now() + 600;
+        return done({ until: state.removalUntil });
+      }
+      case 'delete_family': {
+        const wrong = passwordAgain(args.password);
+        if (wrong) return wrong;
+        state = { ...state, hasFamily: false, password: null, pin: null, signedIn: false, unlinked: 'free', children: [], requests: [], accounts: state.accounts.map((a) => ({ ...a, link: null })) };
+        return done({});
+      }
     }
   }
 
@@ -386,6 +513,9 @@ const PC_OF = (child: string, used: number): MockDevice => ({
   last_heard_at: NOW - 20,
   in_use: false,
   used_secs: used,
+  paired_at: NOW - 3 * 86_400,
+  // The drawings' afternoon on the PC: 11 minutes of Chrome and 6 of Paint.
+  apps: used === 17 * 60 ? [{ app_id: 'Chrome', secs: 660 }, { app_id: 'Paint', secs: 360 }] : [],
 });
 
 const ASHA_PHONE = (inUse: boolean, heardSecsAgo: number): MockDevice => ({
@@ -396,6 +526,66 @@ const ASHA_PHONE = (inUse: boolean, heardSecsAgo: number): MockDevice => ({
   last_heard_at: NOW - heardSecsAgo,
   in_use: inUse,
   used_secs: 31 * 60,
+  paired_at: NOW - 4 * 3_600,
+  apps: [
+    { app_id: 'Maps', secs: 720 },
+    { app_id: 'Chrome', secs: 540 },
+    { app_id: 'Gallery', secs: 360 },
+    { app_id: 'Clock', secs: 240 },
+  ],
+});
+
+/** The engine's sentences for a step switched off, as the door gives them. */
+const OFF_WORDS: Readonly<Record<string, string>> = {
+  accessibility: 'Accessibility is switched off, so LiMo cannot see which app is open.',
+};
+
+/**
+ * How a phone stands, in the door's four fields: set up, each of the six on
+ * but those named, base protection, USB debugging as said. A step switched
+ * off three minutes ago; the rest on since it was paired.
+ */
+function stands(off: readonly string[], options: { usb?: boolean } = {}): Pick<MockDevice, 'guardian_needed' | 'setup_finished' | 'usb_debugging_on' | 'standing'> {
+  const since = NOW - 4 * 3_600;
+  return {
+    guardian_needed: off.length ? { off: off.map((p) => ({ permission: p, words: OFF_WORDS[p] ?? `${p} is switched off.` })) } : null,
+    setup_finished: true,
+    usb_debugging_on: options.usb ?? false,
+    standing: {
+      steps: ['notifications', 'phone', 'usage_access', 'accessibility', 'battery', 'protection'].map((p) => ({ permission: p, on: !off.includes(p), since: off.includes(p) ? NOW - 180 : since })),
+      steps_off: [...off],
+      setup_finished: true,
+      setup_finished_at: since,
+      protection: { level: 'base', since },
+      usb_debugging: options.usb ? { on: true, since } : null,
+      clock: null,
+      clock_moved: null,
+      restarted_at: null,
+      guard_opened: null,
+      guarded_pages: [],
+      needs_guardian: off.length > 0 || Boolean(options.usb),
+    },
+  };
+}
+
+/** Asha's rules as the second sheet draws them: an hour and a half on school days, more at the weekend, bedtime, half away, and her apps. */
+const ASHA_RULES = (): RuleSet => ({
+  ...startingRules(),
+  version: 4,
+  budgets: { monday: { minutes: 90 }, tuesday: { minutes: 90 }, wednesday: { minutes: 90 }, thursday: { minutes: 90 }, friday: { minutes: 120 }, saturday: { minutes: 180 }, sunday: { minutes: 180 } },
+  blocked_hours: [{ days: [...WEEKDAYS], start_minute: 1260, end_minute: 420 }],
+  blocked_apps: ['Game Launcher'],
+  always_allowed_apps: ['Calculator', 'Messages', 'Clock', 'Maps'],
+});
+
+const MIRA = (): MockChild => ({
+  child_id: 'child-mira',
+  name: 'Mira',
+  age_band: 'six_to_nine',
+  rules: { ...startingRules(), budgets: Object.fromEntries(WEEKDAYS.map((d) => [d, { minutes: 60 }])) as Record<Weekday, { minutes: number }> },
+  extra_secs: 0,
+  guardian: 'nothing',
+  devices: [PC_OF('mira', 60 * 60)],
 });
 
 const ACCOUNTS = (ashaIsAdmin: boolean, linked: boolean): MockAccount[] => [
@@ -428,6 +618,7 @@ const BASE: GuardianMockState = {
   accounts: ACCOUNTS(false, true),
   requests: [],
   taps: [],
+  idleMinutes: 3,
 };
 
 /** Each a fresh copy: the mock changes what it holds. */
@@ -470,22 +661,39 @@ export const guardianStates = {
   }),
   /** T2: one child, an ordinary afternoon. */
   oneChild: (): GuardianMockState => ({ ...BASE }),
-  /** T3: two children, Mira's time used up, and Mira asking for more. */
+  /** T3: two children, Mira's time used up, Mira asking for more, and accessibility switched off on Asha's phone. */
   twoChildren: (): GuardianMockState => ({
     ...BASE,
     children: [
-      ASHA([PC_OF('asha', 17 * 60), ASHA_PHONE(false, 3 * 60)]),
-      {
-        child_id: 'child-mira',
-        name: 'Mira',
-        age_band: 'six_to_nine',
-        rules: { ...startingRules(), budgets: Object.fromEntries(WEEKDAYS.map((d) => [d, { minutes: 60 }])) as Record<Weekday, { minutes: number }> },
-        extra_secs: 0,
-        guardian: 'nothing',
-        devices: [PC_OF('mira', 60 * 60)],
-      },
+      ASHA([
+        PC_OF('asha', 17 * 60),
+        { ...ASHA_PHONE(false, 3 * 60), ...stands(['accessibility']) },
+      ]),
+      MIRA(),
     ],
     accounts: ACCOUNTS(false, true).map((a) => (a.name === 'mira' ? { ...a, link: 'child-mira' } : a)),
     requests: [{ child_id: 'child-mira', id: 'pc-mira/ask/1', device_id: 'pc-mira', minutes: 30, reason: 'To finish my science project', asked_at: NOW - 8 * 60 }],
+  }),
+  /**
+   * The second sheet's family: Asha with her week, her apps and a phone,
+   * and Mira; Asha's and Mira's accounts theirs. With `trouble`, Asha's
+   * phone needs a guardian: not heard for two hours, accessibility off, USB
+   * debugging still on, its clock 9 min ahead. Without, all six are on.
+   */
+  family: (trouble = false): GuardianMockState => ({
+    ...BASE,
+    children: [
+      {
+        ...ASHA([
+          PC_OF('asha', 17 * 60),
+          trouble
+            ? { ...ASHA_PHONE(false, 2 * 3_600), ...stands(['accessibility'], { usb: true }), clock_off_by_secs: 540 }
+            : { ...ASHA_PHONE(true, 10), ...stands([]) },
+        ]),
+        rules: ASHA_RULES(),
+      },
+      MIRA(),
+    ],
+    accounts: ACCOUNTS(false, true).map((a) => (a.name === 'mira' ? { ...a, link: 'child-mira' } : a)),
   }),
 };

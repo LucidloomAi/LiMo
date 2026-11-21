@@ -151,6 +151,12 @@ export function untilInSentence(now: number, at: number, clock: Clock): string {
   return `${dayAndMonth(then)}, ${time}`;
 }
 
+/** A date in a row of facts: "21 Nov". */
+export function shortDate(at: number, clock: Clock): string {
+  const t = local(at, clock);
+  return `${t.date} ${MONTHS[t.month].slice(0, 3)}`;
+}
+
 /** Today's date at the top of Today: "Saturday 21 November". */
 export function dateLine(now: number, clock: Clock): string {
   return dayAndMonth(local(now, clock));
@@ -170,7 +176,7 @@ const WEEK: readonly Weekday[] = ['monday', 'tuesday', 'wednesday', 'thursday', 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 /** "a", "a and b", "a, b and c". */
-function andList(items: readonly string[]): string {
+export function andList(items: readonly string[]): string {
   if (items.length <= 1) return items[0] ?? '';
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
