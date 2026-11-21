@@ -2,7 +2,8 @@
 //! in it, as limo-cable's own tests build them (`phone/cable/tests/common/
 //! apk.rs`), the entries stored rather than compressed. The manifest names
 //! the package, the version name 0.3.0, and whether it is a debug build.
-//! Never a real app: there is nothing to run in it.
+//! Never a real app: there is nothing to run in it. Also included by
+//! `examples/throwaway_apk.rs`, for a dry build of the installer.
 
 use std::path::{Path, PathBuf};
 
@@ -127,9 +128,10 @@ pub(crate) fn apk_bytes(package: &str, debuggable: bool) -> Vec<u8> {
 }
 
 /// Writes one to `phone\limo-child.apk` under `folder`, where the console
-/// keeps its app beside the program; its path.
+/// keeps its app beside the program (`phone::APP_FOLDER`, `phone::APP_FILE`);
+/// its path.
 pub(crate) fn apk_in(folder: &Path, package: &str, debuggable: bool) -> PathBuf {
-    let path = folder.join(crate::phone::APP_FOLDER).join(crate::phone::APP_FILE);
+    let path = folder.join("phone").join("limo-child.apk");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, apk_bytes(package, debuggable)).unwrap();
     path

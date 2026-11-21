@@ -1,0 +1,10 @@
+{
+  "name": "limo-installer",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Builds LiMo's installer for Windows with Tauri's bundler (NSIS); see README.md",
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.5"
+  }
+}
