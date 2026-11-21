@@ -31,7 +31,7 @@ internal val ALL_READINGS = listOf(
   "wall_clock", "elapsed", "boot_count", "utc_offset", "hours_24", "auto_time", "interactive",
   "keyguard_locked", "audio_mode", "telephony_call_state", "usage_access", "accessibility",
   "notifications", "phone_permission", "battery_exempt", "device_admin", "usage_events", "home", "diallers",
-  "in_call_screens", "emergency_dialler", "keyboards", "launchable", "label", "guard_pages",
+  "in_call_screens", "emergency_dialler", "keyboards", "launchable", "label", "guard_pages", "usb_debugging",
 )
 
 /** A phone as the watch reads it. Each field is what Android says now. */
@@ -61,6 +61,9 @@ internal class TestPhone : PhoneSource {
   var phoneGranted = true
   var battery = true
   var admin = false
+
+  /** `Settings.Global.ADB_ENABLED`, as Android's adb service reads it. */
+  var adbEnabled = 0
   var home = setOf(LAUNCHER)
   var diallers = setOf(PHONE_APP)
   var inCall = emptySet<String>()
@@ -158,6 +161,7 @@ internal class TestPhone : PhoneSource {
   override fun phoneGranted(): Boolean = phoneGranted.also { check("phone_permission") }
   override fun batteryExempt(): Boolean = battery.also { check("battery_exempt") }
   override fun deviceAdmin(): Boolean = admin.also { check("device_admin") }
+  override fun adbEnabled(): Int = adbEnabled.also { check("usb_debugging") }
 
   override fun usageEvents(fromWallMs: Long, toWallMs: Long, reach: GuardReach): List<UsageEvent>? {
     check("usage_events")

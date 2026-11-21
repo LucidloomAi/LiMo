@@ -31,6 +31,7 @@ import ai.lucidloom.limo.child.ffi.PhonePermissions
  * | Android's lock screen | false |
  * | call | idle, from the audio mode and the telephony state, either alone |
  * | every permission | false |
+ * | USB debugging | null: unknown, never off, and no older reading stands in |
  * | the front | unknown, why in [WatchLook.unknownBecause] |
  * | a label | none |
  * | the roles | as last asked (none at first) |
@@ -66,6 +67,7 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
   private val emergency = Remembered("emergency_dialler", emptySet<String>())
   private val keyboards = Remembered("keyboards", emptySet<String>())
   private var callGood: CallState? = null
+  private var usbDebuggingSeen: Boolean? = null
 
   private val startedAtMs = elapsedNow()
   private var roles = PhoneRoles()
@@ -122,6 +124,7 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
       prodded = prodded,
       permissions = enginePermissions(permissions, now),
       guarded = guarded,
+      usbDebugging = usbDebuggingNow(),
     )
     val beside = front.alsoVisible(roles, phone.stopsReported).map(::toFront)
     return WatchLook(facts, beside, permissions, pick.unknownBecause, reach.scope())
@@ -155,6 +158,7 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
       inReach = inReach,
       prodded = prodded,
       permissions = toEngine(permissions, accessibility = permissions.accessibility && permissions.accessibilityRunning),
+      usbDebugging = usbDebuggingSeen,
     )
     return WatchLook(facts, emptyList(), permissions, UnknownBecause.USAGE_UNREADABLE)
   }
@@ -517,6 +521,18 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
   }
 
   private fun elapsedNow(): Long = remembered(elapsed, elapsed.good ?: 0L) { phone.elapsedMs() }
+
+  /**
+   * Whether USB debugging is on now ([UsbDebugging]); null when Android
+   * refuses the reading, which is logged as any other refusal. Unlike the
+   * other facts no older reading stands in: a phone whose USB debugging
+   * cannot be read is not known to have it either way.
+   */
+  private fun usbDebuggingNow(): Boolean? {
+    val read = optional("usb_debugging") { UsbDebugging.of(phone.adbEnabled()) }
+    usbDebuggingSeen = read
+    return read
+  }
 
   private inline fun <T : Any> remembered(r: Remembered<T>, now: Long, read: () -> T): T {
     try {

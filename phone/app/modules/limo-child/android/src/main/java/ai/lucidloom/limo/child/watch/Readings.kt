@@ -90,6 +90,13 @@ internal interface PhoneSource {
   /** `PowerManager.isIgnoringBatteryOptimizations`. */
   fun batteryExempt(): Boolean
 
+  /**
+   * `Settings.Global.ADB_ENABLED`, read as Android's own adb service reads
+   * it, with 0 when it was never set: whether USB debugging is on (see
+   * [UsbDebugging]). No permission is needed, and nothing is ever written.
+   */
+  fun adbEnabled(): Int
+
   /** `DevicePolicyManager.isAdminActive` for LiMo's device admin. */
   fun deviceAdmin(): Boolean
 
@@ -135,6 +142,22 @@ internal interface PhoneSource {
 
   /** An app's label from Android's package manager; null when Android does not know the package. */
   fun label(packageName: String): String?
+}
+
+/**
+ * Whether USB debugging is on, from `Settings.Global.ADB_ENABLED`: on above
+ * 0, as Android's own adb service takes it, off at 0. A value below 0 is
+ * none Android writes, and is not known; nor is a reading Android refuses
+ * ([WatchCore] gives null then). Unknown is never told as off: the engine
+ * tells the guardian nothing until it is known, so a phone with USB
+ * debugging on is never said to have it off.
+ */
+internal object UsbDebugging {
+  fun of(adbEnabled: Int): Boolean? = when {
+    adbEnabled > 0 -> true
+    adbEnabled == 0 -> false
+    else -> null
+  }
 }
 
 /** What happened to an app's activity, in Android's usage events. Nothing else is read. */

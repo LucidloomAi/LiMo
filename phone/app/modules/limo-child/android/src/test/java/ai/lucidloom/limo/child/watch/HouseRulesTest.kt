@@ -12,8 +12,9 @@ import org.junit.Test
  * The folder's own promises, checked in its files: the watch reads nothing
  * on the screen; a class name only for Android's Settings, the installer and
  * the package Android named for the device admin's page, and only to match
- * it against the guarded pages; no package name but the framework's and the
- * guarded list's; and nothing a person reads has dash punctuation.
+ * it against the guarded pages; six of Android's settings read and none
+ * written; no package name but the framework's and the guarded list's; and
+ * nothing a person reads has dash punctuation.
  */
 class HouseRulesTest {
   private val watchDir: File by lazy {
@@ -182,6 +183,25 @@ class HouseRulesTest {
     // A caller's number is never read: it is a parameter Android passes, named once and unused.
     val signals = File(watchDir, "WatchSignals.kt").readText()
     assertTrue(Regex("""phoneNumber""").findAll(signals).count() == 1)
+  }
+
+  @Test
+  fun theWatchReadsOnlyItsSixSettingsAndWritesNone() {
+    // Each read for one fact (its README, "The facts"): ADB_ENABLED only to
+    // tell the guardian whether USB debugging is on.
+    val setting = Regex("""Settings\.(Global|Secure|System)\.([A-Z][A-Z_]*)\b""")
+    val write = Regex("""Settings\.(Global|Secure|System)\.put|\bput(Int|Long|Float|String)\(""")
+    val read = HashSet<String>()
+    for (file in sources(watchDir)) {
+      for (c in file.readLines().mapNotNull(::code)) {
+        assertFalse("${file.name} writes a setting: $c", write.containsMatchIn(c))
+        setting.findAll(c).forEach { read += it.groupValues[2] }
+      }
+    }
+    assertEquals(
+      setOf("BOOT_COUNT", "AUTO_TIME", "ADB_ENABLED", "ACCESSIBILITY_ENABLED", "ENABLED_ACCESSIBILITY_SERVICES", "DEFAULT_INPUT_METHOD"),
+      read,
+    )
   }
 
   @Test

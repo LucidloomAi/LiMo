@@ -142,6 +142,7 @@ class FactsTest {
     assertEquals(UnknownBecause.USAGE_UNREADABLE, look.unknownBecause)
     assertEquals(PhonePermissions(false, false, false, false, false, false), facts.permissions)
     assertEquals(LimoPermissions(false, false, false, false, false, false, false), look.permissions)
+    assertNull("USB debugging not known, never off", facts.usbDebugging)
     // Nor do the service's events, the rechecks or the clock.
     assertFalse(rig.core.windowEvent(GAME))
     rig.core.recheck()
@@ -159,6 +160,34 @@ class FactsTest {
     rig.open(LAUNCHER)
     assertEquals(FrontKind.HOME, rig.front().kind)
     assertEquals(7, rig.facts().bootCount)
+  }
+
+  @Test
+  fun usbDebuggingIsOnOrOffAsAndroidSaysAndUnknownNeverOffWhenItCannotBeRead() {
+    val rig = Rig()
+    // Never switched on, or switched off: Android's 0.
+    assertEquals(false, rig.facts().usbDebugging)
+    rig.phone.adbEnabled = 1
+    assertEquals(true, rig.facts().usbDebugging)
+    // Android refuses the reading: not known, neither the last on nor off.
+    rig.phone.failing += "usb_debugging"
+    assertNull(rig.facts().usbDebugging)
+    assertNull(rig.look().facts.usbDebugging)
+    assertEquals(
+      listOf("fact usb_debugging unreadable error=SecurityException fallback_used"),
+      rig.log.lines.filter { it.startsWith("fact usb_debugging ") },
+    )
+    // The last look made with no reading at all says what was last read: not known.
+    assertNull(rig.core.lastLook(inReach = false, prodded = false).facts.usbDebugging)
+    // Read again: off.
+    rig.phone.failing.clear()
+    rig.phone.adbEnabled = 0
+    assertEquals(false, rig.facts().usbDebugging)
+    // Android's adb service takes any value above 0 as on; none below 0 is known.
+    assertEquals(true, UsbDebugging.of(2))
+    assertNull(UsbDebugging.of(-1))
+    rig.phone.adbEnabled = -1
+    assertNull(rig.facts().usbDebugging)
   }
 
   @Test

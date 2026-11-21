@@ -64,6 +64,8 @@ internal class AndroidPhone(private val context: Context) : PhoneSource {
 
   override fun autoTime(): Boolean = Settings.Global.getInt(resolver, Settings.Global.AUTO_TIME) != 0
 
+  override fun adbEnabled(): Int = Settings.Global.getInt(resolver, Settings.Global.ADB_ENABLED, 0)
+
   // the screen and calls
 
   override fun interactive(): Boolean = service<PowerManager>().isInteractive
