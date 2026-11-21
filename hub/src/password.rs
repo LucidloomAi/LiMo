@@ -9,6 +9,7 @@
 use std::fmt;
 
 use ctutils::CtEq;
+use limo_core::PinRecord;
 use sha2::Sha256;
 
 use crate::error::HubError;
@@ -101,9 +102,48 @@ impl PasswordRecord {
     }
 }
 
+/// True when `pin` is the PIN of the core's record, by the core's own rule
+/// (`PinRecord::matches`, which the core keeps to itself): a typed PIN of 4
+/// to 8 digits, a sound record, and PBKDF2-HMAC-SHA256 of the digits with
+/// the record's salt and rounds equal to its hash, compared in constant
+/// time. The same hash as the password's. The test
+/// `a_pin_record_of_the_core_is_checked_by_the_cores_rule` holds the two
+/// together.
+pub(crate) fn pin_matches(record: &PinRecord, pin: &str) -> bool {
+    if !limo_core::typed_pin_is_well_formed(pin) || !record.is_sound() {
+        return false;
+    }
+    derive(pin, &record.salt, record.iterations)[..].ct_eq(record.hash.as_slice()).to_bool()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pin_record_of_the_core_is_checked_by_the_cores_rule() {
+        let salt: Vec<u8> = (0u8..16).collect();
+        let record = PinRecord::with_iterations("482915", salt.clone(), 1_000).unwrap();
+        assert!(pin_matches(&record, "482915"));
+        for wrong in ["482916", "4829150", "48291", "", "abcdef", "48291\u{0}"] {
+            assert!(!pin_matches(&record, wrong), "{wrong:?}");
+        }
+        // A record of a four digit PIN, from before PINs had six, still
+        // works, as on a device.
+        let old = PinRecord { salt: salt.clone(), iterations: 1_000, hash: derive("2580", &salt, 1_000).to_vec() };
+        assert!(pin_matches(&old, "2580"));
+        // A record that is not sound never matches.
+        let broken = PinRecord { iterations: 0, ..record.clone() };
+        assert!(!pin_matches(&broken, "482915"));
+        // And the core takes the hub's word for the same record: a device
+        // given this record opens with this PIN.
+        let mut book = limo_core::MasterBook::new("child-1", limo_core::RuleSet::new(1, 0)).unwrap();
+        book.set_pin_record(record).unwrap();
+        let welcome = book.add_device("device-1", limo_core::DeviceKind::Portable, 1_800_000_000).unwrap();
+        let mut device = limo_core::DeviceState::from_pairing(&welcome, 1_800_000_000);
+        let outcome = device.try_pin("482915", limo_core::PinAction::ConfirmRelease, 1_800_000_001).unwrap();
+        assert_eq!(outcome, limo_core::TryOutcome::ReleaseConfirmed);
+    }
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()

@@ -8,7 +8,7 @@ use crate::error::HubError;
 use crate::hub::Hub;
 use crate::store;
 use crate::types::TidyReport;
-use crate::{BOOK_DAYS, EVENT_KEEP_DAYS, MAX_DETAIL_DAYS, MAX_EVENTS, MIN_DETAIL_DAYS};
+use crate::{BOOK_DAYS, EVENT_KEEP_DAYS, MAX_DETAIL_DAYS, MAX_EVENTS, MIN_DETAIL_DAYS, OFFER_KEEP_SECS};
 use limo_core::SECONDS_PER_DAY;
 
 impl Hub {
@@ -40,7 +40,9 @@ impl Hub {
     ///   (`forget_days_before`), and is written only when that changed it;
     /// - the record of one time codes made before yesterday is dropped;
     /// - events older than [`crate::EVENT_KEEP_DAYS`] days, and all but the
-    ///   newest [`crate::MAX_EVENTS`], are dropped.
+    ///   newest [`crate::MAX_EVENTS`], are dropped;
+    /// - pairing offers that expired more than [`crate::OFFER_KEEP_SECS`]
+    ///   ago are dropped, with the secrets they hold.
     ///
     /// It costs one book read and write per child, and work in proportion
     /// to the slices it folds (some thousands for a day of use). Call it
@@ -99,6 +101,11 @@ impl Hub {
             [MAX_EVENTS],
         )?;
         report.events_dropped = dropped as u64;
+
+        // Pairing offers, a day after they expired: by then no phone is
+        // still on its way with one.
+        let offers = tx.execute("DELETE FROM offer WHERE expires_at < ?1", [now.saturating_sub(OFFER_KEEP_SECS)])?;
+        report.offers_dropped = offers as u64;
         tx.commit()?;
         Ok(report)
     }

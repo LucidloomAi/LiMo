@@ -11,13 +11,13 @@
 //! it can never disagree after a power cut.
 
 use limo_core::{CODE_SECRET_BYTES, DeviceKind, DeviceState};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::devices::{pair_in, remove_in, take_report};
 use crate::error::HubError;
 use crate::hub::Hub;
 use crate::random;
-use crate::store::{self, DeviceRow, MasterPcRow, add_event, to_u32};
+use crate::store::{self, DeviceRow, MasterPcRow, add_event, note_once, to_u32};
 use crate::text::{self, TextField};
 use crate::types::{EventKind, MasterPcExchange, MasterPcRecord, PcSettings, UnlinkedAccounts};
 use crate::{MAX_IDLE_MINUTES, MIN_IDLE_MINUTES};
@@ -48,21 +48,6 @@ fn master_pc_device(conn: &Connection, state: &DeviceState) -> Result<DeviceRow,
         return Err(HubError::NotMasterPc { device_id });
     }
     Ok(row)
-}
-
-/// Records an event unless the same event, to the letter, is already on
-/// record. True when it was recorded now.
-fn note_once(conn: &Connection, child_id: Option<&str>, what: &EventKind, now: i64) -> Result<bool, HubError> {
-    let detail = serde_json::to_string(what).map_err(|_| HubError::internal("an event could not be written as JSON"))?;
-    let seen = conn
-        .query_row("SELECT 1 FROM event WHERE kind = ?1 AND detail = ?2", params![what.key(), detail], |_| Ok(()))
-        .optional()?
-        .is_some();
-    if seen {
-        return Ok(false);
-    }
-    add_event(conn, now, child_id, what)?;
-    Ok(true)
 }
 
 impl Hub {

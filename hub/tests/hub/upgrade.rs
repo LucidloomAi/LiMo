@@ -1,3 +1,7 @@
+//! Files made by earlier versions of the hub open, are carried to this
+//! version, and go on: one of the first version, one from before the agent,
+//! and one from before the link.
+//!
 //! A file made by the first version of the hub (schema version 1, with the
 //! rules core of that time) opens, is carried to this version, and goes on.
 //!
@@ -215,5 +219,111 @@ fn a_file_made_by_the_hub_before_the_agent_opens_and_goes_on() {
     hub.exchange_on_master_pc(&mut ravi_pc, true, "", NOW + 401).unwrap();
     let decision = ravi_pc.decide(NOW + 402, None);
     assert_eq!(decision.device_lock.map(|l| l.reason), Some(limo_core::LockReason::GuardianLock));
+    hub.tidy(NOW + 500).unwrap();
+}
+
+fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
+    conn.query_row("SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2", [table, column], |r| r.get::<_, i64>(0))
+        .unwrap()
+        == 1
+}
+
+/// `tests/fixtures/store_v3.limo` was made with the hub as it was before the
+/// link kept anything in it (schema version 3), by a program that called
+/// only that hub's public calls: a family with the password of the stories
+/// and the PIN 482915; Asha with her device on the master PC (paired by the
+/// agent, its state and notes kept), a phone paired the only way that hub
+/// could (no link key), use on Tuesday 17 and Wednesday 18 November, a
+/// request for 20 minutes waiting, extra time given and a code made, and an
+/// old phone removed; Ravi with a tablet, his device on the master PC and a
+/// lock until 20:00; three Windows accounts; the PC's settings changed; and
+/// the agent's events. The `store_v3_*.json` files beside it are the device
+/// states of that moment and what that hub's views showed at Wednesday
+/// 12:00.
+#[test]
+fn a_file_made_by_the_hub_before_the_link_opens_and_goes_on() {
+    use limo_core::RequestReply;
+    use limo_hub::{MasterPcRecord, PcSettings, PhoneForm, PhoneNote, UnlinkedAccounts, WaitingRequest};
+
+    let place = place();
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/store_v3.limo"), &place.path).unwrap();
+    let devices: (Vec<DeviceInfo>, Vec<DeviceInfo>) = json(include_str!("../fixtures/store_v3_devices.json"));
+    let asha = devices.0[0].child_id.clone();
+    let ravi = devices.1[0].child_id.clone();
+    let mut phone = Device { id: devices.0[1].device_id.clone(), state: json(include_str!("../fixtures/store_v3_phone_state.json")) };
+    let mut tablet = Device { id: devices.1[0].device_id.clone(), state: json(include_str!("../fixtures/store_v3_tablet_state.json")) };
+    let old_phone: DeviceState = json(include_str!("../fixtures/store_v3_old_phone_state.json"));
+    let pcs: (Option<MasterPcRecord>, Option<MasterPcRecord>) = json(include_str!("../fixtures/store_v3_master_pc.json"));
+    let waiting: Vec<WaitingRequest> = json(include_str!("../fixtures/store_v3_waiting.json"));
+    {
+        let conn = raw(&place.path);
+        assert_eq!(version(&conn), 3);
+        assert!(!has_column(&conn, "family", "master_key"));
+    }
+
+    let hub = Hub::open(&place.path).unwrap();
+    // What the guardian sees is what the hub before the link showed.
+    let today: Vec<ChildToday> = json(include_str!("../fixtures/store_v3_family_today.json"));
+    assert_eq!(hub.family_today(NOW).unwrap(), today);
+    let usage: UsageView = json(include_str!("../fixtures/store_v3_usage.json"));
+    assert_eq!(hub.usage(&asha, TODAY - 1, TODAY).unwrap(), usage);
+    let events: Vec<Event> = json(include_str!("../fixtures/store_v3_events.json"));
+    assert_eq!(hub.events(100, None).unwrap(), events);
+    assert_eq!((hub.devices(&asha).unwrap(), hub.devices(&ravi).unwrap()), devices);
+    assert_eq!((hub.master_pc(&asha).unwrap(), hub.master_pc(&ravi).unwrap()), pcs);
+    assert_eq!(hub.waiting_requests(NOW).unwrap(), waiting);
+    assert_eq!(hub.pc_settings().unwrap(), PcSettings { idle_minutes: 5, unlinked_accounts: UnlinkedAccounts::Locked });
+    assert_eq!(hub.accounts().unwrap().len(), 3);
+
+    // The family got its master key, and every phone its row: the form of a
+    // child's phone, no link key, no notes, its removal kept.
+    let key = hub.master_key().unwrap();
+    assert_ne!(key.expose_private(), &[0u8; 32]);
+    assert!(hub.link_phones().unwrap().is_empty());
+    let seen = hub.phone(&phone.id).unwrap();
+    assert_eq!((seen.form, seen.has_link_key, seen.android_version), (PhoneForm::Child, false, None));
+    assert!(seen.notes.is_empty() && seen.setup_finished_at.is_none() && seen.apps.is_none());
+    assert_eq!(hub.phone(&tablet.id).unwrap().child_id, ravi);
+    assert!(hub.phone(&old_phone.device_id()).unwrap().removed_at.is_some());
+    let pc_id = pcs.0.as_ref().unwrap().device_id.clone();
+    assert!(matches!(hub.phone(&pc_id).unwrap_err(), HubError::NotAPhone { .. }));
+    hub.close().unwrap();
+    {
+        let conn = raw(&place.path);
+        assert_eq!(version(&conn), SCHEMA_VERSION as i64);
+        assert_eq!(count(&conn, "phone", "1"), 3);
+    }
+
+    // The key is made once: the same after a restart.
+    let mut hub = Hub::open(&place.path).unwrap();
+    assert_eq!(hub.master_key().unwrap(), key);
+    assert!(hub.check_password(PASSWORD, NOW).is_ok() && hub.has_pin().unwrap());
+
+    // Everything goes on. The phone and the tablet report; the request is
+    // answered and reaches the phone; the PC's device exchanges from its
+    // kept state; the old phone stays refused.
+    let before = hub.child_today(&asha, NOW).unwrap();
+    use_app(&mut hub, &mut phone, "com.google.android.youtube", NOW, NOW + 300);
+    exchange(&mut hub, &mut tablet, NOW + 310, false);
+    hub.answer_request(&asha, &waiting[0].request.request.id, RequestReply::Grant { minutes: 20 }, NOW + 320).unwrap();
+    exchange(&mut hub, &mut phone, NOW + 330, false);
+    assert_eq!(hub.child_today(&asha, NOW + 330).unwrap().extra_secs, before.extra_secs + 20 * MIN as u64);
+    let mut pc = pcs.0.unwrap().state;
+    pc.record_use("minecraft.exe", NOW + 300, NOW + 360);
+    hub.exchange_on_master_pc(&mut pc, true, "", NOW + 360).unwrap();
+    assert_eq!(hub.child_today(&asha, NOW + 360).unwrap().used_secs, before.used_secs + 6 * MIN as u64);
+    let mut old_phone = old_phone;
+    let err = hub.handle_report(&old_phone.report(NOW + 370, false), NOW + 370).unwrap_err();
+    assert_eq!(err, HubError::DeviceRemoved { device_id: old_phone.device_id() });
+
+    // The phone paired before the link takes notes; a new phone pairs with
+    // an offer, and the link knows its key.
+    let report = report_with_notes(&mut phone, &[PhoneNote::SetupFinished { at: NOW }], 1, NOW + 380);
+    hub.handle_report(&report, NOW + 380).unwrap();
+    assert_eq!(hub.phone(&phone.id).unwrap().setup_finished_at, Some(NOW));
+    let mut new_phone = pair_phone(&mut hub, &asha, "Asha's new phone", 9, NOW + 400);
+    use_app(&mut hub, &mut new_phone, "com.duolingo", NOW + 400, NOW + 460);
+    assert_eq!(hub.link_phones().unwrap().len(), 1);
+    assert_eq!(hub.child_today(&asha, NOW + 460).unwrap().devices.len(), 3);
     hub.tidy(NOW + 500).unwrap();
 }

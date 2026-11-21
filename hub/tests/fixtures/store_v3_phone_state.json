@@ -1,0 +1,204 @@
+{
+  "child_id": "child-63358d6dbe331c03",
+  "device_id": "device-2b1439f6b44a698d",
+  "rules": {
+    "version": 1,
+    "utc_offset_secs": 19800,
+    "day_start_minute": 0,
+    "budgets": {
+      "monday": {
+        "minutes": 120
+      },
+      "tuesday": {
+        "minutes": 120
+      },
+      "wednesday": {
+        "minutes": 120
+      },
+      "thursday": {
+        "minutes": 120
+      },
+      "friday": {
+        "minutes": 120
+      },
+      "saturday": {
+        "minutes": 120
+      },
+      "sunday": {
+        "minutes": 120
+      }
+    },
+    "blocked_hours": [],
+    "always_allowed_apps": [],
+    "blocked_apps": [],
+    "away_share_percent": 50,
+    "lease_minutes": 10,
+    "warning_minutes": [
+      15,
+      5,
+      1
+    ]
+  },
+  "holding": {
+    "day": 20775,
+    "lease_total_secs": 1200,
+    "lease_used_secs": 600,
+    "away_cap_secs": 3600,
+    "away_used_secs": 600,
+    "away_percent": 50,
+    "master_word": {
+      "left_secs": 6000,
+      "used_then_secs": 1200,
+      "held_elsewhere_secs": 0
+    },
+    "warned": {
+      "time_day": null,
+      "time_points": [],
+      "blocked_start": null,
+      "blocked_points": [],
+      "unlock_end": null,
+      "unlock_points": []
+    },
+    "added_secs": 0,
+    "added_used_secs": 0,
+    "codes_used": []
+  },
+  "grant_taken": 14,
+  "last_message": 6,
+  "last_slice": 2,
+  "unconfirmed": [],
+  "code_secret": [
+    14,
+    237,
+    105,
+    197,
+    215,
+    6,
+    115,
+    81,
+    9,
+    122,
+    83,
+    95,
+    178,
+    207,
+    74,
+    10,
+    105,
+    178,
+    217,
+    241,
+    150,
+    109,
+    118,
+    26,
+    139,
+    67,
+    176,
+    196,
+    88,
+    103,
+    29,
+    48
+  ],
+  "pin": {
+    "salt": [
+      226,
+      237,
+      84,
+      251,
+      152,
+      223,
+      205,
+      220,
+      32,
+      173,
+      101,
+      54,
+      132,
+      103,
+      151,
+      210
+    ],
+    "iterations": 200000,
+    "hash": [
+      160,
+      26,
+      21,
+      138,
+      69,
+      124,
+      153,
+      227,
+      206,
+      110,
+      185,
+      236,
+      2,
+      100,
+      147,
+      209,
+      202,
+      183,
+      247,
+      152,
+      174,
+      66,
+      91,
+      67,
+      21,
+      154,
+      66,
+      118,
+      127,
+      16,
+      145,
+      10
+    ]
+  },
+  "pin_version": 1,
+  "guardian": {
+    "version": 0,
+    "mode": "nothing",
+    "set_at": -9223372036854775808
+  },
+  "pin_unlock": null,
+  "tries": {
+    "wrong": 0,
+    "wait_until": null
+  },
+  "last_pin_add": 0,
+  "unsent_added": [],
+  "last_request": 1,
+  "own_requests": [
+    {
+      "request": {
+        "id": "device-2b1439f6b44a698d/ask/1",
+        "child_id": "child-63358d6dbe331c03",
+        "device_id": "device-2b1439f6b44a698d",
+        "day": 20775,
+        "minutes": 20,
+        "reason": "homework video",
+        "asked_at": 1794970500
+      },
+      "confirmed": true
+    }
+  ],
+  "requests_seen": [
+    {
+      "request": {
+        "id": "device-2b1439f6b44a698d/ask/1",
+        "child_id": "child-63358d6dbe331c03",
+        "device_id": "device-2b1439f6b44a698d",
+        "day": 20775,
+        "minutes": 20,
+        "reason": "homework video",
+        "asked_at": 1794970500
+      },
+      "answer": "waiting",
+      "answered_at": null,
+      "reached_master": true
+    }
+  ],
+  "news_taken": 1
+}

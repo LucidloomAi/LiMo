@@ -1,0 +1,65 @@
+{
+  "child_id": "child-63358d6dbe331c03",
+  "from_day": 20774,
+  "to_day": 20775,
+  "secs": 7800,
+  "counted_secs": 7800,
+  "apps": [
+    {
+      "app_id": "minecraft.exe",
+      "secs": 4200,
+      "counted_secs": 4200
+    },
+    {
+      "app_id": "com.google.android.youtube",
+      "secs": 3000,
+      "counted_secs": 3000
+    },
+    {
+      "app_id": "com.whatsapp",
+      "secs": 600,
+      "counted_secs": 600
+    }
+  ],
+  "devices": [
+    {
+      "device_id": "device-5459c3e59255f856",
+      "name": "Family PC",
+      "removed": false,
+      "secs": 4200,
+      "apps": [
+        {
+          "app_id": "minecraft.exe",
+          "secs": 4200,
+          "counted_secs": 4200
+        }
+      ]
+    },
+    {
+      "device_id": "device-2b1439f6b44a698d",
+      "name": "Asha's phone",
+      "removed": false,
+      "secs": 3000,
+      "apps": [
+        {
+          "app_id": "com.google.android.youtube",
+          "secs": 3000,
+          "counted_secs": 3000
+        }
+      ]
+    },
+    {
+      "device_id": "device-3b488649a4c20cbc",
+      "name": "Old phone",
+      "removed": true,
+      "secs": 600,
+      "apps": [
+        {
+          "app_id": "com.whatsapp",
+          "secs": 600,
+          "counted_secs": 600
+        }
+      ]
+    }
+  ]
+}

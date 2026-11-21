@@ -31,6 +31,12 @@
 //!   is paired once ([`Hub::pair_master_pc`]), and its state is kept in the
 //!   same file and written in the same transaction as the child's book
 //!   ([`Hub::exchange_on_master_pc`]), for the agent on the master PC.
+//! - **The link's records.** The master's own key, made with the family
+//!   ([`Hub::master_key`]); the pairing offers ([`Hub::keep_offer`]); a phone
+//!   paired, its key kept and the offer marked used in one transaction
+//!   ([`Hub::pair_device_with_offer`]); and each phone's notes, kept with
+//!   the report that carries them ([`Hub::handle_report`]), and its apps
+//!   ([`Hub::keep_phone_apps`]).
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -43,8 +49,11 @@ mod events;
 mod family;
 mod guardian;
 mod hub;
+mod link;
 mod master_pc;
+mod notes;
 mod password;
+mod phones;
 mod random;
 mod schema;
 mod store;
@@ -55,14 +64,42 @@ mod views;
 
 pub use error::HubError;
 pub use hub::Hub;
+pub use notes::{GuardedPage, MAX_NOTES_PER_REPORT, PhoneNote, PhonePermission, ProtectionLevel};
 pub use password::{MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS, PASSWORD_ROUNDS};
 pub use schema::SCHEMA_VERSION;
 pub use text::TextField;
 pub use types::{
     Account, AccountLink, AccountStanding, AgeBand, AppUsage, Child, ChildToday, DeviceInfo, DeviceToday,
-    DeviceUsage, Event, EventKind, ExtraGiven, MasterPcExchange, MasterPcRecord, Pairing, PasswordOutcome,
-    PcSettings, TidyReport, UnlinkedAccounts, UsageView, WaitingRequest,
+    DeviceUsage, Event, EventKind, ExtraGiven, LinkPhone, MasterKey, MasterPcExchange, MasterPcRecord, OfferRecord,
+    Pairing, PasswordOutcome, PcSettings, PhoneApp, PhoneApps, PhoneForm, PhoneInfo, PhoneRequest, PinOutcome, TidyReport,
+    UnlinkedAccounts, UsageView, WaitingRequest,
 };
+
+/// The length of the master's private key for the link, and of a phone's
+/// link key, in bytes: an X25519 key.
+pub const KEY_BYTES: usize = 32;
+
+/// The length of a pairing offer's id, in hex digits: 8 bytes.
+pub const OFFER_ID_HEX_DIGITS: usize = 16;
+/// The longest text form of a pairing offer the hub keeps, in characters.
+/// The link's is about 150 with two addresses, and at most about 190.
+pub const MAX_OFFER_TEXT_CHARS: usize = 512;
+/// The longest an offer may last, in seconds: a day. The link's last ten
+/// minutes.
+pub const MAX_OFFER_LIFE_SECS: i64 = 86_400;
+/// How long an offer is kept after it expires, in seconds: a day. Until
+/// then, a phone that comes late with it can be told that it expired or was
+/// used; then [`Hub::tidy`] drops it.
+pub const OFFER_KEEP_SECS: i64 = 86_400;
+
+/// The most apps a phone's list may hold: 2,000, as the link allows.
+pub const MAX_PHONE_APPS: usize = 2_000;
+/// The longest package name, in bytes: 255, as the link allows.
+pub const MAX_PACKAGE_BYTES: usize = 255;
+/// The longest app label kept, in characters: 120, as the link allows.
+pub const MAX_APP_LABEL_CHARS: usize = 120;
+/// The longest hash of an app list, in hex digits.
+pub const MAX_APPS_HASH_DIGITS: usize = 64;
 
 /// After how many minutes with no keyboard or mouse input the count pauses
 /// on the master PC, when the guardian has not chosen: 3.

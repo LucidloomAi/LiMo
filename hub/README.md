@@ -9,8 +9,10 @@ and grant.
 rules and book (the core's `MasterBook`), the paired devices, the usage, the
 guardian PIN, the record of one time codes made, the Windows accounts on the
 master PC, the state of each child's device on the master PC, the PC's own
-settings, and a short record of events. It answers the devices' reports with
-grants and gives the guardian's screens what they show.
+settings, what the link needs (the master's own key, the pairing offers, and
+each phone's link key, notes and apps), and a short record of events. It
+answers the devices' reports with grants and gives the guardian's screens
+what they show.
 
 **What it is not.** It has no network, no Windows code, no user interface, no
 threads and no clock. The caller passes the time (unix seconds, by the master
@@ -27,6 +29,7 @@ unsafe code.
 - [Usage: in detail, then in daily totals](#usage-in-detail-then-in-daily-totals)
 - [Devices](#devices)
 - [The master PC's own devices](#the-master-pcs-own-devices)
+- [The link's records](#the-links-records)
 - [The guardian password](#the-guardian-password)
 - [The guardian PIN](#the-guardian-pin)
 - [Events](#events)
@@ -37,7 +40,7 @@ unsafe code.
 
 ## The file and its tables
 
-One SQLite file. Its version is SQLite's `user_version` (now 3), and its
+One SQLite file. Its version is SQLite's `user_version` (now 4), and its
 `application_id` marks it as LiMo's ("LiMo" in ASCII). When a file is
 opened, every step it needs to reach this code's version runs in one
 transaction; a file from a newer version of LiMo is refused, unchanged, with
@@ -66,8 +69,27 @@ the books that SQL cannot do.
   `a_file_made_by_the_hub_before_the_agent_opens_and_goes_on` opens a file
   made by the hub before this change (`tests/fixtures/store_v2.limo`), checks
   that every view shows what that hub showed, and goes on.
+- **Version 4**: what the link between the phones and the master PC needs
+  (see [The link's records](#the-links-records)): the master's own key on
+  the family's row with the wrong guesses of the PIN typed on the master PC
+  and their wait (see [The guardian PIN](#the-guardian-pin)), and the
+  `offer`, `phone` and `phone_apps` tables. Its
+  step also gives a family already set up its master key, and every device
+  that can be carried away (removed ones too) its `phone` row: a child's
+  phone with no link key, since it was paired before the link. Nothing a
+  file holds changes. The test
+  `a_file_made_by_the_hub_before_the_link_opens_and_goes_on` opens a file
+  made by the hub before this change (`tests/fixtures/store_v3.limo`, made
+  by a program that called only that hub's public calls), checks that every
+  view shows what that hub showed (the family's day, two days of usage,
+  events, devices, the master PC's kept states and their book revisions, the
+  waiting request, the PC's settings), that the family has a master key that
+  stays the same after a restart and every phone its row, and goes on: the
+  old phone and tablet report, the request is answered, the PC's device
+  exchanges, a removed phone stays refused, an old phone takes notes, and a
+  new phone pairs with an offer.
 
-The tables, at version 3:
+The tables, at version 4:
 
 - `settings`: how many days of usage are kept in detail (35 unless changed);
   after how many idle minutes the count pauses on the master PC (3 unless
@@ -75,7 +97,8 @@ The tables, at version 3:
   unless changed).
 - `family`: one row. The password's salt, rounds and hash; the wrong guesses
   and the end of the wait they set; the PIN record, so that children added
-  later get it.
+  later get it; the wrong guesses of the PIN typed on the master PC and the
+  end of their wait; the master's own private key for the link.
 - `child`: id, its place in the order children were added, name, age band,
   when added, and the day before which usage was folded into totals.
 - `book`: each child's `MasterBook`, as the core's own JSON: a few kilobytes
@@ -100,6 +123,15 @@ The tables, at version 3:
 - `master_pc`: for each child's device on the master PC, the device's state
   (the core's `DeviceState`, as JSON) and the agent's own notes, as the agent
   hands them in.
+- `offer`: the pairing offers: id, child, the offer's text form (which holds
+  its secret), when it was made and when it expires, and when it was used
+  and by which device.
+- `phone`: for each device that can be carried away: its link key (the
+  phone's public key; none for a phone paired before the link), the form of
+  the app, its Android version, the newest note of each kind it sent (as
+  JSON), and when, removed, it was told so.
+- `phone_apps`: each phone's newest list of apps with their labels (as
+  JSON), the hash the phone gave it, and when it was kept.
 - `event`: what happened, typed (see [Events](#events)).
 
 Every row about a child points at the child's row and goes with it when the
@@ -147,6 +179,29 @@ hub.events(50, None)?;                           // newest first
 
 hub.tidy(now)?;                                  // once an hour
 hub.close()?;                                    // at stop
+```
+
+For the link with the phones (`../link` has the names on its side):
+
+```rust
+let keys = KeyPair::from_private(hub.master_key()?.expose_private()); // the link's
+// A guardian adds a phone for Asha: the link makes the offer, the hub keeps it.
+let offer = Offer::new(keys.public(), port, addresses, now)?;          // the link's
+hub.keep_offer(&asha.child_id, &offer.id().to_hex(), &offer.to_text(), offer.expires_at(), now)?;
+
+// The link's Directory, over the hub:
+hub.offer(&offer_id.to_hex())?;                  // then Offer::from_text(&record.text)
+hub.link_phones()?;                              // every phone with its key, removed ones too
+
+// A phone that holds the offer asks to pair: in one transaction, paired with
+// the offer's child, its key kept, the offer marked used.
+let pairing = hub.pair_device_with_offer(&offer_id.to_hex(), phone_key.as_bytes(), &request, now)?;
+// ...hand `pairing.welcome` and `pairing.code_secret` to the link's welcome.
+
+let grant = hub.handle_report(&report, now)?;    // a phone's report, and the notes it carries
+hub.keep_phone_apps(&device_id, &apps, &hash, now)?;             // the phone's apps
+hub.note_released(&device_id, now)?;             // a removed phone was told so
+hub.phones(&asha.child_id)?;                     // what the guardian sees of each phone
 ```
 
 The agent on the master PC (`../agent`) calls `pair_master_pc`, `master_pc`,
@@ -205,17 +260,20 @@ as it was before the call. Setting or removing the PIN changes every child's
 book in one transaction, so no child is left with the old PIN at the master.
 
 **Deleted means deleted.** `remove_child` deletes the child's rules and book,
-devices (with the state of its device on the master PC), usage in detail and
-in totals, requests, codes made, linked Windows accounts and events.
-`delete_family` deletes all of that for every child, the password and the
-PIN, the accounts and the events, and resets the settings, leaving an empty,
+devices (with the state of its device on the master PC, and each phone's
+link key, notes and apps), pairing offers, usage in detail and in totals,
+requests, codes made, linked Windows accounts and events. `delete_family`
+deletes all of that for every child, the password, the PIN, the master's
+key, the accounts and the events, and resets the settings, leaving an empty,
 valid store. The file runs with SQLite's
 `secure_delete`, so deleted rows are overwritten with zeros where they lay,
 and after these two calls the file is rebuilt (`VACUUM`) so that no copy of
 a deleted key is left in an index's inner pages. The rebuild is done on a
 best effort basis: if it cannot run (a full disk), the deletion still stands
 and the call still succeeds. The tests search the file's bytes for the
-deleted names, apps and reasons, with tables that span many pages.
+deleted names, apps and reasons, with tables that span many pages, and for
+the deleted keys: the master's own, each phone's link key, and the offers'
+texts with their secrets.
 
 Removing a **device** is not deleting: the device is unpaired, its code
 secret is forgotten and its reports are refused, but the time it was used
@@ -235,15 +293,20 @@ beside it; it need not be copied. After a crash or a power cut, start the
 service once (which repairs the file from its journal) before copying, or copy
 the journal file too.
 
-**Secrets stay out of sight, not out of the file.** The password, the PIN and
-the code secrets never appear in `Debug` output or in error messages:
-`Pairing` and `Hub` print no secret, the core's `OneTimeCode` hides its
-digits, and error messages from saved data quote no part of it. They are in
-the file, in the forms the core defines: the password as a salted slow hash,
-the PIN as the core's salted slow hash, and each device's 32 byte code
-secret as it is in the core's book and, for each child's device on the
-master PC, in that device's state, which also holds the PIN record. **The
-file's protection comes from the
+**Secrets stay out of sight, not out of the file.** The password, the PIN,
+the code secrets, the master's private key and the pairing offers never
+appear in `Debug` output or in error messages: `Pairing`, `MasterKey`,
+`OfferRecord` and `Hub` print no secret, the core's `OneTimeCode` hides its
+digits, and error messages from saved data quote no part of it. `MasterKey`
+and an `OfferRecord`'s text are wiped from memory when they are dropped (the
+copies SQLite makes while it reads them are not). They are in the file, in
+the forms the core and the link define: the password as a salted slow hash,
+the PIN as the core's salted slow hash, each device's 32 byte code secret as
+it is in the core's book and, for each child's device on the master PC, in
+that device's state, which also holds the PIN record; the master's private
+key as its 32 bytes; and each offer's text, which holds its secret, until a
+day after it expires. A phone's link key is its public key, not a secret.
+**The file's protection comes from the
 Windows permissions the installer sets on its folder, so that a child's
 account cannot read it, not from this crate.** It is not encrypted.
 
@@ -320,7 +383,10 @@ its first report after the upgrade.)
   core;
 - for a child's device on the master PC, the state kept for it goes too,
   with the code secret in it; the agent pairs a new one the next time the
-  child is on the PC.
+  child is on the PC;
+- for a phone, its list of apps goes too; its link key and its notes stay,
+  so that the link can tell it that it was removed (see
+  [The link's records](#the-links-records)).
 
 Use it made and never reported is not counted. So the service should, when
 it can, have the device report once more before removing it (its "release"
@@ -382,6 +448,97 @@ grant and the device that took it can never disagree after a power cut.
 
 The agent's notes are kept as given; the hub does not read them.
 
+## The link's records
+
+The link (`../link`) carries reports and grants between the phones and the
+master PC, encrypted, and has no disk of its own. The hub keeps what it must
+not lose, in the family's file. The hub has no cryptography for it: the link
+makes the offers, runs the handshakes and makes the master's public key; the
+hub keeps the bytes and the facts.
+
+- **The master's own key.** `create_family` makes the master's private key
+  for the link, 32 random bytes from the operating system, and keeps it on
+  the family's row; a family set up before the link gets one when its file
+  is brought to version 4. `master_key()` returns it (`MasterKey`, which
+  hides it in `Debug` and wipes it when dropped); the link makes the public
+  key from it (`KeyPair::from_private`), and from that the master id the PC
+  announces. It stays the same for the family's life. `delete_family`
+  deletes it, and a new family gets a new one, so every phone pairs again.
+- **Pairing offers.** The link makes an offer for a child (`Offer::new`) and
+  the service hands the hub its id (16 hex digits), its text form (which
+  holds its secret: the link gives its secret out only that way, and reads
+  an offer back only from it) and when it expires: `keep_offer`. The hub
+  refuses an id or a text that cannot be an offer's, an id it keeps already,
+  and an offer that has expired or would last more than a day
+  (`MAX_OFFER_LIFE_SECS`; the link's last ten minutes) with
+  `HubError::BadOffer`. `offer(id)` reads one back, used or not, expired or
+  not, so that the link can finish a pairing handshake and tell a late phone
+  why: an offer is kept until a day after it expires (`OFFER_KEEP_SECS`),
+  then `tidy` drops it, with its secret.
+- **Pairing a phone with an offer.** `pair_device_with_offer(offer_id,
+  link_key, request, now)` pairs the phone that holds the offer with the
+  offer's child (a device that can be carried away), keeps its link key (its
+  static public key from the pairing handshake), its form and its Android
+  version, and marks the offer used by that device, all in one transaction:
+  the test `a_pairing_that_fails_part_way_leaves_nothing_behind` makes the
+  last step and the step before it fail and finds no device, no key, no
+  event, the book unchanged and the offer unused. Refused, with nothing
+  changed: an offer the hub does not keep (`UnknownOffer`), one used already
+  (`OfferUsed`: of two phones racing with one offer, the second), one expired
+  by the master's clock (`OfferExpired`; it pairs at its last second), a
+  guardian's phone (`GuardianPhone`, the offer left unused), and a link key
+  the family knows already, removed phones included (`LinkKeyKnown`). The
+  name the phone gave (the link allows 120 characters) is made fit to show:
+  hidden characters taken out, cut to the hub's 40 characters, "Phone" when
+  nothing is left; a guardian can rename it. An Android version above 1,000
+  is taken as not said. `pair_device` still pairs a phone with no link key;
+  the link cannot reach such a phone, and it must be paired again with an
+  offer.
+- **The phones the link meets.** `link_phones()` lists every phone with a
+  link key, in the order they were paired, removed ones too, so that a
+  removed phone that connects is told so. A removed phone's key is kept for
+  that; it is public.
+- **Notes.** A phone notes what a guardian should know and carries each note
+  in its reports, numbered, until a grant confirms it, so the same note comes
+  many times. The core's book takes each once, by the phone's numbers, and
+  at most 200 from one report, the newest (`ReportOutcome::new_notes`,
+  `MAX_NOTES_PER_REPORT`). `handle_report` keeps exactly those in the same
+  transaction as the book, so the grant that confirms them is never sent
+  before they are on the disk (test
+  `notes_are_on_the_disk_with_the_grant_that_confirms_them`): each becomes an
+  event (`PhoneNoted`) and the newest note of its kind for the phone. Newest
+  is by the order notes came in, not by their times, since a phone's clock
+  can be set back. A report with notes from the master PC's own device is
+  refused (`NotAPhone`), and then nothing is kept. The kinds are the core's
+  (`limo_core::PhoneNote`, re-exported here): setup finished (when), a
+  permission switched off, a permission switched on (which of the six:
+  notifications, phone, usage access, accessibility, battery, protection),
+  the protection level (off, base, strict), USB debugging on or off, a
+  guarded page opened (the device admin's page or accessibility), the guard
+  opened (until when), a restart, and the clock moved (by how much, and
+  whether LiMo followed it). Which note replaces which is the hub's, in one
+  place (`src/notes.rs`), which does not build until a kind the core adds is
+  placed there.
+- **Apps.** `keep_phone_apps(device, apps, hash, now)` keeps a phone's list
+  of apps with their labels, and the hash the phone gave it (1 to 64 hex
+  digits, kept in lowercase), replacing the one before; it says whether the
+  list changed. The list is made fit to keep first: an entry whose package
+  name is not one Android makes (letters, digits, dots and underscores, at
+  most 255 bytes) is left out, as is a package listed again; labels have
+  hidden characters taken out, are cut to 120 characters, and an empty one
+  becomes the package name. More than 2,000 apps, or a hash that is not hex,
+  is refused (`BadAppList`). `phone_apps(device)` reads it. A phone's list
+  goes when the phone is removed.
+- **Released.** `note_released(device, now)` notes, once and with an event,
+  that a phone removed from the family was told so and let go of its
+  limits; refused for a device still paired (`DeviceNotRemoved`).
+- **What the guardian sees.** `phone(device)` (removed phones too) and
+  `phones(child)` (paired phones) give `PhoneInfo`: the form, the Android
+  version, whether the link knows its key, when setup was finished, the
+  permissions switched on and off, the protection level, whether USB
+  debugging is on, the newest note of each kind, how many apps it listed,
+  and when it was removed and released.
+
 ## The guardian password
 
 8 to 256 characters of any kind. It is kept only as PBKDF2-HMAC-SHA256 with
@@ -400,6 +557,15 @@ the end of the wait are in the file, so a restart changes nothing; the wait
 is kept as the moment it ends, so a clock set back makes it longer, never
 shorter. A right password clears the count.
 
+**A forgotten password.** `reset_password(new, now)` sets a new password
+without the old one. It is only for an administrator of the master PC who
+has forgotten it, through LiMo's elevated command for that, its one caller;
+a guardian who knows the password uses `change_password`. The wrong guesses
+and their wait are cleared and a `PasswordReset` event is recorded, so the
+family's history shows it; the PIN, the children, their rules and devices,
+and the master's key are kept (test
+`a_forgotten_password_is_reset_and_everything_else_is_kept`).
+
 ## The guardian PIN
 
 6 to 8 digits (`MIN_PIN_DIGITS`, `MAX_PIN_DIGITS`), by the owner's decision.
@@ -414,18 +580,33 @@ child's book in one transaction, and kept for children added later. A PIN of
 devices until the guardian sets a new one: a record does not say how long its
 PIN is.
 
+**The PIN typed on the master PC.** `check_pin(pin, now)` checks the PIN
+with no device at hand: on the lock of a Windows account linked to no child.
+It is checked by the core's rule for a record (a typed PIN of 4 to 8 digits,
+the same slow hash, compared in constant time; the core keeps that check to
+itself, so the hub does it with the record's public parts, and a test holds
+the two together). It has its own wrong guesses and wait, kept in the
+family's file, by the same rule as the password's and a device's: the first
+four free, then a minute that doubles with each further wrong guess, up to
+an hour, nothing checked or counted during a wait, the wait kept as the
+moment it ends, a right PIN clearing the count. Setting or removing the PIN
+clears it too. With no PIN set it is `HubError::NoPin` (test
+`the_pin_typed_on_the_pc_slows_down_and_the_wait_survives_a_restart`).
+
 ## Events
 
 Typed, small and kept for 90 days, at most 2,000 (`EVENT_KEEP_DAYS`,
 `MAX_EVENTS`): a device paired or removed, rules changed, the PIN set or
-removed, the password changed, a lock, an unlock or a lift from the master,
+removed, the password changed or reset, a lock, an unlock or a lift from the master,
 more wrong guesses reported by a device than before, a device's clock found
 far off, and a child's request for more time reaching the master (from the
 requests the core took for the first time, so each request is noted once).
 From the agent on the master PC: a Windows account that is not linked used
 on the PC (once for each account and the PC's day), a blocked program closed
 (once for each program and the child's day), the PC's clock moved against
-its steady count, and the PC's time zone changed.
+its steady count, and the PC's time zone changed. From the phones: each
+note a phone sent, once (see [The link's records](#the-links-records)), and
+a removed phone told so.
 Each has the time by the master's clock and the child it is
 about (none for the PIN and the password). `events(limit, before_id)` lists
 the newest first, a page at a time.
@@ -457,8 +638,8 @@ meanwhile.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | Unit tests: a version 1 file carried to version 2, to version 3 and on to a test version 4 through the migration path (and then refused by version 3 code); version 3's settings refusing a value they do not know; a fresh file's tables and settings; password known answers (worked out separately with Python's `hashlib`); names of any script, and hidden characters refused; ids and seeded randomness; the same note kept once | 11 |
-| `tests/hub/` | The stories: a whole day of a family with the views checked at every stage; a file made by the first version of the hub opened, converted and going on, with every view as that version showed it; a file made by the hub before the agent (version 2) opened and going on, its PC device paired the old way replaced once; files made, reopened, copied, refused when newer or foreign, damaged in a row or in the middle, and two hubs on one file; every grant on the disk before it is returned; an exchange and a change that fail part way leaving nothing; reports that do not fit and hostile reports; wanted reports after new rules; in use; clocks far off; removing a child and deleting the family, down to the file's bytes; removed devices, their time freed and the code time they did not use dropped; a removed device leaving the book at once and its use with its days; wrong passwords and the wait across a restart; secrets out of `Debug`, errors and the file; folding forty days, and a late slice for a folded day neither counted nor kept; trimming books, codes and events; hostile names, unknown ids and numbers out of range. For the master PC: its device paired once and its state kept; an exchange writing the book and the device state together, and one that fails part way leaving both as they were; the book revision growing with every change to the book; a PC device paired the old way replaced once; only a kept PC device saved, and a removed one taking its state with it; the PC's settings kept, checked and reset with the family; notes kept once where once is asked; the kept state hiding its secrets | 44 |
+| `src/*.rs` | Unit tests: a version 1 file carried to version 2, to version 3, to version 4 and on to a test version 5 through the migration path (and then refused by version 4 code); version 4's step giving a family set up before it its master key and each phone (removed ones too) its row, and the file refusing a key of the wrong length; version 3's settings refusing a value they do not know; a fresh file's tables and settings; password known answers (worked out separately with Python's `hashlib`); names of any script, and hidden characters refused; text from a device made fit to show; ids and seeded randomness; the same note kept once; the newest note of each kind kept in the order notes came, a clock set back included; notes kept in the shape the file holds, and unknown ones refused; a PIN record of the core checked by the core's rule, a four digit one from before included, and a device opening with the same PIN | 16 |
+| `tests/hub/` | The stories: a whole day of a family with the views checked at every stage; a file made by the first version of the hub opened, converted and going on, with every view as that version showed it; a file made by the hub before the agent (version 2) opened and going on, its PC device paired the old way replaced once; files made, reopened, copied, refused when newer or foreign, damaged in a row or in the middle, and two hubs on one file; every grant on the disk before it is returned; an exchange and a change that fail part way leaving nothing; reports that do not fit and hostile reports; wanted reports after new rules; in use; clocks far off; removing a child and deleting the family, down to the file's bytes; removed devices, their time freed and the code time they did not use dropped; a removed device leaving the book at once and its use with its days; wrong passwords and the wait across a restart; a forgotten password reset with the PIN, rules, devices and keys kept and the reset in the history; the PIN typed on the PC with its own wrong count and wait, kept across a restart, cleared by a right PIN and by a new one; secrets out of `Debug`, errors and the file; folding forty days, and a late slice for a folded day neither counted nor kept; trimming books, codes and events; hostile names, unknown ids and numbers out of range. For the master PC: its device paired once and its state kept; an exchange writing the book and the device state together, and one that fails part way leaving both as they were; the book revision growing with every change to the book; a PC device paired the old way replaced once; only a kept PC device saved, and a removed one taking its state with it; the PC's settings kept, checked and reset with the family; notes kept once where once is asked; the kept state hiding its secrets. For the link: the master's key made with the family, kept across a restart, different for another family, hidden, deleted with the family and new for a new one; offers kept and read back, and every shape that cannot be an offer refused; a phone paired with an offer, its key kept and the offer used in one step, then reporting, taking a code, and a second phone refused; an unknown, expired, guardian's or known key offer pairing nothing, and an offer pairing at its last second; a phone's name made fit to show; a pairing that fails at its last two steps leaving nothing; a removed phone still known to the link as removed, its apps gone, and released once; offers and their secrets gone from the file a day after they expire; a file made by the hub before the link (version 3) opened and going on, with every view as that hub showed it. For phones: the notes a report carries kept once as events and as the newest of each kind, sent again and again, every one confirmed by the grant, a clock set back; at most the newest 200 notes of a report; notes and the report kept together or not at all; notes refused for the master PC's device, taken by a phone paired before the link, and refused with a removed phone's report; apps made fit to show, kept once, replaced, refused when too many or with a bad hash, for phones only. Deleting a child and the family also searched for the master's key, the phones' link keys, an offer's text, a phone's apps and its notes | 60 |
 
 `cargo build`, `cargo test`, `cargo doc --no-deps` and
 `cargo clippy --all-targets -- -D warnings` pass with no warnings and no
@@ -486,6 +667,7 @@ take as long as they will in the product; overflow checks stay on.
 | cc, find-msvc-tools, shlex, pkg-config, vcpkg | 1.11.2, 0.1.15, 2.0.1, 0.3.34, 0.2.15 | MIT or Apache-2.0 | used by libsqlite3-sys when building, to compile SQLite |
 | libc | 0.2.191 | MIT or Apache-2.0 | used by cpufeatures and getrandom on Android and Linux only |
 | r-efi | 6.0.0 | MIT or Apache-2.0 or LGPL-2.1-or-later (taken as MIT or Apache-2.0) | used by getrandom on UEFI only; never built for Windows or Android |
+| zeroize | 1.9.2 | Apache-2.0 or MIT | wiping the master's private key and the offers' texts from memory when dropped (default features off; `alloc`), as the link does |
 | tempfile, fastrand, once_cell, windows-sys, windows-link, rustix, linux-raw-sys, errno | 3.27.0, 2.5.0, 1.21.4, 0.61.2, 0.2.1, 1.1.6, 0.12.1, 0.3.15 | MIT or Apache-2.0 (rustix and linux-raw-sys also Apache-2.0 with LLVM exception) | tests only: temporary folders |
 
 Nothing is GPL or AGPL. The code here was written for LiMo; nothing was
@@ -493,7 +675,11 @@ copied. The crate is under the Apache License 2.0, as is all of LiMo.
 
 ## Not in this piece
 
-- The network, pairing by QR, finding devices, and encrypting messages.
+- The network, pairing by QR, finding devices, and encrypting messages; making
+  offers and the master's public key, and checking an app list's hash (the
+  link's).
+- Which link sessions are open and how each came (over the cable or the home
+  network): the service's, while it runs.
 - Handing a device's code secret to a guardian phone at home, and taking
   back the code counters a guardian phone used away from home.
 - Telling the guardian when a request arrives or an event is recorded (the

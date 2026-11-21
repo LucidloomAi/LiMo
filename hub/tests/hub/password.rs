@@ -151,3 +151,95 @@ fn secrets_never_show_in_debug_output_errors_or_the_file() {
     // The password is in the file only as its salted hash.
     assert!(!file_holds(&place.path, PASSWORD));
 }
+
+#[test]
+fn a_forgotten_password_is_reset_and_everything_else_is_kept() {
+    let place = place();
+    let mut hub = Hub::open(&place.path).unwrap();
+    assert_eq!(hub.reset_password("a brand new password", at(7, 0)).unwrap_err(), HubError::NoFamily);
+    hub.create_family(PASSWORD, at(7, 0)).unwrap();
+    let asha = child(&mut hub, "Asha").child_id;
+    let mut phone = pair_phone(&mut hub, &asha, "Phone", 1, at(7, 0));
+    hub.set_pin("482915", at(7, 1)).unwrap();
+    let mut rules = hub.rules(&asha).unwrap();
+    rules.away_share_percent = 30;
+    hub.replace_rules(&asha, rules, at(7, 2)).unwrap();
+    exchange(&mut hub, &mut phone, at(7, 3), false);
+    // Someone has been guessing: a wait is in force.
+    for _ in 0..5 {
+        hub.check_password("wrong guess", at(8, 0)).unwrap();
+    }
+    assert!(matches!(hub.check_password(PASSWORD, at(8, 0)).unwrap(), MustWait { .. }));
+    let kept = |hub: &Hub| {
+        (hub.rules(&asha).unwrap(), hub.family_today(at(8, 1)).unwrap(), hub.master_key().unwrap(), hub.link_phones().unwrap())
+    };
+    let before = kept(&hub);
+
+    // A new password that cannot be taken is refused, and nothing changes.
+    let err = hub.reset_password("short", at(8, 1)).unwrap_err();
+    assert_eq!(err, HubError::PasswordTooShort { min_chars: 8 });
+    hub.reset_password("a brand new password", at(8, 1)).unwrap();
+    // The old password no longer opens, the new one does, and the wait is
+    // gone with the old count.
+    assert_eq!(hub.check_password(PASSWORD, at(8, 2)).unwrap(), Wrong { wrong_guesses: 1, wait_until: None });
+    assert_eq!(hub.check_password("a brand new password", at(8, 2)).unwrap(), Right);
+    // Everything else is as it was: the PIN, the rules, the devices.
+    assert_eq!(kept(&hub), before);
+    assert_eq!(hub.rules(&asha).unwrap().away_share_percent, 30);
+    assert_eq!(hub.check_pin("482915", at(8, 3)).unwrap(), Right);
+    exchange(&mut hub, &mut phone, at(8, 4), false);
+    assert_eq!(phone.state.try_pin("482915", PinAction::ConfirmRelease, at(8, 5)).unwrap(), TryOutcome::ReleaseConfirmed);
+    // The family's history says it was a reset, not a change.
+    let events = hub.events(10, None).unwrap();
+    assert_eq!((events[0].at, events[0].child_id.clone(), events[0].what.clone()), (at(8, 1), None, EventKind::PasswordReset));
+    assert!(!events.iter().any(|e| e.what == EventKind::PasswordChanged));
+    hub.close().unwrap();
+    let mut hub = Hub::open(&place.path).unwrap();
+    assert_eq!(hub.check_password("a brand new password", at(8, 6)).unwrap(), Right);
+    assert!(!file_holds(&place.path, "a brand new password"));
+}
+
+#[test]
+fn the_pin_typed_on_the_pc_slows_down_and_the_wait_survives_a_restart() {
+    let place = place();
+    let mut hub = new_family(&place.path);
+    let t = at(9, 0);
+    let err = hub.check_pin("482915", t).unwrap_err();
+    assert_eq!(err, HubError::NoPin);
+    plain(&err.to_string());
+    hub.set_pin("482915", at(8, 0)).unwrap();
+
+    assert_eq!(hub.check_pin("482915", t).unwrap(), Right);
+    for n in 1..=4 {
+        assert_eq!(hub.check_pin("111111", t).unwrap(), Wrong { wrong_guesses: n, wait_until: None });
+    }
+    assert_eq!(hub.check_pin("111111", t).unwrap(), Wrong { wrong_guesses: 5, wait_until: Some(t + MIN) });
+    // During the wait nothing is checked, not even the right PIN, and
+    // nothing is counted.
+    assert_eq!(hub.check_pin("482915", t + 30).unwrap(), MustWait { until: t + MIN });
+    // Its count is its own: the password is not held up by it.
+    assert_eq!(hub.check_password(PASSWORD, t + 30).unwrap(), Right);
+    hub.close().unwrap();
+
+    let mut hub = Hub::open(&place.path).unwrap();
+    assert_eq!(hub.check_pin("482915", t + 59).unwrap(), MustWait { until: t + MIN });
+    // A clock set back makes the wait longer, never shorter.
+    assert_eq!(hub.check_pin("482915", t - HOUR).unwrap(), MustWait { until: t + MIN });
+    // The next wrong guess doubles the wait.
+    assert_eq!(hub.check_pin("111111", t + MIN).unwrap(), Wrong { wrong_guesses: 6, wait_until: Some(t + 3 * MIN) });
+    assert_eq!(hub.check_pin("482915", t + 3 * MIN).unwrap(), Right);
+    // A right PIN clears the count; anything that is not a PIN is wrong.
+    assert_eq!(hub.check_pin("111111", t + 4 * MIN).unwrap(), Wrong { wrong_guesses: 1, wait_until: None });
+    assert_eq!(hub.check_pin("not a pin", t + 4 * MIN).unwrap(), Wrong { wrong_guesses: 2, wait_until: None });
+
+    // A new PIN clears the count, and only it opens; with no PIN there is
+    // nothing to check.
+    for _ in 0..5 {
+        hub.check_pin("111111", t + 5 * MIN).unwrap();
+    }
+    hub.set_pin("13572468", t + 6 * MIN).unwrap();
+    assert_eq!(hub.check_pin("482915", t + 6 * MIN).unwrap(), Wrong { wrong_guesses: 1, wait_until: None });
+    assert_eq!(hub.check_pin("13572468", t + 6 * MIN).unwrap(), Right);
+    hub.clear_pin(t + 7 * MIN).unwrap();
+    assert_eq!(hub.check_pin("13572468", t + 7 * MIN).unwrap_err(), HubError::NoPin);
+}

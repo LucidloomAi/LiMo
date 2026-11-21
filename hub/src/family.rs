@@ -7,12 +7,28 @@ use crate::{DEFAULT_DETAIL_DAYS, DEFAULT_IDLE_MINUTES, MAX_PIN_DIGITS, MIN_PIN_D
 use crate::error::HubError;
 use crate::hub::Hub;
 use crate::password::{self, PASSWORD_ROUNDS, PasswordRecord};
-use crate::random;
 use crate::store::{self, add_event};
-use crate::types::{EventKind, PasswordOutcome};
+use crate::{link, random};
+use crate::types::{EventKind, PasswordOutcome, PinOutcome};
 
 /// The salt for a new PIN record, in bytes: the core asks for 16 or more.
 const PIN_SALT_BYTES: usize = 16;
+
+/// One more wrong guess after `wrong`, at `now`, with the wait `old_wait`
+/// set before: the new count and the wait it sets, in the same steps as
+/// wrong PINs and codes on a device (the core's `wait_after_wrong_guesses`).
+/// The wait is kept as the moment it ends: a clock set back makes it longer,
+/// never shorter, and a later wrong guess never shortens it. The one rule for
+/// the password and the PIN typed on the master PC.
+fn wrong_guess(wrong: u32, old_wait: Option<i64>, now: i64) -> (u32, Option<i64>) {
+    let wrong = wrong.saturating_add(1);
+    let wait = wait_after_wrong_guesses(wrong);
+    let wait_until = (wait > 0).then(|| {
+        let until = now.saturating_add(wait);
+        old_wait.map_or(until, |old| old.max(until))
+    });
+    (wrong, wait_until)
+}
 
 /// Checks a password inside a change, counting a wrong one and setting the
 /// wait it calls for. A right one clears the count, and rehashes the record
@@ -29,19 +45,19 @@ fn check_in(conn: &Connection, typed: &str, now: i64) -> Result<PasswordOutcome,
         }
         return Ok(PasswordOutcome::Right);
     }
-    let wrong = family.wrong_passwords.saturating_add(1);
-    let wait = wait_after_wrong_guesses(wrong);
-    // The wait is kept as the moment it ends: a clock set back makes it
-    // longer, never shorter, and a later wrong guess never shortens it.
-    let wait_until = (wait > 0).then(|| {
-        let until = now.saturating_add(wait);
-        family.password_wait_until.map_or(until, |old| old.max(until))
-    });
+    let (wrong, wait_until) = wrong_guess(family.wrong_passwords, family.password_wait_until, now);
     conn.execute(
         "UPDATE family SET wrong_passwords = ?1, password_wait_until = ?2 WHERE id = 1",
         params![wrong, wait_until],
     )?;
     Ok(PasswordOutcome::Wrong { wrong_guesses: wrong, wait_until: wait_until.filter(|w| now < *w) })
+}
+
+/// Clears the wrong guesses of the PIN typed on the master PC, and their
+/// wait.
+fn clear_pin_guesses(conn: &Connection) -> Result<(), HubError> {
+    conn.execute("UPDATE family SET wrong_pins = 0, pin_wait_until = NULL WHERE id = 1", [])?;
+    Ok(())
 }
 
 /// Writes a password record, and when it was changed if given.
@@ -71,9 +87,11 @@ impl Hub {
     /// Sets up the family with its guardian password: 8 to 256 characters.
     /// The password is kept only as a salted slow hash
     /// ([`crate::PASSWORD_ROUNDS`] rounds of PBKDF2-HMAC-SHA256), so this
-    /// takes a moment.
+    /// takes a moment. The master's own key for the link is made here too
+    /// ([`Hub::master_key`]).
     pub fn create_family(&mut self, password: &str, now: i64) -> Result<(), HubError> {
         password::check_new(password)?;
+        let master_key = link::new_master_key()?;
         let tx = self.change()?;
         if store::has_family(&tx)? {
             return Err(HubError::FamilyExists);
@@ -81,9 +99,9 @@ impl Hub {
         let record = PasswordRecord::new_password(password)?;
         tx.execute(
             "INSERT INTO family (id, created_at, password_salt, password_rounds, password_hash,
-                 password_changed_at, wrong_passwords, password_wait_until, pin_record, pin_changed_at)
-             VALUES (1, ?1, ?2, ?3, ?4, ?1, 0, NULL, NULL, NULL)",
-            params![now, record.salt, record.rounds, record.hash],
+                 password_changed_at, wrong_passwords, password_wait_until, pin_record, pin_changed_at, master_key)
+             VALUES (1, ?1, ?2, ?3, ?4, ?1, 0, NULL, NULL, NULL, ?5)",
+            params![now, record.salt, record.rounds, record.hash, &master_key[..]],
         )?;
         tx.commit()?;
         Ok(())
@@ -119,9 +137,54 @@ impl Hub {
         Ok(outcome)
     }
 
+    /// Sets a new guardian password WITHOUT the old one. Only for an
+    /// administrator of the master PC who has forgotten the password, through
+    /// LiMo's elevated command for that (`limo reset-password`), which is its
+    /// one caller; a guardian who knows the password changes it with
+    /// [`Hub::change_password`], which asks for the old one. The wrong
+    /// guesses and their wait are cleared, and a [`EventKind::PasswordReset`]
+    /// is recorded, so the family's history shows it. Everything else is kept:
+    /// the PIN, the children, their rules and their devices.
+    pub fn reset_password(&mut self, new: &str, now: i64) -> Result<(), HubError> {
+        password::check_new(new)?;
+        let tx = self.change()?;
+        store::require_family(&tx)?;
+        write_password(&tx, &PasswordRecord::new_password(new)?, Some(now))?;
+        tx.execute("UPDATE family SET wrong_passwords = 0, password_wait_until = NULL WHERE id = 1", [])?;
+        add_event(&tx, now, None, &EventKind::PasswordReset)?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// True when the family has a guardian PIN.
     pub fn has_pin(&self) -> Result<bool, HubError> {
         Ok(store::family(&self.conn)?.pin.is_some())
+    }
+
+    /// Checks the guardian PIN typed on the master PC itself, with no device
+    /// at hand: on the lock of a Windows account linked to no child. It has
+    /// its own wrong guesses and wait, kept in the family's file, by the same
+    /// rule as the password's and a device's: the first four are free, the
+    /// fifth sets a wait of a minute, and each further one doubles it, up to
+    /// an hour. During a wait nothing is checked or counted. A right PIN
+    /// clears the count. A restart changes nothing. Setting or removing the
+    /// PIN clears the count too. [`HubError::NoPin`] when no PIN is set.
+    pub fn check_pin(&mut self, pin: &str, now: i64) -> Result<PinOutcome, HubError> {
+        let tx = self.change()?;
+        let family = store::family(&tx)?;
+        let record = family.pin.ok_or(HubError::NoPin)?;
+        if let Some(until) = family.pin_wait_until.filter(|w| now < *w) {
+            return Ok(PinOutcome::MustWait { until });
+        }
+        if password::pin_matches(&record, pin) {
+            clear_pin_guesses(&tx)?;
+            tx.commit()?;
+            return Ok(PinOutcome::Right);
+        }
+        let (wrong, wait_until) = wrong_guess(family.wrong_pins, family.pin_wait_until, now);
+        tx.execute("UPDATE family SET wrong_pins = ?1, pin_wait_until = ?2 WHERE id = 1", params![wrong, wait_until])?;
+        tx.commit()?;
+        Ok(PinOutcome::Wrong { wrong_guesses: wrong, wait_until: wait_until.filter(|w| now < *w) })
     }
 
     /// Sets or changes the guardian PIN, 6 to 8 digits, for every child at
@@ -154,6 +217,7 @@ impl Hub {
         }
         let json = serde_json::to_string(&record).map_err(|_| HubError::internal("a PIN record could not be written"))?;
         tx.execute("UPDATE family SET pin_record = ?1, pin_changed_at = ?2 WHERE id = 1", params![json, now])?;
+        clear_pin_guesses(&tx)?;
         add_event(&tx, now, None, &EventKind::PinSet)?;
         tx.commit()?;
         Ok(())
@@ -173,17 +237,19 @@ impl Hub {
             store::save_book(&tx, &child_id, &book, now)?;
         }
         tx.execute("UPDATE family SET pin_record = NULL, pin_changed_at = ?1 WHERE id = 1", [now])?;
+        clear_pin_guesses(&tx)?;
         add_event(&tx, now, None, &EventKind::PinRemoved)?;
         tx.commit()?;
         Ok(())
     }
 
-    /// Deletes the whole family: the password, the PIN, every child with
-    /// its rules, devices, usage, requests and events, the Windows accounts,
-    /// and the settings. What is left is an empty, valid store, as a new
-    /// file is. The space the data took is overwritten, and the file is
-    /// rebuilt so that no copy of it is left (when the disk has room for
-    /// that; the deletion stands either way).
+    /// Deletes the whole family: the password, the PIN, the master's key,
+    /// every child with its rules, devices, phones' keys, notes and apps,
+    /// pairing offers, usage, requests and events, the Windows accounts, and
+    /// the settings. What is left is an empty, valid store, as a new file is.
+    /// The space the data took is overwritten, and the file is rebuilt so
+    /// that no copy of it is left (when the disk has room for that; the
+    /// deletion stands either way).
     ///
     /// The hub keeps no sessions: the guardian's screen must ask for the
     /// password before it calls this.
@@ -196,6 +262,9 @@ impl Hub {
              DELETE FROM day_total;
              DELETE FROM slice;
              DELETE FROM master_pc;
+             DELETE FROM phone_apps;
+             DELETE FROM offer;
+             DELETE FROM phone;
              DELETE FROM device;
              DELETE FROM book;
              DELETE FROM child;

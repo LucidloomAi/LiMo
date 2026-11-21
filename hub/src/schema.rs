@@ -10,14 +10,15 @@ use std::path::Path;
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
+use zeroize::Zeroizing;
 
-use crate::DEFAULT_DETAIL_DAYS;
 use crate::error::HubError;
-use crate::store;
+use crate::{DEFAULT_DETAIL_DAYS, KEY_BYTES};
+use crate::{random, store};
 
 /// The version of the file this code writes. A file of a later version is
 /// refused, unchanged.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// "LiMo" in ASCII: marks the file as a LiMo family file.
 pub(crate) const APPLICATION_ID: i32 = 0x4C69_4D6F;
@@ -168,25 +169,96 @@ CREATE TABLE master_pc (
 CREATE INDEX master_pc_by_child ON master_pc(child_id);
 ";
 
-/// Work on the books that a step's SQL cannot do.
-type BookWork = fn(&Connection) -> Result<(), HubError>;
+/// Version 4: what the link between the phones and the master PC needs.
+///
+/// - `family.master_key`: the master's own private key for the link, 32
+///   random bytes, made with the family. The link makes the public key from
+///   it.
+/// - `offer`: the pairing offers the service made, each for one child: its
+///   id, its text form as the link wrote it (which holds its secret), when it
+///   was made and when it expires, and when it was used and by which device.
+/// - `phone`: for each device that can be carried away, its link key (the
+///   phone's public key, none for a phone paired before the link), the form
+///   of the app, its Android version, the newest of each kind of note it
+///   sent, and when it was told that it was removed.
+/// - `phone_apps`: each phone's list of apps with their labels, and the hash
+///   the phone gave it.
+/// - `family.wrong_pins` and `family.pin_wait_until`: the wrong guesses of
+///   the guardian PIN typed on the master PC itself (on the lock of a Windows
+///   account linked to no child), and the end of the wait they set.
+const V4: &str = "
+ALTER TABLE family ADD COLUMN master_key BLOB CHECK (master_key IS NULL OR length(master_key) = 32);
+ALTER TABLE family ADD COLUMN wrong_pins INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE family ADD COLUMN pin_wait_until INTEGER;
 
-/// One step from a version to the next: SQL, and work on the books that SQL
-/// cannot do.
+CREATE TABLE offer (
+    id TEXT PRIMARY KEY,
+    child_id TEXT NOT NULL REFERENCES child(id) ON DELETE CASCADE,
+    offer_text TEXT NOT NULL,
+    made_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER,
+    device_id TEXT REFERENCES device(id) ON DELETE CASCADE
+);
+CREATE INDEX offer_by_child ON offer(child_id);
+CREATE INDEX offer_by_device ON offer(device_id);
+
+CREATE TABLE phone (
+    device_id TEXT PRIMARY KEY REFERENCES device(id) ON DELETE CASCADE,
+    child_id TEXT NOT NULL REFERENCES child(id) ON DELETE CASCADE,
+    link_key BLOB UNIQUE CHECK (link_key IS NULL OR length(link_key) = 32),
+    form TEXT NOT NULL CHECK (form IN ('child', 'guardian')),
+    android_version INTEGER,
+    notes TEXT NOT NULL,
+    released_at INTEGER
+);
+CREATE INDEX phone_by_child ON phone(child_id);
+
+CREATE TABLE phone_apps (
+    device_id TEXT PRIMARY KEY REFERENCES phone(device_id) ON DELETE CASCADE,
+    child_id TEXT NOT NULL REFERENCES child(id) ON DELETE CASCADE,
+    apps TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    kept_at INTEGER NOT NULL
+);
+CREATE INDEX phone_apps_by_child ON phone_apps(child_id);
+";
+
+/// Work that a step's SQL cannot do.
+type Work = fn(&Connection) -> Result<(), HubError>;
+
+/// One step from a version to the next: SQL, and work that SQL cannot do.
 #[derive(Clone, Copy)]
 pub(crate) struct Step {
     sql: &'static str,
-    books: Option<BookWork>,
+    work: Option<Work>,
 }
 
 /// Every step from one version to the next: entry `i` moves a file from
 /// version `i` to version `i + 1`. Never change an entry once released; add
 /// a new one.
 const MIGRATIONS: &[Step] = &[
-    Step { sql: V1, books: None },
-    Step { sql: V2, books: Some(convert_books) },
-    Step { sql: V3, books: None },
+    Step { sql: V1, work: None },
+    Step { sql: V2, work: Some(convert_books) },
+    Step { sql: V3, work: None },
+    Step { sql: V4, work: Some(add_link_records) },
 ];
+
+/// Version 4's work: a family already set up gets its master key, and every
+/// device that can be carried away, removed ones too, gets its row in
+/// `phone`: the form of a child's phone, and no link key, since it was
+/// paired before the link. Its own SQL only, so that later changes to the
+/// hub's functions cannot change what this step does.
+fn add_link_records(conn: &Connection) -> Result<(), HubError> {
+    let key = Zeroizing::new(random::bytes(KEY_BYTES)?);
+    conn.execute("UPDATE family SET master_key = ?1 WHERE id = 1 AND master_key IS NULL", [key.as_slice()])?;
+    conn.execute(
+        "INSERT INTO phone (device_id, child_id, link_key, form, android_version, notes, released_at)
+         SELECT id, child_id, NULL, 'child', NULL, '[]', NULL FROM device WHERE kind = 'portable'",
+        [],
+    )?;
+    Ok(())
+}
 
 /// Version 2's work on the books: every child's book is loaded (a book saved
 /// with whole slices is folded into marks as it loads) and saved in the
@@ -267,8 +339,8 @@ pub(crate) fn bring_up_to_date(conn: &mut Connection, migrations: &[Step]) -> Re
     }
     for step in migrations.iter().skip(version as usize) {
         tx.execute_batch(step.sql)?;
-        if let Some(books) = step.books {
-            books(&tx)?;
+        if let Some(work) = step.work {
+            work(&tx)?;
         }
     }
     if fresh {
@@ -322,27 +394,65 @@ mod tests {
         assert!(has_column(&conn, "device", "in_use_at_report"));
         assert!(!has_column(&conn, "book", "revision"));
 
-        bring_up_to_date(&mut conn, MIGRATIONS).unwrap();
+        bring_up_to_date(&mut conn, &MIGRATIONS[..3]).unwrap();
         assert_eq!(version(&conn), 3);
         assert!(has_column(&conn, "book", "revision") && has_column(&conn, "master_pc", "notes"));
         let (idle, unlinked): (i64, String) = conn
             .query_row("SELECT idle_minutes, unlinked_accounts FROM settings", [], |row| Ok((row.get(0)?, row.get(1)?)))
             .unwrap();
         assert_eq!((idle, unlinked.as_str()), (crate::DEFAULT_IDLE_MINUTES as i64, "free"));
+        assert!(!has_column(&conn, "family", "master_key"));
 
-        let four = [MIGRATIONS[0], MIGRATIONS[1], MIGRATIONS[2], Step { sql: TEST_NEXT, books: None }];
-        bring_up_to_date(&mut conn, &four).unwrap();
+        bring_up_to_date(&mut conn, MIGRATIONS).unwrap();
         assert_eq!(version(&conn), 4);
+        assert!(has_column(&conn, "family", "master_key") && has_column(&conn, "offer", "offer_text"));
+        assert!(has_column(&conn, "phone", "link_key") && has_column(&conn, "phone_apps", "hash"));
+
+        let five = [MIGRATIONS[0], MIGRATIONS[1], MIGRATIONS[2], MIGRATIONS[3], Step { sql: TEST_NEXT, work: None }];
+        bring_up_to_date(&mut conn, &five).unwrap();
+        assert_eq!(version(&conn), 5);
         let probe: i64 = conn.query_row("SELECT probe FROM settings", [], |row| row.get(0)).unwrap();
         let days: i64 = conn.query_row("SELECT detail_days FROM settings", [], |row| row.get(0)).unwrap();
         assert_eq!((probe, days), (7, DEFAULT_DETAIL_DAYS as i64));
         // Opening it again changes nothing.
-        bring_up_to_date(&mut conn, &four).unwrap();
-        assert_eq!(version(&conn), 4);
+        bring_up_to_date(&mut conn, &five).unwrap();
+        assert_eq!(version(&conn), 5);
         drop(conn);
 
-        // This code knows up to version 3, so the file is now too new for it.
-        assert_eq!(open(&path).unwrap_err(), HubError::FileTooNew { file_version: 4, known_version: 3 });
+        // This code knows up to version 4, so the file is now too new for it.
+        assert_eq!(open(&path).unwrap_err(), HubError::FileTooNew { file_version: 5, known_version: 4 });
+    }
+
+    #[test]
+    fn version_four_gives_a_family_its_master_key_and_each_phone_its_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = Connection::open(dir.path().join("family.limo")).unwrap();
+        bring_up_to_date(&mut conn, &MIGRATIONS[..3]).unwrap();
+        conn.execute_batch(
+            "INSERT INTO family (id, created_at, password_salt, password_rounds, password_hash, password_changed_at,
+                 wrong_passwords) VALUES (1, 0, x'00', 1, x'00', 0, 0);
+             INSERT INTO child (id, seq, name, age_band, added_at) VALUES ('child-1', 1, 'Asha', 'under_six', 0);
+             INSERT INTO device (id, seq, child_id, name, kind, platform, paired_at, removed_at, in_use_at_report)
+                 VALUES ('device-pc', 1, 'child-1', 'PC', 'on_master', 'windows', 0, NULL, 0),
+                        ('device-phone', 2, 'child-1', 'Phone', 'portable', 'android', 0, NULL, 0),
+                        ('device-old', 3, 'child-1', 'Old', 'portable', 'android', 0, 5, 0);",
+        )
+        .unwrap();
+        bring_up_to_date(&mut conn, MIGRATIONS).unwrap();
+        let key: Vec<u8> = conn.query_row("SELECT master_key FROM family", [], |row| row.get(0)).unwrap();
+        assert_eq!(key.len(), KEY_BYTES);
+        assert_ne!(key, vec![0u8; KEY_BYTES]);
+        let mut stmt = conn.prepare("SELECT device_id, link_key IS NULL, form, notes FROM phone ORDER BY device_id").unwrap();
+        let phones: Vec<(String, bool, String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let none = |id: &str| (id.to_string(), true, "child".to_string(), "[]".to_string());
+        assert_eq!(phones, vec![none("device-old"), none("device-phone")]);
+        // The key is a key, and nothing else: its length is checked by the file.
+        assert!(conn.execute("UPDATE family SET master_key = x'0102'", []).is_err());
+        assert!(conn.execute("UPDATE phone SET link_key = x'0102'", []).is_err());
     }
 
     #[test]

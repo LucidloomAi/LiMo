@@ -4,7 +4,10 @@
 //! password and PIN (`family.rs`), children and rules (`children.rs`),
 //! devices and the exchange (`devices.rs`), what a guardian does
 //! (`guardian.rs`), Windows accounts (`accounts.rs`), the guardian's views
-//! (`views.rs`), events (`events.rs`) and keeping the file small (`tidy.rs`).
+//! (`views.rs`), events (`events.rs`), keeping the file small (`tidy.rs`),
+//! the agent on the master PC (`master_pc.rs`), the link's keys and offers
+//! (`link.rs`), and each phone's notes, apps and release (`phones.rs`, with
+//! every kind of note in `notes.rs`).
 
 use std::fmt;
 use std::path::{Path, PathBuf};

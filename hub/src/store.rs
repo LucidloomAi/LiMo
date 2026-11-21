@@ -5,10 +5,11 @@
 use limo_core::{DeviceKind, DeviceState, MasterBook, PinRecord};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
+use crate::KEY_BYTES;
 use crate::error::HubError;
 use crate::password::PasswordRecord;
 use crate::random;
-use crate::types::{AgeBand, Child, EventKind};
+use crate::types::{AgeBand, Child, EventKind, PhoneForm};
 
 /// Unsigned seconds as SQLite's signed integers, without wrapping.
 pub(crate) fn to_i64(n: u64) -> i64 {
@@ -47,28 +48,31 @@ pub(crate) struct FamilyRow {
     pub(crate) wrong_passwords: u32,
     pub(crate) password_wait_until: Option<i64>,
     pub(crate) pin: Option<PinRecord>,
+    /// Wrong guesses of the PIN typed on the master PC itself.
+    pub(crate) wrong_pins: u32,
+    /// The end of the wait they set.
+    pub(crate) pin_wait_until: Option<i64>,
 }
 
 /// The family row, or [`HubError::NoFamily`].
 pub(crate) fn family(conn: &Connection) -> Result<FamilyRow, HubError> {
     let row = conn
         .query_row(
-            "SELECT password_salt, password_rounds, password_hash, wrong_passwords, password_wait_until, pin_record
+            "SELECT password_salt, password_rounds, password_hash, wrong_passwords, password_wait_until, pin_record,
+                 wrong_pins, pin_wait_until
              FROM family WHERE id = 1",
             [],
             |row| {
                 Ok((
-                    row.get::<_, Vec<u8>>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, Vec<u8>>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, Option<i64>>(4)?,
+                    (row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?, row.get::<_, Vec<u8>>(2)?),
+                    (row.get::<_, i64>(3)?, row.get::<_, Option<i64>>(4)?),
                     row.get::<_, Option<String>>(5)?,
+                    (row.get::<_, i64>(6)?, row.get::<_, Option<i64>>(7)?),
                 ))
             },
         )
         .optional()?;
-    let Some((salt, rounds, hash, wrong, wait_until, pin)) = row else {
+    let Some(((salt, rounds, hash), (wrong, wait_until), pin, (wrong_pins, pin_wait_until))) = row else {
         return Err(HubError::NoFamily);
     };
     let pin = match pin {
@@ -80,6 +84,8 @@ pub(crate) fn family(conn: &Connection) -> Result<FamilyRow, HubError> {
         wrong_passwords: to_u32(wrong),
         password_wait_until: wait_until,
         pin,
+        wrong_pins: to_u32(wrong_pins),
+        pin_wait_until,
     })
 }
 
@@ -315,6 +321,40 @@ pub(crate) fn add_event(conn: &Connection, at: i64, child_id: Option<&str>, what
     conn.execute(
         "INSERT INTO event (at, child_id, kind, detail) VALUES (?1, ?2, ?3, ?4)",
         params![at, child_id, what.key(), detail],
+    )?;
+    Ok(())
+}
+
+/// Records an event unless the same event, to the letter, is already on
+/// record. True when it was recorded now.
+pub(crate) fn note_once(conn: &Connection, child_id: Option<&str>, what: &EventKind, now: i64) -> Result<bool, HubError> {
+    let detail = serde_json::to_string(what).map_err(|_| HubError::internal("an event could not be written as JSON"))?;
+    let seen = conn
+        .query_row("SELECT 1 FROM event WHERE kind = ?1 AND detail = ?2", params![what.key(), detail], |_| Ok(()))
+        .optional()?
+        .is_some();
+    if seen {
+        return Ok(false);
+    }
+    add_event(conn, now, child_id, what)?;
+    Ok(true)
+}
+
+/// Adds the row the hub keeps beside a device that can be carried away: its
+/// link key if the link gave one, the form of the app and its Android
+/// version, and no notes yet.
+pub(crate) fn add_phone(
+    conn: &Connection,
+    device_id: &str,
+    child_id: &str,
+    link_key: Option<&[u8; KEY_BYTES]>,
+    form: PhoneForm,
+    android_version: Option<u32>,
+) -> Result<(), HubError> {
+    conn.execute(
+        "INSERT INTO phone (device_id, child_id, link_key, form, android_version, notes, released_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, '[]', NULL)",
+        params![device_id, child_id, link_key.map(|k| &k[..]), form.key(), android_version],
     )?;
     Ok(())
 }

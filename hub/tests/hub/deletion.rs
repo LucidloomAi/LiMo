@@ -2,7 +2,7 @@
 //! part way leaves nothing.
 
 use limo_core::{DeviceKind, RequestReply};
-use limo_hub::{AccountLink, AccountStanding, EventKind, Hub, HubError, PasswordOutcome};
+use limo_hub::{AccountLink, AccountStanding, EventKind, Hub, HubError, PasswordOutcome, PhoneApp, PhoneNote};
 
 use crate::common::*;
 
@@ -11,15 +11,32 @@ const M: u64 = 60;
 /// it.
 const ZEPH: &str = "Zephyrine";
 const ZEPH_PHONE: &str = "Quixotic handset";
+/// The link key of Zephyrine's phone paired with an offer, and of Ravi's.
+const ZEPH_KEY: u8 = 41;
+const RAVI_KEY: u8 = 77;
+/// The mark in the text of an offer for Zephyrine that was never used.
+const ZEPH_OFFER: &str = "ZEBRAOFFERSECRET";
 
 /// Zephyrine with a PC and a phone, a day of use folded into totals and a
-/// day in detail, a request, codes, an account and events; and Ravi.
+/// day in detail, a request, codes, an account and events, and a second
+/// phone paired with an offer: its key, its notes, its apps, and an offer
+/// not yet used; and Ravi, with a phone of his own paired with an offer.
 fn two_children(hub: &mut Hub) -> (String, String, String) {
     let zeph = child(hub, ZEPH).child_id;
     let ravi = child(hub, "Ravi").child_id;
     let mut pc = pair(hub, &zeph, "Zeph PC", DeviceKind::OnMaster, at(7, 0));
     let mut phone = pair(hub, &zeph, ZEPH_PHONE, DeviceKind::Portable, at(7, 0));
     let mut tablet = pair(hub, &ravi, "Ravi tablet", DeviceKind::Portable, at(7, 0));
+    let mut linked = pair_phone(hub, &zeph, "Zebra link phone", ZEPH_KEY, at(7, 0));
+    pair_phone(hub, &ravi, "Ravi link phone", RAVI_KEY, at(7, 0));
+    let (id, text) = offer_parts(ZEPH_KEY + 1, ZEPH_OFFER);
+    hub.keep_offer(&zeph, &id, &text, at(7, 10), at(7, 0)).unwrap();
+    let apps = [PhoneApp { package: "com.zebra.game".into(), label: "Zebra Galaxy Game".into() }];
+    hub.keep_phone_apps(&linked.id, &apps, "abcdef", at(7, 1)).unwrap();
+    let note = PhoneNote::ClockMoved { by_secs: 7_777_777, followed: false, at: at(7, 2) };
+    let report = report_with_notes(&mut linked, &[note], 1, at(7, 2));
+    let grant = hub.handle_report(&report, at(7, 2)).unwrap();
+    linked.state.take_grant(&grant, at(7, 2));
     exchange(hub, &mut pc, at(8, 0), true);
     use_app(hub, &mut pc, "zebra-game", at(8, 0), at(8, 9));
     exchange(hub, &mut phone, at(8, 10), true);
@@ -72,19 +89,30 @@ fn removing_a_child_removes_every_row_and_overwrites_it() {
 
     let conn = raw(&place.path);
     let mine = format!("child_id = '{zeph}'");
-    for table in ["child", "book", "device", "slice", "day_total", "account", "event"] {
+    for table in ["child", "book", "device", "slice", "day_total", "account", "event", "offer", "phone", "phone_apps"] {
         let condition = if table == "child" { format!("id = '{zeph}'") } else { mine.clone() };
         assert_eq!(count(&conn, table, &condition), 0, "{table}");
     }
     assert_eq!(count(&conn, "code_made", "1"), 0);
     assert_eq!(count(&conn, "child", "1"), 1);
-    // Ravi's usage of that day was folded into totals, and stays.
+    // Ravi's usage of that day was folded into totals, and stays; so do his
+    // phone and its key.
     assert!(count(&conn, "day_total", &format!("child_id = '{ravi}'")) > 0);
+    assert_eq!(count(&conn, "phone", &format!("child_id = '{ravi}'")), 2);
     drop(conn);
     // Not only gone from the tables: gone from the file.
-    for needle in [ZEPH, ZEPH_PHONE, "zebra-game", "zebra-video", "zebra homework", "zeph-account", zeph.as_str()] {
+    let link = ["com.zebra.game", "Zebra Galaxy Game", "Zebra link phone", ZEPH_OFFER, "7777777"];
+    for needle in [ZEPH, ZEPH_PHONE, "zebra-game", "zebra-video", "zebra homework", "zeph-account", zeph.as_str()]
+        .into_iter()
+        .chain(link)
+    {
         assert!(!file_holds(&place.path, needle), "{needle} is still in the file");
     }
+    assert!(!file_holds_bytes(&place.path, &link_key(ZEPH_KEY)), "the phone's link key is still in the file");
+    // What stays is found by the same search.
+    assert!(file_holds_bytes(&place.path, &link_key(RAVI_KEY)) && file_holds(&place.path, "Ravi link phone"));
+    let master_key = Hub::open(&place.path).unwrap().master_key().unwrap();
+    assert!(file_holds_bytes(&place.path, master_key.expose_private()));
 }
 
 #[test]
@@ -94,6 +122,10 @@ fn deleting_the_family_leaves_an_empty_valid_store() {
     two_children(&mut hub);
     hub.set_pin("482915", at(11, 0)).unwrap();
     hub.link_account("S-1-5-21-1000", "Mumtaz", AccountLink::NotLimited).unwrap();
+    let master_key = hub.master_key().unwrap();
+    hub.close().unwrap();
+    assert!(file_holds_bytes(&place.path, master_key.expose_private()), "the search finds the key while it is there");
+    let mut hub = Hub::open(&place.path).unwrap();
     hub.delete_family().unwrap();
 
     assert!(!hub.has_family().unwrap());
@@ -107,12 +139,24 @@ fn deleting_the_family_leaves_an_empty_valid_store() {
     hub.close().unwrap();
 
     let conn = raw(&place.path);
-    for table in ["family", "child", "book", "device", "slice", "day_total", "code_made", "account", "event"] {
+    for table in [
+        "family", "child", "book", "device", "slice", "day_total", "code_made", "account", "event", "offer", "phone",
+        "phone_apps",
+    ] {
         assert_eq!(count(&conn, table, "1"), 0, "{table}");
     }
     drop(conn);
-    for needle in [ZEPH, ZEPH_PHONE, "Ravi tablet", "drawing", "zebra-game", "Mumtaz"] {
+    for needle in [ZEPH, ZEPH_PHONE, "Ravi tablet", "drawing", "zebra-game", "Mumtaz", "com.zebra.game", ZEPH_OFFER] {
         assert!(!file_holds(&place.path, needle), "{needle} is still in the file");
+    }
+    // The keys too: the master's own, and every phone's.
+    let keys = [
+        ("master", *master_key.expose_private()),
+        ("Zephyrine's phone", link_key(ZEPH_KEY)),
+        ("Ravi's phone", link_key(RAVI_KEY)),
+    ];
+    for (what, key) in keys {
+        assert!(!file_holds_bytes(&place.path, &key), "the {what} key is still in the file");
     }
 
     // A new family can start in the same file, with a new password.

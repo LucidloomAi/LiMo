@@ -75,6 +75,14 @@ pub(crate) fn clean(text: &str, field: TextField) -> Result<String, HubError> {
     Ok(trimmed.to_string())
 }
 
+/// Text that came from a device, not typed at the PC, made fit to show: the
+/// hidden characters taken out, spaces trimmed from both ends, and cut to at
+/// most `max_chars` characters. May be empty.
+pub(crate) fn fit(text: &str, max_chars: usize) -> String {
+    let shown: String = text.chars().filter(|c| !is_hidden(*c)).collect();
+    shown.trim().chars().take(max_chars).collect::<String>().trim_end().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,5 +112,14 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn text_from_a_device_is_made_fit_to_show() {
+        assert_eq!(fit("  Asha's\u{202E} phone\n ", 40), "Asha's phone");
+        assert_eq!(fit(&"🙂".repeat(50), 40), "🙂".repeat(40));
+        // Cut at forty characters, then trimmed again.
+        assert_eq!(fit(&format!("{} tail", "a".repeat(39)), 40), "a".repeat(39));
+        assert_eq!(fit("\u{200F}\u{0}", 40), "");
     }
 }

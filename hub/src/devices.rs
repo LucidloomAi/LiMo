@@ -9,10 +9,11 @@ use rusqlite::{Connection, params};
 
 use crate::error::HubError;
 use crate::hub::Hub;
-use crate::random;
+use crate::notes::PhoneNote;
 use crate::store::{self, DeviceRow, add_event, kind_key, to_i64};
 use crate::text::{self, TextField};
-use crate::types::{DeviceInfo, EventKind, Pairing};
+use crate::types::{DeviceInfo, EventKind, Pairing, PhoneForm};
+use crate::{phones, random};
 use crate::{CLOCK_FAR_OFF_SECS, IN_USE_FRESH_SECS};
 
 /// A clock offset, as the core keeps it, when it is far off
@@ -151,14 +152,15 @@ pub(crate) fn remove_in(conn: &Connection, row: &DeviceRow, now: i64) -> Result<
     conn.execute("UPDATE device SET removed_at = ?1 WHERE id = ?2", params![now, row.id])?;
     conn.execute("DELETE FROM code_made WHERE device_id = ?1", [&row.id])?;
     conn.execute("DELETE FROM master_pc WHERE device_id = ?1", [&row.id])?;
+    conn.execute("DELETE FROM phone_apps WHERE device_id = ?1", [&row.id])?;
     let what = EventKind::DeviceRemoved { device_id: row.id.clone(), name: row.name.clone() };
     add_event(conn, now, Some(&row.child_id), &what)?;
     Ok(())
 }
 
 /// Lets the child's book take a report from `row`'s device inside a change,
-/// writes the book, keeps the slices it took for the first time, and notes
-/// what the report shows (see [`Hub::handle_report`]).
+/// writes the book, keeps the slices and the notes it took for the first
+/// time, and notes what the report shows (see [`Hub::handle_report`]).
 pub(crate) fn take_report(
     conn: &Connection,
     row: &DeviceRow,
@@ -176,6 +178,10 @@ pub(crate) fn take_report(
     store::save_book(conn, &row.child_id, book, now)?;
     keep_slices(conn, &row.child_id, &outcome)?;
     note_report(conn, row, report, &outcome, &before, &after, now)?;
+    if !outcome.new_notes.is_empty() {
+        let notes: Vec<PhoneNote> = outcome.new_notes.iter().map(|sent| sent.note.clone()).collect();
+        phones::keep_notes(conn, row, &notes, now)?;
+    }
     Ok(outcome.grant)
 }
 
@@ -207,6 +213,11 @@ impl Hub {
         let tx = self.change()?;
         store::child(&tx, child_id)?;
         let pairing = pair_in(&tx, child_id, name, kind, &platform, &secret, now)?;
+        if kind == DeviceKind::Portable {
+            // A phone paired this way has no link key, so the link cannot
+            // reach it; its notes and apps are kept all the same.
+            store::add_phone(&tx, &pairing.device_id, child_id, None, PhoneForm::Child, None)?;
+        }
         tx.commit()?;
         Ok(pairing)
     }
@@ -268,6 +279,14 @@ impl Hub {
     ///
     /// A report from a device that is not paired, was removed, or is paired
     /// with another child than the report names is refused.
+    ///
+    /// The notes a phone's report carries for the guardian are kept in the
+    /// same transaction: the ones the book took for the first time, as
+    /// events and as the newest note of each kind for the phone (see
+    /// [`Hub::phone`]). The grant confirms them, and the phone then drops
+    /// them, so they are on the disk before it can leave. A report with notes
+    /// from a device that is not a phone is refused with
+    /// [`HubError::NotAPhone`], and then nothing is kept.
     pub fn handle_report(&mut self, report: &Report, now: i64) -> Result<Grant, HubError> {
         let tx = self.change()?;
         let row = store::active_device(&tx, &report.device_id)?;

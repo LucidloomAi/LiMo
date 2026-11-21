@@ -27,6 +27,9 @@ getrandom = "0.4.3"
 sha2 = { version = "0.11.1", default-features = false }
 pbkdf2 = { version = "0.13.0", default-features = false, features = ["hmac"] }
 ctutils = { version = "0.4.8", default-features = false }
+# Wiping the master's private key and the pairing offers the hub hands out,
+# when they are dropped: the same crate and version the link uses.
+zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 # Real files in temporary folders.

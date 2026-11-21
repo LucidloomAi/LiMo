@@ -3,8 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
-use limo_core::{CivilDate, DeviceKind, DeviceState, Grant, RuleSet};
-use limo_hub::{AgeBand, Child, Hub, Pairing};
+use limo_core::{CivilDate, DeviceKind, DeviceState, Grant, Report, RuleSet, SentNote};
+use limo_hub::{AgeBand, Child, Hub, OfferRecord, Pairing, PhoneForm, PhoneNote, PhoneRequest};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
@@ -101,8 +101,65 @@ pub fn count(conn: &Connection, table: &str, condition: &str) -> i64 {
 
 /// True when the file holds these bytes anywhere, in use or not.
 pub fn file_holds(path: &Path, needle: &str) -> bool {
+    file_holds_bytes(path, needle.as_bytes())
+}
+
+/// True when the file holds these bytes anywhere, in use or not.
+pub fn file_holds_bytes(path: &Path, needle: &[u8]) -> bool {
     let bytes = std::fs::read(path).unwrap();
-    bytes.windows(needle.len()).any(|w| w == needle.as_bytes())
+    bytes.windows(needle.len()).any(|w| w == needle)
+}
+
+/// A phone's link key for the stories: 32 bytes that look random and differ
+/// for each `n`. The link makes real ones; the hub only keeps them.
+pub fn link_key(n: u8) -> [u8; 32] {
+    let mut key = [0u8; 32];
+    for (i, b) in key.iter_mut().enumerate() {
+        *b = n.wrapping_mul(97).wrapping_add((i as u8).wrapping_mul(53)) ^ 0xA5;
+    }
+    key
+}
+
+/// A pairing offer's id and text for the stories, as the link would write
+/// them: 16 hex digits, and `limo1:` with base32 after it. `mark`, in
+/// capitals, makes the text easy to find in the file.
+pub fn offer_parts(n: u8, mark: &str) -> (String, String) {
+    let id = format!("{:016x}", 0x5eed_0000_0000_0000u64 + u64::from(n));
+    let text = format!("limo1:{mark}{}", "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".repeat(4));
+    (id, text)
+}
+
+/// Keeps an offer for a child that lasts ten minutes from `now`.
+pub fn offer(hub: &mut Hub, child_id: &str, n: u8, now: i64) -> OfferRecord {
+    let (id, text) = offer_parts(n, "SECRET");
+    hub.keep_offer(child_id, &id, &text, now + 10 * MIN, now).unwrap()
+}
+
+/// What a child's phone says when it pairs.
+pub fn request(name: &str) -> PhoneRequest {
+    PhoneRequest { name: name.to_string(), form: PhoneForm::Child, platform: "android".into(), android_version: Some(33) }
+}
+
+/// The device's report at `now`, carrying these notes for the guardian
+/// numbered from `first`, as a phone sends them.
+pub fn report_with_notes(device: &mut Device, notes: &[PhoneNote], first: u64, now: i64) -> Report {
+    let mut report = device.state.report(now, false);
+    report.notes = notes
+        .iter()
+        .enumerate()
+        .map(|(i, note)| SentNote { id: SentNote::id_for(&device.id, first + i as u64), note: note.clone() })
+        .collect();
+    report
+}
+
+/// A phone paired with an offer, as the link pairs one: the offer kept, the
+/// phone paired with its key, and its state made from the pairing.
+pub fn pair_phone(hub: &mut Hub, child_id: &str, name: &str, n: u8, now: i64) -> Device {
+    let offer = offer(hub, child_id, n, now);
+    let pairing = hub.pair_device_with_offer(&offer.offer_id, &link_key(n), &request(name), now).unwrap();
+    let mut state = DeviceState::from_pairing(&pairing.welcome, now);
+    state.set_code_secret(pairing.code_secret.clone()).unwrap();
+    Device { id: pairing.device_id, state }
 }
 
 /// Messages a guardian may be shown are plain sentences with no dash

@@ -4,8 +4,13 @@
 
 use std::fmt;
 
+use ctutils::CtEq;
 use limo_core::{DeviceKind, DeviceState, GuardianMode, Grant, RequestView};
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
+
+use crate::KEY_BYTES;
+use crate::notes::{PhoneNote, PhonePermission, ProtectionLevel};
 
 /// A child's age, in four bands. The hub only keeps it; later pieces may use
 /// it to suggest starting rules.
@@ -115,7 +120,8 @@ impl fmt::Debug for Pairing {
     }
 }
 
-/// What became of a password typed by a guardian.
+/// What became of a password typed by a guardian, or of the PIN typed on the
+/// master PC ([`PinOutcome`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PasswordOutcome {
@@ -134,6 +140,11 @@ pub enum PasswordOutcome {
         until: i64,
     },
 }
+
+/// What became of the guardian PIN typed on the master PC
+/// ([`crate::Hub::check_pin`]): right, wrong (counted, with the wait it set),
+/// or not tried during a wait. The same as for the password.
+pub type PinOutcome = PasswordOutcome;
 
 /// How a Windows account on the master PC is linked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -347,6 +358,9 @@ pub enum EventKind {
     PinRemoved,
     /// The guardian password was changed.
     PasswordChanged,
+    /// The guardian password was reset without the old one, by an
+    /// administrator of the master PC ([`crate::Hub::reset_password`]).
+    PasswordReset,
     /// The child's devices were locked from the master.
     Locked {
         /// Until when, or None for until lifted.
@@ -421,6 +435,23 @@ pub enum EventKind {
         /// The child's home day.
         day: i64,
     },
+    /// A phone noted something for the guardian, and its report carried it
+    /// ([`crate::Hub::handle_report`]). Each note is recorded once, however
+    /// often the phone sends it.
+    PhoneNoted {
+        /// The phone.
+        device_id: String,
+        /// What it noted.
+        note: PhoneNote,
+    },
+    /// A phone removed from the family was told so, and let go of its limits
+    /// ([`crate::Hub::note_released`]).
+    DeviceReleased {
+        /// The phone.
+        device_id: String,
+        /// Its name.
+        name: String,
+    },
 }
 
 impl EventKind {
@@ -433,6 +464,7 @@ impl EventKind {
             EventKind::PinSet => "pin_set",
             EventKind::PinRemoved => "pin_removed",
             EventKind::PasswordChanged => "password_changed",
+            EventKind::PasswordReset => "password_reset",
             EventKind::Locked { .. } => "locked",
             EventKind::Unlocked { .. } => "unlocked",
             EventKind::Lifted => "lifted",
@@ -443,6 +475,8 @@ impl EventKind {
             EventKind::ClockJumped { .. } => "clock_jumped",
             EventKind::TimeZoneChanged { .. } => "time_zone_changed",
             EventKind::BlockedProgramClosed { .. } => "blocked_program_closed",
+            EventKind::PhoneNoted { .. } => "phone_noted",
+            EventKind::DeviceReleased { .. } => "device_released",
         }
     }
 }
@@ -536,4 +570,203 @@ pub struct TidyReport {
     pub codes_dropped: u64,
     /// Old events dropped.
     pub events_dropped: u64,
+    /// Pairing offers dropped, a day after they expired.
+    pub offers_dropped: u64,
+}
+
+/// The master's own private key for the link: 32 random bytes, made when
+/// the family is made, kept in the family's file. The link makes the public
+/// key from it (`KeyPair::from_private`). Its `Debug` hides it, and it is
+/// wiped from memory when dropped.
+#[derive(Clone)]
+pub struct MasterKey {
+    pub(crate) private: Zeroizing<[u8; KEY_BYTES]>,
+}
+
+impl MasterKey {
+    /// The private key, for the link. Never show it or log it.
+    pub fn expose_private(&self) -> &[u8; KEY_BYTES] {
+        &self.private
+    }
+}
+
+impl PartialEq for MasterKey {
+    /// Compared in constant time.
+    fn eq(&self, other: &MasterKey) -> bool {
+        self.private[..].ct_eq(&other.private[..]).to_bool()
+    }
+}
+
+impl Eq for MasterKey {}
+
+impl fmt::Debug for MasterKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "MasterKey(hidden)")
+    }
+}
+
+/// A pairing offer the service made for a child, as the hub keeps it. Its
+/// `Debug` hides the offer's text, which holds its secret, and the text is
+/// wiped from memory when dropped.
+#[derive(Clone, PartialEq, Eq)]
+pub struct OfferRecord {
+    /// The offer's id, 16 lowercase hex digits.
+    pub offer_id: String,
+    /// The child a phone that uses it is paired with.
+    pub child_id: String,
+    /// The offer's text form, as the link wrote it. It holds the offer's
+    /// secret: hand it only to the link, and never show it or log it.
+    pub text: Zeroizing<String>,
+    /// When it was made, unix seconds by the master's clock.
+    pub made_at: i64,
+    /// When it expires: a phone may pair with it until then.
+    pub expires_at: i64,
+    /// When a phone paired with it, if one did. It works once.
+    pub used_at: Option<i64>,
+    /// The device paired with it, if one was.
+    pub device_id: Option<String>,
+}
+
+impl OfferRecord {
+    /// True once a phone has paired with it.
+    pub fn is_used(&self) -> bool {
+        self.used_at.is_some()
+    }
+
+    /// True once it has expired at `now`, by the master's clock.
+    pub fn is_expired(&self, now: i64) -> bool {
+        now > self.expires_at
+    }
+}
+
+impl fmt::Debug for OfferRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OfferRecord")
+            .field("offer_id", &self.offer_id)
+            .field("child_id", &self.child_id)
+            .field("text", &format_args!("hidden"))
+            .field("made_at", &self.made_at)
+            .field("expires_at", &self.expires_at)
+            .field("used_at", &self.used_at)
+            .field("device_id", &self.device_id)
+            .finish()
+    }
+}
+
+/// Which form of the phone app paired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PhoneForm {
+    /// The child's form, which LiMo limits.
+    Child,
+    /// The guardian's form. Not paired by this version.
+    Guardian,
+}
+
+impl PhoneForm {
+    /// The name it is stored under.
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            PhoneForm::Child => "child",
+            PhoneForm::Guardian => "guardian",
+        }
+    }
+
+    /// The form stored under `key`, if any.
+    pub(crate) fn from_key(key: &str) -> Option<PhoneForm> {
+        [PhoneForm::Child, PhoneForm::Guardian].into_iter().find(|f| f.key() == key)
+    }
+}
+
+/// What a phone said about itself when it paired with an offer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhoneRequest {
+    /// The name it gave, such as "Asha's phone". The hub keeps at most 40
+    /// characters of it.
+    pub name: String,
+    /// Which form of the app is pairing.
+    pub form: PhoneForm,
+    /// Its platform label, "android".
+    pub platform: String,
+    /// Android's API level, such as 33 for Android 13, if it said.
+    pub android_version: Option<u32>,
+}
+
+/// A phone the link may meet, with its key: every phone paired with an
+/// offer, removed ones too, so that a removed phone can be told so.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkPhone {
+    /// Its device id.
+    pub device_id: String,
+    /// The child it is paired with.
+    pub child_id: String,
+    /// Its static public key, from the pairing. Public: it is not a secret.
+    pub link_key: [u8; KEY_BYTES],
+    /// True once it was removed from the family.
+    pub removed: bool,
+}
+
+/// One app on a phone, as its list gave it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct PhoneApp {
+    /// The package name, such as `com.example.game`: the app id that its use
+    /// and the rules name.
+    pub package: String,
+    /// The label the phone shows for it, such as "Game".
+    pub label: String,
+}
+
+/// A phone's list of apps, as the hub keeps it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhoneApps {
+    /// The phone.
+    pub device_id: String,
+    /// Its apps, in the order the phone listed them.
+    pub apps: Vec<PhoneApp>,
+    /// The hash the phone gave the list, to see at a glance whether a later
+    /// list changed.
+    pub hash: String,
+    /// When the list was kept, by the master's clock.
+    pub kept_at: i64,
+}
+
+/// What the master knows of one phone, for the guardian's screens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhoneInfo {
+    /// The phone's device id.
+    pub device_id: String,
+    /// The child it is paired with.
+    pub child_id: String,
+    /// Its name.
+    pub name: String,
+    /// When it was paired.
+    pub paired_at: i64,
+    /// When the master last heard from it.
+    pub last_heard_at: Option<i64>,
+    /// Which form of the app it runs.
+    pub form: PhoneForm,
+    /// Android's API level, as it said when it paired.
+    pub android_version: Option<u32>,
+    /// True when the link knows its key; false for a phone paired before the
+    /// link, which cannot open a session and must be paired again.
+    pub has_link_key: bool,
+    /// When setup was finished on it, if it was.
+    pub setup_finished_at: Option<i64>,
+    /// The permissions whose newest note says they are on, in setup order.
+    pub switched_on: Vec<PhonePermission>,
+    /// The permissions whose newest note says they are off, in setup order.
+    pub switched_off: Vec<PhonePermission>,
+    /// Its protection level, as last noted.
+    pub protection: Option<ProtectionLevel>,
+    /// Whether USB debugging is on, as last noted.
+    pub usb_debugging_on: Option<bool>,
+    /// The newest note of each kind it sent: one for each kind, and for each
+    /// permission and guarded page.
+    pub notes: Vec<PhoneNote>,
+    /// How many apps its newest list holds, if it sent one.
+    pub apps: Option<u32>,
+    /// When it was removed from the family, if it was.
+    pub removed_at: Option<i64>,
+    /// When, after it was removed, it was told so and let go of its limits.
+    pub released_at: Option<i64>,
 }

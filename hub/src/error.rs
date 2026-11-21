@@ -153,6 +153,8 @@ pub enum HubError {
         /// The most digits allowed.
         max_digits: u32,
     },
+    /// No guardian PIN is set, so none can be checked.
+    NoPin,
     /// The core refused to make the PIN record.
     Pin {
         /// The core's reason, passed on as a whole.
@@ -170,6 +172,38 @@ pub enum HubError {
         min: u32,
         /// The most allowed.
         max: u32,
+    },
+
+    /// A pairing offer handed to the hub was not one it can keep: an id that
+    /// is not 16 hex digits or is kept already, a text that is not an
+    /// offer's, or one that has expired already.
+    BadOffer,
+    /// No pairing offer with this id is kept.
+    UnknownOffer,
+    /// The pairing offer was used already: it works once.
+    OfferUsed,
+    /// The pairing offer has expired.
+    OfferExpired,
+    /// A phone with this link key is paired with the family already.
+    LinkKeyKnown,
+    /// A guardian's phone asked to pair; this version pairs children's
+    /// phones only.
+    GuardianPhone,
+    /// The device is not a phone: it is a child's device on the master PC.
+    NotAPhone {
+        /// The id given.
+        device_id: String,
+    },
+    /// The device is still paired with the family.
+    DeviceNotRemoved {
+        /// The id given.
+        device_id: String,
+    },
+    /// A phone's list of apps was not taken: too many apps, or a hash that
+    /// is not one LiMo makes.
+    BadAppList {
+        /// The most apps a list may hold.
+        most_apps: u32,
     },
 }
 
@@ -258,12 +292,28 @@ impl fmt::Display for HubError {
                 f,
                 "A PIN is {min_digits} to {max_digits} digits, with nothing else in it."
             ),
+            HubError::NoPin => write!(f, "No guardian PIN is set yet. A guardian sets one in LiMo's settings."),
             HubError::Pin { problem } => write!(f, "The PIN was not set: {problem}"),
             HubError::DaysOutOfRange { most } => write!(
                 f,
                 "Choose a first day that is not after the last, and at most {most} days in all."
             ),
             HubError::SettingOutOfRange { min, max } => write!(f, "Choose a number from {min} to {max}."),
+            HubError::BadOffer => write!(f, "The pairing offer could not be kept. Make a new one."),
+            HubError::UnknownOffer => write!(f, "That pairing offer is not known on this PC. Make a new one."),
+            HubError::OfferUsed => write!(f, "That pairing offer was used already. Make a new one on the PC."),
+            HubError::OfferExpired => write!(f, "That pairing offer has expired. Make a new one on the PC."),
+            HubError::LinkKeyKnown => write!(
+                f,
+                "A phone with that key is paired with the family already. Remove it, or pair the phone again from the start."
+            ),
+            HubError::GuardianPhone => write!(f, "A guardian's phone cannot be paired yet. Pair a child's phone."),
+            HubError::NotAPhone { .. } => write!(f, "That device is not a phone paired with this family."),
+            HubError::DeviceNotRemoved { .. } => write!(f, "That device is still paired with the family."),
+            HubError::BadAppList { most_apps } => write!(
+                f,
+                "The phone's list of apps was not taken. A list holds at most {most_apps} apps, with the hash LiMo gives it."
+            ),
         }
     }
 }
