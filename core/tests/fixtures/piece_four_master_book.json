@@ -1,0 +1,153 @@
+{
+  "child_id": "asha",
+  "rules": [
+    {
+      "version": 1,
+      "utc_offset_secs": 19800,
+      "day_start_minute": 0,
+      "budgets": {
+        "monday": {
+          "minutes": 120
+        },
+        "tuesday": {
+          "minutes": 120
+        },
+        "wednesday": {
+          "minutes": 120
+        },
+        "thursday": {
+          "minutes": 120
+        },
+        "friday": {
+          "minutes": 120
+        },
+        "saturday": {
+          "minutes": 120
+        },
+        "sunday": {
+          "minutes": 120
+        }
+      },
+      "blocked_hours": [],
+      "always_allowed_apps": [],
+      "blocked_apps": [],
+      "away_share_percent": 50,
+      "lease_minutes": 10,
+      "warning_minutes": [
+        15,
+        5,
+        1
+      ]
+    }
+  ],
+  "devices": [
+    {
+      "device_id": "pc",
+      "kind": "on_master",
+      "last_report": {
+        "message_number": 2,
+        "day": 20775,
+        "rules_version": 1,
+        "grant_number": 3,
+        "away_percent": 0,
+        "used_secs": 1020,
+        "lease_total_secs": 600,
+        "away_cap_secs": 0,
+        "away_used_secs": 420,
+        "added_secs": 0,
+        "added_used_secs": 0,
+        "wrong_guesses": 0,
+        "pin_version": 0,
+        "news_seen": 0,
+        "pin_unlock": null,
+        "clock_off_by": 0
+      },
+      "unacknowledged": [
+        {
+          "number": 4,
+          "day": 20775,
+          "lease_total_secs": 600,
+          "away_cap_secs": 0,
+          "away_percent": 0,
+          "rules_version": 1,
+          "sent_at": 1794998820
+        }
+      ],
+      "last_seen": 1794998820,
+      "need": null,
+      "code_secret": [],
+      "paired_rules": 1,
+      "paired_news": 0,
+      "note_mark": 0
+    },
+    {
+      "device_id": "phone",
+      "kind": "portable",
+      "last_report": {
+        "message_number": 1,
+        "day": 20775,
+        "rules_version": 1,
+        "grant_number": 2,
+        "away_percent": 50,
+        "used_secs": 1860,
+        "lease_total_secs": 0,
+        "away_cap_secs": 3600,
+        "away_used_secs": 1860,
+        "added_secs": 0,
+        "added_used_secs": 0,
+        "wrong_guesses": 0,
+        "pin_version": 0,
+        "news_seen": 0,
+        "pin_unlock": null,
+        "clock_off_by": 0
+      },
+      "unacknowledged": [
+        {
+          "number": 5,
+          "day": 20775,
+          "lease_total_secs": 0,
+          "away_cap_secs": 3600,
+          "away_percent": 50,
+          "rules_version": 1,
+          "sent_at": 1795003260
+        }
+      ],
+      "last_seen": 1795003260,
+      "need": null,
+      "code_secret": [],
+      "paired_rules": 1,
+      "paired_news": 0,
+      "note_mark": 9
+    }
+  ],
+  "days": [
+    {
+      "day": 20775,
+      "extra_secs": 0,
+      "marks": {
+        "pc": 1,
+        "phone": 1
+      },
+      "counted": {
+        "pc": 1020,
+        "phone": 1860
+      },
+      "removed": {},
+      "extras": {},
+      "requests": {}
+    }
+  ],
+  "next_grant": 6,
+  "forgotten_before": null,
+  "clock": 1795003260,
+  "guardian": {
+    "version": 0,
+    "mode": "nothing",
+    "set_at": -9223372036854775808
+  },
+  "pin_version": 0,
+  "pin": null,
+  "news": 0,
+  "last_unnamed_extra": 0,
+  "removed": {}
+}

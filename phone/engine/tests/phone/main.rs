@@ -12,6 +12,7 @@ mod covers;
 mod day;
 mod guard;
 mod kept;
+mod notes;
 mod restart;
 mod setup;
 mod today;

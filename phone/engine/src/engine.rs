@@ -64,6 +64,8 @@ struct Talk {
     last_ask_day: Option<i64>,
     /// A way out changed the state and has not reached the master.
     way_out: bool,
+    /// A note of a kind the master takes was made since the last grant.
+    note_made: bool,
     /// A grant asked for a report at once.
     ack_due: bool,
 }
@@ -74,9 +76,9 @@ impl Talk {
     /// (at once for a new day, otherwise at most once a minute while it still
     /// needs time); use not yet reported and a minute since the last
     /// exchange; five minutes since the last exchange in any case; a way out
-    /// that has not reached the master; a grant that asked for a report at
-    /// once. Not while a report waits for its answer, nor within ten seconds
-    /// of one that got none.
+    /// or a note for the master that has not reached it; a grant that asked
+    /// for a report at once. Not while a report waits for its answer, nor
+    /// within ten seconds of one that got none.
     fn due(&self, at: Stamp, prodded: bool, asking: bool, day: i64, unreported: bool) -> bool {
         if (self.awaiting || self.failed) && since(self.last_report, at) < ANSWER_WAIT_MS {
             return false;
@@ -87,7 +89,7 @@ impl Talk {
         let quiet = since(self.last_grant, at);
         let regular = unreported && quiet >= REPORT_EVERY_SECS * 1_000;
         let idle = quiet >= REPORT_IDLE_SECS * 1_000;
-        first || prodded || ask || regular || idle || self.way_out || self.ack_due
+        first || prodded || ask || regular || idle || self.way_out || self.note_made || self.ack_due
     }
 }
 
@@ -120,7 +122,9 @@ pub struct PhoneView {
     /// Requests for more time made for today on any of the child's devices,
     /// as far as this phone knows, oldest first.
     pub requests_today: Vec<RequestView>,
-    /// Notes for the guardian the master has not taken yet, oldest first.
+    /// Notes for the guardian the master has not taken yet, oldest first:
+    /// those of a kind the master takes until a grant confirms them, and the
+    /// newest of the kinds that stay on the phone.
     pub notes: Vec<PhoneNote>,
     /// How far the phone's wall clock is ahead of LiMo's clock, in seconds:
     /// the jumps LiMo did not follow.
@@ -316,7 +320,7 @@ impl PhoneEngine {
             Cover::Guard(screen) => kept.note_guarded(screen.page, decision.day, now, &mut notes),
             Cover::Nothing | Cover::Lock(_) => {}
         }
-        kept.keep_notes(&notes);
+        self.talk.note_made |= kept.keep_notes(&notes);
 
         // A warning, only where it can be read.
         let warning = decision.warning.map(|w| {
@@ -374,16 +378,18 @@ impl PhoneEngine {
 
     /// The report to send to the master now, at `now` (the wall clock): all
     /// the use the master has not confirmed, the time added and the
-    /// requests made on the phone, and, while the child is at the phone and
-    /// the core says so, a request for more time. Keep the state
-    /// ([`PhoneEngine::save`]) before sending it. None when the kept state
-    /// could not be loaded.
+    /// requests made on the phone, every note for the guardian of a kind the
+    /// master takes that it has not confirmed, and, while the child is at
+    /// the phone and the core says so, a request for more time. Keep the
+    /// state ([`PhoneEngine::save`]) before sending it. None when the kept
+    /// state could not be loaded.
     pub fn outgoing_report(&mut self, now: i64) -> Option<Report> {
         let kept = self.kept.as_mut()?;
         let now = kept.limo_time(now);
         kept.flush();
         let want_more = self.seen.is_some_and(|s| s.asking);
-        let report = kept.state.report(now, want_more);
+        let mut report = kept.state.report(now, want_more);
+        report.notes = kept.outgoing_notes();
         let stamp = self.seen.map(|s| s.stamp);
         self.talk.last_report = stamp;
         self.talk.awaiting = true;
@@ -396,8 +402,9 @@ impl PhoneEngine {
         Some(report)
     }
 
-    /// Takes the master's answer to a report, at `now` (the wall clock).
-    /// Keep the state ([`PhoneEngine::save`]) before acting on it, and call
+    /// Takes the master's answer to a report, at `now` (the wall clock): the
+    /// notes it confirms are dropped, from any grant for this phone. Keep
+    /// the state ([`PhoneEngine::save`]) before acting on it, and call
     /// [`PhoneEngine::tick`] again at once so that the orders follow it.
     /// When it says `report_again`, send another report now.
     pub fn take_grant(&mut self, grant: &Grant, now: i64) -> GrantTaken {
@@ -409,9 +416,11 @@ impl PhoneEngine {
         kept.flush();
         let outcome = kept.state.take_grant(grant, now);
         if outcome != GrantOutcome::NotForThisDevice {
+            kept.confirm_notes(&grant.confirmed_notes);
             self.talk.failed = false;
             self.talk.last_grant = self.seen.map(|s| s.stamp);
             self.talk.way_out = false;
+            self.talk.note_made = false;
         }
         let report_again = outcome == GrantOutcome::Taken && grant.acknowledge_now;
         self.talk.ack_due |= report_again;
@@ -499,7 +508,7 @@ impl PhoneEngine {
         }
         let until = now.saturating_add(i64::try_from(GUARD_OPEN_SECS).unwrap_or(i64::MAX));
         kept.open_guard(from, until);
-        kept.keep_notes(&[PhoneNote::GuardOpened { until, at: now }]);
+        self.talk.note_made |= kept.keep_notes(&[PhoneNote::GuardOpened { until, at: now }]);
         self.talk.way_out = true;
         Ok(TryAnswer { message: words::guard_open_words(now, until, clock), opens_now: None, outcome })
     }
@@ -527,7 +536,11 @@ impl PhoneEngine {
             return Ok(false);
         }
         let now = kept.limo_time(now);
-        Ok(kept.finish_setup(now))
+        let finished = kept.finish_setup(now);
+        // The note goes to the master at the next call in reach, so a PC
+        // waiting for setup to finish hears of it within seconds.
+        self.talk.note_made |= finished;
+        Ok(finished)
     }
 
     /// The answer to a code or a PIN, in words, and the master to hear of it.
@@ -598,8 +611,16 @@ impl PhoneEngine {
             Some(decision) => decision.clone(),
             None => probe.clone().decide(at, None),
         };
-        let today =
-            today::today(&rules, &decision, counted_secs, kept.apps_on(day), kept.permissions(), at, clock);
+        let others = probe.others_used(day);
+        let today = today::today(
+            &rules,
+            &decision,
+            today::Used { here_secs: counted_secs, others },
+            kept.apps_on(day),
+            kept.permissions(),
+            at,
+            clock,
+        );
         Some(PhoneView {
             child_id: kept.state.child_id(),
             device_id: kept.state.device_id(),
@@ -613,7 +634,7 @@ impl PhoneEngine {
             unreported: kept.unreported(),
             unsent_added: kept.state.unsent_added(),
             requests_today: kept.state.requests_today(now),
-            notes: kept.notes.clone(),
+            notes: kept.notes(),
             clock_correction_secs: kept.correction_secs(),
             today,
             setup: SetupView {

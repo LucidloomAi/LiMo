@@ -7,17 +7,18 @@
 //! **An app is its package name here, never its label.** The Android side
 //! puts each app's name in before the screens show it.
 //!
-//! **What the phone knows of the child's other devices.** Only its own use.
-//! The core's grant says how much this phone may still use
-//! (`left_for_you_secs`), which takes away what the other devices used
-//! *and* what they hold and have not used, and what they are waiting for;
-//! how much away time other phones hold (`held_elsewhere_secs`); and this
-//! phone's own use as the master had it (`used_secs_reported`). None of
-//! these is the other devices' use, so Today says where the time went on
-//! this phone only, and its "used" line is this phone's own counted use. It
-//! never guesses the rest.
+//! **What the phone knows of the child's other devices.** Their use that
+//! day, as the master counted it when it made the newest grant the phone
+//! took for the day (the core's `Grant::others_used_secs`), and whether all
+//! of it was on the family PC. Today's "used" line is then the child's whole
+//! day, this phone's own use and theirs, and "where used" says both: "On
+//! this phone 31 min · on the PC 17 min". The figure is what the master
+//! knew then; away from home it stays the best known one. Until a grant for
+//! the day says it (a phone just paired with no use elsewhere, a master
+//! that does not say), Today says this phone's own use only. It never
+//! guesses the rest.
 
-use limo_core::{Decision, RuleSet};
+use limo_core::{Decision, OthersUsed, RuleSet};
 use serde::{Deserialize, Serialize};
 
 use crate::facts::{Permission, PhonePermissions};
@@ -30,13 +31,17 @@ pub struct TodayView {
     /// The time left today, shown large.
     pub left: TodayLeft,
     /// The line under the bar: "48 min used of 2 h", or "48 min used today"
-    /// on a day with no limit. This phone's own counted use: see the
-    /// module's notes.
+    /// on a day with no limit. The child's whole day as far as the phone
+    /// knows: its own counted use and, once the master has said it, the use
+    /// on the child's other devices (see the module's notes).
     pub used: String,
     /// The part of today's time used, from 0 to 1, for the bar; None on a
     /// day with no limit, where there is no bar.
     pub used_part: Option<f64>,
-    /// Where the time went: "On this phone 31 min".
+    /// Where the time went: "On this phone 31 min", and once the master has
+    /// said a minute or more went elsewhere, "On this phone 31 min · on the
+    /// PC 17 min" (all of it on the family PC) or "On this phone 31 min · on
+    /// other devices 17 min".
     pub where_used: String,
     /// "Screens are off from 9:00 pm to 7:00 am.", or None when no hours
     /// are off today.
@@ -112,19 +117,31 @@ pub struct RulesWords {
     pub not_allowed: Vec<String>,
 }
 
-/// Today, from the decision of the last call and the phone's counted use on
-/// its day.
+/// The day's use as the phone knows it: its own counted use, and the use on
+/// the child's other devices when the master has said it for the day.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Used {
+    /// This phone's counted use on its day, reported or not.
+    pub(crate) here_secs: u64,
+    /// The other devices' use that day, as the newest grant for it said.
+    pub(crate) others: Option<OthersUsed>,
+}
+
+/// Today, from the decision of the last call and the day's use.
 pub(crate) fn today(
     rules: &RuleSet,
     decision: &Decision,
-    counted_secs: u64,
+    use_today: Used,
     apps: Vec<AppUse>,
     permissions: Option<PhonePermissions>,
     now: i64,
     clock: PhoneClock,
 ) -> TodayView {
+    let Used { here_secs, others } = use_today;
+    let others = others.filter(|o| o.day == decision.day);
+    let whole_day = here_secs.saturating_add(others.map_or(0, |o| o.secs));
     let (kind, left) = words::today_left(decision.seconds_left, decision.unlocked_until, now, clock);
-    let (used, used_part) = words::used_words(counted_secs, rules.budget_secs_on(decision.day));
+    let (used, used_part) = words::used_words(whole_day, rules.budget_secs_on(decision.day));
     let mut apps: Vec<TodayApp> = apps
         .into_iter()
         .filter(|a| a.secs >= 60)
@@ -135,8 +152,12 @@ pub(crate) fn today(
         left: TodayLeft { kind, words: left },
         used,
         used_part,
-        // The phone knows its own use only: see the module's notes.
-        where_used: words::where_words(counted_secs, None, false),
+        // What the master said of the other devices: see the module's notes.
+        where_used: words::where_words(
+            here_secs,
+            others.map(|o| o.secs),
+            others.is_some_and(|o| o.all_on_master),
+        ),
         bedtime: words::bedtime_words(rules, now, clock),
         apps,
         guardian_needed: guardian_needed(permissions),

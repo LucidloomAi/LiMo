@@ -38,8 +38,10 @@
 //! The book is small. It does not keep the slices of use themselves: for
 //! each device and day it keeps the highest slice number it has taken and
 //! the counted seconds. [`MasterBook::handle_report`] returns the slices,
-//! pieces of added time and requests it took for the first time
-//! ([`ReportOutcome`]), so that the caller can keep them, once. A device is
+//! pieces of added time, requests and notes for the guardian it took for the
+//! first time ([`ReportOutcome`]), so that the caller can keep them, once.
+//! Every grant also tells the device how much the child's other devices used
+//! that day, and whether all of it was on the master PC. A device is
 //! removed with [`MasterBook::remove_device`]: its counted use stays with the
 //! days, and what was held back for it is free at once.
 
@@ -55,6 +57,7 @@ use crate::extra::{
 };
 use crate::guardian::{GuardianMode, GuardianSetting, MAX_UNLOCK_SECS, PinUnlock};
 use crate::messages::{Grant, Report, Slice};
+use crate::notes::{MAX_NOTES_PER_REPORT, SentNote, note_number};
 use crate::pin::{PinError, PinRecord, PinUpdate};
 use crate::rules::{RuleProblem, RuleSet};
 use crate::time::SECONDS_PER_DAY;
@@ -289,6 +292,12 @@ pub struct ReportOutcome {
     pub new_added: Vec<AddedTime>,
     /// The requests for more time that reached the book with this report.
     pub new_requests: Vec<TimeRequest>,
+    /// The notes for the guardian taken for the first time, in the report's
+    /// order: at most [`crate::MAX_NOTES_PER_REPORT`], the newest. A caller
+    /// that shows notes keeps exactly these, in the change that keeps the
+    /// book: the grant confirms them, and the device then forgets them.
+    #[serde(default)]
+    pub new_notes: Vec<SentNote>,
     /// True when the report was the newest from its device, so that its
     /// figures (what it holds, its wrong guesses, its clock) were taken.
     /// False for a report that came late or again.
@@ -432,6 +441,10 @@ struct DeviceRecord {
     /// The guardian news number of that grant.
     #[serde(default)]
     paired_news: u64,
+    /// The highest note number taken from it. Notes count once by this mark,
+    /// as slices do by theirs, but for all days at once.
+    #[serde(default)]
+    note_mark: u64,
 }
 
 impl DeviceRecord {
@@ -711,6 +724,7 @@ struct Confirmed {
     slices: Vec<String>,
     added: Vec<String>,
     requests: Vec<String>,
+    notes: Vec<String>,
 }
 
 impl MasterBook {
@@ -821,6 +835,7 @@ impl MasterBook {
             code_secret: Secret::default(),
             paired_rules: self.current_rules().version,
             paired_news: self.news,
+            note_mark: 0,
         });
         let index = self.devices.len() - 1;
         let day = self.today(now);
@@ -958,10 +973,17 @@ impl MasterBook {
     /// id, a slash and a number is confirmed and not counted, like a slice
     /// that names another device: no device makes one.
     ///
+    /// **Notes for the guardian** are taken once each the same way, by one
+    /// mark per device for all days (a device numbers its notes 1, 2, 3 and
+    /// on, carries every note not yet confirmed, and drops a note only once
+    /// confirmed), and named in [`ReportOutcome::new_notes`]. The grant
+    /// confirms every note the report carried.
+    ///
     /// A device that loses its saved state and starts numbering at 1 again
     /// is not covered: on a day the book has a mark for it, its new slices
-    /// are taken as already counted until its numbers pass the mark. Remove
-    /// it and pair it again, under a new id (see the crate's README).
+    /// are taken as already counted until its numbers pass the mark, and its
+    /// notes as taken already until theirs pass the note mark. Remove it and
+    /// pair it again, under a new id (see the crate's README).
     ///
     /// A report from a removed device is refused with
     /// [`MasterError::DeviceRemoved`] and changes nothing.
@@ -981,7 +1003,8 @@ impl MasterBook {
         let (slices, new_slices) = self.take_slices(&report.device_id, &report.slices);
         let (added, new_added) = self.take_added(&report.device_id, &report.added);
         let (requests, new_requests) = self.take_requests(&report.device_id, &report.requests);
-        let confirmed = Confirmed { slices, added, requests };
+        let (notes, new_notes) = self.take_notes(index, &report.notes);
+        let confirmed = Confirmed { slices, added, requests, notes };
 
         let device = &mut self.devices[index];
         device.last_seen = Some(device.last_seen.map_or(now, |seen| seen.max(now)));
@@ -1005,7 +1028,7 @@ impl MasterBook {
         let want_more = report.want_more && current;
         let ask = Ask { want_more, current, answers_message: report.message_number };
         let grant = self.make_grant(index, day, ask, now, confirmed);
-        Ok(ReportOutcome { grant, new_slices, new_added, new_requests, newest })
+        Ok(ReportOutcome { grant, new_slices, new_added, new_requests, new_notes, newest })
     }
 
     /// The devices the master would like to hear from now, so that time can
@@ -1555,6 +1578,60 @@ impl MasterBook {
         (confirmed, new)
     }
 
+    /// Takes the notes of a report from device `index`: each once, by the
+    /// device's note mark, as slices are taken by theirs (see
+    /// [`MasterBook::handle_report`]); the newest
+    /// [`crate::MAX_NOTES_PER_REPORT`] at most. Returns the ids of all those
+    /// handed over, which the device may then forget, and the notes taken
+    /// now. A note whose id is not the device id, `/note/` and a number is
+    /// confirmed and not taken: no device makes one.
+    fn take_notes(&mut self, index: usize, notes: &[SentNote]) -> (Vec<String>, Vec<SentNote>) {
+        let device = &mut self.devices[index];
+        let mark = device.note_mark;
+        let mut confirmed = Vec::with_capacity(notes.len());
+        let mut fresh: Vec<(u64, &SentNote)> = Vec::new();
+        let mut taken = BTreeSet::new();
+        for sent in notes {
+            confirmed.push(sent.id.clone());
+            let Some(number) = note_number(&device.device_id, &sent.id) else { continue };
+            if number > mark && taken.insert(number) {
+                fresh.push((number, sent));
+            }
+        }
+        // A device keeps no more than the newest of its notes; more from a
+        // faulty one are confirmed and the oldest left out.
+        if fresh.len() > MAX_NOTES_PER_REPORT {
+            let mut numbers: Vec<u64> = fresh.iter().map(|(n, _)| *n).collect();
+            numbers.sort_unstable();
+            let lowest_kept = numbers[numbers.len() - MAX_NOTES_PER_REPORT];
+            fresh.retain(|(n, _)| *n >= lowest_kept);
+        }
+        if let Some(high) = taken.last() {
+            device.note_mark = mark.max(*high);
+        }
+        (confirmed, fresh.into_iter().map(|(_, n)| n.clone()).collect())
+    }
+
+    /// Counted use on `day` of the child's devices other than `index`, those
+    /// since removed among them, and whether all of it was on the master PC.
+    fn others_used(&self, index: usize, day: i64) -> (u64, bool) {
+        let mut others = 0u64;
+        let mut on_master = 0u64;
+        let others_live = self.devices.iter().enumerate().filter(|(i, _)| *i != index).map(|(_, d)| d);
+        for device in others_live {
+            let secs = self.counted_secs(device, day);
+            others = others.saturating_add(secs);
+            if device.kind == DeviceKind::OnMaster {
+                on_master = on_master.saturating_add(secs);
+            }
+        }
+        // A removed device's kind is not kept: its use is said as use on
+        // another device.
+        let removed = self.day_record(day).map_or(0, |d| total(d.removed.values().copied()));
+        others = others.saturating_add(removed);
+        (others, others > 0 && on_master == others)
+    }
+
     /// Counted use of a device on a day: from its slices, or from its newest
     /// report if that says more.
     fn counted_secs(&self, device: &DeviceRecord, day: i64) -> u64 {
@@ -1854,6 +1931,7 @@ impl MasterBook {
         let pin = (device.last_report.as_ref().map_or(0, |r| r.pin_version) < self.pin_version)
             .then(|| PinUpdate { version: self.pin_version, record: self.pin.clone() });
         let requests = self.requests(day);
+        let (others_used_secs, others_all_on_master) = self.others_used(index, day);
 
         let number = self.next_grant;
         self.next_grant += 1;
@@ -1896,6 +1974,9 @@ impl MasterBook {
             pin,
             requests,
             news: self.news,
+            confirmed_notes: confirmed.notes,
+            others_used_secs: Some(others_used_secs),
+            others_all_on_master,
         }
     }
 
@@ -1916,6 +1997,7 @@ impl MasterBook {
 mod tests {
     use super::*;
     use crate::device::DeviceState;
+    use crate::notes::PhoneNote;
     use crate::rules::DailyBudget;
     use crate::time::CivilDate;
 
@@ -2043,6 +2125,11 @@ mod tests {
                 pin_version: u32::MAX,
                 news_seen: u64::MAX,
                 pin_unlock: Some(PinUnlock { until: i64::MAX, set_at: i64::MIN }),
+                notes: vec![
+                    SentNote { id: format!("phone/note/{}", u64::MAX), note: PhoneNote::Restarted { at: i64::MIN } },
+                    SentNote { id: "phone/note/99999999999999999999".into(), note: PhoneNote::Restarted { at: 0 } },
+                    SentNote { id: "pc/note/1".into(), note: PhoneNote::Restarted { at: i64::MAX } },
+                ],
             };
             b.handle_report(&report, now).unwrap();
             assert!(b.pool(today).free_secs.unwrap() <= free_before);
@@ -2090,6 +2177,7 @@ mod tests {
                 pin_version: 0,
                 news_seen: 0,
                 pin_unlock: None,
+                notes: vec![],
             },
             0,
         );

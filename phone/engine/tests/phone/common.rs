@@ -19,7 +19,7 @@
 
 use std::collections::BTreeMap;
 
-use limo_core::{CivilDate, DeviceKind, DeviceState, GrantOutcome, RuleSet};
+use limo_core::{CivilDate, DeviceKind, DeviceState, Grant, GrantOutcome, Report, RuleSet};
 use limo_hub::{AgeBand, Hub};
 use limo_phone::{
     CallState, Cover, Front, GuardScreen, GuardedPage, LockScreen, PhoneEngine, PhoneFacts, PhoneNote, PhoneOrders,
@@ -144,6 +144,11 @@ pub struct Family {
     pub reports: u64,
     /// Reports the phone tried to send, answered or not.
     pub attempts: u64,
+    /// Every report the phone sent, answered or not, in order.
+    pub sent: Vec<Report>,
+    /// True to play a master from before notes and the other devices' use:
+    /// its grants confirm no note and say nothing of the other devices.
+    pub old_master: bool,
     rules_given: Vec<RuleSet>,
     /// The phone's day and counted use at the last call, and the elapsed
     /// count then, for the counting check.
@@ -223,6 +228,8 @@ impl Family {
             restarts: 0,
             reports: 0,
             attempts: 0,
+            sent: Vec::new(),
+            old_master: false,
             rules_given: vec![rules],
             counted: None,
             beyond: BTreeMap::new(),
@@ -342,6 +349,17 @@ impl Family {
         }
     }
 
+    /// The master's answer to a report, as the master in this story makes it.
+    fn answer(&mut self, report: &Report, now: i64) -> Grant {
+        let mut grant = self.hub.handle_report(report, now).unwrap();
+        if self.old_master {
+            grant.confirmed_notes.clear();
+            grant.others_used_secs = None;
+            grant.others_all_on_master = false;
+        }
+        grant
+    }
+
     /// One exchange with the master, as the host carries it.
     fn exchange(&mut self) {
         let wall = self.wall();
@@ -349,12 +367,13 @@ impl Family {
         let report = self.engine.as_mut().unwrap().outgoing_report(wall).unwrap();
         self.keep();
         self.attempts += 1;
+        self.sent.push(report.clone());
         if !self.master_answers {
             self.engine().lost_contact();
             self.keep();
             return;
         }
-        let grant = self.hub.handle_report(&report, now).unwrap();
+        let grant = self.answer(&report, now);
         let taken = self.engine().take_grant(&grant, wall);
         assert_ne!(taken.outcome, GrantOutcome::NotForThisDevice);
         self.keep();
@@ -362,7 +381,8 @@ impl Family {
         if taken.report_again {
             let report = self.engine().outgoing_report(wall).unwrap();
             self.keep();
-            let grant = self.hub.handle_report(&report, now).unwrap();
+            self.sent.push(report.clone());
+            let grant = self.answer(&report, now);
             self.engine().take_grant(&grant, wall);
             self.keep();
             self.reports += 1;

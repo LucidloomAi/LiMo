@@ -6,6 +6,7 @@ mod day;
 mod guard;
 mod kept;
 mod link;
+mod notes;
 mod setup;
 mod ways_out;
 

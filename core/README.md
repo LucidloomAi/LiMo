@@ -33,6 +33,8 @@ used by it.
 - [One budget across devices](#one-budget-across-devices)
 - [A worked day](#a-worked-day)
 - [What a book holds](#what-a-book-holds)
+- [Notes for the guardian](#notes-for-the-guardian)
+- [The other devices' use](#the-other-devices-use)
 - [Removing a device](#removing-a-device)
 - [The ways out](#the-ways-out)
 - [Security of codes and the PIN](#security-of-codes-and-the-pin)
@@ -192,7 +194,8 @@ once without keeping it is under [What a book holds](#what-a-book-holds).
   unconfirmed slices, and whether it wants more time. Also the time added on
   it and each unconfirmed piece of it, its unconfirmed requests for more time,
   its wrong guesses, the PIN version it holds, the newest guardian news it has
-  taken, and a PIN unlock in force;
+  taken, and a PIN unlock in force. And its notes for the guardian not yet
+  confirmed (see [Notes for the guardian](#notes-for-the-guardian));
 - a **grant** (master to device): the lease it may have for the day, in all;
   its away allowance for the day; its away share for later days; the current
   rules; which slices are now counted; what the master would say is left for
@@ -200,7 +203,9 @@ once without keeping it is under [What a book holds](#what-a-book-holds).
   at once (when its away allowance was just lowered). Also which pieces of
   added time and which requests the master now has, the guardian's lock or
   unlock, the PIN record while the device may not hold its newest version,
-  the day's requests with their answers, and the guardian news number.
+  the day's requests with their answers, and the guardian news number. And
+  which notes the master now has, and the use on the child's other devices
+  that day (see [The other devices' use](#the-other-devices-use)).
 
 Every figure is a level ("your lease for today is 1800 seconds in all"),
 never a change ("600 more"), and every message carries a number that only
@@ -298,8 +303,9 @@ the phone 45.
 
 A `MasterBook` is saved after every exchange, so it is kept small. It holds
 the child's rules (the current version and any older one a device may still
-hold), each paired device's newest report figures and the grants it has not
-acknowledged, the ids of removed devices, the PIN record, the guardian's lock
+hold), each paired device's newest report figures, the grants it has not
+acknowledged and the highest note number taken from it, the ids of removed
+devices, the PIN record, the guardian's lock
 or unlock, and for each day it keeps: the counted seconds of each device (and
 of devices since removed), each piece of extra time, each request with its
 answer, and each device's **mark**.
@@ -344,7 +350,8 @@ saved when books kept every slice has them folded into marks as it loads (the
 counted seconds were kept beside the slices and are taken as they are), and is
 saved in the new shape. Every field added since the first piece is filled in
 when missing. The tests load books, device states and messages saved by the
-first piece and by the code before marks, and a book saved by this one.
+first piece, by the code before marks, by the code with marks, and by the
+code with notes (`tests/fixtures/piece_four_*`).
 
 **A device that loses its saved state** and numbers its slices from 1 again
 is not covered (it was not before either; see
@@ -353,6 +360,67 @@ already has a mark for it, its new slices are taken as counted already until
 their numbers pass the mark; on a later day they count. Its message numbers
 start again too, so the master ignores its figures meanwhile. The way out is
 to remove it and pair it again, under a new id.
+
+## Notes for the guardian
+
+A phone notes what a guardian should know, and the master PC shows it. The
+kinds are all in `src/notes.rs`, in one place (`PhoneNote`), and a kind added
+later is added there:
+
+| Kind | Fields | What |
+| --- | --- | --- |
+| `setup_finished` | `at` | A guardian finished setup on the phone. Until this note comes, the master knows that setup is not finished. |
+| `permission_off`, `permission_on` | `permission`, `at` | One of the six things LiMo needs (`notifications`, `phone`, `usage_access`, `accessibility`, `battery`, `protection`, in the order setup asks for them) was switched off, or on. |
+| `protection` | `level`, `at` | The phone's protection level now: `off`, `base` or `strict`. |
+| `usb_debugging` | `on`, `at` | USB debugging was found on, or off again. |
+| `guarded_page_opened` | `page`, `day`, `at` | A page that could switch LiMo off (`device_admin` or `accessibility`) came to the front and was covered by the guard; once a day for each page. |
+| `guard_opened` | `until`, `at` | A right guardian PIN opened the guarded pages. |
+| `restarted` | `at` | The phone was started again. |
+| `clock_moved` | `by_secs`, `followed`, `at` | The phone's clock moved against its steady count; `followed` when LiMo followed it. |
+
+Times are by the phone's own clock. In JSON a note reads
+`{"note":"permission_off","permission":"usage_access","at":1794997860}`.
+
+**Carried like slices.** A device numbers its notes 1, 2, 3 and on; each
+travels in every report as a `SentNote` with the id `<device>/note/<n>`
+until a grant confirms it (`Grant::confirmed_notes`), and the device drops
+it then. The master takes each note once, by a mark per device as for
+slices but for all days at once, and names the new ones in
+`ReportOutcome::new_notes`, the newest 200 at most (`MAX_NOTES_PER_REPORT`,
+also the most a device keeps). A caller that shows notes keeps exactly
+those, in the same change that keeps the book: the grant confirms them, so a
+note not kept by then is gone. A note whose id is not the device's is
+confirmed and not taken; a device restored from an old copy has its notes
+taken as known until its numbers pass the mark.
+
+**A newer device.** Reading a report leaves out every note of a kind, or
+with a value, that this version does not know, and takes the rest of the
+report: a phone newer than its PC still reports. A field the reader does not
+know inside a known kind is passed over. A report that carries no notes is
+written exactly as before, with no field for them.
+
+The core makes no notes and keeps none on the device side: the phone's
+engine makes them and keeps them with its own state, and puts them in the
+report (`../phone/engine`).
+
+## The other devices' use
+
+Every grant carries the use on the child's other devices that day, as the
+master counts it when it makes the grant (`Grant::others_used_secs`: every
+device but the one the grant is for, removed ones among them), and whether
+all of it was on the master PC, the child's device of kind `OnMaster`
+(`Grant::others_all_on_master`; false with none, and false when some was on
+a removed device, whose kind is not kept). With the device's own use it is
+the child's whole day, so a phone can say "on the PC 17 min" beside its own
+31.
+
+A device keeps the figure of the newest grant it took for its day
+(`DeviceState::others_used(day)`, an `OthersUsed` with the day, the seconds
+and whether all on the master PC). It is what the master knew then, and
+stays the best known figure out of reach: unlike the time left, it is not
+forgotten by `lost_contact()`. It is never shown for another day, and a
+grant from a master that does not say (`None`, one made before this field)
+leaves the device knowing nothing of the others for that day.
 
 ## Removing a device
 
@@ -765,7 +833,8 @@ let welcome = book.add_device("phone-1", DeviceKind::Portable, now)?;
 // For every report that arrives:
 let outcome = book.handle_report(&report, now)?;
 keep(&outcome.new_slices);     // what the book took for the first time, once:
-                               // also outcome.new_added and outcome.new_requests
+                               // also outcome.new_added, outcome.new_requests
+                               // and outcome.new_notes
 save(&book);                   // with what was kept, before sending
 send(outcome.grant);
 // Then ask the devices the master wants to hear from to report at once:
@@ -829,9 +898,12 @@ loop {
     let mut d = state.decide(now, Some(&app));
     if d.ask_master || prodded_by_the_hub || a_few_minutes_since_the_last_report {
         let want_more = d.ask_master && in_use;   // an idle device only reports
-        match send(state.report(now, want_more)) {
+        let mut report = state.report(now, want_more);
+        report.notes = my_unconfirmed_notes();    // a device that makes notes
+        match send(report) {
             Ok(grant) => {
                 state.take_grant(&grant, now);
+                forget_notes(&grant.confirmed_notes);   // from any grant for it
                 if grant.acknowledge_now {           // its away allowance was lowered
                     if let Ok(g) = send(state.report(now, want_more)) { state.take_grant(&g, now); }
                 }
@@ -856,6 +928,7 @@ state.try_pin(&pin, PinAction::AddMinutes { minutes: 20 }, now)?;
 state.try_pin(&pin, PinAction::UnlockUntil { until }, now)?;
 state.try_pin(&pin, PinAction::ConfirmRelease, now)?;    // the service then releases
 state.requests_today(now);                               // what was asked, and the answers
+state.others_used(day);                                  // the other devices' use that day
 ```
 
 Rules for callers:
@@ -866,7 +939,8 @@ Rules for callers:
   change, every device is in `wanted_reports` until it reports holding them.
 - **Keep what the outcome names, not what the report carries.** A report
   carries every slice not yet confirmed, so the same slice comes many times;
-  `ReportOutcome` names each once.
+  `ReportOutcome` names each once. The same holds for notes, and a note must
+  be kept before the grant that confirms it is sent.
 - **Ask for more (`want_more`) only while in use.** An idle device reports
   without asking, so that it neither takes a lease it will not use nor keeps a
   need open. A device waiting at the lock screen keeps asking every minute, as
@@ -892,15 +966,16 @@ Rules for callers:
 
 ## Tests
 
-`cargo test` runs six groups, all deterministic:
+`cargo test` runs seven groups, all deterministic:
 
 | File | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | Unit tests: day and weekday from unix seconds and offset, negative offsets, a day start not at midnight, far past and far future dates, splitting at day boundaries, validation, blocked windows, the master's books, slice numbers read from ids, absurd figures and far times; known answers for codes and PIN hashes (worked out separately in Python), codes bound to their device and day, PIN shapes (6 to 8 digits new, a 4 digit record made earlier still verifying), the waits after wrong guesses, which lock or unlock is in force, spending order, and secrets kept out of `Debug` | 49 |
+| `src/*.rs` | Unit tests: day and weekday from unix seconds and offset, negative offsets, a day start not at midnight, far past and far future dates, splitting at day boundaries, validation, blocked windows, the master's books, slice numbers read from ids, absurd figures and far times; known answers for codes and PIN hashes (worked out separately in Python), codes bound to their device and day, PIN shapes (6 to 8 digits new, a 4 digit record made earlier still verifying), the waits after wrong guesses, which lock or unlock is in force, spending order, secrets kept out of `Debug`, note numbers read from ids, and the six permissions once each in setup order | 51 |
 | `tests/cases.toml` with `tests/cases.rs` | The file of cases a product owner can read and extend (89 cases, 34 of them for the ways out, and 4 rules checks), a check that a wrong expectation fails with the case's name, and the file's reader | 3 tests |
 | `tests/accounting.rs` | The shared budget as short stories: the worked day above, a phone at home giving its share to the PC, a phone that then leaves, a phone away that gives nothing, a lowering grant that is lost, two phones at home, a lowered phone that left, a need that lapses, a larger share that must not reach a phone late into a spent day, new rules that start a day, and JSON round trips of every message and state (including state saved before the latest fields) | 24 |
 | `tests/ways_out.rs` | The ways out as stories: extra time given twice with one id; a request made at school, answered at home, and seen on every device; a request too late or answered twice; a code used at school and counted once at home; the same code on the PC; a code from yesterday; all ten codes of a day; the PIN adding time with no network; wrong guesses and the growing wait across a restart and a clock set back; a changed and a removed PIN; a lock from the master and lifting it; an unlock from the master that keeps counting; a PIN unlock over a lock from the master; state saved by the first piece still loading; secrets kept out of `Debug` and errors; JSON round trips of the new fields. One more, not run by default, measures the PIN hash on the machine it runs on | 16, and 1 |
 | `tests/callers.rs` | What the hub, the master's first real caller, needs, as stories: a removed phone keeping its use and freeing what it held and its away share at once; anything from a removed device refused without a change; time added on a removed device and not used, dropped; use a removed phone never reported, not counted; the report outcome naming each new slice, piece and request once; slices lost, repeated, late, out of order, twice in one report and with ids no device makes; a device restored from a backup; a busy book's size; new rules as news; the book setting the next rules version; how far each device's clock is; forgetting days; a book saved with whole slices (by the code before marks, with a four digit PIN) loading and counting the same; a book saved with marks | 14 |
+| `tests/notes.rs` | Notes and the other devices' use as stories: notes carried until confirmed and taken once through lost, repeated, late, reversed and stale exchanges, twice in one report, with ids no device makes, across a book saved and loaded, with marks of their own for each device; a report with more notes than a device keeps giving the newest; notes of a removed device refused with its report; every kind in its JSON; a report from a newer device with kinds and values this version does not know, still taken; the grant's figure of the other devices' use (none, all on the PC, the PC hearing of the phone, a tablet, a removed tablet, a stale grant, a master that does not say, the next day), kept by the device out of reach; reports, grants, books and states saved by the first piece, before marks and with marks still reading and taking notes; a book, a phone's state, a report and a grant saved by this version | 8 |
 | `tests/simulation.rs` | The simulation below | 1 |
 
 **The simulation** plays the master, the PC and one or two phones through 300
@@ -922,10 +997,13 @@ devices restart from their saved state. In half the scenarios the guardian
 also removes a device now and then, right after its report or without one (a
 phone lost with use it never reported), and most often pairs a new one in its
 place under a new id; reports the removed device sent before turn up late.
+Devices also make notes for the guardian now and then, from a generator of
+their own (so the notes change none of a scenario's other draws), carry them
+in every report until a grant confirms them, and drop them then.
 The simulation keeps its own ledger of every slice made, of every piece of
-extra time, of every second used beyond what a device held, and of the use a
-removed device had not reported, within what the master held back for it. At
-every step it checks:
+extra time, of every note, of every second used beyond what a device held,
+and of the use a removed device had not reported, within what the master
+held back for it. At every step it checks:
 
 1. for every day, the time that counts on all devices together, less the time
    used beyond what a device held while an unlock kept it open, and less the
@@ -964,7 +1042,13 @@ every step it checks:
 8. at every report the master handles, every new slice, piece of added time
    and request in its outcome is one a device made, taken once, and
    everything the report carried has been taken by then; and for every device
-   and day the master's count is exactly the sum of the slices it returned.
+   and day the master's count is exactly the sum of the slices it returned;
+9. at every report the master handles, every new note in its outcome is one a
+   device made, taken once, and every note the report carried has been taken
+   by then; and the grant's figure of the other devices' use is the master's
+   own count for that day of every device but the one it is for, removed
+   ones among them, saying all of it was on the master PC exactly when it
+   was.
 
 A typical run covers about 410,000 steps, 1.4 million exchanges, 165,000
 lost messages, 25,000 late grants taken, 1,400 rule changes and about 7,400
@@ -982,19 +1066,26 @@ devices 2,850 times. It removes about 410 devices (330 right after a report,
 80 with use they never reported, 38 hours of it in all), pairs 320 new ones in
 their place, refuses 330 late reports from removed devices, and checks
 310,000 new slices, 2,100 pieces of added time and 5,250 requests in report
-outcomes. A run of 8,000 scenarios (10.8 million steps, 36 million
+outcomes. Devices make about 27,500 notes, and the master takes 26,700 of
+them as new (the rest are still on their way when the scenario ends, or on
+a device since removed); check 9 looks at the other devices' use in about
+1.4 million grants, 230,000 of them with all of it on the master PC. A run
+of 8,000 scenarios (10.8 million steps, 36 million
 exchanges, 9,900 devices removed, 12,600 late reports from them refused)
 passes in about nine minutes. The run fails if the scenarios stop reaching
 the limits, losing messages, giving time back, reaching check 5, taking any
 one of the ways out, removing and pairing devices both ways, refusing a late
-report from a removed device, or finding new slices, added time and requests
-in outcomes, so that it can never pass without testing them. With the giving
+report from a removed device, finding new slices, added time, requests and
+notes in outcomes, or checking the other devices' use, all on the PC among
+it, so that it can never pass without testing them. With the giving
 back switched off in the library, check 5 fails on the first scenario. So
 does check 2 with the master not holding back time added on a device, check 6
 with the decision ignoring a guardian's lock, check 1 with spending that
 never draws on time added on the device, check 1 again with the pool leaving
-out a removed device's use, check 7 with a removed device's use dropped, and
-check 8 with a slice at its mark taken again.
+out a removed device's use, check 7 with a removed device's use dropped,
+check 8 with a slice at its mark taken again, check 9 with a note at its mark
+taken again, and check 9 again with the other devices' use leaving out a
+removed device's (these two within the first 40 scenarios).
 
 To run more scenarios, one scenario, or see every event of one:
 
@@ -1055,7 +1146,10 @@ core/
     blocked.rs    blocked hours in real time: are we in them, when do they end, when next
     decide.rs     Holding (what a device holds), decide, Decision, locks and warnings
     messages.rs   Slice, Report, Grant
-    device.rs     DeviceState: the device side, with codes, the PIN and requests
+    notes.rs      every kind of note for the guardian, SentNote, reading a
+                  report's notes from a newer device
+    device.rs     DeviceState: the device side, with codes, the PIN, requests
+                  and the other devices' use
     master.rs     MasterBook: the pool, reservations, grants, marks and counted
                   use, removing devices, extra time, requests, the PIN and the
                   guardian's lock or unlock
@@ -1070,9 +1164,11 @@ core/
     ways_out.rs   the ways out as stories, and state saved by the first piece
     callers.rs    what the hub needs as stories, and books saved before and
                   after marks
+    notes.rs      notes and the other devices' use as stories, and messages,
+                  books and states saved before and with them
     fixtures/     state and messages saved by the first piece (piece_one), by
-                  the code before marks (piece_two) and by this one
-                  (piece_three)
+                  the code before marks (piece_two), by the code with marks
+                  (piece_three) and by the code with notes (piece_four)
     simulation.rs the generated days
 ```
 

@@ -4,6 +4,11 @@
 //! app's use today, whether setup is finished, the guard kept open by a
 //! guardian's PIN), as one versioned blob the host writes.
 //!
+//! **The notes for the guardian** of a kind the master takes go in every
+//! report, each with an id given the first time it goes, until a grant
+//! confirms it; then it is dropped. The other kinds stay on the phone,
+//! the newest kept, as before notes went anywhere.
+//!
 //! **Each app's use today**, for the child's Today screen, is added up where
 //! the device state records use, from the slices it makes, so the two always
 //! agree and survive a restart together. Each slice carries the home day the
@@ -29,7 +34,7 @@
 //! every call on a copy of the state with the stretch recorded, so they are
 //! exactly what they would be had every second been recorded.
 
-use limo_core::{Decision, DeviceState, LockReason, Slice};
+use limo_core::{Decision, DeviceState, LockReason, SentNote, Slice};
 use serde::{Deserialize, Serialize};
 
 use crate::error::LoadProblem;
@@ -96,6 +101,20 @@ pub(crate) struct ClockSeen {
     /// jumps not followed. 0 while automatic time is on.
     correction_secs: i64,
     utc_offset_secs: i32,
+}
+
+/// A note for the guardian as the phone keeps it: the note, and, once it
+/// has gone in a report, the id the master confirms it by. Kept in the
+/// note's own JSON with the id beside its fields, so a note kept before
+/// notes had ids reads as one that has not gone yet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct KeptNote {
+    #[serde(flatten)]
+    pub(crate) note: PhoneNote,
+    /// The device id, `/note/` and a number; None until the note goes in a
+    /// report, and for good for a kind the master does not take.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
 }
 
 /// A blocked app noted for a day.
@@ -217,9 +236,14 @@ pub(crate) struct Kept {
     look: Option<Look>,
     #[serde(default)]
     clock: Option<ClockSeen>,
-    /// Notes for the guardian not yet taken by the master, oldest first.
+    /// Notes for the guardian not yet taken by the master, oldest first: a
+    /// kind the master takes until a grant confirms it, the others until
+    /// newer notes take their place.
     #[serde(default)]
-    pub(crate) notes: Vec<PhoneNote>,
+    pub(crate) notes: Vec<KeptNote>,
+    /// The number of the last note given an id.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    last_note: u64,
     #[serde(default)]
     permissions: Option<PhonePermissions>,
     #[serde(default)]
@@ -252,6 +276,11 @@ pub(crate) enum Change {
     Other,
 }
 
+/// For leaving a number out of the kept state while it is 0.
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
 /// FNV-1a, 64 bits: a check that a kept state was not cut short or changed
 /// by accident. It is not a defence against anyone who can write the file.
 fn check(bytes: &[u8]) -> u64 {
@@ -273,6 +302,7 @@ impl Kept {
             look: None,
             clock: None,
             notes: Vec::new(),
+            last_note: 0,
             permissions: None,
             blocked_noted: Vec::new(),
             apps_day: None,
@@ -400,6 +430,7 @@ impl Kept {
         let clock = |k: &Kept| k.clock.map(|c| (c.boot, c.correction_secs, c.utc_offset_secs));
         if self.state != saved.state
             || self.notes != saved.notes
+            || self.last_note != saved.last_note
             || self.permissions != saved.permissions
             || self.blocked_noted != saved.blocked_noted
             || self.apps_day != saved.apps_day
@@ -534,11 +565,47 @@ impl Kept {
         notes.push(PhoneNote::BlockedAppOpened { package: package.to_string(), day, at });
     }
 
-    /// Keeps new notes, the newest [`MAX_NOTES_KEPT`] of all.
-    pub(crate) fn keep_notes(&mut self, new: &[PhoneNote]) {
-        self.notes.extend_from_slice(new);
+    /// Keeps new notes, the newest [`MAX_NOTES_KEPT`] of all. True when one
+    /// of them is of a kind the master takes.
+    pub(crate) fn keep_notes(&mut self, new: &[PhoneNote]) -> bool {
+        self.notes.extend(new.iter().map(|note| KeptNote { note: note.clone(), id: None }));
         let over = self.notes.len().saturating_sub(MAX_NOTES_KEPT);
         self.notes.drain(..over);
+        new.iter().any(|n| n.for_master().is_some())
+    }
+
+    /// The notes for the guardian, oldest first.
+    pub(crate) fn notes(&self) -> Vec<PhoneNote> {
+        self.notes.iter().map(|k| k.note.clone()).collect()
+    }
+
+    /// The notes a report carries: every note of a kind the master takes
+    /// that it has not confirmed, oldest first, each with its id. A note
+    /// that has not gone before is given the next number now, so the state
+    /// must be kept before the report is sent.
+    pub(crate) fn outgoing_notes(&mut self) -> Vec<SentNote> {
+        let device = self.state.device_id();
+        let mut out = Vec::new();
+        for kept in &mut self.notes {
+            let Some(note) = kept.note.for_master() else { continue };
+            let id = match &kept.id {
+                Some(id) => id.clone(),
+                None => {
+                    self.last_note = self.last_note.saturating_add(1);
+                    kept.id.insert(SentNote::id_for(&device, self.last_note)).clone()
+                }
+            };
+            out.push(SentNote { id, note });
+        }
+        out
+    }
+
+    /// Drops the notes a grant confirms: the master has them.
+    pub(crate) fn confirm_notes(&mut self, confirmed: &[String]) {
+        if confirmed.is_empty() {
+            return;
+        }
+        self.notes.retain(|k| k.id.as_ref().is_none_or(|id| !confirmed.contains(id)));
     }
 
     /// Counts the step from the last look to `at`. Returns the milliseconds
@@ -734,10 +801,37 @@ mod tests {
     fn notes_are_kept_up_to_the_limit_newest_last() {
         let mut k = kept();
         let notes: Vec<PhoneNote> = (0..250).map(|i| PhoneNote::Restarted { at: i }).collect();
-        k.keep_notes(&notes);
+        assert!(k.keep_notes(&notes));
         assert_eq!(k.notes.len(), MAX_NOTES_KEPT);
-        assert_eq!(k.notes.first(), Some(&PhoneNote::Restarted { at: 50 }));
-        assert_eq!(k.notes.last(), Some(&PhoneNote::Restarted { at: 249 }));
+        assert_eq!(k.notes().first(), Some(&PhoneNote::Restarted { at: 50 }));
+        assert_eq!(k.notes().last(), Some(&PhoneNote::Restarted { at: 249 }));
+    }
+
+    #[test]
+    fn notes_the_master_takes_get_ids_as_they_go_and_are_dropped_once_confirmed() {
+        let mut k = kept();
+        let blocked = PhoneNote::BlockedAppOpened { package: "org.example.casino".into(), day: 5, at: 1 };
+        assert!(!k.keep_notes(std::slice::from_ref(&blocked)), "stays on the phone");
+        assert!(k.keep_notes(&[PhoneNote::Restarted { at: 2 }, PhoneNote::SetupFinished { at: 3 }]));
+        let first = k.outgoing_notes();
+        assert_eq!(first.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["phone-1/note/1", "phone-1/note/2"]);
+        assert_eq!(first[1].note, limo_core::PhoneNote::SetupFinished { at: 3 });
+        // Sent again, the same ids; a newer note gets the next.
+        k.keep_notes(&[PhoneNote::GuardOpened { until: 9, at: 4 }]);
+        let again = k.outgoing_notes();
+        assert_eq!(again.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["phone-1/note/1", "phone-1/note/2", "phone-1/note/3"]);
+        // In the note's own JSON, the id beside its fields.
+        let json = serde_json::to_string(&k.notes[1]).unwrap();
+        assert_eq!(json, r#"{"note":"restarted","at":2,"id":"phone-1/note/1"}"#);
+        assert_eq!(serde_json::from_str::<PhoneNote>(&json).unwrap(), PhoneNote::Restarted { at: 2 });
+        assert_eq!(serde_json::from_str::<KeptNote>(r#"{"note":"restarted","at":2}"#).unwrap().id, None);
+        // Confirmed: dropped; the blocked app, which never went, stays.
+        k.confirm_notes(&["phone-1/note/1".into(), "phone-1/note/2".into(), "phone-1/note/9".into()]);
+        assert_eq!(k.notes(), vec![blocked, PhoneNote::GuardOpened { until: 9, at: 4 }]);
+        assert_eq!(k.outgoing_notes().len(), 1);
+        let back = Kept::decode(&k.encode()).unwrap();
+        assert_eq!(back, k);
+        assert_eq!(back.last_note, 3);
     }
 
     fn slice(app: &str, day: i64, secs: i64) -> Slice {

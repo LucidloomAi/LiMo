@@ -103,8 +103,9 @@ pub const CLOCK_JUMP_MS: u64 = 5_000;
 pub const SAVE_PROGRESS_EVERY_MS: u64 = 5_000;
 
 /// The notes for the guardian kept until the master takes them: the newest
-/// 200.
+/// 200. No more than the master takes from one report.
 pub const MAX_NOTES_KEPT: usize = 200;
+const _: () = assert!(MAX_NOTES_KEPT <= limo_core::MAX_NOTES_PER_REPORT);
 
 /// The most apps whose use today the engine keeps for the child's Today
 /// screen: 200. A new app beyond them takes the place of the one with the

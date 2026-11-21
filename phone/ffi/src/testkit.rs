@@ -5,8 +5,9 @@
 //! and `npm run inspect` looks for it in both built apps.
 //!
 //! It makes what only the master PC can make: a child with rules, a
-//! welcome and a code secret for a phone, one time codes, the grant that
-//! answers a report, a pairing offer, and the master's end of a link.
+//! welcome and a code secret for a phone, one time codes, use on the
+//! child's PC, the grant that answers a report, a pairing offer, and the
+//! master's end of a link.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -153,6 +154,20 @@ impl TestFamily {
         let grant =
             self.family()?.master.hub().handle_report(&report, wall_secs).map_err(|e| failed("answer the report", e))?;
         convert::to_json(&grant).ok_or_else(|| failed("write the grant", "JSON"))
+    }
+
+    /// Use on the child's device on the master PC: `minutes` of counted use
+    /// ending at `wall_secs`, recorded there (the device paired the first
+    /// time) and reported, as the PC's agent would. The grants the master
+    /// makes for the phone then say it.
+    pub fn use_pc(&self, child_id: String, minutes: i32, wall_secs: i64) -> Result<(), TestkitError> {
+        let secs = i64::from(u32::try_from(minutes).map_err(|e| failed("the minutes", e))?) * 60;
+        let mut family = self.family()?;
+        let hub = family.master.hub();
+        let mut pc = hub.pair_master_pc(&child_id, "Family PC", wall_secs).map_err(|e| failed("pair the PC", e))?.state;
+        pc.record_use("minecraft.exe", wall_secs - secs, wall_secs);
+        hub.exchange_on_master_pc(&mut pc, false, "", wall_secs).map_err(|e| failed("report from the PC", e))?;
+        Ok(())
     }
 
     /// A pairing offer for the child, in its `limo1:` text, as UTF-8 bytes.

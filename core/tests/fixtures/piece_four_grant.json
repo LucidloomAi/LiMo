@@ -1,0 +1,78 @@
+{
+  "child_id": "asha",
+  "device_id": "phone",
+  "number": 5,
+  "answers_message": 1,
+  "day": 20775,
+  "lease_total_secs": 0,
+  "away_cap_secs": 3600,
+  "away_percent": 50,
+  "left_for_you_secs": 4320,
+  "held_elsewhere_secs": 0,
+  "used_secs_reported": 1860,
+  "acknowledge_now": false,
+  "rules": {
+    "version": 1,
+    "utc_offset_secs": 19800,
+    "day_start_minute": 0,
+    "budgets": {
+      "monday": {
+        "minutes": 120
+      },
+      "tuesday": {
+        "minutes": 120
+      },
+      "wednesday": {
+        "minutes": 120
+      },
+      "thursday": {
+        "minutes": 120
+      },
+      "friday": {
+        "minutes": 120
+      },
+      "saturday": {
+        "minutes": 120
+      },
+      "sunday": {
+        "minutes": 120
+      }
+    },
+    "blocked_hours": [],
+    "always_allowed_apps": [],
+    "blocked_apps": [],
+    "away_share_percent": 50,
+    "lease_minutes": 10,
+    "warning_minutes": [
+      15,
+      5,
+      1
+    ]
+  },
+  "confirmed_slices": [
+    "phone/1"
+  ],
+  "confirmed_added": [],
+  "confirmed_requests": [],
+  "guardian": {
+    "version": 0,
+    "mode": "nothing",
+    "set_at": -9223372036854775808
+  },
+  "pin": null,
+  "requests": [],
+  "news": 0,
+  "confirmed_notes": [
+    "phone/note/1",
+    "phone/note/2",
+    "phone/note/3",
+    "phone/note/4",
+    "phone/note/5",
+    "phone/note/6",
+    "phone/note/7",
+    "phone/note/8",
+    "phone/note/9"
+  ],
+  "others_used_secs": 1020,
+  "others_all_on_master": true
+}

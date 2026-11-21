@@ -63,19 +63,27 @@
 //!    time and request is one a device made, taken once; everything sound in
 //!    a delivered report has been taken; and for every device and day, the
 //!    master's count is exactly the sum of the slices it returned.
+//! 9. **Notes, and the other devices' use.** Devices make notes for the
+//!    guardian now and then, carry them in every report until a grant
+//!    confirms them, and drop them then. Each new note in an outcome is one
+//!    a device made, taken once, and every note a delivered report carried
+//!    has been taken by then. Every grant's figure of the other devices' use
+//!    is the master's own count for that day of every device but the one it
+//!    is for, removed ones among them, and says all of it was on the master
+//!    PC exactly when it was.
 //!
 //! The run fails if the scenarios never take time back from a phone, never
 //! reach the moment where check 5 applies, never take one of the ways out,
-//! never remove or pair a device, or never return new slices, added time and
-//! requests (each path counted separately), so that it cannot pass without
-//! testing the path.
+//! never remove or pair a device, or never return new slices, added time,
+//! requests and notes (each path counted separately), so that it cannot pass
+//! without testing the path.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use limo_core::{
-    BlockedWindow, DailyBudget, Decision, DeviceKind, DeviceState, Grant, GrantOutcome, LockReason,
-    MasterBook, MasterError, OneTimeCode, PinAction, PinRecord, Report, ReportOutcome, RequestAnswer,
-    RequestReply, RuleSet, Slice, TryOutcome, Weekday, next_code,
+    BlockedWindow, DailyBudget, Decision, DeviceKind, DeviceState, GuardedPage, Grant, GrantOutcome, LockReason,
+    MAX_NOTES_PER_REPORT, MasterBook, MasterError, OneTimeCode, PhoneNote, PhonePermission, PinAction, PinRecord,
+    Report, ReportOutcome, RequestAnswer, RequestReply, RuleSet, SentNote, Slice, TryOutcome, Weekday, next_code,
 };
 
 /// A small seeded generator (splitmix64). Enough for picking scenarios.
@@ -187,6 +195,10 @@ struct Stats {
     outcome_added: u64,
     outcome_requests: u64,
     ledger_checks: u64,
+    notes_made: u64,
+    outcome_notes: u64,
+    others_checks: u64,
+    others_on_the_pc: u64,
 }
 
 struct Device {
@@ -206,9 +218,32 @@ struct Device {
     last_cap: Option<(i64, u64)>,
     /// True when the last two such grants gave the same away allowance.
     same_cap: bool,
+    /// Notes for the guardian not yet confirmed, oldest first, kept as the
+    /// phone's engine keeps them: saved at once, so a restart keeps them.
+    notes: Vec<SentNote>,
+    /// The number of the last note made.
+    last_note: u64,
 }
 
 impl Device {
+    fn new(id: String, state: DeviceState, portable: bool) -> Device {
+        Device {
+            id,
+            state,
+            portable,
+            removed: false,
+            in_reach: true,
+            in_use: false,
+            app: "game",
+            used: BTreeMap::new(),
+            clean: 0,
+            last_cap: None,
+            same_cap: false,
+            notes: Vec::new(),
+            last_note: 0,
+        }
+    }
+
     fn count_clean(&mut self, day: i64, away_cap: u64, rules_changed: bool) {
         self.clean = if rules_changed { 0 } else { self.clean + 1 };
         self.same_cap = self.last_cap == Some((day, away_cap));
@@ -275,6 +310,15 @@ struct World {
     lost: BTreeMap<i64, u64>,
     /// Devices paired so far, to make new ids.
     paired: u64,
+    /// The generator for notes, of its own so that notes change none of the
+    /// scenario's other draws.
+    note_rng: Rng,
+    /// Every note a device made, by id, and the ids the master returned as
+    /// new, each once.
+    noted: BTreeMap<String, SentNote>,
+    taken_notes: BTreeSet<String>,
+    /// Notes a device dropped unsent, holding as many as it may keep.
+    dropped_notes: BTreeSet<String>,
 }
 
 const APPS: [&str; 6] = ["game", "video", "game", "chat", "clock", "casino"];
@@ -345,19 +389,7 @@ impl World {
             let (id, kind) =
                 if i == 0 { ("pc".to_string(), DeviceKind::OnMaster) } else { (format!("phone{i}"), DeviceKind::Portable) };
             let welcome = master.add_device(&id, kind, start).unwrap();
-            devices.push(Device {
-                id,
-                state: DeviceState::from_pairing(&welcome, start),
-                portable: kind == DeviceKind::Portable,
-                removed: false,
-                in_reach: true,
-                in_use: false,
-                app: "game",
-                used: BTreeMap::new(),
-                clean: 0,
-                last_cap: None,
-                same_cap: false,
-            });
+            devices.push(Device::new(id, DeviceState::from_pairing(&welcome, start), kind == DeviceKind::Portable));
         }
         let mut history = BTreeMap::new();
         history.insert(1, rules);
@@ -404,6 +436,10 @@ impl World {
             ledger: BTreeMap::new(),
             lost: BTreeMap::new(),
             paired: 0,
+            note_rng: Rng(seed ^ 0x0000_7E5E_DA7E_0F0F),
+            noted: BTreeMap::new(),
+            taken_notes: BTreeSet::new(),
+            dropped_notes: BTreeSet::new(),
         };
         let day = world.master.today(start);
         world.in_play.entry(day).or_default().insert(1);
@@ -446,7 +482,8 @@ impl World {
     fn exchange_once(&mut self, i: usize, now: i64, want_more: bool) -> Exchange {
         self.stats.exchanges += 1;
         self.note_held(i, now);
-        let report = self.devices[i].state.report(now, want_more);
+        let mut report = self.devices[i].state.report(now, want_more);
+        report.notes = self.devices[i].notes.clone();
         self.log(|| format!("{now} {} report #{} day {} used {} lease {} cap {} away_used {} grant {} rules {} want {} today {} slices {:?}",
             report.device_id, report.message_number, report.day, report.used_secs, report.lease_total_secs,
             report.away_cap_secs, report.away_used_secs, report.grant_number, report.rules_version,
@@ -499,7 +536,7 @@ impl World {
             return Exchange::Lost;
         }
         let before = self.devices[i].state.rules_version();
-        let outcome = self.devices[i].state.take_grant(&grant, now);
+        let outcome = self.take(i, &grant, now);
         assert_eq!(outcome, GrantOutcome::Taken, "seed {}: a fresh grant must be taken", self.seed);
         self.note_held(i, now);
         let rules_changed = before != grant.rules.version;
@@ -544,6 +581,83 @@ impl World {
         for request in &report.requests {
             assert!(self.taken_requests.contains(&request.id), "seed {seed}: {} was handed over and not taken", request.id);
         }
+        for note in &outcome.new_notes {
+            assert_eq!(self.noted.get(&note.id), Some(note), "seed {seed}: the master took a note no device made");
+            assert!(self.taken_notes.insert(note.id.clone()), "seed {seed}: note {} was taken twice", note.id);
+            self.stats.outcome_notes += 1;
+        }
+        for note in &report.notes {
+            assert!(
+                self.taken_notes.contains(&note.id) || self.dropped_notes.contains(&note.id),
+                "seed {seed}: note {} was handed over and not taken",
+                note.id
+            );
+        }
+        self.check_others(&outcome.grant);
+    }
+
+    /// Check 9: a grant's figure of the other devices' use is the master's
+    /// own count, for the grant's day, of every device but the one it is
+    /// for, removed ones among them; all of it on the master PC exactly when
+    /// it was.
+    fn check_others(&mut self, grant: &Grant) {
+        let (mut others, mut on_master) = (0u64, 0u64);
+        for used in self.master.counted_use(grant.day) {
+            if used.device_id == grant.device_id {
+                continue;
+            }
+            others += used.counted_secs;
+            if !used.removed && self.master.device_view(&used.device_id, grant.day).unwrap().kind == DeviceKind::OnMaster {
+                on_master += used.counted_secs;
+            }
+        }
+        assert_eq!(grant.others_used_secs, Some(others), "seed {}: the other devices' use in grant #{}", self.seed, grant.number);
+        assert_eq!(grant.others_all_on_master, others > 0 && on_master == others, "seed {}: grant #{}", self.seed, grant.number);
+        self.stats.others_checks += 1;
+        if grant.others_all_on_master {
+            self.stats.others_on_the_pc += 1;
+        }
+    }
+
+    /// Device `i` takes a grant, and drops the notes it confirms: from any
+    /// grant for it, as it drops slices.
+    fn take(&mut self, i: usize, grant: &Grant, now: i64) -> GrantOutcome {
+        let device = &mut self.devices[i];
+        let outcome = device.state.take_grant(grant, now);
+        if outcome != GrantOutcome::NotForThisDevice {
+            device.notes.retain(|n| !grant.confirmed_notes.contains(&n.id));
+        }
+        outcome
+    }
+
+    /// Now and then a device notes something for the guardian.
+    fn maybe_note(&mut self, i: usize, now: i64) {
+        if !self.note_rng.per_mille(30) {
+            return;
+        }
+        let rng = &mut self.note_rng;
+        let permission = rng.pick(&PhonePermission::ALL);
+        let note = match rng.below(5) {
+            0 => PhoneNote::Restarted { at: now },
+            1 => PhoneNote::PermissionOff { permission, at: now },
+            2 => PhoneNote::PermissionOn { permission, at: now },
+            3 => PhoneNote::GuardedPageOpened {
+                page: rng.pick(&[GuardedPage::DeviceAdmin, GuardedPage::Accessibility]),
+                day: self.master.today(now),
+                at: now,
+            },
+            _ => PhoneNote::ClockMoved { by_secs: rng.range(-3_600, 3_600), followed: rng.below(2) == 0, at: now },
+        };
+        let device = &mut self.devices[i];
+        device.last_note += 1;
+        let sent = SentNote { id: SentNote::id_for(&device.id, device.last_note), note };
+        device.notes.push(sent.clone());
+        let over = device.notes.len().saturating_sub(MAX_NOTES_PER_REPORT);
+        for dropped in device.notes.drain(..over) {
+            self.dropped_notes.insert(dropped.id);
+        }
+        self.noted.insert(sent.id.clone(), sent);
+        self.stats.notes_made += 1;
     }
 
     /// An old report from a device: handled, and checked, or refused when
@@ -625,19 +739,7 @@ impl World {
             self.secrets.push(secret);
         }
         self.log(|| format!("{now} paired {new_id}: share {} cap {}", welcome.away_percent, welcome.away_cap_secs));
-        self.devices.push(Device {
-            id: new_id,
-            state,
-            portable: kind == DeviceKind::Portable,
-            removed: false,
-            in_reach: true,
-            in_use: false,
-            app: "game",
-            used: BTreeMap::new(),
-            clean: 0,
-            last_cap: None,
-            same_cap: false,
-        });
+        self.devices.push(Device::new(new_id, state, kind == DeviceKind::Portable));
         self.note_held(self.devices.len() - 1, now);
         self.stats.pairings += 1;
     }
@@ -829,7 +931,7 @@ impl World {
             self.in_play.entry(grant.day).or_default().insert(grant.rules.version);
             self.devices[i].clean = 0;
             if self.devices[i].in_reach && self.rng.below(2) == 0 {
-                self.devices[i].state.take_grant(&grant, now);
+                self.take(i, &grant, now);
                 self.note_held(i, now);
             }
             self.old_grants.push((i, grant));
@@ -837,7 +939,7 @@ impl World {
             let (i, grant) = self.old_grants[self.rng.below(self.old_grants.len() as u64) as usize].clone();
             if self.devices[i].in_reach {
                 self.devices[i].clean = 0;
-                let outcome = self.devices[i].state.take_grant(&grant, now);
+                let outcome = self.take(i, &grant, now);
                 self.log(|| format!("{now} late grant #{} to {}: {outcome:?}", grant.number, self.devices[i].id));
                 if outcome == GrantOutcome::Taken {
                     self.stats.late_grants_taken += 1;
@@ -872,7 +974,7 @@ impl World {
                 continue;
             }
             self.devices[i].clean = 0;
-            let outcome = self.devices[i].state.take_grant(&grant, now);
+            let outcome = self.take(i, &grant, now);
             self.log(|| format!("{now} late grant #{} to {}: {outcome:?}", grant.number, self.devices[i].id));
             if outcome == GrantOutcome::Taken {
                 self.stats.late_grants_taken += 1;
@@ -1361,6 +1463,7 @@ impl World {
                 if self.setup.ways {
                     self.device_ways(i, now);
                 }
+                self.maybe_note(i, now);
                 // Now and then a device in reach reports without being asked.
                 if self.devices[i].in_reach && self.rng.per_mille(100) {
                     let want_more = self.devices[i].in_use && !self.guardian_locked(i, now);
@@ -1500,6 +1603,10 @@ fn many_generated_days_never_go_over_the_limit() {
         all.outcome_added += s.outcome_added;
         all.outcome_requests += s.outcome_requests;
         all.ledger_checks += s.ledger_checks;
+        all.notes_made += s.notes_made;
+        all.outcome_notes += s.outcome_notes;
+        all.others_checks += s.others_checks;
+        all.others_on_the_pc += s.others_on_the_pc;
     }
     println!("{all:#?}");
     if single {
@@ -1544,6 +1651,9 @@ fn many_generated_days_never_go_over_the_limit() {
         ("new added time in a report's outcome", all.outcome_added),
         ("new requests in a report's outcome", all.outcome_requests),
         ("the master's count against the slices it returned", all.ledger_checks),
+        ("new notes in a report's outcome", all.outcome_notes),
+        ("the other devices' use in a grant, checked", all.others_checks),
+        ("all of the other devices' use on the master PC", all.others_on_the_pc),
     ];
     for (path, count) in paths {
         assert!(count > 0, "the scenarios never took this path: {path}\n{all:#?}");

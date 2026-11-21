@@ -197,6 +197,25 @@ pub struct DeviceState {
     /// The news number of the newest grant taken.
     #[serde(default)]
     news_taken: u64,
+    /// The use on the child's other devices, as the newest grant taken for
+    /// the device's day said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    others_used: Option<OthersUsed>,
+}
+
+/// The use on the child's other devices on one home day, as the master said
+/// in the newest grant the device took for that day
+/// ([`Grant::others_used_secs`]). With the device's own use it is the
+/// child's whole day.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OthersUsed {
+    /// The home day.
+    pub day: i64,
+    /// Counted use on the child's other devices that day, in seconds, when
+    /// the grant was made.
+    pub secs: u64,
+    /// True when all of it was on the master PC.
+    pub all_on_master: bool,
 }
 
 impl DeviceState {
@@ -227,6 +246,7 @@ impl DeviceState {
             own_requests: Vec::new(),
             requests_seen: Vec::new(),
             news_taken: 0,
+            others_used: None,
         };
         state.take_grant(welcome, now);
         state
@@ -592,6 +612,7 @@ impl DeviceState {
             pin_version: self.pin_version,
             news_seen: self.news_taken,
             pin_unlock: self.pin_unlock.filter(|p| p.until > now),
+            notes: Vec::new(),
         }
     }
 
@@ -652,8 +673,23 @@ impl DeviceState {
                 used_then_secs: grant.used_secs_reported,
                 held_elsewhere_secs: grant.held_elsewhere_secs,
             });
+            self.others_used = grant.others_used_secs.map(|secs| OthersUsed {
+                day: grant.day,
+                secs,
+                all_on_master: grant.others_all_on_master,
+            });
         }
         GrantOutcome::Taken
+    }
+
+    /// The use on the child's other devices on home day `day`, as the newest
+    /// grant taken for that day said; None when no grant for that day said
+    /// it (none came yet, or it came from a master that does not say). It is
+    /// what the master knew when it made the grant, and stays the best known
+    /// figure out of reach: unlike the time left, it is not forgotten by
+    /// [`DeviceState::lost_contact`].
+    pub fn others_used(&self, day: i64) -> Option<OthersUsed> {
+        self.others_used.filter(|o| o.day == day)
     }
 
     /// Call when the master could not be reached. The device then stops

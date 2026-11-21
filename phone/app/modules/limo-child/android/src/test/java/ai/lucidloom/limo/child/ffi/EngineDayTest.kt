@@ -151,6 +151,24 @@ class EngineDayTest {
   }
 
   @Test
+  fun atHomeTheNotesGoToTheMasterAndTodaySaysTheUseOnThePc() {
+    FakePhone(folder.newFolder(), WEDNESDAY_4_PM).use { phone ->
+      // 12 minutes on the family PC; the phone away for a minute, then at home.
+      phone.family.usePc(phone.child, 12, WEDNESDAY_4_PM)
+      phone.run(60)
+      assertEquals("setup finished, waiting for the master", 1, phone.engine.view()!!.notesKept)
+      assertTrue(phone.engine.view()!!.json.contains("\"where_used\":\"On this phone 1 min\""))
+      phone.inReach = true
+      phone.run(65)
+      val view = phone.engine.view()!!
+      assertEquals("confirmed by a grant, and dropped", 0, view.notesKept)
+      val mine = view.countedSecs / 60
+      assertTrue(view.json, view.json.contains("\"where_used\":\"On this phone $mine min · on the PC 12 min\""))
+      assertTrue(view.json, view.json.contains("\"used\":\"${mine + 12} min used of 30 min\""))
+    }
+  }
+
+  @Test
   fun theCoresRefusalsArriveAsTheirOwnExceptionsWithTheirWords() {
     FakePhone(folder.newFolder(), WEDNESDAY_4_PM).use { phone ->
       phone.run(1)

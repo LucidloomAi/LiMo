@@ -32,9 +32,10 @@ pub struct PhoneOrders {
     pub save_state: bool,
     /// Things the guardian should know, noted in this call: a clock moved, a
     /// restart, a permission switched off, a blocked app opened, a guarded
-    /// page opened. The engine
-    /// keeps them too, until the master can take them. (Setup finished is
-    /// noted by [`crate::PhoneEngine::finish_setup`], not in a call.)
+    /// page opened. The engine keeps them too, and carries the kinds the
+    /// master takes in its reports until a grant confirms them
+    /// ([`PhoneNote::for_master`]). (Setup finished is noted by
+    /// [`crate::PhoneEngine::finish_setup`], not in a call.)
     pub notes: Vec<PhoneNote>,
     /// Call again within this many seconds if nothing happens (at least 1):
     /// until the next warning point, the lock, blocked hours starting or
@@ -316,9 +317,10 @@ pub struct GrantTaken {
     pub report_again: bool,
 }
 
-/// Something the guardian should know. Kept by the engine until the master
-/// can take it, and given in [`PhoneOrders::notes`] in the call it was
-/// noted.
+/// Something the guardian should know. Given in [`PhoneOrders::notes`] in
+/// the call it was noted, and kept by the engine: a kind the master takes
+/// ([`PhoneNote::for_master`]) until a grant confirms it, the others until
+/// newer notes take their place.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "note")]
 pub enum PhoneNote {
@@ -398,4 +400,33 @@ pub enum PhoneNote {
         /// When, by LiMo's clock.
         at: i64,
     },
+}
+
+impl PhoneNote {
+    /// The note as a report carries it to the master: the rules core's
+    /// kind of the same name, with the same fields
+    /// ([`limo_core::PhoneNote`], where every kind the master takes is
+    /// listed). None for the kinds that list does not hold, which stay on
+    /// the phone: a time zone changed, LiMo not watching, a blocked app
+    /// opened.
+    pub fn for_master(&self) -> Option<limo_core::PhoneNote> {
+        use limo_core::PhoneNote as Master;
+        Some(match self {
+            PhoneNote::ClockMoved { by_secs, followed, at } => {
+                Master::ClockMoved { by_secs: *by_secs, followed: *followed, at: *at }
+            }
+            PhoneNote::Restarted { at } => Master::Restarted { at: *at },
+            PhoneNote::PermissionOff { permission, at } => {
+                Master::PermissionOff { permission: permission.for_master(), at: *at }
+            }
+            PhoneNote::SetupFinished { at } => Master::SetupFinished { at: *at },
+            PhoneNote::GuardedPageOpened { page, day, at } => {
+                Master::GuardedPageOpened { page: page.for_master(), day: *day, at: *at }
+            }
+            PhoneNote::GuardOpened { until, at } => Master::GuardOpened { until: *until, at: *at },
+            PhoneNote::TimeZoneChanged { .. } | PhoneNote::NotWatched { .. } | PhoneNote::BlockedAppOpened { .. } => {
+                return None;
+            }
+        })
+    }
 }

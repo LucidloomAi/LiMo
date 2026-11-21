@@ -217,9 +217,9 @@ here: the Android side puts in each app's name.
 | Field | What |
 | --- | --- |
 | `left` | The time left, shown large: a `kind` and its `words`. `left`: "1 h 12 min", "14 min", "0:42" under a minute (the time left display's words, rounded up). `no_limit`: "No limit today". `open`, while a guardian's unlock keeps the phone open: "Open until 9:30 pm". |
-| `used` | "48 min used of 2 h": this phone's counted use (see below) of the day's budget, rounded down, so that with the time left, rounded up, it makes the day. "48 min used today" on a day with no limit or with no time. Use beyond the day under an unlock is said as it is: "2 h 10 min used of 2 h". |
+| `used` | "48 min used of 2 h": the child's whole day as the phone knows it, its own counted use and, once the master has said it, the use on the child's other devices (see below), of the day's budget, rounded down, so that with the time left, rounded up, it makes the day. "48 min used today" on a day with no limit or with no time. Use beyond the day under an unlock is said as it is: "2 h 10 min used of 2 h". |
 | `used_part` | The part used, from 0 to 1 in thousandths, for the bar; none on a day with no limit; 1 on a day with no time. |
-| `where_used` | Where the time went: "On this phone 31 min". See below. |
+| `where_used` | Where the time went: "On this phone 31 min · on the PC 17 min", or "On this phone 31 min" until the master says more. See below. |
 | `bedtime` | "Screens are off from 9:00 pm to 7:00 am.", or none when no hours are off today. |
 | `apps` | Today on this phone: each app's `package`, its `secs` and its `minutes` in words ("12 min", "1 h 5 min"), longest first; apps under a minute, and use the host could not name, left out. Every app's use is listed, also of an app whose time does not count (an always allowed one). |
 | `guardian_needed` | None while all six permissions are on; otherwise `off`, the permissions that are off in setup order, each with its one sentence (see [The words](#the-words)). |
@@ -235,20 +235,22 @@ finished on this phone.". See rule 11.
 none), `always_open` (the packages that stay open under a lock) and
 `not_allowed` (the packages that are blocked).
 
-**What a phone knows of the child's other devices: only its own use.** A
-grant tells it `left_for_you_secs`, how much this phone may still use
-today, which the master works out by taking away what every other device
-used *and* what the others hold and have not used, and what they wait for,
-and adding any time the guardian gave; `held_elsewhere_secs`, the away
-time other phones hold and have not used; and `used_secs_reported`, this
-phone's own use as the master had it. None of these is the other devices'
-use, and the rest of the core's grant and the link's messages carry none
-either. So Today says only "On this phone 31 min", and its `used` line is
-this phone's own counted use. It never guesses the rest. The words for the
-day the core says more are settled and tested ("On this phone 31 min · on
-the PC 17 min" when all of the rest was on the family PC, "· on other
-devices 17 min" when it was on more than one, or the phone cannot tell
-which); see [What the core and the hub should gain](#what-the-core-and-the-hub-should-gain).
+**What a phone knows of the child's other devices: their use, as the
+master last said it.** Every grant carries the use on the child's other
+devices that day as the master counted it then, and whether all of it was
+on the master PC (the core's `Grant::others_used_secs` and
+`others_all_on_master`); the core's device state keeps the figure of the
+newest grant for the phone's day (`DeviceState::others_used`). So Today's
+`used` line is the child's whole day, this phone's own counted use and the
+others', and `where_used` says both, once a minute or more went elsewhere:
+"On this phone 31 min · on the PC 17 min" when all of it was on the family
+PC, "On this phone 31 min · on other devices 17 min" when some was on
+another device (or on one since removed, whose kind the master no longer
+keeps). Away from home the figure stays the last one the master gave, and
+it survives a restart with the state. Until a grant for the day says it (a
+phone away since before the day started, a phone that never reaches its
+master, a master that does not say), Today says this phone's own use only,
+"On this phone 31 min", as it always did: it never guesses the rest.
 
 **Each app's use today** is kept in the state, beside the device state, and
 added to where the device state records use, from the slices the core
@@ -283,7 +285,11 @@ hold: the app's package name, the day, the start and the end, and whether it
 counted. Each app's use today, kept for the child's own Today screen, is a
 package name and seconds, and stays on the phone. The notes hold no
 sentence and no name: a permission switched off is noted by which it is,
-and setup finished by when.
+and setup finished by when. The notes that reach the master are the kinds
+the core lists (`limo_core::PhoneNote`: setup finished, a permission off, a
+guarded page opened, the guard opened, a restart, the clock moved), with
+their times; a blocked app opened, the one note that names an app, a time
+zone changed and LiMo not watching stay on the phone.
 Tests: `kept::an_apps_label_is_shown_but_never_kept_nor_reported`,
 `today::today_says_the_time_left_the_time_used_and_each_apps_minutes_and_starts_again_the_next_day`.
 
@@ -628,6 +634,8 @@ holds:
   (`REPORT_IDLE_SECS`), so that new rules reach the phone on a day with no
   limit;
 - a way out changed the state and has not reached the master;
+- a note the master takes was made since the last grant (setup finished
+  among them, so a PC waiting for it hears within seconds);
 - a grant asked for a report at once (it lowered the away allowance).
 
 Not while a report waits for its answer, nor within ten seconds of one that
@@ -637,6 +645,18 @@ looks at the phone. Out of reach, the engine stops trusting what the master
 last said is left (the core's `lost_contact`), so its warnings follow the
 time it holds.
 
+**The notes go with the reports.** Every note of a kind the core lists
+(`PhoneNote::for_master` gives the core's note) goes in every report the
+master has not confirmed it in, oldest first, with an id given the first
+time it goes (`<device>/note/<n>`, numbered on across restarts), and is
+dropped once a grant confirms it, from any grant for this phone, as slices
+are. A report that gets no answer keeps them, and the next carries them
+again under the same ids; away from home they wait. A master from before
+notes confirms none: they then ride along with the reports that come
+anyway, among the newest 200 kept, and bring no report of their own after
+the first. The other kinds stay on the phone, the newest kept with the
+rest, as every note did before.
+
 ## What is kept, and when
 
 **What.** One blob: a first line `limo-phone-state`, a line `format 1`, a
@@ -645,7 +665,9 @@ core's `DeviceState` (with the code secret and the PIN record), and the
 engine's own notes: the stretch not yet recorded, the last look at which the
 child's time was being counted, LiMo's clock (the last reading, the start
 count and the correction it keeps), the notes for the guardian not yet
-taken, the permissions last seen, the blocked apps noted today, each app's
+taken (each in its own JSON, with `"id"` beside its fields once it has gone
+in a report) and the number of the last note given an id (`last_note`), the
+permissions last seen, the blocked apps noted today, each app's
 use today (see [The child's own screens](#the-childs-own-screens)), and
 whether setup is finished, and when (`"setup":"not_finished"`, or
 `"setup":{"finished":{"at":...}}`), the guard kept open by a right PIN
@@ -660,7 +682,8 @@ true:
 | After | Because |
 | --- | --- |
 | `paired` | the state is new |
-| `outgoing_report`, before sending the report | the report's number and the slices it carries are in the state |
+| `outgoing_report`, before sending the report | the report's number, the slices it carries and the ids of its notes are in the state |
+| `take_grant`, also for the notes it confirms | they are dropped |
 | `take_grant`, before acting on the grant | the core's rule: a device keeps a grant before it spends it |
 | `ask_for_time`, `try_code`, `try_pin`, right or wrong, before showing the answer | the request, the time added, the code used and the wrong guesses must survive a restart |
 | `finish_setup`, the first time | setup finished must survive a restart; called again, nothing changes and nothing is asked |
@@ -713,7 +736,12 @@ the device state is filled in when missing, and the form number says which
 form it is (this is the first). A state kept before the six permissions
 holds two: the other four read as off, and since only a permission going
 from on to off is noted, nothing is noted for them; one kept before each
-app's use was counted shows no apps on Today until there is use again.
+app's use was counted shows no apps on Today until there is use again. One
+kept before notes went to the master holds its notes without ids: those of
+a kind the master takes go in the next report in reach, numbered from 1,
+and the rest stay (`tests/phone/fixtures/kept_before_notes_travelled.limo`,
+written by that engine). A device state kept before grants said the other
+devices' use knows none of it until the next grant.
 **A state kept before setup was kept counts as finished**: its phone was
 paired and in use already, and taking it as not finished would stop it
 keeping its limits until someone found it and finished a setup it had
@@ -758,9 +786,18 @@ count), and the host keeps the file out of Android's backups.
 These are not built here; recommendations are in the report that came with
 this piece.
 
-- **Carrying the notes to the master.** The core's report has no place for
-  them yet; the engine keeps the newest 200 (`MAX_NOTES_KEPT`) in the state
-  until it has.
+- **The notes that stay on the phone.** A blocked app opened, a time zone
+  changed and LiMo not watching are not among the kinds the core lists, so
+  they never reach the master; the engine keeps the newest of them with the
+  rest (`MAX_NOTES_KEPT`, 200 in all), as before. Adding one is adding it to
+  the core's list and to `PhoneNote::for_master`.
+- **Notes the core lists that the engine does not make yet**: a permission
+  switched on again, the protection level and USB debugging. The facts carry
+  the permissions, but the engine notes only a permission going off (rule
+  10), and a permission passed over during setup is never noted at all
+  (rule 11), so the master cannot tell from the notes alone that one is off
+  at setup's end. The facts carry neither the protection level nor USB
+  debugging.
 - **A clock set forward while the phone was off**, with automatic time off,
   starts a new day early. The master's own clock, which the link will carry
   (`master_now`), would settle it.
@@ -771,10 +808,9 @@ this piece.
 - **Labels that are the same on every lock** ("What you can do", "Still
   open", "Go to the home screen", "Emergency call", "Send request"): left to
   the screens, which may ask for them here.
-- **The other devices' use on Today.** Today's `used` line and its bar are
-  this phone's own use until the core says more (see below). On a day the
-  child also used the PC, "31 min used of 2 h" sits beside a time left of
-  1 h 12 min that the PC's 17 minutes have already come off.
+- **The other devices' use away from home** is the figure of the last grant:
+  use on the PC after the phone left is not in it, so away, "used" can be
+  less than the day really holds.
 - **Today's hours across midnight.** Today names the hours that start
   today. In the morning, the end of last night's bedtime is not named
   again: the lock says until when.
@@ -795,10 +831,6 @@ What this piece worked around, inside the engine:
 - **Core: the device's own day** (`Holding.day` as kept, not as it would be
   at a moment): `holding_at(now)` moves it. The engine works around it by
   recording the stretch before every call that may move the day.
-- **Core: notes in the report.** `Report` needs a list of notes (a clock
-  moved, a restart, a permission off, a gap watched, a blocked app opened),
-  carried like slices until a grant confirms them by id, as the plan says;
-  then `outgoing_report` carries `PhoneNote`s and drops them when confirmed.
 - **Core: the lock a warning is about.** `Warning` does not say whether the
   lock that comes is for the day's time or for the away time; the engine
   works it out by recording the time in hand on a clone and deciding at the
@@ -816,14 +848,9 @@ What this piece worked around, inside the engine:
   accessibility settings were opened, and when the PIN opened them.
 - **Core: the master's clock.** A grant carrying `master_now` (or the link's
   `Pong`) would let LiMo's clock be set right in reach and across restarts.
-- **Core: the other devices' use in the grant.** The master knows each
-  device's use that day; a grant carrying the use on the child's other
-  devices (with whether all of it was on the master PC) would let Today say
-  "On this phone 31 min · on the PC 17 min" and a `used` line of the whole
-  day. The words are ready (`words::where_words` takes it); only the figure
-  is missing. Until it comes, the phone says what it knows.
-- **Hub: note events** for each `PhoneNote`, and the phone's form and
-  protection level.
+- **Hub: note events** for each note a report brings (the core's
+  `ReportOutcome::new_notes`, kept in the change that keeps the book), and
+  the phone's form and protection level.
 
 ## Tests
 
@@ -850,7 +877,7 @@ extra time, less use beyond what a device held under an unlock.
 | --- | --- | --- |
 | `src/counts.rs` | The rule of what counts, a call in progress no way around it, and what is never covered | 5 |
 | `src/words.rs` | Times on the phone's clock; spans and the time left; every lock's short title beside its message; warnings with the time actually left, away or not, with hints and when; the answers to a code or a PIN; the guard's words, its row and until when a right PIN opens it; a request and its answer; the block screen naming the app by its label, cleaned and cut; Today's time left, the time used and its part, where it went in its three forms; the hours screens are off today, on the phone's clock and zone, joined, several, all day; the rules in words, by days, across the week's end; the six sentences for what is switched off | 12 |
-| `src/kept.rs` | The check catching a change anywhere in the kept state; notes kept up to the limit; counting going on told from any other change; each app's use added up for one day, the nameless left out, a later day starting afresh, bounded | 4 |
+| `src/kept.rs` | The check catching a change anywhere in the kept state; notes kept up to the limit; notes for the master given ids as they first go, kept in their own JSON with the id beside, dropped once confirmed, the others staying; counting going on told from any other change; each app's use added up for one day, the nameless left out, a later day starting afresh, bounded | 5 |
 | `tests/phone/day.rs` | The core README's worked day with the PC beside the phone; the away time used up, warned of as away, opening again at home; a plain day at home to zero with each warning once, the home screen covered, the 24 hour clock and when to call again; a warning that waits for the screen and says the time actually left; a prod from the master, only in reach; a master that does not answer asked again every ten seconds | 6 |
 | `tests/phone/covers.rs` | Allowed apps usable under the lock and recorded without counting; never a cover over a ringing call, the diallers, LiMo, the keyguard or a dark screen, and during a call in progress the same cover as with no call, through every mix of those facts; with the time used up and a call on, the game and the home screen covered with the way back to the call, the dialler not; a call left open not stopping the count in a game, nor a block, nor the lock; a blocked app covered, named by its label, sent home, never counted, noted once a day and across a restart; what counts, case by case | 6 |
 | `tests/phone/ways_out.rs` | A request made at home, answered and shown; a request made away, carried home, refused; a code at school adding time once, wrong codes counting down to a wait that survives a crash, the guardian seeing both at home; the PIN adding time and unlocking with no network, only the PIN at bedtime, use under the unlock counted beyond, an unlock refused, a release confirmed | 4 |
@@ -860,6 +887,7 @@ extra time, less use beyond what a device held under an unlock.
 | `tests/phone/guard.rs` | A guarded page covered in the engine's words with the PIN as its one row, no lock and nothing counted under it, noted once a day for each page; a wrong PIN changing nothing but the tries, the right one opening every guarded page for five minutes by the elapsed count (a clock set by hand buys nothing) and nothing else (no time added, no unlock), closing kept; closed by the screen off, Android's lock screen and a restart of the phone, kept through LiMo stopped and started again; wrong PINs on the guard counting with the lock's wrong codes, the fifth starting the wait shown on the guard and the lock alike, the right PIN made to wait, and after it opening the guard but not the lock; never over a ringing call, Android's lock screen, a dark screen, LiMo or the diallers, during a call in progress with the way back, the device admin's page only while the protection is on, the block screen and the lock first; no PIN set up said in words; nothing guarded before setup is finished | 7 |
 | `tests/phone/setup.rs` | Twenty minutes of setup on Android's settings, LiMo and a game counting nothing, listing nothing, warning of nothing, the time left saying setup is not finished, a permission switched on and off not noted; finished, noted once, counting from the next call, a permission switched off noted after; a blocked app and the hours screens are off neither covering nor warning before, the lock and the block screen at the first call after; not finished kept through a crash, finished kept through a crash and a restart, finishing again changing nothing; a state kept before setup was kept counting as finished; a state that cannot be read refusing it | 5 |
 | `tests/phone/today.rs` | Today through a day: the time left, the time used and its part, where it went, bedtime, each app longest first with the short and the nameless left out, the same after a crash, at bedtime, and starting again the next morning; a day with no limit and a guardian's unlock; How it works by days, on a 24 hour phone, and with no blocked hours; all six permissions switched off, noted in setup order, sent for a guardian with six sentences, while a phone with all on is told the same at every call through a game, a blocked app, the lock, a call and the dialler | 4 |
+| `tests/phone/notes.rs` | Notes kept away from home and carried home in every report until confirmed, under the same ids through a report with no answer and a crash, the blocked app staying on the phone; a new note bringing a report at the next call in reach, and a master from before notes, which confirms none, bringing no report after report; setup finished in reach reaching the master at the next call; Today saying how much went on the PC once the master says it, the used line the whole day, away and across a crash too, nothing the next morning, and only its own use on a phone that never reaches its master although the PC was used; use elsewhere said as on other devices, and a master from before the figure leaving the phone its own use; a state kept by the engine before notes went anywhere loading and sending them, numbered from 1 and on after a reload | 6 |
 | `tests/house_rules.rs` | No unsafe code; no allow attributes; no makers' package names in the engine; no dash punctuation in anything a person reads, nor in any sentence the phone shows | 5 |
 
 At every call of every story the fake phone also checks that the guard
@@ -904,7 +932,8 @@ phone/engine/
     words.rs      every sentence the phone shows
     today.rs      the child's own screens: Today and the rules in words
     kept.rs       the kept state: the stretch, the look, LiMo's clock, the
-                  notes, each app's use today, setup, and the blob's form
+                  notes and their ids, each app's use today, setup, and the
+                  blob's form
     engine.rs     PhoneEngine: the call, the report and the grant, the ways
                   out, the guard's PIN, setup, keeping, the view
     error.rs      PhoneError, LoadProblem, in plain words
@@ -913,5 +942,6 @@ phone/engine/
     phone/
       main.rs     the one story program
       common.rs   the fake phone, the PC beside it, and its checks
-      day.rs, covers.rs, ways_out.rs, clock.rs, restart.rs, kept.rs, today.rs, setup.rs, guard.rs
+      day.rs, covers.rs, ways_out.rs, clock.rs, restart.rs, kept.rs, today.rs, setup.rs, guard.rs, notes.rs
+      fixtures/   a state kept by the engine before notes went to the master
 ```

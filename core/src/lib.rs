@@ -15,7 +15,8 @@
 //! It also holds the ways out, so that a child is never stuck and a
 //! guardian can act with no server: extra time and requests for it
 //! ([`extra`]), one time codes ([`codes`]), the guardian PIN ([`pin`]), and a
-//! guardian's lock or unlock ([`guardian`]).
+//! guardian's lock or unlock ([`guardian`]). A device's notes for the
+//! guardian ride on its reports ([`notes`]).
 //!
 //! The library is pure: no clock, no files, no network, no threads, no
 //! randomness and nothing global. Every function that needs the time is
@@ -36,6 +37,7 @@ pub mod extra;
 pub mod guardian;
 pub mod master;
 pub mod messages;
+pub mod notes;
 pub mod pin;
 pub mod rules;
 pub mod time;
@@ -49,7 +51,7 @@ pub use decide::{
     Decision, Holding, Lock, LockReason, MasterWord, RETRY_SECS, Warned, Warning, WarningCause,
     decide,
 };
-pub use device::{DeviceError, DeviceState, GrantOutcome, TryOutcome};
+pub use device::{DeviceError, DeviceState, GrantOutcome, OthersUsed, TryOutcome};
 pub use extra::{
     AddedBy, AddedTime, ExtraSource, ExtraTime, MAX_ASK_MINUTES, MAX_EXTRA_MINUTES, MAX_REASON_CHARS,
     MAX_REQUESTS_PER_DAY, RequestAnswer, RequestReply, RequestView, TimeRequest,
@@ -62,6 +64,7 @@ pub use master::{
     CountedUse, DeviceKind, DeviceView, MasterBook, MasterError, NEED_KEPT_SECS, PoolView, ReportOutcome,
 };
 pub use messages::{Grant, Report, Slice};
+pub use notes::{GuardedPage, MAX_NOTES_PER_REPORT, PhoneNote, PhonePermission, ProtectionLevel, SentNote};
 pub use pin::{
     MAX_PIN_DIGITS, MIN_PIN_DIGITS, MIN_TYPED_PIN_DIGITS, PIN_ITERATIONS, PinAction, PinError, PinRecord,
     PinUpdate, pin_is_well_formed, typed_pin_is_well_formed,

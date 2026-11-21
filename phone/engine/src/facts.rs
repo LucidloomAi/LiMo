@@ -102,6 +102,15 @@ impl GuardedPage {
             GuardedPage::Accessibility => true,
         }
     }
+
+    /// The same page in the rules core's words, as a note to the master
+    /// names it.
+    pub(crate) fn for_master(self) -> limo_core::GuardedPage {
+        match self {
+            GuardedPage::DeviceAdmin => limo_core::GuardedPage::DeviceAdmin,
+            GuardedPage::Accessibility => limo_core::GuardedPage::Accessibility,
+        }
+    }
 }
 
 /// Whether a call is ringing or on: Android's call state.
@@ -278,4 +287,17 @@ impl Permission {
         Permission::Battery,
         Permission::Protection,
     ];
+
+    /// The same permission in the rules core's words, as a note to the
+    /// master names it.
+    pub(crate) fn for_master(self) -> limo_core::PhonePermission {
+        match self {
+            Permission::Notifications => limo_core::PhonePermission::Notifications,
+            Permission::Phone => limo_core::PhonePermission::Phone,
+            Permission::UsageAccess => limo_core::PhonePermission::UsageAccess,
+            Permission::Accessibility => limo_core::PhonePermission::Accessibility,
+            Permission::Battery => limo_core::PhonePermission::Battery,
+            Permission::Protection => limo_core::PhonePermission::Protection,
+        }
+    }
 }

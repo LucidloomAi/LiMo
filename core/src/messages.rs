@@ -21,11 +21,17 @@
 //! A grant also carries the guardian's lock or unlock, the PIN record while
 //! the device may not have its newest version, and the day's requests with
 //! their answers.
+//!
+//! A report also carries the device's notes for the guardian
+//! ([`crate::notes`]), with ids and repeated until confirmed, like slices;
+//! and a grant the use on the child's other devices that day, so a phone can
+//! say where the day's time went.
 
 use serde::{Deserialize, Serialize};
 
 use crate::extra::{AddedTime, RequestView, TimeRequest};
 use crate::guardian::{GuardianSetting, PinUnlock};
+use crate::notes::SentNote;
 use crate::pin::PinUpdate;
 use crate::rules::RuleSet;
 
@@ -124,6 +130,12 @@ pub struct Report {
     /// An unlock set with the PIN on this device, while it is in force.
     #[serde(default)]
     pub pin_unlock: Option<PinUnlock>,
+    /// Every note for the guardian the master has not yet confirmed, oldest
+    /// first, each with its id ([`SentNote`]). A device that makes no notes
+    /// leaves it empty. Reading a report leaves out a note of a kind this
+    /// version does not know, so a newer device's report is still taken.
+    #[serde(default, deserialize_with = "crate::notes::read_notes", skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<SentNote>,
 }
 
 /// From the master to a device: what it may hold, the rules, and which
@@ -190,4 +202,19 @@ pub struct Grant {
     /// a request changes. A device reports the newest it has taken.
     #[serde(default)]
     pub news: u64,
+    /// Ids of notes the master now has. The device can forget them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub confirmed_notes: Vec<String>,
+    /// Counted use that day on the child's other devices, those since
+    /// removed among them, as the master had it when it made this grant, in
+    /// seconds. With the device's own use it is the child's whole day, so a
+    /// phone can say how much of today went on the PC. None from a master
+    /// that does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub others_used_secs: Option<u64>,
+    /// True when all of that use, a second or more, was on the master PC
+    /// (the child's device of kind [`crate::DeviceKind::OnMaster`]); false
+    /// when there was none, or some was on another device.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub others_all_on_master: bool,
 }

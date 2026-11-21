@@ -1,0 +1,109 @@
+{
+  "child_id": "asha",
+  "device_id": "phone",
+  "message_number": 1,
+  "sent_at": 1795003260,
+  "rules_version": 1,
+  "grant_number": 2,
+  "away_percent": 50,
+  "day": 20775,
+  "used_secs": 1860,
+  "lease_total_secs": 0,
+  "away_cap_secs": 3600,
+  "away_used_secs": 1860,
+  "want_more": false,
+  "slices": [
+    {
+      "id": "phone/1",
+      "child_id": "asha",
+      "device_id": "phone",
+      "app_id": "org.example.game",
+      "day": 20775,
+      "start": 1795001400,
+      "end": 1795003260,
+      "counts": true
+    }
+  ],
+  "added_secs": 0,
+  "added_used_secs": 0,
+  "added": [],
+  "requests": [],
+  "wrong_guesses": 0,
+  "pin_version": 0,
+  "news_seen": 0,
+  "pin_unlock": null,
+  "notes": [
+    {
+      "id": "phone/note/1",
+      "note": {
+        "note": "setup_finished",
+        "at": 1794926100
+      }
+    },
+    {
+      "id": "phone/note/2",
+      "note": {
+        "note": "permission_off",
+        "permission": "accessibility",
+        "at": 1794965400
+      }
+    },
+    {
+      "id": "phone/note/3",
+      "note": {
+        "note": "permission_on",
+        "permission": "accessibility",
+        "at": 1794966000
+      }
+    },
+    {
+      "id": "phone/note/4",
+      "note": {
+        "note": "protection",
+        "level": "base",
+        "at": 1794966060
+      }
+    },
+    {
+      "id": "phone/note/5",
+      "note": {
+        "note": "usb_debugging",
+        "on": true,
+        "at": 1794966120
+      }
+    },
+    {
+      "id": "phone/note/6",
+      "note": {
+        "note": "guarded_page_opened",
+        "page": "device_admin",
+        "day": 20775,
+        "at": 1794966180
+      }
+    },
+    {
+      "id": "phone/note/7",
+      "note": {
+        "note": "guard_opened",
+        "until": 1794966540,
+        "at": 1794966240
+      }
+    },
+    {
+      "id": "phone/note/8",
+      "note": {
+        "note": "restarted",
+        "at": 1794969000
+      }
+    },
+    {
+      "id": "phone/note/9",
+      "note": {
+        "note": "clock_moved",
+        "by_secs": -3600,
+        "followed": false,
+        "at": 1794972600
+      }
+    }
+  ]
+}
