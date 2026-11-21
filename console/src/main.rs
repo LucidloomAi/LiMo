@@ -4,7 +4,9 @@
 //! `phone/app` (built into `phone/app/dist/console` and embedded in this
 //! exe). The page reaches Rust through one command, `request`, and Rust
 //! passes each request through the door to LiMo's service, after checking
-//! that the door is the service's. Nothing is kept here.
+//! that the door is the service's. Nothing is kept here. The requests for
+//! adding a phone (`phone.*`) are the console's own: it answers them itself,
+//! with the cable (`limo_console::phone`).
 //!
 //! With `--self-check <log>` the window asks LiMo for Windows' own door
 //! served in the builder's account by `examples/real_door.rs`, lets the page
@@ -23,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use limo_console::door::{Door, DoorProblem, DoorReply, ServerMustBe};
+use limo_console::phone::{self, ConsoleCable, CountedCable, DoorService, LINK_PORT, Pace, PhoneDesk, PhoneSetup};
 use limo_console::protocol::{PageRequest, wipe};
 use limo_console::webview::{CONSOLE, Switches};
 use limo_console::{this_process, window};
@@ -134,7 +137,10 @@ struct Doors {
 }
 
 struct Console {
-    door: Mutex<Door>,
+    /// The door, shared with the desk for a phone, which asks on the same
+    /// signed in connection.
+    door: Arc<Mutex<Door>>,
+    phone: PhoneDesk,
     check: Option<Arc<SelfCheck>>,
     doors: Option<Doors>,
     parent_window: AtomicIsize,
@@ -151,15 +157,28 @@ fn says_nothing(args: &Value) -> bool {
     args.is_null() || args.as_object().is_some_and(|m| m.is_empty())
 }
 
-/// The page's one command. `more_info` and the self check's own requests
-/// are the console's; every other name is the door's.
+/// The page's one command. `more_info`, the requests for a phone and the
+/// self check's own requests are the console's; every other name is the
+/// door's.
 #[tauri::command(async)]
 fn request(app: AppHandle, console: State<'_, Console>, name: String, args: Value) -> Result<Value, Value> {
     match name.as_str() {
         "self_check" => self_check_request(&app, &console, &args),
         "more_info" => more_info(&console, args),
+        name if phone::is_phone_request(name) => phone_request(&console, name, args),
         _ => ask_door(&console, &name, args),
     }
+}
+
+/// Adding a phone: answered by the console's desk for a phone, at once,
+/// whatever the phone is doing. The self check never reaches a phone: the
+/// PC it runs on may have one plugged in.
+fn phone_request(console: &Console, name: &str, mut args: Value) -> Result<Value, Value> {
+    if console.check.is_some() {
+        wipe(&mut args);
+        return Err(problem("self_check", "The self check never reaches a phone."));
+    }
+    console.phone.request(name, args)
 }
 
 /// Forwards a request through the door. What the page gets: the door's
@@ -363,8 +382,22 @@ fn main() {
         },
     };
 
+    // The desk for a phone: the real cable, counting what it sends, made only
+    // when the Add a phone screens first look; the door the page uses; LiMo's
+    // app for phones beside this program.
+    let door = Arc::new(Mutex::new(door));
+    let phone = PhoneDesk::new(PhoneSetup {
+        cable: Arc::new(|| Box::new(CountedCable::default()) as Box<dyn ConsoleCable>),
+        service: Arc::new(DoorService::new(Arc::clone(&door))),
+        app: std::env::current_exe().ok().and_then(|program| phone::app_beside(&program)),
+        key_folder: None,
+        link_port: LINK_PORT,
+        waits: limo_cable::phone::Waits::default(),
+        pace: Pace::default(),
+    });
     let console = Console {
-        door: Mutex::new(door),
+        door,
+        phone,
         check: check.clone(),
         doors,
         parent_window: AtomicIsize::new(0),

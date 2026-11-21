@@ -8,35 +8,49 @@ WebView2 in a Tauri v2 window. It holds no state of its own: every action
 goes to LiMo's service through **the door**, a named pipe that only the
 service makes, and the service alone holds the family's file.
 
-**What it is now.** The console's shell, with one screen, the sign in. It
-speaks the door's protocol as LiMo for Windows serves it
-([`../windows/README.md`](../windows/README.md), "The console's door"):
-it checks who serves the door before it says anything, says hello, and
-forwards each request the page makes, by its name and its arguments, one
-at a time; it keeps nothing. A service that is absent, lost, or not
-LiMo's is said plainly on the screen. "More info" opens LucidLoom AI's
-page in the PC's own browser, and nothing else leaves the window. WebView2
-starts with the switches measured below, and its keys and menu are
-switched off through its own settings.
+**What it is now.** The console's shell. It speaks the door's protocol as
+LiMo for Windows serves it ([`../windows/README.md`](../windows/README.md),
+"The console's door"): it checks who serves the door before it says
+anything, says hello, and forwards each request the page makes, by its
+name and its arguments, one at a time; it keeps nothing. A service that is
+absent, lost, or not LiMo's is said plainly on the screen. "More info"
+opens LucidLoom AI's page in the PC's own browser, and nothing else leaves
+the window. WebView2 starts with the switches measured below, and its keys
+and menu are switched off through its own settings.
+
+**Adding a phone** over the USB cable is the console's own work: five
+requests (`phone.look`, `phone.install`, `phone.pair`,
+`phone.debugging_off`, `phone.done`) that the console answers itself,
+with LiMo's own way to the phone ([`../phone/cable`](../phone/cable/), no
+program of Google's), on a thread of their own so the window never waits
+for the phone. Pairing asks the service for an offer through the door,
+hands it to LiMo on the phone over the cable, carries the phone's
+127.0.0.1:47810 to the service's link, starts LiMo on the phone and holds
+the phone open until the service says it is paired (see [Adding a
+phone](#adding-a-phone)).
 
 It is tested against **LiMo for Windows' own door**: its pipe threads,
 everything it decides, and a real family's file, run in the test's own
 process (no service started, nothing elevated); the self check signs in at
 the same door, served in the builder's account by `examples/real_door.rs`.
+Adding a phone is tested against limo-cable's fake phone, a throwaway app,
+and the door as a stand in and as LiMo for Windows' own.
 
 **What it is not.** It has not yet talked to the installed service, as
 LocalSystem in session 0: that is a person's run (see [What a person
-checks](#what-a-person-checks)). It has one screen, built ahead of its
-drawing; the other guardian screens are being drawn and are not built.
-No Add a phone, no installer, no signing. It has run only in the self
-check, on the development PC: a normal window, not focused, not on top,
-that closes itself within a minute.
+checks](#what-a-person-checks)). It has not reached a real phone: that is
+the lead's run (see [A first run on a real phone](#a-first-run-on-a-real-phone)).
+The guardian screens are built in `../phone/app`, not here. No installer,
+no signing. It has run only in the self check, on the development PC: a
+normal window, not focused, not on top, that closes itself within a minute.
 
 ## Contents
 
 - [Building](#building)
 - [The window](#the-window)
 - [The door](#the-door)
+- [Adding a phone](#adding-a-phone)
+- [A first run on a real phone](#a-first-run-on-a-real-phone)
 - [The self check](#the-self-check)
 - [What a person checks](#what-a-person-checks)
 - [The first proof](#the-first-proof)
@@ -102,10 +116,12 @@ top.
   needs the permission `allow-request`, which the one capability
   (`capabilities/console.json`) grants to the window `main`, and nothing
   else: no core plugins, no events, no window calls.
-- **What a request does.** The page calls `request(name, args)`. Two names
-  are the console's own, `more_info` and the self check's; every other is
-  the door's, forwarded as it is (see [The door](#the-door)). What the page
-  gets back: the door's reply as it came, `{"outcome":"done","value":...}`
+- **What a request does.** The page calls `request(name, args)`. Some
+  names are the console's own: `more_info`, the five requests for adding a
+  phone (`phone.*`, see [Adding a phone](#adding-a-phone)) and the self
+  check's; every other is the door's, forwarded as it is (see [The
+  door](#the-door)), except `make_offer`, which only the console asks.
+  What the page gets back from the door: its reply as it came, `{"outcome":"done","value":...}`
   or `{"outcome":"problem","problem":{"kind":...,"message":...}}` with the
   service's own sentence; `{"outcome":"refused","message":...}` when the
   door does not open for this Windows account; or, when the door could not
@@ -222,6 +238,261 @@ a new one, signed out.
 Everything else the screen shows is the service's own sentence: a wrong
 password with the tries left, a wait, `busy` for a second password within
 a second, a child's account refused, signed out after fifteen idle minutes.
+
+## Adding a phone
+
+`src/phone/`. The Add a phone screens (frames A1 to A9 of
+[`../design/screens/console.html`](../design/screens/console.html), and the
+cable's strips at its foot) are built in `../phone/app`; the console gives
+them five requests of its own, through the same `request(name, args)`,
+answered by the console and never sent to the service.
+
+**A thread of its own** (`worker.rs`) holds the cable and, once
+connected, the phone. A request starts a step and answers at once, and
+`phone.look` reads where everything stands (`look.rs`), so the window never
+waits for the phone, not while the phone asks "Allow USB debugging?" (up to
+two minutes) nor while Android installs (up to three). The thread starts at
+the first `phone.look`. Once a second it looks at the USB ports (read only)
+and hands the look to limo-cable's state machine (`limo_cable::flow`). By
+itself it connects as soon as a phone LiMo can open is plugged in (the
+phone asks once to allow this PC's key), and looks whether LiMo is on the
+phone; when the phone holds the version this PC carries, nothing is
+installed. What went wrong when connecting stays said for 5 seconds, then
+it tries again; an Android too old stays said until the phone is unplugged.
+A minute with no request and it lets go of the phone and stops.
+
+- **The cable** (`counted.rs`) is limo-cable's own way, through Windows'
+  WinUSB, opened as `WindowsCable` opens it, with the wire counting what it
+  sends: the install's progress is what really went down the cable.
+- **LiMo's key** is limo-cable's, `%LOCALAPPDATA%\LiMo\adbkey` in the
+  guardian's account, made at first use. A damaged one is made anew, and a
+  phone that knew the old asks again.
+- **LiMo's app for phones** is `phone\limo-child.apk` beside
+  `limo-console.exe`, read once when the looking starts: LiMo's child form
+  (`ai.lucidloom.limo.child`) as a release build, or it is not put on a
+  phone. limo-cable sends the very bytes it checked.
+- **Pairing** (`phone.pair`), through the door on the guardian's signed in
+  connection (`door_service.rs`): `devices` for the child (the devices
+  before), then `make_offer`; the offer's text is kept in memory and the
+  rest of the answer wiped; its `port` must be the link's, 47810. The offer
+  goes to LiMo on the phone through its guarded door (on standard input,
+  then wiped), the phone's 127.0.0.1:47810 is carried to this PC's, where
+  the service's link listens, and LiMo is started on the phone. Then once a
+  second `devices` again, until a new device is listed and `device_link`
+  answers for it: paired. A pairing is waited for as long as its offer
+  lasts (ten minutes), never more than fifteen.
+- **The phone is held open** while the pairing waits and after it (the
+  phone's own setup and its first reports go over the cable until it
+  reaches the PC on the home Wi-Fi), until `phone.debugging_off`,
+  `phone.done`, or a minute with no request. Every two seconds after
+  pairing, `device_link` says how the phone reaches the PC.
+- **Unplugged while the pairing waits**, the pairing goes on waiting (LiMo
+  on the phone has the offer, with the PC's home addresses). Plugged in
+  again, the link's port is carried again; nothing is handed or installed
+  twice.
+- **`make_offer` is the console's own**: a page asking for it is refused
+  (`protocol::CONSOLE_ONLY`), so an offer's secret reaches no page and no
+  answer.
+- **The self check never reaches a phone**: every `phone.*` request is
+  refused in it, since the PC it runs on may have one plugged in.
+
+### The requests
+
+Each answer is a value, or an error `{ "code", "words" }` with the sentence
+the screen shows.
+
+| Request | Arguments | Answer | Errors |
+| --- | --- | --- | --- |
+| `phone.look` | none | the look (below) | `unknown_request` |
+| `phone.install` | none | `{"started": true}`; `{"started": false}` when LiMo is on the phone already | `no_phone`, `too_old`, `busy`, `no_app` |
+| `phone.pair` | `{"child": "<child id>"}`, nothing more | `{"started": true}`; `{"started": false}` when paired already | `no_phone`, `too_old`, `not_yet`, `busy`, `unknown_request` |
+| `phone.debugging_off` | none | `{"started": true}`; `{"started": false}` when off already | `no_phone`, `too_old`, `busy` |
+| `phone.done` | none | `{"done": true}` | none |
+
+| Code | Words |
+| --- | --- |
+| `no_phone` | "No phone is connected yet. Plug it in, unlocked, with USB debugging on." |
+| `too_old` | "This phone has Android 7.1. LiMo needs Android 8.0 or later." (its version) |
+| `busy` | "The phone is busy with another step. Wait a moment, then try again." |
+| `not_yet` | "LiMo is not on the phone yet." |
+| `no_app` | the app's line, below |
+| `unknown_request` | "phone.pair takes the child, as {"child": "<its id>"}, and nothing else"; "phone.look takes nothing" (and so on); "that is not the name of a request" |
+
+### The look
+
+What `phone.look` answers, here while LiMo goes on the phone:
+
+```json
+{
+  "cable": { "case": "ok", "line": "Connected: Galaxy S20 Ultra 5G.", "more": "Android 13." },
+  "fingerprint": null,
+  "phone": { "name": "Galaxy S20 Ultra 5G", "model": "SM-G988B", "maker": "samsung", "android": "13",
+             "recent_enough": true, "limo": { "looked": true, "on_it": false, "version": null },
+             "this_pc_carries": "0.3.0" },
+  "checks": [ { "ok": true, "words": "One phone plugged in" },
+              { "ok": true, "words": "Android 13, recent enough for LiMo" },
+              { "ok": true, "words": "LiMo is not on it yet" } ],
+  "install": { "stage": "sending", "sent": 0.62, "line": "Sending LiMo to the phone.", "advice": null },
+  "pairing": { "stage": "not_asked", "device": null, "ways": [], "line": null, "advice": null },
+  "debugging": { "stage": "on", "line": null, "advice": null },
+  "busy": "installing",
+  "held": true
+}
+```
+
+**`cable`**, the strip at the foot of every step, in the drawing's words:
+
+| `case` | `line` | `more` | Drawn |
+| --- | --- | --- | --- |
+| `looking` | "Looking at this PC’s USB ports." | "" | not drawn: before the first look, under a second |
+| `none` | "No phone on a USB port." | "If it is plugged in, the cable may only charge it. Try the one that came with the phone." | none |
+| `off` | "A phone is plugged in." | "USB debugging is off on it." | off |
+| `driver` | "No working driver for this phone." | "Install its maker’s USB driver for Windows, such as Samsung’s Android USB Driver." | driver, coral |
+| `connecting` | "A phone is plugged in." | "Connecting to it." | not drawn: as allow, for a moment |
+| `allow` | "A phone is plugged in." | "Waiting for Allow on the phone." | allow |
+| `ok` | "Connected: Galaxy S20 Ultra 5G." | "Android 13." | ok, teal |
+| `trouble` | what went wrong | what to do | not drawn: coral |
+
+`trouble` is limo-cable's own words (with the screens' apostrophe):
+another program holds the phone ("Another program on this PC holds the
+phone’s connection (Android Studio, or Google’s adb)." "Close it, then
+unplug the phone and plug it in again."), not allowed in time ("The phone
+did not allow this PC." "Unplug the phone, plug it in again unlocked, and
+tap Allow when it asks."), Android too old, two phones, the connection
+ended, the phone not reached, the USB list unreadable, a driver LiMo cannot
+open; and the console's own: LiMo's key could not be had, and "USB
+debugging is on again on the phone." After USB debugging is off the strip
+says what is plugged in: `off` while the phone is still in (A9's foot),
+`none` once it is out. The phone's name is the one Windows shows for it,
+else its model.
+
+**`fingerprint`**: the key's fingerprint as the phone shows it, sixteen
+pairs ("3C:91:5A:07:..."), only while `case` is `allow` (A3); otherwise
+null.
+
+**`phone`**: null until a phone has connected, then the last one's: its
+`name`, `model`, `maker`, `android`, `recent_enough`, `limo` (`looked`,
+`on_it`, `version`) and `this_pc_carries`, the version of the app here.
+
+**`checks`**, A4's ticks, from the moment it connects: `ok` and `words`.
+"One phone plugged in"; "Android 13, recent enough for LiMo", or not ok
+"Android 7.1, older than the Android 8.0 LiMo needs"; once LiMo was looked
+for, one of "LiMo is not on it yet", "LiMo 0.3.0 is on it already", "LiMo
+0.2.0 is on it, and this PC carries 0.3.0", "LiMo is on it".
+
+**`install`**: `stage`, `sent`, `line`, `advice`.
+
+| `stage` | `sent` | `line`, and `advice` |
+| --- | --- | --- |
+| `not_asked` | null | null |
+| `not_needed` | null | "LiMo 0.3.0 is on the phone already." |
+| `sending` | 0 to 1, in hundredths: how much of the app is on the phone | "Sending LiMo to the phone." |
+| `installing` | 1 once all is sent; null on a cable that does not count | "The phone is installing LiMo." |
+| `done` | null | "LiMo is on the phone." |
+| `refused` | null | "The phone did not take LiMo.", with limo-cable's advice by Android's code: a LiMo of another maker left as it is, a newer LiMo on the phone, no room, installs over the cable blocked (Auto Blocker, "Install via USB"), stopped on the phone |
+| `failed` | null | "The phone’s connection ended while LiMo was being put on it." "Plug the phone in again, unlocked, then try again."; "The phone did not finish installing LiMo in time." "Look at the phone’s screen for a question, then try again."; "The phone did not answer as expected." "Try again; if it happens again, unplug the phone and plug it in again." |
+| `no_app` | null | "LiMo’s app for phones is missing from this PC.", or "The app for phones beside this program is not LiMo’s own."; "Install LiMo on this PC again: it puts the app for phones beside the console." |
+
+Over USB the app is sent in a second or two; most of the wait is Android
+installing it, which says nothing until it is done. So `sent` fills
+quickly, then `installing` stays without a figure.
+
+**`pairing`**: `stage`, `device`, `ways`, `line`, `advice`.
+
+| `stage` | `line` |
+| --- | --- |
+| `not_asked` | null |
+| `asking_the_service` | "Asking LiMo’s service for a pairing." |
+| `handing` | "Handing the pairing to LiMo on the phone." |
+| `waiting` | "Waiting for LiMo on the phone to pair with this PC." |
+| `paired` | "Over the cable, with this PC.", "Over the home Wi-Fi, with this PC." or "With this PC." (no session open yet); `device` is `{"device_id", "name"}`, the device the service paired |
+| `failed` | the service's own sentence, such as "The link for phones is not running on this PC, so no phone can pair with it now. The service’s log says why." or its signed out one; or "LiMo on the phone did not take this PC’s pairing." "Open LiMo on the phone; if it says it belongs to a family already, it was set up before."; "The phone did not answer as expected."; "The pairing offer ran out before LiMo on the phone paired." "Try again."; "LiMo’s service gave no pairing offer."; the connection ended |
+
+`ways` is every way the phone has reached the PC since it paired, in the
+order first seen: `cable`, `home_network`.
+
+**`debugging`**: `on` (LiMo has not switched it off; no line),
+`switching_off` ("Switching USB debugging off."), `off` ("USB debugging is
+off."), `still_on` ("USB debugging is still on." "Switch it off on the
+phone: Settings, Developer options, USB debugging.").
+
+**`busy`**: the call running now, `connecting`, `checking`, `installing`,
+`pairing`, `switching_off`, or null. **`held`**: true while the console
+holds the phone open.
+
+### What the screens need to know
+
+- Ask `phone.look` once a second from A1 to A9, as the drawing says; a
+  minute with no request and the console lets go of the phone. Ask
+  `phone.done` when Add a phone closes, by Done or by leaving it; a
+  `phone.look` after that starts afresh, and connects again to a phone
+  with USB debugging on.
+- The console connects as soon as a phone with USB debugging on is plugged
+  in, even on A1: a screen may move on when the strip says `allow` or `ok`.
+- Steps that wait for the phone move on by what the look says: A2 when
+  `case` is no longer `none`, `off` or `driver`; A3 shows `fingerprint`
+  while `case` is `allow`, and moves on at `ok`; A4 shows `checks`, asks
+  `phone.install` once `phone.limo.looked` is true, and moves on at
+  `install.stage` `done` or `not_needed`; A5 asks `phone.pair` with the
+  child chosen at A1, and moves on at `pairing.stage` `paired`, whose
+  `device.device_id` is what `rename_device` takes (the screen asks the door
+  for that itself); A6 is the phone's own steps, from the service
+  (`device`), not from here; A7 waits for `home_network` in `pairing.ways`;
+  A8's "Switch it off for me" asks `phone.debugging_off`, and moves on at
+  `debugging.stage` `off`; A9's ticks are `install`, `pairing`, the ways and
+  `debugging`.
+- Every line in an answer is for the screen as it stands, with the
+  typographic apostrophe the drawings use. No answer holds a secret: never
+  an offer, never the key, only its fingerprint.
+
+## A first run on a real phone
+
+For the lead, with the Galaxy S20 Ultra (Android 13) and LiMo for Windows
+installed on this PC. Until the Add a phone screens exist,
+`examples/add_phone.rs` asks the same five requests the screens will, of
+the same desk, against the real cable and the real door, and prints each
+part of the look when it changes. It never prints the password, and no
+answer holds the offer.
+
+1. **The service**, installed and running as on a family's PC
+   (`limo install --dev`, `../windows/TESTING.md`), with a family and a
+   child. Its link must listen: `netstat -ano | findstr 47810` shows
+   `127.0.0.1:47810` listening (when not, the service's log says why, and
+   pairing will say so in the service's own sentence).
+2. **The app**: LiMo's child form as a signed release APK (a debug build
+   is refused before anything is sent). For the example it is passed with
+   `--app`; for the console it goes beside `limo-console.exe` as
+   `phone\limo-child.apk`.
+3. **Nothing else holding the phone**: close Android Studio, and stop
+   Google's adb server (`adb kill-server`) if it runs; the strip says so if
+   one does.
+4. **The phone**: USB debugging on (Settings, About phone, Software
+   information, Build number seven times; then Settings, Developer options,
+   USB debugging), Auto Blocker off (Settings, Security and privacy),
+   unlocked, plugged in with its own cable.
+5. **Run it** from `console/`, in the guardian's own Windows account, not
+   elevated, with the guardian password in a file of its own (deleted
+   after):
+   `cargo run --release --no-default-features --example add_phone -- --password-file <file> --app <apk> --leave-debugging-on`
+   (and `--child <id>` when the family has more than one child; the
+   example lists them). With `--leave-debugging-on` the phone can be added
+   again over the cable without a person switching USB debugging on again;
+   a second run without it tries the switch off.
+6. **Watch**: the phone asks "Allow USB debugging?" with the fingerprint
+   the example printed: compare, tick "Always allow from this computer",
+   tap Allow. Then the checks, `sending` with `sent` rising, `installing`,
+   `done` (or `not_needed`), `waiting`, LiMo opening on the phone, `paired`
+   with the device's id and `cable`, then up to two minutes for
+   `home_network`.
+7. **Write down**: the printed lines (with their seconds), whether `sent`
+   moved before `installing`, any `trouble` or `failed` line, how long from
+   Allow to `paired`, what LiMo showed on the phone, and whether the phone
+   reached the PC over the home Wi-Fi.
+
+The same run through the window, once the screens are built: open
+`limo-console.exe` from the same account, sign in, Add a phone; the
+console finds the app beside itself.
+
 ## The self check
 
 `limo-console.exe --self-check <log> --door-base <pipe> --door-server
@@ -229,9 +500,11 @@ a second, a child's account refused, signed out after fifteen idle minutes.
 driver in `../phone/app/src/console/selfCheck.ts`), run by
 `tools\run-self-check.ps1`, which first starts LiMo for Windows' own door
 (`tools\door.ps1`, `examples/real_door.rs`): two doors in the builder's own
-account, each with a real family's file in a temporary folder and a
-password new each run, written to a file and never on a command line; at
-the second this account is linked to a child called Asha. The console
+account, each with a real family's file in a temporary folder, as a family
+is after its first start (a guardian password new each run, written to a
+file and never on a command line, a PIN, and a child called Asha, so that
+the screens open on Today after signing in); at the second this account is
+linked to Asha. The console
 checks them by the rule this account, this session, that program, as it
 checks the service by LocalSystem, session 0, `limo.exe`.
 
@@ -256,7 +529,7 @@ milliseconds since the process started, beside the door's own words:
    `{"address":"https://lucidloom.ai","opened":false}`; the self check opens
    nothing;
 7. `child_account`: the second door; the page reloads and shows the
-   door's refusal, "LiMo's settings cannot be opened from Asha's account. A
+   door's refusal, "LiMo’s settings cannot be opened from Asha’s account. A
    guardian opens them from their own.", with no password field;
 8. `not_the_service`: the guardian's door again, checked by LiMo's own rule
    (session 0, LocalSystem, `Program Files\LiMo\limo.exe`); the console
@@ -270,7 +543,8 @@ with 1; a window closed early exits with 1; whatever happens the process
 ends before 57 s. Outside self check mode none of it is reachable: the
 page's driver starts only when the exe put its mark on the page, Rust
 refuses every self check request without a self check, and the door
-options are refused without `--self-check`. Options, only with
+options are refused without `--self-check`. In it, every request for a
+phone is refused: the self check never reaches a phone. Options, only with
 `--self-check`: `--hold-ms`, `--switches`, `--proxy`, `--webview-data`,
 `--size`, `--probe-keys`, `--keys-on`, `--no-page-guard`, and the three
 door options, the door's pipe always `\\.\pipe\limo.console.<something>`,
@@ -281,7 +555,9 @@ step seen, 0 violations of the content security policy, the door's log
 saying "a wrong guardian password was typed", "signed in with the guardian
 password", and "refused to a console ... its account is linked to a child".
 The sign in was drawn 360 to 560 ms after the process started; a sign in
-at the door took 66 to 94 ms.
+at the door took 66 to 94 ms. Run again the same evening with the requests
+for a phone in the exe and the guardian screens built: all 10 steps in
+2.1 s, exit code 0.
 
 `tools\picture.ps1` takes a picture of the console's own window during a
 self check (`PrintWindow`, the window alone, nothing else on the screen),
@@ -478,16 +754,63 @@ name (as ASCII and as UTF-16, either byte alignment, any case), the home
 folder, the PC's name and the repository's folder. It prints only the
 counts, never the names, and fails on any that is not 0.
 
-21 Nov 2026: all four 0, in an exe of 3,939,840 bytes (3.76 MiB). The
-control: the debug exe, built without the remapping, holds the user name
+21 Nov 2026: all four 0, in an exe of 3,939,840 bytes (3.76 MiB); with
+the cable in it, the same evening, all four 0 in 4,303,872 bytes (4.10
+MiB). The control: the debug exe, built without the remapping, holds the user name
 1,935 times in ASCII alone, so the search sees what it looks for.
 
 ## Tests
 
-`cargo test --no-default-features`: 36 tests, no window and no page,
-about a second and a half once built. They open named pipes and loopback
-sockets in the test's own account, under names of their own
-(`limo.console.test.<process>.<n>`), never LiMo's own door, and nothing else.
+`cargo test --no-default-features`: 53 tests, no window and no page,
+about three and a half seconds once built (three runs in a row, 21 Nov
+2026, all passed). They open named pipes and loopback sockets in the
+test's own account, under names of their own
+(`limo.console.test.<process>.<n>`), never LiMo's own door, and nothing
+else. No test reaches a real phone or a real service.
+
+**Adding a phone** (`phone_tests.rs`), through the five requests as the
+screens ask them, against limo-cable's fake phone (its cable held as the
+console holds the real one), a throwaway app (`test_apk.rs`: a zip with
+Android's binary manifest, LiMo's package, version 0.3.0, a release
+build), LiMo's key made once in a temporary folder, and the link's port
+one the test's own listener got from Windows on 127.0.0.1, never 47810 and
+never 8081:
+
+- the whole of it, through the stand in door over a real pipe, signed in:
+  each of the cable's drawn cases in its words (a cable that only charges,
+  USB debugging off, no driver, a maker's driver), with nothing opened
+  before there is a phone LiMo can open; the phone asking, with the key's
+  fingerprint, not allowed in time and said so, then allowed; connected,
+  with the phone's name, Android and checks; pairing refused before LiMo
+  is on it; LiMo put on, the bytes on the phone the app's own, and not
+  again; the offer the door made handed to LiMo on the phone, the phone's
+  port carried to the listener, LiMo started, and the door asked `devices`
+  then `make_offer`; the phone's app reaching the listener through the
+  cable both ways; paired once the door lists the device, over the cable,
+  then over the home Wi-Fi; USB debugging off, and the strip saying `off`;
+  the offer's secret in no answer;
+- the screens never wait: while the phone asks, each look answers in under
+  150 ms, and a step asked then is refused at once;
+- LiMo at this PC's version not put on again; the service refusing an
+  offer, in its own words, with nothing handed; asked again, paired;
+- an older LiMo replaced; one of another maker refused with limo-cable's
+  advice, and pairing refused until it is on;
+- no phone, an unknown request, the app missing or not LiMo's, an Android
+  too old (connected once, never again while it stays plugged in), another
+  program holding the phone;
+- unplugged while the pairing waits: still waiting, and once back the
+  link's port carried again, the offer and the app never twice; then
+  paired;
+- an offer that runs out, said; asked again, a new offer handed;
+- LiMo for Windows' own door: signed out, in its own words; signed in, with
+  a child made through the door, no offer while its link for phones is not
+  running, in its own words, and nothing reaching the phone; a page may not
+  ask for an offer.
+
+And in `phone/`: each drawn case's words, the fingerprint only while the
+phone asks, the install's progress from the cable's count (`look.rs`); the
+new device found and the ways read (`worker.rs`); the counting wire, and
+the requests' names and arguments (`mod.rs`).
 
 **Against the real door** (`real_door_tests.rs`). LiMo for Windows' own
 door runs in the test's process (`support/real_door.rs`): its `RealDoor`
@@ -519,7 +842,9 @@ service; nothing runs elevated. The console's `Door` asks it over the pipe:
   refusal, done, a wait with its time, a wrong password with its tries.
 
 **Against a stand in that misbehaves** (`door_tests.rs`, `stand_in.rs`, test
-only): hello first and every request numbered on one connection; a refusal
+only; the stand in also answers `devices`, `make_offer` and `device_link`
+from a family a test sets, once signed in, as the door does): hello first
+and every request numbered on one connection; a refusal
 at hello in the door's sentence, with only the hello sent; nothing sent to
 a pipe that is not LiMo's service; a door that closes, sends nonsense,
 answers another number, or says nothing, each a lost door; nothing serving
@@ -528,7 +853,7 @@ needs, and the door's list granting it.
 
 | Where | What else |
 | --- | --- |
-| `protocol.rs` | a page's request on the wire as the service reads it, with no arguments when it has none; only a name of the right shape and an object forwarded; a password hidden in `Debug`; every string wiped at any depth; the door's answers read; a wrong version and a too long frame refused from the header; a message that is not the door's refused without quoting it; the longest message fits, one byte more does not |
+| `protocol.rs` | a page's request on the wire as the service reads it, with no arguments when it has none; only a name of the right shape and an object forwarded; a page never asks for an offer, the console may; a password hidden in `Debug`; every string wiped at any depth; the door's answers read; a wrong version and a too long frame refused from the header; a message that is not the door's refused without quoting it; the longest message fits, one byte more does not |
 | `door.rs` | LiMo's service passes the check, in any case and with `\\?\`; an unreadable program file leaves the session and the owner to decide, and never lets another session through; a pipe in a child's session refused first; another owner or program refused; every problem has plain words |
 | `measure.rs` | a request line gives its host and never its path, credentials or anything else; the process tree holds descendants only; the host log on a real loopback port writes down a CONNECT and refuses it, and never takes port 8081 |
 | `win/` | Windows errors and strings; this process's own account, session, program file and Program Files folder; a port read from network order; this process's own loopback connection seen with the right ports |
@@ -553,16 +878,22 @@ src/
   lib.rs                    the crate's parts, for the window, the tests and the examples
   protocol.rs               what crosses the door: frames, hello, a page's request forwarded and wiped
   door.rs                   the console's half: the server's check, the connection, the words
+  phone/                    adding a phone: the five requests and the desk (mod.rs), the thread
+                            that holds the cable (worker.rs), the look and its words (look.rs),
+                            the real cable counting what it sends (counted.rs), the service
+                            through the door (door_service.rs)
   webview.rs                WebView2's switches by name
   measure.rs                the process tree, its connections, the host log
   real_door_tests.rs        against LiMo for Windows' own door, in the test's process
   door_tests.rs, stand_in.rs  against a stand in that misbehaves (tests only)
+  phone_tests.rs, test_apk.rs  adding a phone against the fake phone and a throwaway app (tests only)
   win/                      every call into Windows, and all the unsafe code
     pipe.rs  token.rs  net.rs  webview2.rs  keys.rs  shell.rs
 support/
   real_door.rs              LiMo for Windows' own door served in a process, for the tests and the examples
 examples/
   real_door.rs              the real door for the self check, in the builder's account
+  add_phone.rs              a phone added from a terminal, with the real cable and the real door
   webview2_contacts.rs      the measurement of what WebView2 contacts
   make_icon.rs              paints icons/icon.ico from design/icons/svg/guardian.svg
 tools/
@@ -577,8 +908,9 @@ Made by builds and git ignored: `target/` (with `target\self-check` and
 `permissions/autogenerated/`.
 ## Dependencies and licences
 
-What ships in `limo-console.exe` (131 crates in its tree, from `cargo tree
--e normal,no-proc-macro`; the linker may drop some):
+What ships in `limo-console.exe` (163 crates in its tree, 131 before the
+cable, from `cargo tree -e normal,no-proc-macro`; the linker may drop
+some):
 
 | What | Version | Licence |
 | --- | --- | --- |
@@ -588,6 +920,11 @@ What ships in `limo-console.exe` (131 crates in its tree, from `cargo tree
 | windows, windows-core, windows-sys | 0.62.2, 0.62.2, 0.61.2 | MIT OR Apache-2.0 |
 | serde, serde_json | 1.0.229, 1.0.154 | MIT OR Apache-2.0 |
 | zeroize | 1.9.2 | Apache-2.0 OR MIT |
+| limo-cable | 0.1.0 | Apache-2.0 (this repository, `../phone/cable`) |
+| rsa, md-5 (through limo-cable: LiMo's adb key, and its fingerprint) | 0.9.10, 0.10.6 | MIT OR Apache-2.0 |
+| under them: num-bigint-dig, num-integer, num-iter, pkcs1, pkcs8, der, spki, const-oid, pem-rfc7468, base64ct, signature, rand 0.8, rand_chacha, rand_core 0.6, ppv-lite86, getrandom 0.2, lazy_static | | MIT OR Apache-2.0 |
+| libm | 0.2.16 | MIT |
+| zerocopy, zerocopy-derive | 0.8.64 | BSD-2-Clause OR Apache-2.0 OR MIT |
 | brotli, brotli-decompressor, alloc-stdlib, alloc-no-stdlib | 9.1.3, 6.3.2, 0.3.0, 3.0.0 | BSD-3-Clause (brotli: BSD-3-Clause AND MIT) |
 | ICU4X crates (icu_*, zerovec, yoke, tinystr, writeable, litemap, potential_utf, zerofrom, zerotrie) via url and idna | 2.4.0 and others | Unicode-3.0 |
 | option-ext (via dirs) | 0.2.0 | MPL-2.0: file level, its source stays as published on crates.io |
@@ -602,13 +939,21 @@ What ships in `limo-console.exe` (131 crates in its tree, from `cargo tree
 
 Every licence above lets LiMo ship under Apache-2.0; the WebView2 Runtime
 is Microsoft's and comes with Windows, and its terms ask for notices.
+`rsa` 0.9 carries the RustSec advisory RUSTSEC-2023-0071, a timing side
+channel in private key operations; in LiMo the key signs one token a
+connection, for a phone on the cable (limo-cable's README says the same;
+moving to `rsa` 0.10 is a choice for later). miniz_oxide (MIT OR Zlib OR
+Apache-2.0), which reads the app's manifest, and windows-sys were in the
+tree already. No program of Google's ships with the console.
 
 Build only: tauri-build 2.7.6 (Apache-2.0 OR MIT). For the tests and the
 examples only, never in the exe: LiMo for Windows and the hub (this
 repository, Apache-2.0, with what they bring, listed in their READMEs:
 SQLite among it, public domain), tempfile 3.27 (MIT OR Apache-2.0), resvg
-0.50.0 (Apache-2.0 OR MIT) and tiny-skia 0.12.0 (BSD-3-Clause). No npm
-package was added. No code was copied from GPL or AGPL projects.
+0.50.0 (Apache-2.0 OR MIT) and tiny-skia 0.12.0 (BSD-3-Clause), and
+limo-cable's fake phone (its `fake` feature, Apache-2.0). No npm
+package was added. No code was copied from GPL or AGPL projects; the
+throwaway app's manifest is made as limo-cable's own tests make it.
 
 ## Left open
 
@@ -633,20 +978,30 @@ package was added. No code was copied from GPL or AGPL projects.
   paper until LiMo has its own mark.
 - **Windows 10, a cold start after a restart, a PC without WebView2**: not
   tried.
-- **What LiMo for Windows could offer the console's tests.** The tests and
-  the self check run the real door through LiMo for Windows' public parts
-  (`RealDoor`, `Service`, the `Os` trait, `ServiceConfig`) with a quiet PC
-  of their own (`support/real_door.rs`), which must implement every
-  method of `Os`. That trait grows with the service (it gained
-  `home_addresses` while this shell was built, and the console's tests
-  stopped building until the quiet PC had it). A public way to serve the
-  door alone, such as a function that takes a pipe name, an access list and
-  an open family's file and serves until dropped, with its own quiet PC
-  inside LiMo for Windows, would keep the console's tests building whatever
-  the service adds.
-- **Two small things for LiMo for Windows' README and words**: its example
-  for a first wrong password says "3 more tries before a wait", and the
-  door answers "4 more tries" (as the core counts: the fifth wrong try
-  starts the wait); and the door's sentences write a straight apostrophe
-  ("LiMo's"), where the app's own words write a typographic one ("LiMo’s"),
-  so the sign in shows both.
+- **The first run on a real phone** (see [A first run on a real
+  phone](#a-first-run-on-a-real-phone)): the lead's. Nothing of adding a
+  phone has reached a real phone or the installed service yet; the fake
+  phone behaves as the test phone did on 21 Nov 2026.
+- **A pairing to the end against the real link.** The tests pair against
+  the stand in door; LiMo for Windows' own door, in a test, has no link for
+  phones and says so, which a test shows. A door host with a link on a
+  loopback port of the test's own, and a played phone that pairs through
+  the fake phone's cable, would test the whole of it against LiMo for
+  Windows' own code.
+- **The install's progress needs a copy.** limo-cable's install says
+  nothing until it ends, so the console opens the phone as `WindowsCable`
+  does, with a wire that counts what it sends (`phone/counted.rs`). Were
+  limo-cable to give the progress of an install (a callback, or a count of
+  its own), that copy would go.
+- **Connecting at A1.** The console connects to a phone with USB debugging
+  on from the first look, before "Start": the phone may ask to allow this
+  PC while the guardian is still choosing the child.
+- **What LiMo for Windows offers the console's tests.** The tests and the
+  self check run the real door with a quiet PC of their own
+  (`support/real_door.rs`), which must implement every method of `Os`.
+  LiMo for Windows is adding a door host for other crates' tests (its
+  `door-host` feature, not committed when this was written); once it is in,
+  the quiet PC can go.
+- **The door's words** now write the typographic apostrophe ("LiMo’s"),
+  as the app does, and the tests follow them; the console's own words for a
+  phone do too, and limo-cable's are set the same way as they pass.

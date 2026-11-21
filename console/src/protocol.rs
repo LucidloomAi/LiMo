@@ -80,11 +80,27 @@ impl fmt::Debug for PageRequest {
     }
 }
 
+/// Requests only the console itself asks, never a page: `make_offer`, whose
+/// answer holds a pairing offer's secret. The console hands that to the
+/// phone over the cable and wipes it (see [`crate::phone`]); a page has no
+/// use for it, so no page ever sees one.
+pub const CONSOLE_ONLY: [&str; 1] = ["make_offer"];
+
 impl PageRequest {
-    /// The request a page asked for, or why there is none. A name is 1 to
-    /// [`MAX_NAME_CHARS`] of `a` to `z` and `_`; the arguments are an object,
-    /// or nothing. Nothing about the arguments' values is ever quoted.
-    pub fn from_page(name: &str, args: Value) -> Result<PageRequest, String> {
+    /// The request a page asked for, or why there is none: as
+    /// [`PageRequest::from_console`], and never one of [`CONSOLE_ONLY`].
+    pub fn from_page(name: &str, mut args: Value) -> Result<PageRequest, String> {
+        if CONSOLE_ONLY.contains(&name) {
+            wipe(&mut args);
+            return Err(format!("{name} is asked by the console itself, never by a page"));
+        }
+        PageRequest::from_console(name, args)
+    }
+
+    /// A request the console asks: a name of 1 to [`MAX_NAME_CHARS`] of `a`
+    /// to `z` and `_`, and arguments that are an object, or nothing. Nothing
+    /// about the arguments' values is ever quoted.
+    pub fn from_console(name: &str, args: Value) -> Result<PageRequest, String> {
         let shaped = !name.is_empty()
             && name.chars().count() <= MAX_NAME_CHARS
             && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
@@ -365,6 +381,14 @@ mod tests {
         let problem = PageRequest::from_page("sign_in", json!(["the secret words"])).unwrap_err();
         assert!(!problem.contains("secret"), "{problem}");
         assert!(PageRequest::from_page("sign_in", json!("x")).is_err());
+    }
+
+    #[test]
+    fn a_page_never_asks_for_a_pairing_offer_and_the_console_may() {
+        let refused = PageRequest::from_page("make_offer", json!({ "child": "c1" })).unwrap_err();
+        assert_eq!(refused, "make_offer is asked by the console itself, never by a page");
+        let made = PageRequest::from_console("make_offer", json!({ "child": "c1" })).unwrap().into_frame(4).unwrap();
+        assert_eq!(body(&made), json!({ "say": "request", "id": 4, "request": { "name": "make_offer", "args": { "child": "c1" } } }));
     }
 
     #[test]

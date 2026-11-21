@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 #[path = "../support/real_door.rs"]
-mod real_door;
+pub(crate) mod real_door;
 
 use limo_windows::console::{
     CONSOLE_PROTOCOL_VERSION, ConsoleIncoming, ConsoleReader, FromConsole, Problem, ProblemKind, Reply, ToConsole, encode_to_console,
@@ -89,7 +89,7 @@ fn a_child_s_account_is_refused_by_the_real_door_in_its_own_words() {
     let refused = ask(&mut door, "sign_in", json!({ "password": PASSWORD })).unwrap();
     assert_eq!(
         refused,
-        DoorReply::Refused("LiMo's settings cannot be opened from Asha's account. A guardian opens them from their own.".into())
+        DoorReply::Refused("LiMo’s settings cannot be opened from Asha’s account. A guardian opens them from their own.".into())
     );
     assert!(door.server().is_none());
     // The password was never sent: the door refused at hello.

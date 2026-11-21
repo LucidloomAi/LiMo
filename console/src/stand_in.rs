@@ -25,7 +25,8 @@ pub const DOOR_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;IU)";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Script {
     /// As the door: hello answered, `sign_in` checked against this
-    /// password with the tries left, `about` answered, anything else
+    /// password with the tries left, `about` answered, the requests for a
+    /// phone answered from its [`Family`] once signed in, anything else
     /// `unknown_request`.
     Door { password: String },
     /// Refuses at hello with this sentence, and closes.
@@ -50,12 +51,63 @@ pub struct Heard {
     pub messages: Vec<Value>,
 }
 
+/// What a stand in's family holds for the requests the console asks for a
+/// phone, as LiMo for Windows answers them (`../windows/README.md`, the
+/// door's requests): `devices` lists `devices`, `make_offer` makes an offer
+/// for `port` (or says `offer_problem`), and `device_link` gives `sessions`
+/// for a device that is listed.
+#[derive(Debug, Default)]
+pub struct Family {
+    /// The port the offers name.
+    pub port: u16,
+    /// Every offer made, in order: each one's text, secret and all.
+    pub offers: Vec<String>,
+    /// The child's devices, as `devices` answers them.
+    pub devices: Vec<Value>,
+    /// The listed devices' open sessions, as `device_link` answers them.
+    pub sessions: Vec<Value>,
+    /// The kind and the sentence `make_offer` answers with instead.
+    pub offer_problem: Option<(String, String)>,
+}
+
+impl Family {
+    /// The answer to one of the requests for a phone, or None for any other
+    /// name.
+    pub fn answer(&mut self, name: &str, args: &Value) -> Option<Value> {
+        let problem = |kind: &str, message: &str| json!({ "outcome": "problem", "problem": { "kind": kind, "message": message } });
+        Some(match name {
+            "devices" => json!({ "outcome": "done", "value": self.devices }),
+            "make_offer" => match &self.offer_problem {
+                Some((kind, message)) => problem(kind, message),
+                None => {
+                    let offer = format!("limo1:STANDIN{}SECRET{}", self.offers.len() + 1, args["child"].as_str().unwrap_or("?"));
+                    self.offers.push(offer.clone());
+                    let expires_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) + 600;
+                    json!({ "outcome": "done", "value": {
+                        "offer": offer, "offer_id": "0f".repeat(16), "expires_at": expires_at, "port": self.port,
+                        "addresses": [], "master_id": "ab".repeat(16) } })
+                }
+            },
+            "device_link" => {
+                let device = args["device"].as_str().unwrap_or_default();
+                if self.devices.iter().any(|d| d["device_id"] == device) {
+                    json!({ "outcome": "done", "value": { "device_id": device, "sessions": self.sessions } })
+                } else {
+                    problem("not_found", "That device is not this family's.")
+                }
+            }
+            _ => return None,
+        })
+    }
+}
+
 /// The stand in, serving its pipe on a thread of its own, one client at a
 /// time.
 pub struct StandIn {
     name: String,
     stop: Arc<AtomicBool>,
     heard: Arc<Mutex<Vec<Heard>>>,
+    family: Arc<Mutex<Family>>,
     sddl: Option<String>,
     thread: Option<JoinHandle<()>>,
 }
@@ -67,9 +119,15 @@ impl StandIn {
         let sddl = sddl_of(&pipe);
         let stop = Arc::new(AtomicBool::new(false));
         let heard = Arc::new(Mutex::new(Vec::new()));
-        let (stop2, heard2) = (Arc::clone(&stop), Arc::clone(&heard));
-        let thread = std::thread::spawn(move || serve(pipe, script, &stop2, &heard2));
-        StandIn { name: name.to_string(), stop, heard, sddl, thread: Some(thread) }
+        let family = Arc::new(Mutex::new(Family::default()));
+        let (stop2, heard2, family2) = (Arc::clone(&stop), Arc::clone(&heard), Arc::clone(&family));
+        let thread = std::thread::spawn(move || serve(pipe, script, &stop2, &heard2, &family2));
+        StandIn { name: name.to_string(), stop, heard, family, sddl, thread: Some(thread) }
+    }
+
+    /// Its family, which a test may change at any time.
+    pub fn family(&self) -> std::sync::MutexGuard<'_, Family> {
+        self.family.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     /// The pipe's name.
@@ -100,10 +158,10 @@ impl Drop for StandIn {
     }
 }
 
-fn serve(pipe: Owned, script: Script, stop: &AtomicBool, heard: &Mutex<Vec<Heard>>) {
+fn serve(pipe: Owned, script: Script, stop: &AtomicBool, heard: &Mutex<Vec<Heard>>, family: &Mutex<Family>) {
     let mut wrong = 0u32;
     while wait_for_client(&pipe).is_ok() && !stop.load(Ordering::SeqCst) {
-        serve_one(&pipe, &script, heard, &mut wrong);
+        serve_one(&pipe, &script, heard, family, &mut wrong);
         let_client_go(&pipe);
     }
 }
@@ -112,11 +170,12 @@ fn send(pipe: &Owned, message: &Value) -> bool {
     encode(message).ok().is_some_and(|frame| write_all(pipe, &frame).is_ok())
 }
 
-fn serve_one(pipe: &Owned, script: &Script, heard: &Mutex<Vec<Heard>>, wrong: &mut u32) {
+fn serve_one(pipe: &Owned, script: &Script, heard: &Mutex<Vec<Heard>>, family: &Mutex<Family>, wrong: &mut u32) {
     let mut decoder = Decoder::new();
     let mut chunk = Zeroizing::new(vec![0u8; 16 * 1024]);
     let mut at: Option<usize> = None;
     let mut greeted = false;
+    let mut signed_in = false;
     loop {
         let read = match read_some(pipe, &mut chunk) {
             Ok(0) | Err(_) => return,
@@ -171,7 +230,15 @@ fn serve_one(pipe: &Owned, script: &Script, heard: &Mutex<Vec<Heard>>, wrong: &m
                     "about" => json!({ "outcome": "done", "value": { "version": "0.1.0", "protocol": 1, "pc_name": "Family PC" } }),
                     "sign_in" if message["request"]["args"]["password"].as_str() == Some(password) => {
                         *wrong = 0;
+                        signed_in = true;
                         json!({ "outcome": "done", "value": {} })
+                    }
+                    "devices" | "make_offer" | "device_link" if !signed_in => {
+                        json!({ "outcome": "problem", "problem": { "kind": "signed_out", "message": "Sign in first." } })
+                    }
+                    "devices" | "make_offer" | "device_link" => {
+                        let mut family = family.lock().unwrap_or_else(|p| p.into_inner());
+                        family.answer(name, &message["request"]["args"]).unwrap_or(Value::Null)
                     }
                     "sign_in" => {
                         *wrong += 1;

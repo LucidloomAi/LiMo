@@ -14,6 +14,9 @@
 //!   the pipe is served by LiMo's service: session 0, owned by
 //!   LocalSystem, LiMo's own program file. Then hello, and one numbered
 //!   request at a time.
+//! - [`phone`]: adding a phone over the USB cable, with LiMo's own way to
+//!   the phone (limo-cable): the console's own requests for it, answered
+//!   here and never sent to the service, on a thread of their own.
 //! - [`webview`]: the switches WebView2 starts with, and what each was
 //!   measured to leave of its contact with Microsoft.
 //! - [`measure`]: what the measurement of that contact reads (a process's
@@ -23,7 +26,9 @@
 //! The tests ask LiMo for Windows' own door, its pipe threads and its
 //! decisions with a real family's file behind them, run in the test's own
 //! process (`real_door_tests.rs`), and a stand in that misbehaves on
-//! purpose (`stand_in.rs`). Neither is in the exe.
+//! purpose (`stand_in.rs`). Adding a phone is tested against limo-cable's
+//! fake phone, a throwaway app, the stand in and the real door
+//! (`phone_tests.rs`). None of them is in the exe.
 //!
 //! The calls into Windows are thin and live in the `win` modules alone; no
 //! other module has unsafe code, and each says so with
@@ -33,6 +38,7 @@
 
 pub mod door;
 pub mod measure;
+pub mod phone;
 pub mod protocol;
 pub mod webview;
 
@@ -47,6 +53,12 @@ mod door_tests;
 
 #[cfg(all(test, windows))]
 mod real_door_tests;
+
+#[cfg(test)]
+mod test_apk;
+
+#[cfg(all(test, windows))]
+mod phone_tests;
 
 /// The version of this crate, for example "0.1.0".
 pub fn console_version() -> String {

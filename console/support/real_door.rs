@@ -118,10 +118,11 @@ pub struct RealDoorHost {
 }
 
 impl RealDoorHost {
-    /// Serves the real door at `name`, for a family whose guardian password
-    /// is `password`. With `asha_account`, that Windows account (a security
-    /// identifier) is linked to a child called Asha. Returns once the door's
-    /// pipe is made.
+    /// Serves the real door at `name`, for a family as it is after its first
+    /// start: the guardian password `password`, a PIN, and a child called
+    /// Asha (so the guardian screens open on Today after signing in). With
+    /// `asha_account`, that Windows account (a security identifier) is
+    /// linked to Asha. Returns once the door's pipe is made.
     pub fn start(name: &str, password: &str, asha_account: Option<&str>) -> RealDoorHost {
         let stop = Arc::new(AtomicBool::new(false));
         let log = Arc::new(Mutex::new(Vec::new()));
@@ -133,8 +134,10 @@ impl RealDoorHost {
                 let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
                 let mut hub = Hub::open(&dir.path().join("family.limo")).map_err(|e| format!("{e:?}"))?;
                 hub.create_family(&password, now()).map_err(|e| format!("{e:?}"))?;
+                let pin: String = "4718203956".chars().take(limo_hub::MIN_PIN_DIGITS as usize).collect();
+                hub.set_pin(&pin, now()).map_err(|e| format!("{e:?}"))?;
+                let child = hub.add_child("Asha", AgeBand::TenToTwelve, 0, now()).map_err(|e| format!("{e:?}"))?.child_id;
                 if let Some(account) = &asha {
-                    let child = hub.add_child("Asha", AgeBand::TenToTwelve, 0, now()).map_err(|e| format!("{e:?}"))?.child_id;
                     hub.link_account(account, "Asha", AccountLink::Child { child_id: child }).map_err(|e| format!("{e:?}"))?;
                 }
                 // The door's own access list, and this account allowed to
@@ -158,12 +161,14 @@ impl RealDoorHost {
                     return;
                 }
             };
-            // The door says in its log when its pipe is open.
+            // The door says in its log when its pipe is open ("The door for
+            // LiMo’s settings is open.", its apostrophe either way).
             let mut said_ready = false;
             while !stop2.load(Ordering::SeqCst) {
                 service.step();
                 service.door();
-                if !said_ready && service.os().log.lock().map(|l| l.iter().any(|x| x.contains("The door for LiMo's settings is open"))).unwrap_or(false) {
+                let open = |x: &String| x.starts_with("The door for LiMo") && x.contains("settings is open");
+                if !said_ready && service.os().log.lock().map(|l| l.iter().any(open)).unwrap_or(false) {
                     said_ready = true;
                     let _ = ready_tx.send(Ok(()));
                 }
