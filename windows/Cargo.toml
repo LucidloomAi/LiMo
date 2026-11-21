@@ -45,6 +45,9 @@ features = [
     # audio sessions and each one's loudness meter. Nothing is ever recorded.
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
+    # The accounts of this PC and the Administrators group's members, for
+    # the guardian to say whose each account is.
+    "Win32_NetworkManagement_NetManagement",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",

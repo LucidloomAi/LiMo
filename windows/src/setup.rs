@@ -1,9 +1,12 @@
-//! `limo dev-setup`'s and `limo dev-code`'s work on the family's file, with
-//! no Windows code. `dev-setup`: a family, one child, a Windows account
-//! linked to the child, a small daily budget, programs to block if asked,
-//! and the PIN; scaffolding until the guardian's console exists. `dev-code`:
-//! a one time code for the child's device on this PC; scaffolding until the
-//! guardian's phone app exists.
+//! `limo dev-setup`'s, `limo dev-code`'s and `limo reset-password`'s work on
+//! the family's file, with no Windows code. `dev-setup`: a family, one
+//! child, a Windows account linked to the child, a small daily budget,
+//! programs to block if asked, and the PIN; scaffolding until the guardian's
+//! console exists. `dev-code`: a one time code for the child's device on
+//! this PC; scaffolding until the guardian's phone app exists.
+//! `reset-password`: a new guardian password without the old one, for an
+//! administrator of this PC whose family forgot it; everything else is
+//! kept.
 
 #![forbid(unsafe_code)]
 
@@ -105,10 +108,77 @@ pub fn make_dev_code(hub: &mut Hub, child: Option<&str>, minutes: u32, pc_name: 
     Ok(DevCode { child: found.name.clone(), shown: code.shown.clone(), minutes: code.minutes })
 }
 
+/// Why a new guardian password cannot be taken, in the family file's own
+/// words, before anything is stopped or opened; None when it can.
+pub fn new_password_problem(password: &str) -> Option<String> {
+    let chars = password.chars().count();
+    if chars < limo_hub::MIN_PASSWORD_CHARS as usize {
+        return Some(format!("The password must be at least {} characters long.", limo_hub::MIN_PASSWORD_CHARS));
+    }
+    if chars > limo_hub::MAX_PASSWORD_CHARS as usize {
+        return Some(format!("The password must be at most {} characters long.", limo_hub::MAX_PASSWORD_CHARS));
+    }
+    None
+}
+
+/// `limo reset-password`'s work on the family's file: a new guardian
+/// password without the old one, for an administrator of this PC whose
+/// family forgot it. The wrong guesses and their wait are cleared, the
+/// family's events record it, and everything else is kept: the PIN, the
+/// children, their rules and their devices. Refused, changing nothing, when
+/// there is no family yet or the new password cannot be taken.
+pub fn reset_family_password(hub: &mut Hub, new: &str, now: i64) -> Result<(), String> {
+    if !hub.has_family().map_err(|e| format!("The family's file could not be read: {e}"))? {
+        return Err("There is no family on this PC yet, so there is no password to reset. Nothing was changed.".to_string());
+    }
+    if let Some(problem) = new_password_problem(new) {
+        return Err(format!("{problem} Nothing was changed."));
+    }
+    hub.reset_password(new, now).map_err(|e| format!("The password was not reset: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use limo_hub::AccountStanding;
+    use limo_hub::{AccountStanding, EventKind, PasswordOutcome};
+
+    #[test]
+    fn reset_password_sets_a_new_one_clears_the_wait_and_keeps_everything_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut hub = Hub::open(&dir.path().join("family.limo")).unwrap();
+        let now = 1_800_000_000;
+        assert!(reset_family_password(&mut hub, "a new password", now).unwrap_err().contains("no family"));
+        let family = DevFamily {
+            password: "correct horse battery",
+            pin: "482915",
+            child: "Asha",
+            account_id: "S-1-5-21-1-2-3-1001",
+            account_name: "asha",
+            minutes: 10,
+            block: &[],
+            utc_offset_secs: 19_800,
+        };
+        let child = make_dev_family(&mut hub, &family, now).unwrap();
+        // Forgotten: five wrong tries, and a wait.
+        for _ in 0..5 {
+            hub.check_password("not the password", now).unwrap();
+        }
+        assert!(matches!(hub.check_password("correct horse battery", now).unwrap(), PasswordOutcome::MustWait { .. }));
+        // A new password that cannot be taken changes nothing.
+        assert!(reset_family_password(&mut hub, "short", now).unwrap_err().contains("at least 8"));
+        reset_family_password(&mut hub, "a new password", now).unwrap();
+        // The new one is right at once; the old one is not.
+        assert_eq!(hub.check_password("a new password", now).unwrap(), PasswordOutcome::Right);
+        assert!(matches!(hub.check_password("correct horse battery", now).unwrap(), PasswordOutcome::Wrong { .. }));
+        // Everything else is kept, and the events say so.
+        assert!(hub.has_pin().unwrap());
+        assert_eq!(hub.child(&child).unwrap().name, "Asha");
+        assert_eq!(hub.account_standing("S-1-5-21-1-2-3-1001").unwrap(), AccountStanding::Child { child_id: child.clone() });
+        assert_eq!(hub.rules(&child).unwrap().budgets, WeekBudgets::every_day(DailyBudget::Minutes(10)));
+        assert!(hub.events(50, None).unwrap().iter().any(|e| e.what == EventKind::PasswordReset));
+        assert_eq!(new_password_problem(&"x".repeat(257)).as_deref(), Some("The password must be at most 256 characters long."));
+        assert_eq!(new_password_problem("eight ch"), None);
+    }
 
     #[test]
     fn a_dev_family_is_made_once_with_its_child_account_budget_and_pin() {

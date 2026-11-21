@@ -7,6 +7,7 @@
 
 use limo_agent::SessionState;
 
+use crate::console::FromConsole;
 use crate::protocol::{ChannelProblem, Frame, FromHelper};
 
 /// One Windows session with a signed in user, as Windows tells it.
@@ -92,6 +93,62 @@ pub enum Received {
     Closed,
 }
 
+/// One connection to the console's door, as the service names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DoorId(pub u64);
+
+/// Who is on the other end of a connection to the console's door, as
+/// Windows tells it: read from the client's own token, which the service
+/// takes on for a moment through the pipe, after the client's first bytes
+/// arrive. Nothing the client says goes into it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientSeen {
+    /// The client's account, its security identifier ("S-1-5-21-..."), or
+    /// None when Windows would not say.
+    pub account_id: Option<String>,
+    /// The Windows session the client runs in, if Windows said.
+    pub session_id: Option<u32>,
+    /// The client's process id, if Windows said: for the log.
+    pub pid: Option<u32>,
+}
+
+/// What came from a connection to the console's door.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DoorEvent {
+    /// A console connected and sent its first bytes; who it is. Always the
+    /// first event of a connection.
+    Opened(ClientSeen),
+    /// A whole message.
+    Message(FromConsole),
+    /// A request of the right shape that this LiMo cannot read; answered by
+    /// its number.
+    BadRequest {
+        /// The console's number for it.
+        id: u32,
+    },
+    /// Something that is not a message: the connection is closed.
+    Broken(ChannelProblem),
+    /// The console closed its end.
+    Closed,
+    /// Something about the door itself, not one connection, for the log:
+    /// such as the pipe's name already taken by another program.
+    Note(String),
+}
+
+/// A Windows account on this PC, as Windows lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountSeen {
+    /// Its security identifier.
+    pub account_id: String,
+    /// Its user name.
+    pub name: String,
+    /// Its full name, when it has one, such as the name of a Microsoft
+    /// account.
+    pub full_name: Option<String>,
+    /// True when it is in the Administrators group.
+    pub is_administrator: bool,
+}
+
 /// Why a message could not be handed to a helper.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SendProblem {
@@ -148,4 +205,16 @@ pub trait Os {
     fn test_cap(&mut self) -> bool;
     /// Writes a line to the service's log.
     fn log(&mut self, line: &str);
+    /// Everything that came to the console's door since the last call. A
+    /// connection's first event is always [`DoorEvent::Opened`].
+    fn door_received(&mut self) -> Vec<(DoorId, DoorEvent)>;
+    /// Hands a frame to a console's connection, without waiting for it to
+    /// be read.
+    fn door_send(&mut self, id: DoorId, frame: Frame) -> Result<(), SendProblem>;
+    /// Closes a console's connection. What was handed to it before is still
+    /// written first, when the console reads it. Nothing happens for a
+    /// connection that is gone.
+    fn door_close(&mut self, id: DoorId);
+    /// Every enabled user account on this PC.
+    fn accounts(&mut self) -> Result<Vec<AccountSeen>, String>;
 }

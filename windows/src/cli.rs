@@ -53,6 +53,12 @@ pub enum Command {
         /// The minutes the code adds: 15, 30 or 60.
         minutes: u32,
     },
+    /// Set a new guardian password without the old one: for an
+    /// administrator of this PC whose family forgot it.
+    ResetPassword,
+    /// A small client of the console's door, typed at by hand, until the
+    /// guardian's console exists.
+    DevConsole,
     /// Say how to use it.
     Help,
 }
@@ -92,6 +98,14 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         },
         Some("uninstall") => Ok(Command::Uninstall),
         Some("status") => Ok(Command::Status),
+        Some("reset-password") => match rest {
+            [] => Ok(Command::ResetPassword),
+            _ => Err("reset-password takes nothing: the new password is asked for at the prompt, not shown.".to_string()),
+        },
+        Some("dev-console") => match rest {
+            [] => Ok(Command::DevConsole),
+            _ => Err("dev-console takes nothing; type help once it runs.".to_string()),
+        },
         Some("dev-setup") => {
             let child = value_of(rest, "--child").map(str::trim).filter(|s| !s.is_empty());
             let account = value_of(rest, "--account").map(str::trim).filter(|s| !s.is_empty());
@@ -153,6 +167,10 @@ pub fn usage() -> String {
         "                         data folder with the family's file (administrator).",
         "  limo status            the service's state, and the end of its log when",
         "                         this account may read it.",
+        "  limo reset-password    (administrator) sets a new guardian password when",
+        "                         the family forgot it: asked for at the prompt, not",
+        "                         shown. Everything else is kept. The service is",
+        "                         stopped for a moment and started again.",
         "  limo dev-setup --child NAME --account WINDOWS_ACCOUNT [--minutes N] [--block PROGRAM]...",
         "                         (administrator, with the service stopped)",
         "                         SCAFFOLDING until the guardian's console exists:",
@@ -168,6 +186,9 @@ pub fn usage() -> String {
         "                         child's device on this PC, for today only, worth",
         "                         the minutes given (15 when not given). Each run",
         "                         makes a new code; a device takes ten a day.",
+        "  limo dev-console       SCAFFOLDING until the guardian's console exists:",
+        "                         knocks on the door of LiMo's settings from this",
+        "                         account, and sends what is typed (type help).",
         "  limo service           the service control manager's entry only.",
         "  limo helper            started by the service only.",
     ]
@@ -208,6 +229,11 @@ mod tests {
         assert!(parse(&args("dev-setup --child Asha --account asha --minutes 0")).is_err());
         assert!(parse(&args("dev-setup --child Asha --account asha --minutes 241")).is_err());
         assert!(parse(&args("lock --seconds 60")).is_err());
+        assert_eq!(parse(&args("reset-password")), Ok(Command::ResetPassword));
+        assert!(parse(&args("reset-password hunter22")).is_err(), "a password is never taken on the command line");
+        assert_eq!(parse(&args("dev-console")), Ok(Command::DevConsole));
+        assert!(parse(&args("dev-console --pipe x")).is_err());
+        assert!(usage().contains("reset-password") && usage().contains("dev-console"));
     }
 
     #[test]

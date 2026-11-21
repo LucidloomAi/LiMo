@@ -19,6 +19,12 @@
 //!   screen and time left display drawn to the agreed design (see
 //!   [`drawn`]), or the plain display in their place. See [`helper`] and
 //!   [`protocol`].
+//! - The **console's door** is a named pipe the service serves, through
+//!   which the guardian's console, a window in a guardian's own session,
+//!   asks for everything it shows and changes: the service alone holds the
+//!   family's file. A child's account is refused; everything else needs the
+//!   guardian password. Requests are answered on the service's one thread,
+//!   between two of its steps. See [`console`] and [`service::door`].
 //!
 //! Everything the service decides is written against the [`os::Os`] trait,
 //! and tested against a fake PC. The calls into Windows are thin and live in
@@ -36,6 +42,8 @@
 pub mod about;
 pub mod cli;
 pub mod close;
+pub mod console;
+pub mod devconsole;
 pub mod drawn;
 pub mod helper;
 pub mod os;
@@ -49,6 +57,17 @@ pub mod text;
 
 #[cfg(windows)]
 mod win;
+
+/// The console's door as Windows serves it, a client of it, and this
+/// process's own account: for the tests over a real named pipe, and for
+/// `limo dev-console`.
+#[cfg(windows)]
+pub use win::door::{CLIENT_ACCESS, DOOR_SDDL, DoorClient, RealDoor, ServerSeen, this_account};
+
+/// True when this process runs elevated: for the tests of the door, whose
+/// access list an elevated administrator passes.
+#[cfg(windows)]
+pub use win::install::is_elevated;
 
 /// Runs `limo.exe` with its command line (without the program's own name)
 /// and returns the exit code: 0 done, 1 failed, 2 refused.

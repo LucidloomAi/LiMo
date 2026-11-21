@@ -7,9 +7,10 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, channel};
 use windows::Win32::Foundation::WAIT_TIMEOUT;
 use windows::Win32::System::Threading::{TerminateProcess, WaitForSingleObject};
 
+use super::door::RealDoor;
 use super::pipe::{Incoming, spawn_reader, spawn_writer};
-use super::{Owned, clock, launch, logfile, processes, sessions};
-use crate::os::{HelperId, HelperStarted, Os, ProcessSeen, Received, SendProblem, SessionSeen, VersionNames};
+use super::{Owned, accounts, clock, launch, logfile, processes, sessions};
+use crate::os::{AccountSeen, DoorEvent, DoorId, HelperId, HelperStarted, Os, ProcessSeen, Received, SendProblem, SessionSeen, VersionNames};
 use crate::protocol::{Frame, FromHelper};
 use crate::settings::{Places, Settings, read_settings};
 
@@ -31,6 +32,7 @@ pub(crate) struct WinOs {
     events_rx: Receiver<(HelperId, Received)>,
     settings_read_at: Option<u64>,
     settings: Settings,
+    door: Option<RealDoor>,
 }
 
 impl WinOs {
@@ -47,7 +49,14 @@ impl WinOs {
             events_rx,
             settings_read_at: None,
             settings: Settings::default(),
+            door: None,
         }
+    }
+
+    /// Opens the console's door at `name`. `wake` is called, on another
+    /// thread, whenever something came to it.
+    pub(crate) fn open_door(&mut self, name: &str, wake: impl Fn() + Send + Sync + 'static) {
+        self.door = Some(RealDoor::open(name, wake));
     }
 
     /// The settings file, read again when the last read is older than
@@ -170,5 +179,26 @@ impl Os for WinOs {
 
     fn log(&mut self, line: &str) {
         logfile::append(&self.places, line);
+    }
+
+    fn door_received(&mut self) -> Vec<(DoorId, DoorEvent)> {
+        self.door.as_mut().map_or_else(Vec::new, RealDoor::received)
+    }
+
+    fn door_send(&mut self, id: DoorId, frame: Frame) -> Result<(), SendProblem> {
+        match self.door.as_mut() {
+            Some(door) => door.send(id, frame),
+            None => Err(SendProblem::Gone),
+        }
+    }
+
+    fn door_close(&mut self, id: DoorId) {
+        if let Some(door) = self.door.as_mut() {
+            door.close(id);
+        }
+    }
+
+    fn accounts(&mut self) -> Result<Vec<AccountSeen>, String> {
+        accounts::local_accounts()
     }
 }

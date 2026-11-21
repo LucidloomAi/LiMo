@@ -142,7 +142,7 @@ fn token_information(token: HANDLE, class: TOKEN_INFORMATION_CLASS) -> Option<Ve
 }
 
 /// A security identifier as a string, "S-1-5-21-...".
-fn sid_text(sid: PSID) -> Option<String> {
+pub(crate) fn sid_text(sid: PSID) -> Option<String> {
     let mut text = PWSTR::null();
     // SAFETY: the text is allocated by Windows and freed with LocalFree once
     // copied.

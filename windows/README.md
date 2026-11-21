@@ -11,11 +11,20 @@ of [`../screens`](../screens/): see [The drawn display](#the-drawn-display).
 A plain display with no styling takes their place at once if they cannot be
 shown.
 
-**What it is not.** It has no network, no guardian's console and no
-installer for families. It has been built and tested on the development PC
-against a fake PC only: nothing here has run as a service yet, and no window
-of the drawn display has been on a screen. [TESTING.md](TESTING.md) is how
-it will be tried, with the owner at the PC.
+The service also serves the door of LiMo's settings: a named pipe through
+which the guardian's console, a window in a guardian's own session, asks
+the service for everything it shows and changes, since the service alone
+holds the family's file. See [The console's door](#the-consoles-door).
+
+**What it is not.** It has no network, no window of its own for the
+guardian (the console is a program of its own, not built yet; `limo
+dev-console` knocks on the door by hand meanwhile) and no installer for
+families. It first ran as a service on a real PC on 19 November 2026, with
+the owner, and the drawn display was on the screen then;
+[TESTING.md](TESTING.md) says how it is tried and what was seen. The door
+has been built and tested on the development PC, against the fake PC and
+over a real named pipe in the tester's own account; its run at the PC is
+TESTING.md, part O.
 
 ## Contents
 
@@ -25,6 +34,8 @@ it will be tried, with the owner at the PC.
 - [The orders](#the-orders)
 - [The helpers](#the-helpers)
 - [The channel](#the-channel)
+- [The console's door](#the-consoles-door)
+- [The lock of an account not set up](#the-lock-of-an-account-not-set-up)
 - [The guarded launch](#the-guarded-launch)
 - [Closing programs, and what is never closed](#closing-programs-and-what-is-never-closed)
 - [The fallback](#the-fallback)
@@ -47,6 +58,8 @@ it will be tried, with the owner at the PC.
 | `limo status` | anyone | The service's state; whether this terminal is elevated; the test cap; and the last 20 lines of the log, when this account may read them. |
 | `limo dev-setup --child NAME --account ACCOUNT [--minutes N] [--block PROGRAM]...` | administrator, service stopped | Scaffolding until the guardian's console exists: a family with a guardian password and PIN typed at the prompt (not shown), one child, the Windows account linked to the child, N minutes a day (10 when not given, 1 to 240), and each program given blocked. Refuses while the service runs, since the service holds the family's file, and when the file already has a family. |
 | `limo dev-code [--minutes 15\|30\|60] [--child NAME]` | administrator, service stopped | Scaffolding until the guardian's phone app exists: makes the next one time code for the test child's device on this PC, worth the minutes given (15 when not given), for the child's day today, and prints it. Each run makes a new code, and the family's file records it; a device takes ten a day. The device is paired first if the engine has not yet seen the child on this PC, as the engine would pair it. `--child` is needed only when the family has more than one child. The log says a code was made, never the code. Refuses while the service runs. |
+| `limo reset-password` | administrator | For a family that forgot the guardian password: a new one, typed twice at the prompt and never shown, checked for its length before anything is touched. The service holds the family's file, so it is stopped for a moment and started again. The wrong guesses and their wait are cleared, the family's events record a reset, and everything else is kept: the PIN, the children, their rules and their devices. Takes nothing on its command line, where a terminal would keep a password. |
+| `limo dev-console` | anyone | Scaffolding until the guardian's console exists: knocks on the door of LiMo's settings from the account it runs in, as the console will, and sends one request for each line typed (`help` lists them: `state`, `create-family`, `sign-in`, `set-pin`, `add-child`, `minutes`, `accounts`, `link`, `free`, `finish`, `today`, `request NAME JSON`). It sends nothing unless the door is served from session 0, where services run. A password or a PIN is asked for at a prompt that does not show it, never taken on the line. |
 | `limo service` | the service control manager | The service. Run from a terminal it says so and does nothing. |
 | `limo helper --channel R:W [--plain]` | the service | The helper. Run by hand, without the channel it was born with, it says so and does nothing. `--plain`: show the plain display; the service adds it when the settings file asks. |
 
@@ -64,6 +77,11 @@ service thread  (src/win/service.rs runs src/service.rs every 100 ms)
         |          ending processes, disconnecting sessions, the log
         |  one reader thread and one writer thread per helper,
         |  talking to the service thread through channels
+        |
+        |  the console's door (src/win/door.rs): a thread that takes
+        |  each connection to \\.\pipe\limo.console, and a thread for
+        |  each connection; what comes wakes the service thread, which
+        |  answers between two steps (src/service/door.rs)
         v
 helper in each session that needs one  (src/win/helper.rs)
   reader thread  -> user interface thread (HelperCore + Display:
@@ -82,7 +100,10 @@ helper in each session that needs one  (src/win/helper.rs)
   and calls `Service::step` every 100 ms. The handler the service control
   manager calls runs on another thread and only sends "stop" through a
   channel. Each helper's channel has a reader thread and a writer thread,
-  which hand messages to and from the service thread through channels.
+  which hand messages to and from the service thread through channels. The
+  console's door wakes the service thread through the same channel as
+  "stop", and the thread answers the door (`Service::door`) between two
+  steps; the steps keep their cadence whatever the door does.
 - **Unsafe code only in `src/win/`.** Every other module says
   `#![forbid(unsafe_code)]`, and a test (`tests/house_rules.rs`) checks it.
   Each unsafe block says why it is sound.
@@ -94,9 +115,12 @@ helper in each session that needs one  (src/win/helper.rs)
   plain display, and what counts as playing sound or keeping the screen
   awake. `drawn.rs`: everything the drawn display decides. `quiet.rs`:
   keeping the log readable. `settings.rs`, `cli.rs`, `setup.rs`, `text.rs`,
-  `about.rs`: names and places, the command line, `dev-setup`'s and
-  `dev-code`'s work, the plain display's words, and words for what a helper
-  got.
+  `about.rs`: names and places, the command line, `dev-setup`'s,
+  `dev-code`'s and `reset-password`'s work, the plain display's words, and
+  words for what a helper got. `console.rs`: the door's messages, frames and
+  limits. `service/door.rs`: everything the door decides.
+  `service/unlinked.rs`: the guardian PIN on the lock of an account not set
+  up. `devconsole.rs`: `dev-console`'s lines.
 
 ## Once a second: the facts
 
@@ -242,6 +266,8 @@ service, the engine or the family's file.
   `orders::a_warning_is_held_until_the_helper_says_it_showed_it`,
   `orders::a_warning_never_confirmed_is_held_until_its_lock_time_passes`.
 - **`close`**: see [Closing programs](#closing-programs-and-what-is-never-closed).
+- **The lock of an account not set up** takes the guardian PIN; see
+  [The lock of an account not set up](#the-lock-of-an-account-not-set-up).
 - **`prod_devices`**: there is no network yet; ignored, and said once in the
   log. Test: `orders::phones_the_books_want_to_hear_from_are_ignored_and_said_once`.
 - **`problems`**: logged, each one at most once every ten minutes, with a
@@ -367,6 +393,210 @@ lies about idle time could stop the count: that is why the helper is
 guarded (below), so that the child's own programs cannot reach it, its
 channel or its handles. A helper that said something plays when nothing
 does could only make more time count, never less.
+
+## The console's door
+
+The guardian's console never opens the family's file: the hub holds it
+alone, in SQLite's exclusive mode, on the service's one thread. The console
+asks the service through the door, a named pipe that only the service makes
+(`src/win/door.rs`). What the door decides is in `src/service/door.rs`,
+written against the `Os` seam and tested against the fake PC with a real
+family file; its messages and frames are in `src/console.rs`.
+
+**The pipe.** `\\.\pipe\limo.console`.
+
+- Its access list is `D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;IU)`:
+  SYSTEM and Administrators full control; interactive users read, write and
+  the attributes (`0x12019b`), never the right to make an instance of the
+  pipe (`FILE_CREATE_PIPE_INSTANCE`, the same bit as `FILE_APPEND_DATA`).
+  Windows checks that right when a program makes an instance with
+  `CreateNamedPipeW`, not when a client opens the pipe; the tests show a
+  process that is not elevated refused a second instance of a pipe it made
+  itself, with this list. So no program in a child's account, or in any
+  standard account, can serve the door in LiMo's place while it is open.
+- The first instance is made with `FILE_FLAG_FIRST_PIPE_INSTANCE`, which
+  fails when the name is already taken: a program that took the name before
+  the service started is found out, said in the log, and the door is tried
+  again every five seconds. The next instance is always made before a
+  connected one is served, so the name is never without one of LiMo's while
+  the door is open.
+- `PIPE_REJECT_REMOTE_CLIENTS`: nobody on another PC can connect.
+- A client opens the pipe at the identification level
+  (`SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`): a program posing as
+  the door could learn who the client is, never act as it. The console
+  checks that the door is served from session 0 before it sends a password
+  (`GetNamedPipeServerProcessId`, `GetNamedPipeServerSessionId`);
+  `limo dev-console` does so already.
+
+**Who is knocking.** After a client's first bytes are read, its
+connection's thread takes on the client's own token for a moment
+(`ImpersonateNamedPipeClient`), reads the token's user (`OpenThreadToken`,
+checked as the service itself) and goes back to its own (`RevertToSelf`)
+before anything else; a thread that could not go back ends at once.
+Microsoft's page says the server takes on "the security context of the last
+message read from the pipe", which is why the first bytes are read first.
+The client's process id and session (`GetNamedPipeClientProcessId`,
+`GetNamedPipeClientSessionId`) go to the log only. At hello, and again at
+every request after it, the service asks the family's file whose the
+account is (`Hub::account_standing`):
+
+- **a child's**: refused at once, as soon as Windows says whose it is
+  (before hello), in the words of the sign in screen, "LiMo's settings
+  cannot be opened from Asha's account. A guardian opens them from their
+  own.", and closed a second later; nothing it sends is answered, and it
+  never holds a place a guardian's console needs. An account linked to a
+  child while a console is open in it is refused at its next request;
+- **an account Windows would not say** (a client that opened the pipe
+  anonymously): refused;
+- **not linked, or marked not limited**: the door opens, and the guardian
+  password is needed for anything but the first screen.
+
+What could fool the refusal, and what holds then. The account is read from
+the client's own token by Windows; nothing the client says goes into it, so
+a process cannot claim another account. A child who can sign in to another
+account that is not linked to a child (a guardian's, whose password the
+child knows, or a spare one) can open the door from there, and still meets
+the guardian password: the refusal is the first line, the password is the
+lock. An account meant for a child but not yet linked is not refused; once
+the first start is finished such an account is locked anyway. An
+administrator can do anything on the PC, as with the data folder. The
+account the console runs in is never linked to a child from the console
+(refused with words), so a guardian cannot shut themselves out by a slip.
+Its test needs no second Windows account: it links the test's own account
+to a child and knocks over a real pipe, through the same seam.
+
+**Frames.** As on the helper's channel: the protocol version (2 bytes), the
+length (4 bytes), both little endian, then JSON; at most 1 MiB either way
+(`MAX_CONSOLE_MESSAGE_BYTES`), refused from the header when longer; the
+console's protocol is version 1. The console says hello first,
+`{"say":"hello","protocol":1}`, and is answered
+`{"say":"hello","protocol":1,"version":"0.1.0"}`, or
+`{"say":"refused","message":"..."}`. Then requests, each with a number of
+its own: `{"say":"request","id":7,"request":{"name":"lock_now","args":{"child":"..."}}}`,
+answered `{"say":"answer","id":7,"reply":{"outcome":"done","value":...}}`,
+the value in the hub's own shapes, or
+`{"outcome":"problem","problem":{"kind":"...","message":"..."}}`, with
+`wait_until`, `tries_before_wait` and `rule_problems` (each with its
+`field`) where they apply. The kinds: `signed_out`, `wrong_password`,
+`must_wait`, `invalid`, `rules`, `not_found`, `refused`, `busy`, `not_yet`,
+`unknown_request`, `no_family`, `too_big`, `failed`. A password or a PIN
+travels as a `Secret` (hidden in `Debug`, wiped when dropped); every frame
+read is wiped, as on the helper's channel. What is not wiped: an answer's
+value, which is built as JSON before it is written (a one time code from
+`make_code` is in it), and the hub's own copies.
+
+**The requests.** One for each call of the family's file. Those marked "no"
+are answered before sign in.
+
+| Request | Arguments | The family's file | Sign in |
+| --- | --- | --- | --- |
+| `sign_in` | `password` | `check_password`, with its waits | no |
+| `sign_out` | | ends this connection's session | no |
+| `about` | | LiMo for Windows' version, the protocol, the PC's name | no |
+| `family_state` | | `has_family`, `has_pin`, how many children, `unlinked_accounts`, whether signed in | no |
+| `create_family` | `password` | `create_family`, while there is none; it signs the connection in | no |
+| `set_pin` | `pin` | `set_pin` | yes |
+| `change_password` | `old`, `new` | `change_password` | yes |
+| `family_today`, `child_today` | `child` | `family_today`, `child_today` | yes |
+| `add_child` | `name`, `age_band` | `add_child`, in the PC's time zone now | yes |
+| `rename_child`, `set_age_band` | `child`, `name` or `age_band` | the same | yes |
+| `remove_child` | `child`, `password` | the password again, then `remove_child` | yes |
+| `rules`, `replace_rules` | `child`, `rules` | `rules`, `replace_rules` (refused with the rules' own problems) | yes |
+| `usage` | `child`, `from_day`, `to_day` | `usage` | yes |
+| `waiting_requests`, `answer_request` | `child`, `request`, `reply` | the same | yes |
+| `give_extra` | `child`, `minutes`, `tap_id` | `give_extra` | yes |
+| `lock_now`, `unlock_until`, `lift` | `child`, `until` | the same | yes |
+| `make_code` | `device`, `minutes` | `make_code`: `shown`, `minutes`, `day`, `device_id` | yes |
+| `devices`, `device`, `rename_device` | `child` or `device`, `name` | the same | yes |
+| `remove_device` | `device`, `password` | the password again, then `remove_device` | yes |
+| `accounts` | | every account of the PC (below) with its link | yes |
+| `link_account`, `unlink_account` | `account`, `link` | the same, for an account of this PC only | yes |
+| `pc_settings`, `set_idle_minutes`, `set_unlinked_accounts` | `minutes`, `unlinked` | the same | yes |
+| `finish_first_start` | | `set_unlinked_accounts(Locked)` | yes |
+| `events` | `limit`, `before` | `events` | yes |
+| `allow_removal` | `password` | the password again; removal is allowed for ten minutes, kept in the service's memory for the uninstaller to ask (not built yet) | yes |
+| `delete_family` | `password` | the password again, then `delete_family`; every session ends | yes |
+| `make_offer`, `device_link` | `child`, `device` | not yet: answered `not_yet`, "Adding a phone is not built into LiMo for Windows yet." | yes |
+
+`accounts` lists every normal account of the PC that is not switched off
+(`NetUserEnum`, then `NetUserGetInfo` at level 23 for its full name and
+security identifier; `src/win/accounts.rs`), with whether it is in the
+Administrators group (its direct members, `NetLocalGroupGetMembers`, the
+group found by its own identifier `S-1-5-32-544` since its name is in the
+PC's language), whether someone is signed in to it now, whether this window
+runs in it, and its link; then the links of accounts no longer on the PC,
+so that they can be taken away. LiMo changes no account itself.
+
+**Signing in, and the session.** The guardian password, through the family
+file's own check and its waits: four wrong tries free (each answered "That
+password is not right. 3 more tries before a wait." with the tries left),
+the fifth sets a wait of a minute that doubles with each further one, up to
+an hour, kept in the file across restarts and the same for every
+connection; during a wait nothing is checked. A session belongs to one
+connection, and ends with it, with `sign_out`, with `delete_family`, and
+fifteen minutes after the last request that is not a look a screen repeats
+by itself (`family_today`, `child_today`, `waiting_requests`, `devices`,
+`device`, `device_link`, `about`, `family_state`): a screen left open does
+not keep a guardian signed in. Then requests are answered `signed_out`, and
+the connection stays open for a new sign in.
+
+**Between two steps.** Requests wait in a queue and are answered by
+`Service::door`, which the service's loop calls whenever something came and
+after every step, never inside one: at most 16 in a turn, and at most one
+that carries the password or the PIN, which is hashed slowly on purpose
+(600,000 rounds for the password). So a step is late by at most one such
+request, and the PC's counting, which goes by the steady clock, loses
+nothing by it. A request done that changes something brings the engine's
+call forward to the next step, so a lock from the console is on the child's
+screen within a step. A request that takes 500 ms or more is logged.
+Measured in `door::the_step_time_with_the_door_busy` (the test build, on the
+development PC, 21 November 2026): a step took 0.13 ms on average with the
+door idle and 0.16 ms with it busy (two consoles asking ten times a second
+each, and a sign in every second, while a child's session counted), the
+longest 6 to 8 ms and 12 to 13 ms (the engine's call writing the family's
+file); the door's turn between two steps took 6.5 ms on average and at most
+about 70 ms, for a sign in; and 30 seconds were counted in 30 seconds either
+way.
+
+**What closes a connection.** A frame of another version, longer than 1
+MiB, or not JSON; a message nobody knows, or with a field it should not
+have; a request before hello, hello twice, or hello in another version;
+more than 20 messages in one second (`MAX_MESSAGES_PER_SECOND`, checked by
+the connection's thread and by the service); no first bytes, or no hello,
+within 10 seconds (`HELLO_WAIT_MS`); a console that does not read what it is
+sent within five seconds; more requests waiting than LiMo takes at once. A
+fifth connection while four are open is refused with words. The pipe's own
+thread closes at once, before reading anything, a connection beyond four
+from one Windows session (it knows the client's session as soon as it
+connects) or beyond sixteen in all, so a program in a child's session that
+opens connection after connection, saying nothing, never takes the places
+of a guardian's console in another session. A request of
+the right shape that this LiMo cannot read (an unknown name, or arguments of
+the wrong kind) is answered `unknown_request` by its number, and the
+connection stays. Nothing of a closed connection reaches the family's file,
+and the log says why without quoting what was sent. Two passwords from one
+connection within a second: the second is answered `busy`. Tests: every
+test in `tests/service/door.rs` and `tests/service/pipe.rs`, and the unit
+tests in `src/console.rs`.
+
+## The lock of an account not set up
+
+Once the first start is finished (`finish_first_start`), a Windows account
+LiMo was not told about is locked (administrators never are: the agent's
+README, rule 1). Its lock takes the guardian PIN, as decided on 18 November
+2026: the service shows the engine's lock with the PIN offered when the
+family has one, and answers the PIN itself, since the engine has no child
+for the account (`src/service/unlinked.rs`). The PIN is checked by the
+family's file (`Hub::check_pin`), with its own wrong guesses and wait, kept
+in the file, by the same rule as the password's; the lock shows the wait.
+A right PIN opens the account for what the guardian chose on the lock (the
+minutes, or until a time, at most a day): it shows nothing until then, and
+the lock comes back after. What it opened is kept in the service's memory
+only, so a restart of the service locks the account again, the safe side.
+The engine still notes once a day that the account was used. Confirming a
+release there is refused with words; a one time code is a child's device's
+and is refused there by the engine. Nothing of the PIN is logged. Test:
+`door::the_lock_of_an_account_not_set_up_takes_the_guardian_pin`.
 
 ## The guarded launch
 
@@ -687,11 +917,18 @@ description after it, when its file has one); ways out tried and their
 outcome; the fallback disconnecting a session; the test cap; the engine's
 problems; a gap between two looks of more than 5 seconds, or the two clocks
 moving apart (a sleep, or a clock set); the phone notice; a helper that
-shows the plain display, and why; `install`, `dev-setup` and `dev-code`
-(with no names, and no code). Anything that goes on happening is logged
-once and then at most every ten minutes.
+shows the plain display, and why; `install`, `dev-setup`, `dev-code` and
+`reset-password` (with no names, no code and no password); the console's
+door opened, or its name found taken; each console that connects, by its
+session and process id; a refusal, and why ("its account is linked to a
+child", never the child's name); a sign in, right or wrong, never what was
+typed; each request done that changes something, by its name ("replace_rules
+done"); a connection closed, and why; a session that ended after fifteen
+idle minutes; a request that took 500 ms or more; the guardian PIN on the
+lock of an account not set up, and what became of it. Anything that goes on
+happening is logged once and then at most every ten minutes.
 
-Never logged: a PIN or a code; the reason a child typed; a window title, a
+Never logged: a PIN, a password or a code; the reason a child typed; a window title, a
 file being edited or a web address (LiMo never has them); any sound, or
 which program plays it (LiMo never has them either); a program's folder; a
 child's name. `dev-code` prints its code in the terminal it runs
@@ -704,10 +941,10 @@ object's access list, with the user's security identifier in it.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain` and `dev-code`); the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup` and `dev-code` on a real file, the code tried on the device it was made for; an audio session counted as playing only when active, not the system sounds, in this session and above zero, anything unknown counting as no; sound heard held for 3 seconds, then stale; the screen kept awake only by the display bit | 37 |
+| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the console's requests read by name and arguments, through a frame and back, one that cannot be read answered by its number, one that is not a message refused saying only where, the longest answer and one too long, a password never in `Debug`; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain`, `dev-code`, `reset-password` and `dev-console`); `dev-console`'s lines, a secret never taken on the line; the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup`, `dev-code` and `reset-password` on a real file, the code tried on the device it was made for, the reset clearing the wait and keeping everything else; an audio session counted as playing only when active, not the system sounds, in this session and above zero, anything unknown counting as no; sound heard held for 3 seconds, then stale; the screen kept awake only by the display bit | 48 |
 | `src/drawn/tests.rs` | The drawn display's decisions, with no window: Windows keys to the lock's keys, with the layout's text handed in; the modifiers and the keyboard state; text and points from Windows; the PC's clock from the time format; where the time left display starts, a drag kept on the screen, where a notice goes; pixels into a bitmap, and only a change saying so; the notices' turns; a way out sent once and only its own answer back to the same lock; an answer for a lock taken down, or one that waited too long, dropped; a PIN moved into its secret with nothing left behind; a reason typed with the layout's text, shortcuts typing nothing; keys reaching nothing but a lock; the same lock again keeping what the child did; the time left display and its notices only while the PC may be used, OK, and the notice by name; the lock drawn on the main monitor and the others; the service's answers as the lock's | 19 |
-| `src/win/*.rs` | Pure functions, harmless reads of the test's own process, and harmless reads of what the PC says of itself, which pass whatever the answer: the time zone offset; the clocks, and this account's own time format; session states and administrators; this process's own account; the order version resources are read in; this process's own entry, file and version resource (none); frames across a pipe inside this process; the three access lists and that they parse for this user; the command line a helper gets, with and without `--plain`; a log line; full screen; a helper run by hand doing nothing; what this process got; the display bit as Windows numbers it; this process's own Windows session, and none for a process that is not there; whether this PC plays sound (twice, with COM started and ended) and keeps the screen awake, read and not judged, on a PC with a sound device or none | 23 |
-| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders and the fallback (below) | 38 |
+| `src/win/*.rs` | Pure functions, harmless reads of the test's own process, and harmless reads of what the PC says of itself, which pass whatever the answer: the time zone offset; the clocks, and this account's own time format; session states and administrators; this process's own account; the order version resources are read in; this process's own entry, file and version resource (none); frames across a pipe inside this process; the three access lists and that they parse for this user; the command line a helper gets, with and without `--plain`; a log line; full screen; a helper run by hand doing nothing; what this process got; the display bit as Windows numbers it; this process's own Windows session, and none for a process that is not there; whether this PC plays sound (twice, with COM started and ended) and keeps the screen awake, read and not judged, on a PC with a sound device or none; the door's access list keeps the right to make an instance from interactive users, and parses; this process's own account; this PC's accounts, read and not judged | 26 |
+| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders, the fallback and the console's door; and the door over a real named pipe (below) | 69 |
 | `tests/house_rules.rs` | Unsafe code only in `src/win/`; no allow attributes; no dash punctuation | 3 |
 
 The stories: `facts.rs` (7): no fresh report counts as input just now; a
@@ -727,7 +964,8 @@ closing the channel and restarting the helper, none reaching the engine; a
 helper that stops reading; a way out belongs to its helper's session; a PIN
 or code never logged, kept or shown; one way out a second; a helper that
 shows the plain display, logged in plain words, one line, cut short; a way
-out from a session not a child's refused. `orders.rs` (8): a warning held
+out from a session not a child's refused (a code; the guardian PIN on such a
+lock is the door's story). `orders.rs` (8): a warning held
 until shown, its words the time actually left; held until its lock time; a
 blocked program closed in its own session only, every copy, logged once,
 its notice with the program's name; a closed program named by its file's
@@ -739,10 +977,43 @@ said once; problems logged once in a while.
 `fallback.rs` (6): disconnected after 5 seconds unconfirmed; confirmed in
 time, left alone; a helper that dies must confirm again; only a lock in a
 session on the screen; the test cap; no cap, the lock stays.
+`door.rs` (24): a family made through the door with no `dev-setup`, and the
+PC following it (the child limited, an account not set up locked with the
+PIN offered); a child's account refused in the guardian's words, at hello
+and after a link made while it was open; a client Windows would not name
+refused; the tries left, the wait after five, the wait for every console,
+and two passwords in a second; nothing but the first screen's requests
+before sign in, and nothing changed by them; a session ending fifteen
+minutes after the last request that is not a repeated look; a session per
+connection; eleven kinds of bad input each closing the connection and
+reaching nothing; requests that cannot be read answered as unknown; a
+client that says nothing closed after 10 seconds; a flood closed before any
+of it reached the file; two clients at once, and a fifth refused with
+words; one password between two steps; a console that stops reading; a
+lock from the console on the child's screen within a step; the accounts
+with their links; the console's own account never linked to a child from
+it; the password again to remove a child, allow removal or delete the
+family; rules answered with their own problems; adding a phone not yet; a
+code made at the door and never logged; no secret logged, kept or shown;
+the lock of an account not set up taking the guardian PIN; and the step
+time with the door busy, measured. `pipe.rs` (7), over a real named pipe in
+the test's own account: answered, with the door's access list and the
+service told by Windows who the client is; the test's own account linked
+to a child refused; two clients at once, each with its own session, and a
+closed connection's session ended; garbage, a frame too long, a flood and a
+silent client each closed, and the door open for the next; only SYSTEM and
+Administrators able to make an instance; a door whose name is taken not
+opened, and saying so; a fifth connection from one session closed at once,
+and the session served again when the others go.
 
 None of the tests starts or stops a service, installs anything, writes
 under Program Files or ProgramData, ends, suspends or launches a process,
 locks or disconnects a session, plays or records a sound, or shows a window.
+The pipe tests make named pipes of their own names
+(`\\.\pipe\limo.console.test.` and a number), never the door's own, in the
+tester's own account, and connect to them from the same process; a door of
+the tests adds the tester's account to its access list, since only SYSTEM
+and Administrators may make the second instance that two clients need.
 The one window made is
 the band check's, 1 by 1 pixel, off screen, never shown, and destroyed at
 once, as the spike's `bandcheck` did.
@@ -755,6 +1026,18 @@ as in the hub and the agent, so the slow password and PIN hashes stay quick.
 ## Left open
 
 - **What a confirmed release means on the master PC**: logged, nothing else.
+- **The console itself** is a program of its own, not built yet: its window,
+  its check that the door is served from session 0 by LiMo's own program,
+  and its own sign out after fifteen minutes with no input. The door's
+  session ends after fifteen minutes too (above), whatever the console does.
+- **Adding a phone**: `make_offer` and `device_link` answer `not_yet` until
+  the service has the link.
+- **Removal allowed** (`allow_removal`) is kept in the service's memory for
+  ten minutes; nothing asks for it yet: the uninstaller that will is not
+  built.
+- **`limo reset-password` stops the service** for a moment, since the
+  service holds the family's file; the PC limits nothing meanwhile (a few
+  seconds).
 - **No family's file, no limits.** While the family's file cannot be opened
   (such as while `dev-setup` has it), the service tries again every five
   seconds and limits nothing meanwhile.
@@ -809,7 +1092,7 @@ as in the hub and the agent, so the slow password and PIN hashes stay quick.
 | read-fonts, font-types | 0.47.0, 0.12.7 | MIT or Apache-2.0 | through limo-screens: reading the fonts |
 | ab_glyph_rasterizer | 0.1.10 | Apache-2.0 | through limo-screens: glyphs into pixels |
 | the fonts Fraunces, Instrument Sans and Spline Sans Mono | as Google Fonts publishes them | SIL Open Font License 1.1 | through limo-screens, built into the program: the design's type |
-| windows, windows-core, windows-result, windows-strings, windows-link, windows-numerics, windows-collections, windows-future, windows-threading | 0.62.2, 0.62.2, 0.4.1, 0.5.1, 0.2.1, 0.3.1, 0.3.2, 0.3.2, 0.2.1 | MIT or Apache-2.0 | calling Windows; the same version as the first spike |
+| windows, windows-core, windows-result, windows-strings, windows-link, windows-numerics, windows-collections, windows-future, windows-threading | 0.62.2, 0.62.2, 0.4.1, 0.5.1, 0.2.1, 0.3.1, 0.3.2, 0.3.2, 0.2.1 | MIT or Apache-2.0 | calling Windows; the same version as the first spike. The console's door added one of its features, `Win32_NetworkManagement_NetManagement`, for the accounts of the PC; no crate was added |
 | windows-implement, windows-interface | 0.60.2, 0.59.3 | MIT or Apache-2.0 | used by windows-core when building |
 | windows-service | 0.8.1 | MIT or Apache-2.0 | the service control manager; the same version as the first spike |
 | windows-sys, widestring, bitflags | 0.61.2, 1.2.1, 2.13.2 | MIT or Apache-2.0 | parts of windows-service |
@@ -841,7 +1124,12 @@ windows/
     lib.rs        the crate's notes and its modules
     os.rs         the Os trait: the seam
     service.rs    the service's work: facts, orders, helpers, fallback
+    service/
+      door.rs       the console's door: who, sign in, sessions, requests
+      unlinked.rs   the guardian PIN on the lock of an account not set up
     protocol.rs   the channel: messages, frames, limits, Secret
+    console.rs    the console's door: messages, frames, limits
+    devconsole.rs dev-console's lines
     helper.rs     the helper's side, the Display trait, the Outbox, the
                   choice of display and the fallback to the plain one
     drawn.rs      everything the drawn display decides
@@ -851,7 +1139,8 @@ windows/
     quiet.rs      keeping the log readable
     settings.rs   names, places, the settings file
     cli.rs        the command line
-    setup.rs      dev-setup's and dev-code's work on the family's file
+    setup.rs      dev-setup's, dev-code's and reset-password's work on the
+                  family's file
     text.rs       the plain display's words
     about.rs      words for what a helper got
     win/          everything that calls Windows
@@ -859,6 +1148,10 @@ windows/
       service.rs    the service control manager's entry, the service thread
       os.rs         WinOs, the real Os
       sessions.rs   sessions, accounts, administrators, disconnecting
+      door.rs       the console's door: the pipe, its threads, who the
+                    client is; a client of it
+      accounts.rs   the accounts of this PC and the Administrators group
+      devconsole.rs limo dev-console
       processes.rs  processes, version resources, ending a process
       launch.rs     the guarded launch, with the channel
       pipe.rs       the pipes, and their reader and writer threads
@@ -871,9 +1164,10 @@ windows/
       clock.rs      the clocks and local times
       logfile.rs    the log
       console.rs    typing without it showing
-      install.rs    install, uninstall, status, dev-setup, dev-code
+      install.rs    install, uninstall, status, dev-setup, dev-code,
+                    reset-password
   tests/
     house_rules.rs
     service/      main.rs, common.rs (the fake PC), facts.rs, helpers.rs,
-                  channel.rs, orders.rs, fallback.rs
+                  channel.rs, orders.rs, fallback.rs, door.rs, pipe.rs
 ```

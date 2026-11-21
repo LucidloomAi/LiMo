@@ -7,12 +7,15 @@
 //! and pass whatever the answer.
 
 mod about;
+mod accounts;
 mod clock;
 mod console;
+mod devconsole;
 mod display;
+pub(crate) mod door;
 mod drawn;
 mod helper;
-mod install;
+pub(crate) mod install;
 mod launch;
 mod logfile;
 mod os;
@@ -40,6 +43,8 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Ok(Command::Status) => install::status(),
         Ok(Command::DevSetup { child, account, minutes, block }) => install::dev_setup(&child, &account, minutes, &block),
         Ok(Command::DevCode { child, minutes }) => install::dev_code(child.as_deref(), minutes),
+        Ok(Command::ResetPassword) => install::reset_password(),
+        Ok(Command::DevConsole) => devconsole::run(),
         Err(problem) => {
             println!("{problem}");
             2

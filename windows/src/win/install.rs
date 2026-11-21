@@ -1,6 +1,7 @@
-//! `limo install`, `uninstall`, `status` and `dev-setup`: for testing with
-//! the owner at the PC. Ported from the first spike, with the data folder
-//! closed to everyone but SYSTEM and Administrators.
+//! `limo install`, `uninstall`, `status`, `dev-setup`, `dev-code` and
+//! `reset-password`: for testing with the owner at the PC, and for a family
+//! that forgot the guardian password. Ported from the first spike, with the
+//! data folder closed to everyone but SYSTEM and Administrators.
 
 use std::ffi::{OsString, c_void};
 use std::path::Path;
@@ -39,7 +40,7 @@ use crate::setup::{DevFamily, make_dev_code, make_dev_family};
 const ERROR_SERVICE_DOES_NOT_EXIST: i32 = 1060;
 
 /// True when this process runs elevated.
-fn is_elevated() -> bool {
+pub fn is_elevated() -> bool {
     let mut token = HANDLE::default();
     // SAFETY: opens this process's own token for reading; closed by
     // `Owned`; writes into the structure handed to it.
@@ -433,6 +434,102 @@ pub(crate) fn dev_code(child: Option<&str>, minutes: u32) -> i32 {
             1
         }
     }
+}
+
+/// Stops the service for a moment, when it runs, since it holds the
+/// family's file; true when it was running, so that it is started again.
+fn stop_for_a_moment() -> Result<bool, String> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT).map_err(|e| e.to_string())?;
+    let service = match manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS | ServiceAccess::STOP) {
+        Ok(service) => service,
+        Err(windows_service::Error::Winapi(e)) if e.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST) => return Ok(false),
+        Err(e) => return Err(e.to_string()),
+    };
+    let state = service.query_status().map_err(|e| e.to_string())?.current_state;
+    if state == ServiceState::Stopped {
+        return Ok(false);
+    }
+    let _ = service.stop();
+    let give_up = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < give_up {
+        if service.query_status().is_ok_and(|s| s.current_state == ServiceState::Stopped) {
+            return Ok(true);
+        }
+        sleep(Duration::from_millis(250));
+    }
+    Err("the service did not stop within 20 seconds".to_string())
+}
+
+/// Starts the service again.
+fn start_again() -> Result<(), String> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT).map_err(|e| e.to_string())?;
+    let service = manager.open_service(SERVICE_NAME, ServiceAccess::START).map_err(|e| e.to_string())?;
+    let no_arguments: [OsString; 0] = [];
+    service.start(&no_arguments).map_err(|e| e.to_string())
+}
+
+/// `limo reset-password`: a new guardian password without the old one,
+/// for an administrator of this PC whose family forgot it. The new password
+/// is typed at the prompt and never shown; everything else is kept. The
+/// service holds the family's file, so it is stopped for a moment and
+/// started again.
+pub(crate) fn reset_password() -> i32 {
+    println!("reset-password sets a new guardian password without the old one. Everything else is kept.");
+    if !is_elevated() {
+        println!("reset-password must be run from an administrator terminal. Nothing was changed.");
+        return 2;
+    }
+    let places = Places::here();
+    if !places.data_dir.exists() {
+        println!("LiMo is not installed: there is no data folder. Nothing was changed.");
+        return 2;
+    }
+    let Some(password) = read_hidden("New guardian password (8 or more characters, not shown): ") else { return 2 };
+    let Some(again) = read_hidden("The same password again: ") else { return 2 };
+    if *password != *again {
+        println!("The two passwords differ. Nothing was changed.");
+        return 2;
+    }
+    if let Some(problem) = crate::setup::new_password_problem(&password) {
+        println!("{problem} Nothing was changed.");
+        return 2;
+    }
+    let was_running = match stop_for_a_moment() {
+        Ok(was_running) => was_running,
+        Err(problem) => {
+            println!("The service could not be stopped to reach the family's file: {problem}. Nothing was changed.");
+            return 1;
+        }
+    };
+    let done = match Hub::open(&places.family_file()) {
+        Ok(mut hub) => {
+            let done = crate::setup::reset_family_password(&mut hub, &password, wall_secs());
+            if let Err(problem) = hub.close() {
+                println!("The family's file did not close cleanly: {problem}");
+            }
+            done
+        }
+        Err(problem) => Err(format!("The family's file could not be opened: {problem}")),
+    };
+    let code = match &done {
+        Ok(()) => {
+            println!("The guardian password is set. Sign in to LiMo's settings with the new one.");
+            append(&places, "reset-password set a new guardian password.");
+            0
+        }
+        Err(problem) => {
+            println!("{problem}");
+            append(&places, "reset-password changed nothing.");
+            1
+        }
+    };
+    if was_running {
+        match start_again() {
+            Ok(()) => println!("The service is started again."),
+            Err(problem) => println!("The service could not be started again: {problem}. Start it with sc.exe start {SERVICE_NAME}."),
+        }
+    }
+    code
 }
 
 /// `limo dev-setup`: scaffolding until the guardian's console exists.

@@ -430,6 +430,88 @@ sign in screen always lets you switch back to it.
 Undo, in this order: `Rename-Item "C:\Program Files\LiMo\limo-off.exe" limo.exe`;
 then `.\limo uninstall`.
 
+## Part O: the door of LiMo's settings
+
+This part tries the door through which the guardian's console will ask the
+service for everything it shows and changes (see "The console's door" in
+README.md): opened from your own account, refused from the child's, the
+wait after wrong passwords, and a family made through it with no
+`dev-setup`. The console's window is not built yet; `limo dev-console`, a
+small client typed at by hand, knocks in its place, from the account it
+runs in, as the console will. It sends nothing unless the door is served
+from session 0, where services run. Every answer is printed as it came;
+`help` lists what can be typed. About 30 minutes. It needs a fresh install,
+with no family.
+
+1. Elevated, from the build folder: `.\limo uninstall` if LiMo is
+   installed, then `.\limo install --dev`. Do not run `dev-setup`.
+   `.\limo status`: the log ends with `The service started` and `The door
+   for LiMo's settings is open.`
+2. **Opened from your own account.** From an ordinary PowerShell (not
+   elevated), in the build folder: `.\limo dev-console`. Look for `The door
+   is served by process P in session 0, where services run.` and `LiMo for
+   Windows 0.1.0 answered. Type help.` Type `state`: `"has_family": false`.
+   Type `today`: `Not done (SignedOut): Signed out. Type the guardian
+   password to go on.`
+3. **A family made through the door.** Type `create-family` and a guardian
+   password twice (8 or more characters; it does not show): `Done.` Then
+   `set-pin` and a PIN twice (6 to 8 digits): `Done.` Then `add-child Asha`:
+   `Done:` with Asha's `"child_id"`; copy it. Then `minutes CHILD_ID 20`
+   (the id you copied): `Done:` with the rules, 20 minutes every day. Then
+   `accounts`: every account of this PC, each with its `account_id` (an
+   `S-1-5-21-...`), whether it is an administrator, whether someone is
+   signed in to it, and `"this_window": true` on your own. Write down which
+   are listed. Then `link ASHA_SID CHILD_ID`, with the child's test
+   account's `account_id`, and `free YOUR_SID` with your own: `Done:` each.
+   Then `finish`: `"unlinked_accounts": "locked"`. Then `today`: Asha, with
+   a budget of 1200 seconds. Leave dev-console open.
+4. Switch to the child's account (sign in if it is not): within a second or
+   two the time left display shows `20 min`. The family made through the
+   door counts, with no `dev-setup`.
+5. **Refused from the child's account.** In a PowerShell in the child's
+   account: `& "C:\Program Files\LiMo\limo.exe" dev-console`. It says `The
+   door is served by process P in session 0, ...`, then `LiMo's settings
+   cannot be opened from Asha's account. A guardian opens them from their
+   own.`, and ends; `$LASTEXITCODE` is 2. Nothing else can be typed. Switch
+   back to your own account.
+6. **A wrong password's wait.** In your dev-console: `sign-out` (`Done.`),
+   then `sign-in` with a wrong password: `Not done (WrongPassword): That
+   password is not right. 4 more tries before a wait.` Again with wrong
+   ones: 3, 2, then `1 more try before a wait.` The fifth wrong one: `That
+   password is not right. Too many wrong tries: wait before trying again.`
+   with when the wait ends. At once `sign-in` with the right password: `Not
+   done (MustWait)`, and it was not tried. After a minute, the right
+   password: `Done.`
+7. **A lock from the door.** `request lock_now {"child":"CHILD_ID"}`:
+   `Done:` with the lock. Switch to the child's account at once: the lock
+   covers the screen (the test cap lifts it after 120 seconds). Switch
+   back: `request lift {"child":"CHILD_ID"}`, and the child's account opens
+   again within a second or two.
+8. Elevated: `.\limo status`. Look for: `A console connected to LiMo's
+   settings from session N (pid P).` for yours; `LiMo's settings were
+   refused to a console in session M (pid Q): its account is linked to a
+   child.` for the child's; `From LiMo's settings in session N (pid P):
+   create_family done.` and lines like it; `a wrong guardian password was
+   typed`. No line holds the password, the PIN, or the child's name. No line
+   says a request `took ... ms between two steps`. If the 20 lines are too
+   few, open the log in Notepad from the elevated PowerShell:
+   `notepad C:\ProgramData\LiMo\limo.log`.
+9. Optional, with a third standard account that is in no family (its
+   `link` left as `"kind": "none"` in step 3): sign in to it. It is locked,
+   `This account is not set up yet.`, with `Guardian PIN` among the ways
+   out. A wrong PIN: `That PIN is not right. 4 more tries before a wait.`
+   The right PIN with `15 min`: the account opens, and nothing of LiMo
+   shows; it locks again after 15 minutes. In the log: `the guardian PIN,
+   on the lock of an account not set up in LiMo, was tried from the lock
+   screen: right`.
+10. Optional, elevated: `.\limo reset-password`, and a new password twice.
+    It stops the service for a moment, then says `The guardian password is
+    set.` and `The service is started again.` In a new `.\limo dev-console`, `sign-in`
+    with the old password: not right; with the new one: `Done.` `today`:
+    Asha is still there, with her 20 minutes.
+
+Undo: type `quit` in dev-console; then `.\limo uninstall`.
+
 ## Finish
 
 1. Elevated, from the build folder: `.\limo uninstall`. It stops and removes
@@ -493,6 +575,16 @@ then `.\limo uninstall`.
 | M2 steady N s and wall M s after sleep | note both | not run |
 | N4 disconnected within about 6 s, programs still open | yes | yes, both times |
 | N5 the two log lines | yes | yes; `gap_ms=112949` once the program was put back |
+| O1 fresh install, the door open in the log | yes | |
+| O2 dev-console from your account: served from session 0, answered; state with no family; today signed out | yes | |
+| O3 family, PIN, child, 20 minutes, accounts listed (which), links, finish locked, today | yes | |
+| O4 the child's display shows 20 min with no dev-setup | yes | |
+| O5 dev-console from the child's account refused in those words, exit code 2 | yes | |
+| O6 wrong passwords: 4, 3, 2, 1 tries left, a wait after the fifth, the right one not tried during it, right after a minute | yes | |
+| O7 lock_now from the door reaches the child's screen at once; lift opens it | yes | |
+| O8 log lines, and none with a password, PIN or name, none slow | yes | |
+| O9 optional: an account not set up locked, the guardian PIN opens it for 15 minutes | yes | |
+| O10 optional: reset-password, old password wrong, new right, the family kept | yes | |
 | Finish: uninstall twice, status not installed | yes | yes |
 
 ## Notes from the first run, 19 November 2026

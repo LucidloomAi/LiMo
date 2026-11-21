@@ -7,8 +7,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use limo_agent::{Session, SessionState, Show};
 use limo_core::{CivilDate, DailyBudget, RuleSet, WeekBudgets};
 use limo_hub::{AccountLink, AgeBand, Hub};
-use limo_windows::os::{HelperId, HelperStarted, Os, ProcessSeen, Received, SendProblem, SessionSeen, VersionNames};
-use limo_windows::protocol::{Decoder, Frame, FromHelper, PROTOCOL_VERSION, ToHelper, encode};
+use limo_windows::RealDoor;
+use limo_windows::console::{
+    CONSOLE_PROTOCOL_VERSION, ConsoleIncoming, ConsoleReader, FromConsole, Reply, Request, ToConsole, answer_decoder, encode_from_console,
+};
+use limo_windows::os::{
+    AccountSeen, ClientSeen, DoorEvent, DoorId, HelperId, HelperStarted, Os, ProcessSeen, Received, SendProblem, SessionSeen, VersionNames,
+};
+use limo_windows::protocol::{Decoder, Frame, FromHelper, PROTOCOL_VERSION, Secret, ToHelper, encode};
 use limo_windows::service::{STEP_MS, Service, ServiceConfig};
 use tempfile::TempDir;
 
@@ -72,6 +78,24 @@ pub struct FakeOs {
     pub log: Vec<String>,
     next_id: u64,
     next_pid: u32,
+    /// What came to the console's door, not yet seen by the service.
+    pub door_in: Vec<(DoorId, DoorEvent)>,
+    /// Everything the service sent each console, read from its frames.
+    pub door_got: BTreeMap<DoorId, Vec<ToConsole>>,
+    /// Connections the service closed.
+    pub door_closed: Vec<DoorId>,
+    /// Consoles that stopped reading what they are sent.
+    pub door_not_reading: BTreeSet<DoorId>,
+    door_readers: BTreeMap<DoorId, Option<ConsoleReader>>,
+    door_decoders: BTreeMap<DoorId, Decoder>,
+    next_door: u64,
+    next_ask: u32,
+    /// The accounts of this PC.
+    pub accounts: Vec<AccountSeen>,
+    /// When set, listing the accounts fails with this.
+    pub accounts_fail: Option<String>,
+    /// A real door on a named pipe, in place of the fake one.
+    pub real_door: Option<RealDoor>,
 }
 
 impl FakeOs {
@@ -99,6 +123,17 @@ impl FakeOs {
             log: Vec::new(),
             next_id: 0,
             next_pid: 5_000,
+            door_in: Vec::new(),
+            door_got: BTreeMap::new(),
+            door_closed: Vec::new(),
+            door_not_reading: BTreeSet::new(),
+            door_readers: BTreeMap::new(),
+            door_decoders: BTreeMap::new(),
+            next_door: 0,
+            next_ask: 0,
+            accounts: Vec::new(),
+            accounts_fail: None,
+            real_door: None,
         }
     }
 
@@ -233,6 +268,88 @@ impl Os for FakeOs {
     fn log(&mut self, line: &str) {
         self.log.push(line.to_string());
     }
+
+    fn door_received(&mut self) -> Vec<(DoorId, DoorEvent)> {
+        let mut out = self.real_door.as_mut().map_or_else(Vec::new, RealDoor::received);
+        out.extend(std::mem::take(&mut self.door_in));
+        out
+    }
+
+    fn door_send(&mut self, id: DoorId, frame: Frame) -> Result<(), SendProblem> {
+        if let Some(door) = self.real_door.as_mut() {
+            return door.send(id, frame);
+        }
+        if self.door_closed.contains(&id) || !self.door_readers.contains_key(&id) {
+            return Err(SendProblem::Gone);
+        }
+        if self.door_not_reading.contains(&id) {
+            return Err(SendProblem::NotReading);
+        }
+        let decoder = self.door_decoders.entry(id).or_insert_with(answer_decoder);
+        decoder.push(&frame).unwrap();
+        while let Some(message) = decoder.next_message::<ToConsole>().unwrap() {
+            self.door_got.entry(id).or_default().push(message);
+        }
+        Ok(())
+    }
+
+    fn door_close(&mut self, id: DoorId) {
+        if let Some(door) = self.real_door.as_mut() {
+            door.close(id);
+        }
+        self.door_closed.push(id);
+    }
+
+    fn accounts(&mut self) -> Result<Vec<AccountSeen>, String> {
+        match &self.accounts_fail {
+            Some(problem) => Err(problem.clone()),
+            None => Ok(self.accounts.clone()),
+        }
+    }
+}
+
+impl FakeOs {
+    /// A console connects from `account` in `session` and sends its first
+    /// bytes: Windows tells the service who it is.
+    pub fn connect(&mut self, account: Option<&str>, session: u32) -> DoorId {
+        self.next_door += 1;
+        let id = DoorId(self.next_door);
+        self.door_readers.insert(id, Some(ConsoleReader::new()));
+        let pid = self.new_pid();
+        let client = ClientSeen { account_id: account.map(String::from), session_id: Some(session), pid: Some(pid) };
+        self.door_in.push((id, DoorEvent::Opened(client)));
+        id
+    }
+
+    /// Bytes a console writes, read as the real connection's thread reads
+    /// them: it stops at the first problem.
+    pub fn console_raw(&mut self, id: DoorId, bytes: &[u8]) {
+        let Some(slot) = self.door_readers.get_mut(&id) else { return };
+        let Some(reader) = slot.as_mut() else { return };
+        if let Err(problem) = reader.push(bytes) {
+            *slot = None;
+            self.door_in.push((id, DoorEvent::Broken(problem)));
+            return;
+        }
+        loop {
+            match reader.next_frame() {
+                Ok(Some(ConsoleIncoming::Message(message))) => self.door_in.push((id, DoorEvent::Message(message))),
+                Ok(Some(ConsoleIncoming::BadRequest { id: ask })) => self.door_in.push((id, DoorEvent::BadRequest { id: ask })),
+                Ok(None) => break,
+                Err(problem) => {
+                    *slot = None;
+                    self.door_in.push((id, DoorEvent::Broken(problem)));
+                    break;
+                }
+            }
+        }
+    }
+
+    /// The console closes its end.
+    pub fn disconnect(&mut self, id: DoorId) {
+        self.door_readers.remove(&id);
+        self.door_in.push((id, DoorEvent::Closed));
+    }
 }
 
 /// The fake PC with the real service on it.
@@ -244,9 +361,20 @@ pub struct Pc {
 impl Pc {
     /// A PC with a family set up, at `start`.
     pub fn new(start: i64) -> Pc {
+        Pc::with_family(start, true)
+    }
+
+    /// A PC whose family's file is empty: LiMo just installed, no family.
+    pub fn empty(start: i64) -> Pc {
+        Pc::with_family(start, false)
+    }
+
+    fn with_family(start: i64, family: bool) -> Pc {
         let dir = tempfile::tempdir().unwrap();
         let mut hub = Hub::open(&dir.path().join("family.limo")).unwrap();
-        hub.create_family(PASSWORD, start).unwrap();
+        if family {
+            hub.create_family(PASSWORD, start).unwrap();
+        }
         let config = ServiceConfig {
             pc_name: "Family PC".into(),
             own_pid: OWN_PID,
@@ -328,12 +456,14 @@ impl Pc {
         pid
     }
 
-    /// One step, 100 ms later.
+    /// One step, 100 ms later, and the door's turn after it, as the
+    /// service's loop does.
     pub fn step(&mut self) {
         let os = self.os();
         os.steady_ms += STEP_MS;
         os.wall_ms += STEP_MS as i64;
         self.service.step();
+        self.service.door();
     }
 
     /// Steps for `ms` milliseconds.
@@ -432,5 +562,89 @@ impl Pc {
         let (seq, _, show) = self.last_show(session).unwrap();
         assert!(matches!(show, Show::Locked { .. }), "{show:?}");
         self.say(session, FromHelper::LockOnScreen { seq });
+    }
+}
+
+// --------------------------------------------------------------------------
+// A console at the door
+// --------------------------------------------------------------------------
+
+/// A Windows account of the PC.
+pub fn account(account_id: &str, name: &str, is_administrator: bool) -> AccountSeen {
+    AccountSeen { account_id: account_id.into(), name: name.into(), full_name: None, is_administrator }
+}
+
+impl Pc {
+    /// A console connects from `account` in `session`.
+    pub fn console(&mut self, account: &str, session: u32) -> DoorId {
+        self.os().connect(Some(account), session)
+    }
+
+    /// A message from a console, as a frame.
+    pub fn console_say(&mut self, id: DoorId, message: &FromConsole) {
+        let frame = encode_from_console(message).unwrap();
+        self.os().console_raw(id, &frame);
+    }
+
+    /// Bytes from a console, whatever they are.
+    pub fn console_raw(&mut self, id: DoorId, bytes: &[u8]) {
+        self.os().console_raw(id, bytes);
+    }
+
+    /// The console says hello; the service's last word to it.
+    pub fn hello(&mut self, id: DoorId) -> Option<ToConsole> {
+        self.console_say(id, &FromConsole::Hello { protocol: CONSOLE_PROTOCOL_VERSION });
+        self.step();
+        self.console_got(id).last().cloned()
+    }
+
+    /// Everything a console got.
+    pub fn console_got(&mut self, id: DoorId) -> Vec<ToConsole> {
+        self.os().door_got.get(&id).cloned().unwrap_or_default()
+    }
+
+    /// True when the service closed the connection.
+    pub fn console_closed(&mut self, id: DoorId) -> bool {
+        self.os().door_closed.contains(&id)
+    }
+
+    /// A request, with a number of its own; one step; its answer, if it
+    /// came.
+    pub fn ask(&mut self, id: DoorId, request: Request) -> Option<Reply> {
+        let ask = self.next_ask();
+        self.console_say(id, &FromConsole::Request { id: ask, request });
+        self.step();
+        self.answer_to(id, ask)
+    }
+
+    /// The answer to the request numbered `ask`, if it came.
+    pub fn answer_to(&mut self, id: DoorId, ask: u32) -> Option<Reply> {
+        self.console_got(id).into_iter().find_map(|m| match m {
+            ToConsole::Answer { id, reply } if id == ask => Some(reply),
+            _ => None,
+        })
+    }
+
+    /// A number for a request, never the same twice in a story.
+    pub fn next_ask(&mut self) -> u32 {
+        let os = self.os();
+        os.next_ask += 1;
+        os.next_ask
+    }
+
+    /// A request that must be done; what it gave back.
+    pub fn done(&mut self, id: DoorId, request: Request) -> serde_json::Value {
+        let name = request.name();
+        match self.ask(id, request) {
+            Some(Reply::Done { value }) => value,
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+
+    /// A console signs in with the right password, a second after the
+    /// last secret it sent.
+    pub fn sign_in(&mut self, id: DoorId) {
+        self.run(1);
+        self.done(id, Request::SignIn { password: Secret::new(PASSWORD.into()) });
     }
 }

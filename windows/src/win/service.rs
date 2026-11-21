@@ -1,11 +1,14 @@
 //! `limo service`: the service control manager's entry, and the service's
 //! one thread, where the engine and the family's file live. The handler the
 //! service control manager calls runs on another thread, and only tells the
-//! service's thread to stop, through a channel.
+//! service's thread to stop, through a channel. The console's door wakes
+//! the same thread through the same channel when a console sent something,
+//! and the service answers it between two steps; the steps keep their
+//! cadence whatever the door does.
 
 use std::ffi::OsString;
 use std::sync::mpsc::{RecvTimeoutError, channel};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use limo_hub::Hub;
 use windows::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
@@ -16,6 +19,7 @@ use windows_service::service_dispatcher;
 use super::launch::enable_launch_privileges;
 use super::logfile::append;
 use super::os::WinOs;
+use crate::console::CONSOLE_PIPE_NAME;
 use crate::quiet::Quiet;
 use crate::service::{STEP_MS, Service, ServiceConfig};
 use crate::settings::{Places, SERVICE_NAME};
@@ -73,12 +77,21 @@ fn service_main(_arguments: Vec<OsString>) {
     }
 }
 
+/// What wakes the service's thread between two steps.
+enum Wake {
+    /// The service control manager asks it to stop.
+    Stop,
+    /// Something came to the console's door.
+    Door,
+}
+
 fn run_service(places: &Places) -> windows_service::Result<()> {
-    let (stop_tx, stop_rx) = channel::<()>();
+    let (wake_tx, stop_rx) = channel::<Wake>();
+    let stop_tx = wake_tx.clone();
     let handler = move |control| -> ServiceControlHandlerResult {
         match control {
             ServiceControl::Stop | ServiceControl::Shutdown => {
-                let _ = stop_tx.send(());
+                let _ = stop_tx.send(Wake::Stop);
                 ServiceControlHandlerResult::NoError
             }
             ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
@@ -108,7 +121,7 @@ fn run_service(places: &Places) -> windows_service::Result<()> {
                 }
                 waited += 5_000;
                 match stop_rx.recv_timeout(Duration::from_secs(5)) {
-                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Timeout) | Ok(Wake::Door) => {}
                     _ => break None,
                 }
             }
@@ -122,12 +135,27 @@ fn run_service(places: &Places) -> windows_service::Result<()> {
             own_exe: exe.to_string_lossy().to_string(),
             windows_dir: windows_dir(),
         };
-        let mut service = Service::new(WinOs::new(exe, places.clone()), hub, config);
+        let mut os = WinOs::new(exe, places.clone());
+        let door_tx = wake_tx.clone();
+        os.open_door(CONSOLE_PIPE_NAME, move || {
+            let _ = door_tx.send(Wake::Door);
+        });
+        let mut service = Service::new(os, hub, config);
+        let step = Duration::from_millis(STEP_MS);
+        let mut next_step = Instant::now();
         loop {
-            service.step();
-            match stop_rx.recv_timeout(Duration::from_millis(STEP_MS)) {
+            if Instant::now() >= next_step {
+                service.step();
+                service.door();
+                // On the cadence, and never more than one step behind it.
+                next_step = (next_step + step).max(Instant::now());
+            }
+            match stop_rx.recv_timeout(next_step.saturating_duration_since(Instant::now())) {
+                Ok(Wake::Door) => {
+                    service.door();
+                }
                 Err(RecvTimeoutError::Timeout) => {}
-                _ => break,
+                Ok(Wake::Stop) | Err(RecvTimeoutError::Disconnected) => break,
             }
         }
         handle.set_service_status(status(ServiceState::StopPending, ServiceControlAccept::empty(), 5))?;

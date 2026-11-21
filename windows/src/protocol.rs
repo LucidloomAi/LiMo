@@ -43,8 +43,9 @@ pub const HEADER_BYTES: usize = 6;
 /// lock screen with the child's newest request on it, is under 2 KiB.
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 
-/// The most a [`Decoder`] ever holds: one whole frame and the start of the
-/// next.
+/// The most a [`Decoder`] of the helper's channel ever holds: one whole
+/// frame and the start of the next.
+#[cfg(test)]
 const MAX_BUFFERED: usize = 2 * (HEADER_BYTES + MAX_MESSAGE_BYTES);
 
 /// One frame, ready to write. Wiped from memory when dropped.
@@ -290,16 +291,24 @@ impl fmt::Display for ChannelProblem {
 
 impl std::error::Error for ChannelProblem {}
 
-/// One message as a frame, ready to write. The buffer is made big enough
-/// for the longest message at once, so that it never grows and leaves a copy
-/// behind, and it is wiped when dropped.
+/// One message as a frame of the helper's channel, ready to write. The
+/// buffer is made big enough for the longest message at once, so that it
+/// never grows and leaves a copy behind, and it is wiped when dropped.
 pub fn encode<T: Serialize>(message: &T) -> Result<Frame, ChannelProblem> {
-    let mut frame: Frame = Zeroizing::new(Vec::with_capacity(HEADER_BYTES + MAX_MESSAGE_BYTES + 1));
-    frame.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
+    encode_frame(message, PROTOCOL_VERSION, MAX_MESSAGE_BYTES)
+}
+
+/// One message as a frame of the given protocol version, at most
+/// `max_message_bytes` of JSON, ready to write: the helper's channel and the
+/// console's door use the same frames, each with its own version and limit.
+/// The buffer is made at its full size at once and wiped when dropped.
+pub fn encode_frame<T: Serialize>(message: &T, version: u16, max_message_bytes: usize) -> Result<Frame, ChannelProblem> {
+    let mut frame: Frame = Zeroizing::new(Vec::with_capacity(HEADER_BYTES + max_message_bytes + 1));
+    frame.extend_from_slice(&version.to_le_bytes());
     frame.extend_from_slice(&[0; 4]);
     serde_json::to_writer(&mut *frame, message).map_err(|_| ChannelProblem::CannotWrite)?;
     let length = frame.len() - HEADER_BYTES;
-    if length > MAX_MESSAGE_BYTES {
+    if length > max_message_bytes {
         return Err(ChannelProblem::TooBig { bytes: length });
     }
     let said = u32::try_from(length).map_err(|_| ChannelProblem::TooBig { bytes: length })?;
@@ -315,6 +324,8 @@ pub fn encode<T: Serialize>(message: &T) -> Result<Frame, ChannelProblem> {
 /// channel is closed.
 pub struct Decoder {
     buffer: Zeroizing<Vec<u8>>,
+    version: u16,
+    max_message_bytes: usize,
 }
 
 impl fmt::Debug for Decoder {
@@ -330,16 +341,27 @@ impl Default for Decoder {
 }
 
 impl Decoder {
-    /// An empty decoder.
+    /// An empty decoder for the helper's channel.
     pub fn new() -> Decoder {
-        Decoder { buffer: Zeroizing::new(Vec::with_capacity(MAX_BUFFERED)) }
+        Decoder::for_frames(PROTOCOL_VERSION, MAX_MESSAGE_BYTES)
+    }
+
+    /// An empty decoder for frames of `version`, each at most
+    /// `max_message_bytes` of JSON. It holds at most two frames' worth.
+    pub fn for_frames(version: u16, max_message_bytes: usize) -> Decoder {
+        let most = 2 * (HEADER_BYTES + max_message_bytes);
+        Decoder { buffer: Zeroizing::new(Vec::with_capacity(most)), version, max_message_bytes }
+    }
+
+    fn most_buffered(&self) -> usize {
+        2 * (HEADER_BYTES + self.max_message_bytes)
     }
 
     /// Bytes as they came from the pipe. Refused when more is waiting than
     /// a channel may hold.
     pub fn push(&mut self, bytes: &[u8]) -> Result<(), ChannelProblem> {
         let waiting = self.buffer.len().saturating_add(bytes.len());
-        if waiting > MAX_BUFFERED {
+        if waiting > self.most_buffered() {
             return Err(ChannelProblem::TooBig { bytes: waiting });
         }
         self.buffer.extend_from_slice(bytes);
@@ -349,28 +371,34 @@ impl Decoder {
     /// The next whole message, if one is waiting. A frame of the wrong
     /// version or too long is refused from its header alone.
     pub fn next_message<T: DeserializeOwned>(&mut self) -> Result<Option<T>, ChannelProblem> {
+        self.next_with(|json| {
+            serde_json::from_slice::<T>(json).map_err(|e| ChannelProblem::Malformed { line: e.line(), column: e.column() })
+        })
+    }
+
+    /// The next whole frame, if one is waiting, read by `read` from its
+    /// JSON. The frame is wiped from the buffer whatever `read` says. A frame
+    /// of the wrong version or too long is refused from its header alone.
+    pub fn next_with<T>(&mut self, read: impl FnOnce(&[u8]) -> Result<T, ChannelProblem>) -> Result<Option<T>, ChannelProblem> {
         if self.buffer.len() < HEADER_BYTES {
             return Ok(None);
         }
         let version = u16::from_le_bytes([self.buffer[0], self.buffer[1]]);
-        if version != PROTOCOL_VERSION {
+        if version != self.version {
             return Err(ChannelProblem::WrongVersion { got: version });
         }
         let said = u32::from_le_bytes([self.buffer[2], self.buffer[3], self.buffer[4], self.buffer[5]]);
         let length = usize::try_from(said).unwrap_or(usize::MAX);
-        if length > MAX_MESSAGE_BYTES {
+        if length > self.max_message_bytes {
             return Err(ChannelProblem::TooBig { bytes: length });
         }
         let end = HEADER_BYTES + length;
         if self.buffer.len() < end {
             return Ok(None);
         }
-        let parsed = serde_json::from_slice::<T>(&self.buffer[HEADER_BYTES..end]);
+        let parsed = read(&self.buffer[HEADER_BYTES..end]);
         self.consume(end);
-        match parsed {
-            Ok(message) => Ok(Some(message)),
-            Err(e) => Err(ChannelProblem::Malformed { line: e.line(), column: e.column() }),
-        }
+        parsed.map(Some)
     }
 
     /// Bytes waiting that are not yet a whole frame.

@@ -245,12 +245,14 @@ fn a_way_out_from_a_session_that_is_not_a_childs_is_refused() {
     pc.run(1);
     pc.greet(5);
     pc.run(2);
-    pc.say(5, FromHelper::TryPin { ask: 1, pin: Secret::new(PIN.into()), action: PinAction::ConfirmRelease });
+    // A one time code is a child's device's; the lock of an account not set
+    // up takes only the guardian PIN (the door's stories show it).
+    pc.say(5, FromHelper::TryCode { ask: 1, code: Secret::new("13420715".into()) });
     pc.run(1);
     let got = answers(&mut pc, 5);
     assert!(matches!(&got[..], [(1, Answer::Refused { message })] if message.contains("not a child's session")), "{got:?}");
     // The engine's sentence ends the log line with one full stop, not two.
-    let line = "Session 5: the guardian PIN was tried from the lock screen: refused: Session 5 is not a child's session \
+    let line = "Session 5: a one time code was tried from the lock screen: refused: Session 5 is not a child's session \
                 that LiMo limits on this PC.";
     let logged = pc.logged("tried from the lock screen");
     assert_eq!(logged, vec![line.to_string()], "{:?}", pc.os().log);

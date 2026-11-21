@@ -8,9 +8,12 @@
 
 #![forbid(unsafe_code)]
 
+pub mod door;
+mod unlinked;
+
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use limo_agent::{CloseOrder, Engine, Facts, Orders, Program, Session, SessionState, Show, WarningShown};
+use limo_agent::{CloseOrder, Engine, Facts, LockWhy, Orders, Program, Session, SessionState, Show, WarningShown};
 use limo_core::{PinAction, TryOutcome};
 use limo_hub::Hub;
 
@@ -182,6 +185,9 @@ struct Keep {
     /// never close list: said once for the session, and forgotten with it.
     /// It holds at most one of each entry on that list.
     spared: BTreeSet<&'static str>,
+    /// True while the session shows the lock of an account not set up in
+    /// LiMo, whose ways out the service answers itself: the guardian PIN.
+    unlinked_lock: bool,
 }
 
 /// A notice of a program closed, waiting to be handed to the helper.
@@ -215,6 +221,7 @@ impl Keep {
             died_at: None,
             notices: Vec::new(),
             spared: BTreeSet::new(),
+            unlinked_lock: false,
         }
     }
 }
@@ -246,6 +253,8 @@ pub struct Service<O: Os> {
     last_look: Option<(i64, u64)>,
     told_no_network: bool,
     facts: Option<Facts>,
+    door: door::Door,
+    open: unlinked::OpenAccounts,
 }
 
 impl<O: Os> std::fmt::Debug for Service<O> {
@@ -299,6 +308,8 @@ impl<O: Os> Service<O> {
             last_look: None,
             told_no_network: false,
             facts: None,
+            door: door::Door::default(),
+            open: unlinked::OpenAccounts::default(),
         }
     }
 
@@ -356,6 +367,7 @@ impl<O: Os> Service<O> {
         self.keep_helpers(now);
         self.fallback(now);
         self.hand_over(now);
+        self.watch_door(now);
     }
 
     /// Before the service stops: the engine keeps everything it counted,
@@ -523,27 +535,35 @@ impl<O: Os> Service<O> {
         let Some(slot) = self.slots.get_mut(&session) else { return };
         let id = slot.id;
         let too_soon = slot.last_way_out.is_some_and(|t| now.saturating_sub(t) < WAY_OUT_SPACING_MS);
+        let unlinked = self.keeps.get(&session).filter(|keep| keep.unlinked_lock).map(|keep| keep.account_id.clone());
         let answer = if too_soon {
             Answer::Refused { message: "One thing at a time: try again in a moment.".to_string() }
         } else {
             slot.last_way_out = Some(now);
             let wall = self.os.wall_secs();
-            let (kind, answer) = match way {
-                WayOut::Ask { minutes, reason } => (
+            let (kind, answer) = match (way, unlinked) {
+                // The lock of an account not set up in LiMo takes the
+                // guardian PIN, which opens the account for a while. The
+                // engine has no child for it, so the service answers.
+                (WayOut::Pin(pin, action), Some(account)) => (
+                    "the guardian PIN, on the lock of an account not set up in LiMo,",
+                    self.open.try_pin(&mut self.hub, &account, pin.expose(), action, wall),
+                ),
+                (WayOut::Ask { minutes, reason }, _) => (
                     "a request for more time",
                     match self.engine.ask_for_time(&mut self.hub, session, minutes, &reason, wall) {
                         Ok(request) => Answer::Asked { request },
                         Err(problem) => Answer::Refused { message: problem.to_string() },
                     },
                 ),
-                WayOut::Code(code) => (
+                (WayOut::Code(code), _) => (
                     "a one time code",
                     match self.engine.try_code(&mut self.hub, session, code.expose(), wall) {
                         Ok(outcome) => Answer::Tried { outcome },
                         Err(problem) => Answer::Refused { message: problem.to_string() },
                     },
                 ),
-                WayOut::Pin(pin, action) => (
+                (WayOut::Pin(pin, action), None) => (
                     "the guardian PIN",
                     match self.engine.try_pin(&mut self.hub, session, pin.expose(), action, wall) {
                         Ok(outcome) => Answer::Tried { outcome },
@@ -760,10 +780,27 @@ impl<O: Os> Service<O> {
         }
         let test_cap = self.os.test_cap();
         let present: BTreeSet<u32> = orders.sessions.iter().map(|o| o.session_id).collect();
+        let is_unlinked_lock = |show: &Show| matches!(show, Show::Locked { screen } if screen.why == LockWhy::AccountNotLinked);
+        // Read once, and only when an account not set up is locked.
+        let has_pin = orders.sessions.iter().any(|o| o.child_id.is_none() && is_unlinked_lock(&o.show))
+            && self.hub.has_pin().unwrap_or(false);
 
-        for (order, session) in orders.sessions.into_iter().zip(&facts.sessions) {
+        for (mut order, session) in orders.sessions.into_iter().zip(&facts.sessions) {
             let id = order.session_id;
             let account_id = seen.iter().find(|s| s.session_id == id).map_or("", |s| s.account_id.as_str());
+            // The lock of an account not set up takes the guardian PIN; an
+            // account a guardian opened with it shows nothing until then.
+            let mut unlinked_lock = false;
+            if order.child_id.is_none() && is_unlinked_lock(&order.show) {
+                if self.open.open_until(account_id, wall).is_some() {
+                    order.show = Show::Nothing;
+                    order.helper_needed = false;
+                } else if let Show::Locked { screen } = &mut order.show {
+                    screen.can_use_pin = has_pin;
+                    screen.try_wait_until = self.open.wait_at(wall);
+                    unlinked_lock = true;
+                }
+            }
             // Another account in a session id seen before: start afresh.
             if self.keeps.get(&id).is_some_and(|k| k.account_id != account_id) {
                 self.keeps.remove(&id);
@@ -776,6 +813,7 @@ impl<O: Os> Service<O> {
                 let keep = self.keeps.entry(id).or_insert_with(|| Keep::new(account_id));
                 keep.state = session.state;
                 keep.helper_needed = order.helper_needed;
+                keep.unlinked_lock = unlinked_lock;
                 keep.child_id = order.child_id.clone();
                 match &order.show {
                     Show::TimeLeft { warning: Some(warning), .. } => keep.held = Some(warning.clone()),
