@@ -9,15 +9,21 @@
 //!
 //! - the process that serves it runs in session 0, where only services run
 //!   (`GetNamedPipeServerSessionId`);
-//! - the pipe belongs to LocalSystem, the account LiMo's service runs as
-//!   (the pipe's owner, from its security descriptor);
+//! - the pipe belongs to LocalSystem, the account LiMo's service runs as,
+//!   or to the Administrators group (the pipe's owner, from its security
+//!   descriptor). Windows gives what a LocalSystem process makes to that
+//!   group, not to LocalSystem itself, because the group is the default
+//!   owner in LocalSystem's token: the installed service's door reads back
+//!   as the group's, which is how this was found;
 //! - that process's program file is LiMo's own, in `Program Files\LiMo`
 //!   (`GetNamedPipeServerProcessId`, then `QueryFullProcessImageNameW`).
 //!
 //! The first two are what a program in a child's account, or in any
 //! account that is not an administrator, cannot fake: making a process in
-//! session 0, or a pipe that belongs to LocalSystem, takes an
-//! administrator. The third is checked whenever Windows lets the guardian's
+//! session 0, or a pipe that belongs to LocalSystem or to the
+//! Administrators group, takes an administrator who has said yes to
+//! Windows' own question: until then an administrator's programs may not
+//! make anything in that group's name. The third is checked whenever Windows lets the guardian's
 //! account read the service's program file; when it does not (a standard
 //! account may not be allowed to look into a LocalSystem process), the
 //! first two decide, and the console says so in its log. If one check
@@ -33,6 +39,10 @@ use std::fmt;
 
 /// LocalSystem's security identifier: the account LiMo's service runs as.
 pub const LOCAL_SYSTEM: &str = "S-1-5-18";
+
+/// The Administrators group's security identifier: the owner Windows gives
+/// to what a LocalSystem process makes, unless the process names another.
+pub const ADMINISTRATORS: &str = "S-1-5-32-544";
 
 /// Who must have made the door.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +62,14 @@ impl ServerMustBe {
     pub fn limo_service(program_files: &str) -> ServerMustBe {
         let folder = program_files.trim_end_matches(['\\', '/']);
         ServerMustBe { session: 0, owner: LOCAL_SYSTEM.to_string(), image: format!(r"{folder}\LiMo\limo.exe") }
+    }
+
+    /// True when a pipe that belongs to `owner` can be this server's: the
+    /// account itself, and for LocalSystem the Administrators group too,
+    /// since that is whose name Windows puts on what LocalSystem makes.
+    pub fn owner_fits(&self, owner: &str) -> bool {
+        owner.eq_ignore_ascii_case(&self.owner)
+            || (self.owner.eq_ignore_ascii_case(LOCAL_SYSTEM) && owner.eq_ignore_ascii_case(ADMINISTRATORS))
     }
 }
 
@@ -109,7 +127,7 @@ pub fn check_server(seen: &ServerSeen, must: &ServerMustBe) -> Result<ImageCheck
     if seen.session != Some(must.session) {
         return Err(NotTheService::Session { seen: seen.session });
     }
-    if !seen.owner.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(&must.owner)) {
+    if !seen.owner.as_deref().is_some_and(|o| must.owner_fits(o)) {
         return Err(NotTheService::Owner);
     }
     match seen.image.as_deref() {
@@ -434,6 +452,27 @@ mod tests {
         assert_eq!(check_server(&service_seen(), &must), Ok(ImageCheck::Matched));
         let shouty = ServerSeen { image: Some(r"\\?\C:\PROGRAM FILES\LiMo\LIMO.EXE".to_string()), ..service_seen() };
         assert_eq!(check_server(&shouty, &must), Ok(ImageCheck::Matched));
+    }
+
+    #[test]
+    fn the_installed_service_s_door_belongs_to_the_administrators_group_and_passes() {
+        // As read back from the service installed on a PC: session 0, and
+        // the Administrators group as the pipe's owner.
+        let must = ServerMustBe::limo_service(r"C:\Program Files");
+        let installed = ServerSeen { owner: Some(ADMINISTRATORS.to_string()), ..service_seen() };
+        assert_eq!(check_server(&installed, &must), Ok(ImageCheck::Matched));
+        let unread = ServerSeen { image: None, ..installed.clone() };
+        assert_eq!(check_server(&unread, &must), Ok(ImageCheck::Unreadable));
+        // The group's name opens nothing by itself: the session still decides first.
+        let elsewhere = ServerSeen { session: Some(1), ..installed };
+        assert_eq!(check_server(&elsewhere, &must), Err(NotTheService::Session { seen: Some(1) }));
+        // And it stands in for LocalSystem only: a door that must belong to
+        // another account is not the group's.
+        let own = ServerMustBe { session: 1, owner: "S-1-5-21-1-2-3-1001".to_string(), image: must.image.clone() };
+        assert!(own.owner_fits("S-1-5-21-1-2-3-1001"));
+        assert!(!own.owner_fits(ADMINISTRATORS));
+        // An administrator's account is not the group.
+        assert!(!must.owner_fits("S-1-5-21-1-2-3-1001"));
     }
 
     #[test]
