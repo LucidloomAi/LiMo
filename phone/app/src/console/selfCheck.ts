@@ -94,7 +94,7 @@ function waitFor<T>(what: string, check: () => T | null | undefined | false, ms 
     const tick = () => {
       const v = check();
       if (v) resolve(v);
-      else if (nowMs() > until) reject(new Error(`timed out waiting for ${what}`));
+      else if (nowMs() > until) reject(new Error(`timed out waiting for ${what}; the line under the field says "${text('message')}"`));
       else setTimeout(tick, 10);
     };
     tick();
@@ -149,7 +149,9 @@ async function run(): Promise<void> {
 
   if (!done.has('signed_in')) {
     await report('js_start', `href=${location.href} bundle_ran_at_page_ms=${moduleMs} page_guard=${pageGuardOn() ? 'on' : 'off'}`);
-    await waitFor('the sign in form, after the door answered about', () => el('password'));
+    // The field is drawn while the door's first answer is on its way, with
+    // the button switched off: the form is ready once the button is on.
+    await waitFor('the sign in form, after the door answered about', () => el('password') && el('open')?.getAttribute('aria-disabled') !== 'true');
     if (document.fonts) await document.fonts.ready;
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
     await report(
@@ -163,6 +165,9 @@ async function run(): Promise<void> {
     const wrong = await waitFor('the wrong password line', () => (text('message').startsWith('That password') ? text('message') : null));
     await report('wrong_password', `message="${wrong}" field_after="${(el('password') as HTMLInputElement | null)?.value ?? '?'}" click_to_screen_ms=${Math.round(nowMs() - t0)}`);
 
+    // The door takes one password a second from a connection, and answers
+    // a second one sooner "busy": a person types slower than that.
+    await new Promise((r) => setTimeout(r, 1100));
     type('password', s.password);
     t0 = nowMs();
     el('open')?.click();
@@ -182,6 +187,11 @@ async function run(): Promise<void> {
       `beforeprint=${seen.beforeprint} contextmenu_reached_page=${seen.contextmenu} keys_reached_page=[${seen.keydown.join(' ')}] still_signed_in=${el('signed-in') ? 'yes' : 'no'}`,
     );
 
+    // "More info": the console's one way out. The self check opens nothing;
+    // the console says what it would have opened.
+    const more = await host.request('console.moreInfo', {});
+    await report('more_info', `answer=${JSON.stringify(more)}`);
+
     await ask({ action: 'use', door: 'child' });
     await report('reload_requested', 'to the door that marks this account as a child’s');
     location.reload();
@@ -200,5 +210,14 @@ async function run(): Promise<void> {
   if (!done.has('not_the_service')) {
     await waitFor('the words for a door that is not LiMo’s service', () => (text('message').includes('not LiMo') ? text('message') : null));
     await report('not_the_service', `message="${text('message')}" button_off=${el('open')?.getAttribute('aria-disabled') ?? '?'} ${csp()}`);
+    await ask({ action: 'use', door: 'absent' });
+    await report('reload_requested', 'to a door nobody serves: the service not running');
+    location.reload();
+    return;
+  }
+
+  if (!done.has('not_running')) {
+    await waitFor('the words for a service that is not running', () => (text('message').includes('not running') ? text('message') : null));
+    await report('not_running', `message="${text('message')}" field_shown=${el('password') ? 'yes' : 'no'} ${csp()}`);
   }
 }

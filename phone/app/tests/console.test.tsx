@@ -1,7 +1,7 @@
 // The guardian console's page: the sign in (G0) against a host of the
-// test's own, the reader of the door's answers, the console's place in the
-// host seam, the page's guard against a browser's keys, and what the
-// console's entry reaches.
+// test's own, the reader of the door's replies as the console hands them on,
+// the console's place in the host seam, the page's guard against a browser's
+// keys, and what the console's entry reaches.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,12 +9,12 @@ import path from 'node:path';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
+import { SeamError } from '../src/childSeam';
 import { isBrowserKey, type KeyPress } from '../src/console/pageGuard';
 import { SignIn } from '../src/guardian/SignIn';
 import * as W from '../src/guardian/words';
 import { type DoorOutcome, type GuardianHost, readDoorAnswer, readDoorProblem } from '../src/guardianSeam';
 import { guardianHost, host } from '../src/host';
-import { SeamError } from '../src/childSeam';
 import { inPhone, textsInOrder } from './render';
 
 /** A door that answers about with `about`, and each sign in with the next of `answers`. */
@@ -25,15 +25,17 @@ function door(about: DoorOutcome, answers: DoorOutcome[] = []): GuardianHost & {
     about: async () => about,
     signIn: async (password) => {
       typed.push(password);
-      return answers.shift() ?? { kind: 'problem', code: 'broken', words: 'No more answers.' };
+      return answers.shift() ?? { kind: 'problem', code: 'lost', words: 'No more answers.' };
     },
   };
 }
 
-const FAMILY: DoorOutcome = { kind: 'about', family: true };
+const OPEN: DoorOutcome = { kind: 'done', value: { version: '0.1.0', protocol: 1, pc_name: 'Family PC' } };
+const WRONG = 'That password is not right. 4 more tries before a wait.';
+const ASHA = 'LiMo’s settings cannot be opened from Asha’s account. A guardian opens them from their own.';
 
 function renderSignIn(host: GuardianHost) {
-  return render(inPhone(<SignIn host={host} timeOfDay={() => '18:42'} />));
+  return render(inPhone(<SignIn host={host} />));
 }
 
 async function typeAndOpen(words: string) {
@@ -45,8 +47,8 @@ async function typeAndOpen(words: string) {
 }
 
 describe('the sign in (G0)', () => {
-  it('asks who it is first, then shows one password field, the button, and the maker’s mark last', async () => {
-    renderSignIn(door(FAMILY));
+  it('asks the door first, then shows one password field, the button, and the maker’s mark last', async () => {
+    renderSignIn(door(OPEN));
     expect(await screen.findByText(W.signIn.heading)).toBeOnTheScreen();
     expect(screen.getByLabelText(W.signIn.field)).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: W.signIn.button })).toBeOnTheScreen();
@@ -56,25 +58,27 @@ describe('the sign in (G0)', () => {
     expect(texts[texts.length - 1]).toBe('LucidLoom AI');
   });
 
-  it('says how many tries are left after a wrong password, and empties the field', async () => {
-    const d = door(FAMILY, [{ kind: 'wrong', triesBeforeWait: 3 }]);
+  it('shows the door’s own words for a wrong password, and empties the field', async () => {
+    const d = door(OPEN, [{ kind: 'wrong', triesBeforeWait: 4, words: WRONG }]);
     renderSignIn(d);
     await typeAndOpen('not it');
-    expect(await screen.findByText('That password is not right. 3 more tries before a wait.')).toBeOnTheScreen();
+    expect(await screen.findByText(WRONG)).toBeOnTheScreen();
     expect(d.typed).toEqual(['not it']);
     expect(screen.getByTestId('password').props.value).toBe('');
   });
 
-  it('words the last free try, and a wait with the time it ends', async () => {
-    expect(W.signIn.wrong(1)).toBe('That password is not right. 1 more try before a wait.');
-    expect(W.signIn.wrong(0)).toBe('That password is not right. The next wrong try starts a wait.');
-    renderSignIn(door(FAMILY, [{ kind: 'wait', until: 1_800_000_000 }]));
+  it('shows a wait, and a door that is busy, in the door’s words, and keeps the field', async () => {
+    renderSignIn(door(OPEN, [{ kind: 'wait', until: 1_800_000_000, words: 'Too many wrong tries. Try again at 18:42.' }]));
     await typeAndOpen('no');
     expect(await screen.findByText('Too many wrong tries. Try again at 18:42.')).toBeOnTheScreen();
+    renderSignIn(door(OPEN, [{ kind: 'not-done', reason: 'busy', words: 'One thing at a time: try again in a moment.' }]));
+    await typeAndOpen('no');
+    expect(await screen.findByText('One thing at a time: try again in a moment.')).toBeOnTheScreen();
+    expect(screen.getByTestId('password')).toBeOnTheScreen();
   });
 
   it('opens on the right password', async () => {
-    renderSignIn(door(FAMILY, [{ kind: 'signed-in' }]));
+    renderSignIn(door(OPEN, [{ kind: 'done', value: {} }]));
     await typeAndOpen('Mira’s long sentence');
     expect(await screen.findByTestId('signed-in')).toBeOnTheScreen();
     expect(screen.getByText(W.signedIn.heading)).toBeOnTheScreen();
@@ -82,51 +86,82 @@ describe('the sign in (G0)', () => {
   });
 
   it('asks for the password before sending nothing', async () => {
-    const d = door(FAMILY);
+    const d = door(OPEN);
     renderSignIn(d);
     fireEvent.press(await screen.findByTestId('open'));
     expect(await screen.findByText(W.signIn.empty)).toBeOnTheScreen();
     expect(d.typed).toEqual([]);
   });
 
-  it('tells a child’s account at once, with no password field', async () => {
-    renderSignIn(door({ kind: 'child-account', child: 'Asha' }));
-    expect(
-      await screen.findByText('LiMo’s settings cannot be opened from Asha’s account. A guardian opens them from their own.'),
-    ).toBeOnTheScreen();
+  it('tells a child’s account at once, in the door’s words, with no password field', async () => {
+    renderSignIn(door({ kind: 'refused', words: ASHA }));
+    expect(await screen.findByText(ASHA)).toBeOnTheScreen();
     expect(screen.queryByTestId('password')).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('says plainly when the door cannot be asked, and offers nothing to press', async () => {
-    renderSignIn(door({ kind: 'problem', code: 'not_running', words: 'LiMo’s service is not running on this PC, so its settings cannot open.' }));
-    expect(await screen.findByText('LiMo’s service is not running on this PC, so its settings cannot open.')).toBeOnTheScreen();
+  it('a refusal after a sign in also leaves no field', async () => {
+    renderSignIn(door(OPEN, [{ kind: 'refused', words: ASHA }]));
+    await typeAndOpen('Mira’s long sentence');
+    expect(await screen.findByText(ASHA)).toBeOnTheScreen();
+    expect(screen.queryByTestId('password')).toBeNull();
+  });
+
+  it('says plainly when the service is absent or lost, and offers nothing to press until it answers', async () => {
+    const absent = 'LiMo’s service is not running on this PC, so its settings cannot open.';
+    renderSignIn(door({ kind: 'problem', code: 'not_running', words: absent }));
+    expect(await screen.findByText(absent)).toBeOnTheScreen();
     expect(screen.getByTestId('open').props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
-    renderSignIn(door({ kind: 'unknown-account' }));
-    expect(await screen.findByText(W.notForThisAccount.unknown)).toBeOnTheScreen();
+    const lost = 'LiMo’s service stopped answering. Try again: the console asks it afresh, and you sign in again.';
+    renderSignIn(door(OPEN, [{ kind: 'problem', code: 'lost', words: lost }]));
+    await typeAndOpen('Mira’s long sentence');
+    expect(await screen.findByText(lost)).toBeOnTheScreen();
+    expect(screen.getByTestId('password')).toBeOnTheScreen();
   });
 
   it('keeps three lines of room under the field, so a message moves nothing', async () => {
-    renderSignIn(door(FAMILY));
+    renderSignIn(door(OPEN));
     const room = await screen.findByTestId('message-room');
     expect(StyleSheet.flatten(room.props.style)).toEqual(expect.objectContaining({ minHeight: 60 }));
   });
 });
 
-describe('the door’s answers', () => {
-  it('reads each answer the door gives', () => {
-    expect(readDoorAnswer({ answer: 'about', service: 'x', version: '0.1.0', family: false })).toEqual({ kind: 'about', family: false });
-    expect(readDoorAnswer({ answer: 'signed_in' })).toEqual({ kind: 'signed-in' });
-    expect(readDoorAnswer({ answer: 'wrong_password', tries_before_wait: 2 })).toEqual({ kind: 'wrong', triesBeforeWait: 2 });
-    expect(readDoorAnswer({ answer: 'must_wait', until: 1_800_000_000 })).toEqual({ kind: 'wait', until: 1_800_000_000 });
-    expect(readDoorAnswer({ answer: 'refused', why: { refusal: 'child_account', child: 'Asha' } })).toEqual({ kind: 'child-account', child: 'Asha' });
-    expect(readDoorAnswer({ answer: 'refused', why: { refusal: 'unknown_account' } })).toEqual({ kind: 'unknown-account' });
+describe('the door’s replies', () => {
+  it('reads each reply the console hands on', () => {
+    expect(readDoorAnswer({ outcome: 'done', value: { has_family: true } })).toEqual({ kind: 'done', value: { has_family: true } });
+    expect(readDoorAnswer({ outcome: 'done', value: {} })).toEqual({ kind: 'done', value: {} });
+    expect(readDoorAnswer({ outcome: 'problem', problem: { kind: 'wrong_password', message: WRONG, tries_before_wait: 4 } })).toEqual({
+      kind: 'wrong',
+      triesBeforeWait: 4,
+      words: WRONG,
+    });
+    expect(readDoorAnswer({ outcome: 'problem', problem: { kind: 'must_wait', message: 'Wait.', wait_until: 1_800_000_000 } })).toEqual({
+      kind: 'wait',
+      until: 1_800_000_000,
+      words: 'Wait.',
+    });
+    expect(readDoorAnswer({ outcome: 'problem', problem: { kind: 'signed_out', message: 'Sign in.' } })).toEqual({
+      kind: 'not-done',
+      reason: 'signed_out',
+      words: 'Sign in.',
+    });
+    expect(readDoorAnswer({ outcome: 'refused', message: ASHA })).toEqual({ kind: 'refused', words: ASHA });
   });
 
   it('refuses a shape it does not know, in one place', () => {
-    for (const bad of [null, [], 'signed_in', { answer: 'open_sesame' }, { answer: 'wrong_password', tries_before_wait: -1 },
-      { answer: 'wrong_password', tries_before_wait: 1.5 }, { answer: 'refused', why: { refusal: 'child_account', child: '' } },
-      { answer: 'refused', why: { refusal: 'later' } }, { answer: 'about' }]) {
+    for (const bad of [
+      null,
+      [],
+      'done',
+      { outcome: 'open_sesame' },
+      { outcome: 'done' },
+      { outcome: 'refused', message: '' },
+      { outcome: 'problem', problem: { kind: 'wrong_password', message: WRONG } },
+      { outcome: 'problem', problem: { kind: 'wrong_password', message: WRONG, tries_before_wait: 1.5 } },
+      { outcome: 'problem', problem: { kind: 'must_wait', message: 'Wait.' } },
+      { outcome: 'problem', problem: { kind: '', message: 'x' } },
+      { outcome: 'problem', problem: { kind: 'busy' } },
+    ]) {
       expect(() => readDoorAnswer(bad)).toThrow(SeamError);
     }
   });
@@ -154,20 +189,23 @@ describe('the console in the host seam', () => {
     (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = {
       invoke: async (command: string, args: Record<string, unknown>) => {
         calls.push({ command, args });
-        if (args.name === 'about') return { answer: 'about', service: 's', version: 'v', family: true };
+        if (args.name === 'about') return { outcome: 'done', value: { version: '0.1.0' } };
+        if (args.name === 'more_info') return { opened: false, address: 'https://lucidloom.ai' };
         throw { code: 'not_the_service', words: 'Something that is not LiMo’s service answered.' };
       },
     };
     expect(host.place()).toBe('console');
-    expect(await guardianHost.about()).toEqual({ kind: 'about', family: true });
+    expect(await guardianHost.about()).toEqual({ kind: 'done', value: { version: '0.1.0' } });
     expect(await guardianHost.signIn('pw')).toEqual({ kind: 'problem', code: 'not_the_service', words: 'Something that is not LiMo’s service answered.' });
+    expect(await host.request('console.moreInfo', {})).toEqual({ opened: false, address: 'https://lucidloom.ai' });
     expect(calls).toEqual([
       { command: 'request', args: { name: 'about', args: {} } },
       { command: 'request', args: { name: 'sign_in', args: { password: 'pw' } } },
+      { command: 'request', args: { name: 'more_info', args: {} } },
     ]);
   });
 
-  it('turns an answer it cannot read into words, never a sign in', async () => {
+  it('turns a reply it cannot read into words, never a sign in', async () => {
     (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = { invoke: async () => ({ answer: 'signed_in_maybe' }) };
     const outcome = await guardianHost.signIn('pw');
     expect(outcome.kind).toBe('problem');

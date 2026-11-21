@@ -30,8 +30,10 @@ pub const STEPS: &[&str] = &[
     "signed_in",
     "ready_for_keys",
     "keys",
+    "more_info",
     "child_account",
     "not_the_service",
+    "not_running",
 ];
 
 /// The steps of a control run (keys left on): the run ends after the key
@@ -134,7 +136,7 @@ impl SelfCheck {
         self.inner.lock().map(|i| i.page_loads).unwrap_or(0)
     }
 
-    /// What the page asks for: the steps so far, the stand in's password,
+    /// What the page asks for: the steps so far, the self check's door's password,
     /// and the key probe's state.
     pub fn state(&self, password: &str) -> Value {
         let (reported, probe) = self.inner.lock().map(|i| (i.reported.clone(), i.probe)).unwrap_or_default();

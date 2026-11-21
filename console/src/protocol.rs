@@ -1,20 +1,31 @@
 //! The console's door: what the console and LiMo's service say to each
-//! other, and how it travels.
+//! other, and how it travels. The service's side is LiMo for Windows'
+//! `console` module (`../windows/README.md`, "The console's door"); this is
+//! the console's, written to the same wire, and tested against the
+//! service's own reader and writer (`real_door_tests.rs`).
 //!
 //! The door is the named pipe [`DOOR_PIPE`], which only the service makes.
-//! Each message travels as a frame, as on the helper channel of LiMo for
-//! Windows: the version of this protocol (2 bytes), the length of what
-//! follows (4 bytes), both little endian, then that many bytes of JSON. A
-//! frame longer than [`MAX_MESSAGE_BYTES`] is refused from its header alone,
-//! before any of it is kept.
+//! Each message is a frame, as on LiMo for Windows' helper channel: the
+//! protocol's version (2 bytes), the length of what follows (4 bytes), both
+//! little endian, then that many bytes of JSON; a frame over
+//! [`MAX_MESSAGE_BYTES`], or of another version, is refused from its header
+//! alone.
 //!
-//! A guardian's password travels as a [`Secret`], which never shows in
-//! `Debug` output and is wiped from memory when dropped; the buffers that
-//! held its frame are wiped too. No error about a frame quotes any part of
+//! The console says hello first, `{"say":"hello","protocol":1}`, and is
+//! answered `{"say":"hello","protocol":1,"version":"0.1.0"}`, or
+//! `{"say":"refused","message":"..."}` and the connection is closed. Then
+//! requests, each with a number of the console's own:
+//! `{"say":"request","id":7,"request":{"name":"lock_now","args":{...}}}`,
+//! answered `{"say":"answer","id":7,"reply":{...}}`, the reply `{"outcome":
+//! "done","value":...}` or `{"outcome":"problem","problem":{"kind":...,
+//! "message":...}}`.
+//!
+//! The console forwards a page's request by its name and its arguments, and
+//! knows no request by heart: the service reads each, and answers one it
+//! cannot read with `unknown_request`. What the console holds of a request
+//! is wiped once its frame is written: every string in its arguments (a
+//! password, a PIN), and the frame. No error about a frame quotes any part of
 //! it.
-//!
-//! Only two requests exist yet: `about` and `sign_in`. A request the console
-//! does not know is refused before anything is sent.
 
 #![forbid(unsafe_code)]
 
@@ -22,22 +33,25 @@ use std::fmt;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use zeroize::{Zeroize, Zeroizing};
 
 /// The door's name. Only LiMo's service makes it; the console checks who
 /// did before it says anything (see [`crate::door`]).
 pub const DOOR_PIPE: &str = r"\\.\pipe\limo.console";
 
-/// The version of this protocol. A frame of any other version closes the
-/// connection.
+/// The version of the console's protocol. A frame of any other version
+/// closes the connection.
 pub const PROTOCOL_VERSION: u16 = 1;
 
 /// The bytes in front of each message: the version and the length.
 pub const HEADER_BYTES: usize = 6;
 
-/// The longest message, in bytes of JSON: 1 MiB, because a phone's list of
-/// apps with their names is long.
+/// The longest message either way, in bytes of JSON: 1 MiB.
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+
+/// The longest request name the console forwards.
+pub const MAX_NAME_CHARS: usize = 40;
 
 /// The most a [`Decoder`] ever holds: one whole frame and the start of the
 /// next.
@@ -46,127 +60,126 @@ const MAX_BUFFERED: usize = 2 * (HEADER_BYTES + MAX_MESSAGE_BYTES);
 /// One frame, ready to write. Wiped from memory when dropped.
 pub type Frame = Zeroizing<Vec<u8>>;
 
-/// A password as it was typed. Its `Debug` output hides it, and it is wiped
-/// from memory when dropped.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Secret(String);
-
-impl Secret {
-    /// Wraps what was typed.
-    pub fn new(typed: String) -> Secret {
-        Secret(typed)
-    }
-
-    /// What was typed, for the one comparison that needs it.
-    pub fn expose(&self) -> &str {
-        &self.0
-    }
+/// The console's hello: the first message of a connection.
+pub fn hello() -> Value {
+    serde_json::json!({ "say": "hello", "protocol": PROTOCOL_VERSION })
 }
 
-impl Drop for Secret {
-    fn drop(&mut self) {
-        self.0.zeroize();
-    }
+/// A request as the page asks it: a name and its arguments, checked for
+/// their shape only. The service decides what each name means.
+#[derive(PartialEq)]
+pub struct PageRequest {
+    name: String,
+    args: Option<Map<String, Value>>,
 }
 
-impl fmt::Debug for Secret {
+impl fmt::Debug for PageRequest {
+    // Never the arguments: a password may be among them.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Secret(hidden)")
+        f.debug_struct("PageRequest").field("name", &self.name).finish_non_exhaustive()
     }
 }
 
-/// What the console asks the door.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Request {
-    /// What answers, and whether a family exists yet. Asked first, so a
-    /// child's account is told at once that the settings are not for it.
-    About,
-    /// A guardian signs in with the family's password.
-    SignIn {
-        /// As typed.
-        password: Secret,
-    },
-}
-
-impl Request {
-    /// The request a page asked for by its name and its arguments, or why
-    /// there is none. Nothing about the arguments' values is quoted.
-    pub fn from_page(name: &str, args: &serde_json::Value) -> Result<Request, String> {
-        let mut object = match args {
-            serde_json::Value::Object(map) => map.clone(),
-            serde_json::Value::Null => serde_json::Map::new(),
-            _ => return Err(format!("the arguments of {name} are not an object")),
+impl PageRequest {
+    /// The request a page asked for, or why there is none. A name is 1 to
+    /// [`MAX_NAME_CHARS`] of `a` to `z` and `_`; the arguments are an object,
+    /// or nothing. Nothing about the arguments' values is ever quoted.
+    pub fn from_page(name: &str, args: Value) -> Result<PageRequest, String> {
+        let shaped = !name.is_empty()
+            && name.chars().count() <= MAX_NAME_CHARS
+            && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+            && !name.starts_with('_');
+        if !shaped {
+            return Err("that is not the name of a request".to_string());
+        }
+        let args = match args {
+            Value::Null => None,
+            Value::Object(map) if map.is_empty() => None,
+            Value::Object(map) => Some(map),
+            mut other => {
+                wipe(&mut other);
+                return Err(format!("the arguments of {name} are not an object"));
+            }
         };
-        if object.contains_key("request") {
-            return Err(format!("the arguments of {name} hold a field named request"));
-        }
-        object.insert("request".to_string(), serde_json::Value::String(name.to_string()));
-        let value = serde_json::Value::Object(object);
-        match serde_json::from_value::<Request>(value) {
-            Ok(request) => Ok(request),
-            Err(_) if !KNOWN.contains(&name) => Err(format!("the console has no request named {name}")),
-            Err(_) => Err(format!("the arguments of {name} are not the ones it takes")),
-        }
+        Ok(PageRequest { name: name.to_string(), args })
     }
 
     /// The request's name, for the log. Never its arguments.
-    pub fn name(&self) -> &'static str {
-        match self {
-            Request::About => "about",
-            Request::SignIn { .. } => "sign_in",
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The whole message, with the console's number for it, as a frame. The
+    /// request's arguments are wiped as they are written, whatever happens.
+    pub fn into_frame(mut self, id: u32) -> Result<Frame, FrameProblem> {
+        let mut request = Map::new();
+        request.insert("name".to_string(), Value::String(std::mem::take(&mut self.name)));
+        if let Some(args) = self.args.take() {
+            request.insert("args".to_string(), Value::Object(args));
+        }
+        let mut message = Value::Object(Map::from_iter([
+            ("say".to_string(), Value::String("request".to_string())),
+            ("id".to_string(), Value::from(id)),
+            ("request".to_string(), Value::Object(request)),
+        ]));
+        let frame = encode(&message);
+        wipe(&mut message);
+        frame
+    }
+}
+
+impl Drop for PageRequest {
+    fn drop(&mut self) {
+        if let Some(args) = self.args.as_mut() {
+            for value in args.values_mut() {
+                wipe(value);
+            }
         }
     }
 }
 
-/// Every request's name.
-const KNOWN: [&str; 2] = ["about", "sign_in"];
-
-/// What the door answers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "answer", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Answer {
-    /// What answered.
-    About {
-        /// The program behind the door, such as "LiMo for Windows".
-        service: String,
-        /// Its version.
-        version: String,
-        /// Whether a family has been made on this PC.
-        family: bool,
-    },
-    /// The password was right: this connection is signed in.
-    SignedIn,
-    /// The password was not right.
-    WrongPassword {
-        /// How many more wrong tries before a wait.
-        tries_before_wait: u32,
-    },
-    /// Too many wrong tries: no password is looked at until then.
-    MustWait {
-        /// Until when, in seconds since 1970 (UTC).
-        until: i64,
-    },
-    /// The door will not do this for this connection.
-    Refused {
-        /// Why.
-        why: Refusal,
-    },
+/// Wipes every string in a JSON value, at any depth, and every key.
+pub fn wipe(value: &mut Value) {
+    match value {
+        Value::String(s) => s.zeroize(),
+        Value::Array(items) => items.iter_mut().for_each(wipe),
+        Value::Object(map) => {
+            let taken = std::mem::take(map);
+            for (mut key, mut v) in taken {
+                key.zeroize();
+                wipe(&mut v);
+            }
+        }
+        _ => {}
+    }
 }
 
-/// Why the door refused.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "refusal", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Refusal {
-    /// The Windows account the console runs in is a child's: LiMo's
-    /// settings are never opened from it.
-    ChildAccount {
-        /// The child's name, as the family calls the child.
-        child: String,
+/// What the service says to the console.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "say", rename_all = "snake_case")]
+pub enum FromDoor {
+    /// The answer to hello.
+    Hello {
+        /// The protocol's version.
+        protocol: u16,
+        /// LiMo for Windows' version.
+        version: String,
     },
-    /// The door could not tell which account the console runs in.
-    UnknownAccount,
+    /// The door does not open for this connection, in a sentence for the
+    /// guardian's screen; the connection is closed after it.
+    Refused {
+        /// Why.
+        message: String,
+    },
+    /// The answer to a request.
+    Answer {
+        /// The console's number for the request.
+        id: u32,
+        /// What became of it: `{"outcome":"done","value":...}` or
+        /// `{"outcome":"problem","problem":{...}}`, handed to the page as
+        /// it came.
+        reply: Value,
+    },
 }
 
 /// Why a connection was closed. No variant holds any part of what was sent.
@@ -202,11 +215,11 @@ impl fmt::Display for FrameProblem {
                 write!(f, "it spoke version {got} of the door, and this console speaks version {PROTOCOL_VERSION}")
             }
             FrameProblem::TooBig { bytes } => {
-                write!(f, "it sent a message of {bytes} bytes, more than the {MAX_MESSAGE_BYTES} a message may have")
+                write!(f, "a message of {bytes} bytes, more than the {MAX_MESSAGE_BYTES} a message may have")
             }
             FrameProblem::Malformed { line, column } => write!(
                 f,
-                "it sent a message the console cannot read (the JSON stops making sense at line {line}, column {column})"
+                "a message the console cannot read (the JSON stops making sense at line {line}, column {column})"
             ),
             FrameProblem::CannotWrite => write!(f, "a message could not be written"),
         }
@@ -234,7 +247,8 @@ pub fn encode<T: Serialize>(message: &T) -> Result<Frame, FrameProblem> {
 
 /// Reads frames out of the bytes a pipe gives, in whatever pieces they come.
 ///
-/// Every frame read is wiped from its buffer, and all of it when it is
+/// Its buffer is made at its full size once, so it never grows and leaves a
+/// copy behind; every frame read is wiped from it, and all of it when it is
 /// dropped. After it returns a problem it must not be used again: the
 /// connection is closed.
 pub struct Decoder {
@@ -254,8 +268,7 @@ impl Default for Decoder {
 }
 
 impl Decoder {
-    /// An empty decoder. Its buffer is made at its full size once, so it
-    /// never grows and leaves a copy behind.
+    /// An empty decoder.
     pub fn new() -> Decoder {
         Decoder { buffer: Zeroizing::new(Vec::with_capacity(MAX_BUFFERED)) }
     }
@@ -320,68 +333,73 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn frame_of(json: &str) -> Vec<u8> {
-        let mut bytes = PROTOCOL_VERSION.to_le_bytes().to_vec();
-        bytes.extend_from_slice(&(json.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(json.as_bytes());
-        bytes
+    fn body(frame: &[u8]) -> Value {
+        serde_json::from_slice(&frame[HEADER_BYTES..]).unwrap()
     }
 
     #[test]
-    fn a_request_crosses_whole_and_in_pieces() {
-        let sign_in = Request::SignIn { password: Secret::new("Mira's long sentence".to_string()) };
-        let frame = encode(&sign_in).unwrap();
+    fn a_page_s_request_goes_on_the_wire_as_the_service_reads_it() {
+        let r = PageRequest::from_page("sign_in", json!({ "password": "Mira's long sentence" })).unwrap();
+        assert_eq!(r.name(), "sign_in");
+        let frame = r.into_frame(7).unwrap();
         assert_eq!(u16::from_le_bytes([frame[0], frame[1]]), PROTOCOL_VERSION);
-        let mut decoder = Decoder::new();
-        for piece in frame.chunks(3) {
-            assert_eq!(decoder.next_message::<Request>().unwrap(), None);
-            decoder.push(piece).unwrap();
-        }
-        assert_eq!(decoder.next_message::<Request>().unwrap(), Some(sign_in));
-        assert_eq!(decoder.waiting(), 0);
-
-        let two = [encode(&Request::About).unwrap().to_vec(), encode(&Answer::SignedIn).unwrap().to_vec()].concat();
-        let mut decoder = Decoder::new();
-        decoder.push(&two).unwrap();
-        assert_eq!(decoder.next_message::<Request>().unwrap(), Some(Request::About));
-        assert_eq!(decoder.next_message::<Answer>().unwrap(), Some(Answer::SignedIn));
+        assert_eq!(
+            body(&frame),
+            json!({ "say": "request", "id": 7, "request": { "name": "sign_in", "args": { "password": "Mira's long sentence" } } })
+        );
+        // No arguments, or empty ones: none on the wire, as the service
+        // reads a request that takes none.
+        let today = PageRequest::from_page("family_today", json!({})).unwrap().into_frame(8).unwrap();
+        assert_eq!(body(&today), json!({ "say": "request", "id": 8, "request": { "name": "family_today" } }));
+        let about = PageRequest::from_page("about", Value::Null).unwrap().into_frame(9).unwrap();
+        assert_eq!(body(&about), json!({ "say": "request", "id": 9, "request": { "name": "about" } }));
+        assert_eq!(body(&encode(&hello()).unwrap()), json!({ "say": "hello", "protocol": 1 }));
     }
 
     #[test]
-    fn the_wire_looks_as_the_service_will_read_it() {
-        let text = String::from_utf8(encode(&Request::SignIn { password: Secret::new("x".into()) }).unwrap()[HEADER_BYTES..].to_vec()).unwrap();
-        assert_eq!(text, r#"{"request":"sign_in","password":"x"}"#);
-        let text = String::from_utf8(
-            encode(&Answer::Refused { why: Refusal::ChildAccount { child: "Asha".into() } }).unwrap()[HEADER_BYTES..].to_vec(),
-        )
-        .unwrap();
-        assert_eq!(text, r#"{"answer":"refused","why":{"refusal":"child_account","child":"Asha"}}"#);
+    fn only_a_name_of_the_right_shape_and_an_object_of_arguments_are_forwarded() {
+        for bad in ["", "Sign_in", "sign-in", "sign in", "_x", "../x", "a.b", "é", &"a".repeat(41)] {
+            assert!(PageRequest::from_page(bad, Value::Null).is_err(), "{bad:?}");
+        }
+        assert!(PageRequest::from_page(&"a".repeat(40), Value::Null).is_ok());
+        let problem = PageRequest::from_page("sign_in", json!(["the secret words"])).unwrap_err();
+        assert!(!problem.contains("secret"), "{problem}");
+        assert!(PageRequest::from_page("sign_in", json!("x")).is_err());
     }
 
     #[test]
     fn a_password_never_shows_in_debug_output() {
-        let request = Request::SignIn { password: Secret::new("Mira's long sentence".to_string()) };
-        let shown = format!("{request:?}");
-        assert!(!shown.contains("Mira"), "{shown}");
-        assert!(shown.contains("Secret(hidden)"), "{shown}");
+        let r = PageRequest::from_page("sign_in", json!({ "password": "Mira's long sentence" })).unwrap();
+        let shown = format!("{r:?}");
+        assert!(shown.contains("sign_in") && !shown.contains("Mira"), "{shown}");
     }
 
     #[test]
-    fn a_page_asks_by_name_and_only_for_what_exists() {
-        assert_eq!(Request::from_page("about", &json!({})).unwrap(), Request::About);
-        assert_eq!(Request::from_page("about", &serde_json::Value::Null).unwrap(), Request::About);
-        assert_eq!(
-            Request::from_page("sign_in", &json!({ "password": "pw" })).unwrap(),
-            Request::SignIn { password: Secret::new("pw".into()) }
-        );
-        assert_eq!(Request::from_page("delete_family", &json!({})).unwrap_err(), "the console has no request named delete_family");
-        let wrong = Request::from_page("sign_in", &json!({ "password": 5 })).unwrap_err();
-        assert_eq!(wrong, "the arguments of sign_in are not the ones it takes");
-        let extra = Request::from_page("sign_in", &json!({ "password": "secret words", "more": 1 })).unwrap_err();
-        assert!(!extra.contains("secret words"), "{extra}");
-        assert!(Request::from_page("about", &json!({ "request": "sign_in" })).is_err());
-        assert!(Request::from_page("about", &json!([1])).is_err());
-        assert_eq!(Request::SignIn { password: Secret::new("p".into()) }.name(), "sign_in");
+    fn wiping_reaches_every_string_at_any_depth() {
+        let mut v = json!({ "old": "one", "new": ["two", { "deep": "three" }], "n": 4 });
+        wipe(&mut v);
+        assert_eq!(v, json!({}));
+        let mut s = json!("four");
+        wipe(&mut s);
+        assert_eq!(s, json!(""));
+    }
+
+    #[test]
+    fn the_door_s_answers_read() {
+        let mut decoder = Decoder::new();
+        for json in [
+            json!({ "say": "hello", "protocol": 1, "version": "0.1.0" }),
+            json!({ "say": "refused", "message": "LiMo's settings cannot be opened from Asha's account. A guardian opens them from their own." }),
+            json!({ "say": "answer", "id": 3, "reply": { "outcome": "problem", "problem": { "kind": "wrong_password", "message": "x", "tries_before_wait": 3 } } }),
+        ] {
+            decoder.push(&encode(&json).unwrap()).unwrap();
+        }
+        assert_eq!(decoder.next_message::<FromDoor>().unwrap(), Some(FromDoor::Hello { protocol: 1, version: "0.1.0".into() }));
+        assert!(matches!(decoder.next_message::<FromDoor>().unwrap(), Some(FromDoor::Refused { .. })));
+        match decoder.next_message::<FromDoor>().unwrap() {
+            Some(FromDoor::Answer { id: 3, reply }) => assert_eq!(reply["problem"]["tries_before_wait"], 3),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
@@ -390,41 +408,35 @@ mod tests {
         bytes.extend_from_slice(&3u32.to_le_bytes());
         let mut decoder = Decoder::new();
         decoder.push(&bytes).unwrap();
-        assert_eq!(decoder.next_message::<Request>(), Err(FrameProblem::WrongVersion { got: 2 }));
+        assert_eq!(decoder.next_message::<FromDoor>(), Err(FrameProblem::WrongVersion { got: 2 }));
 
         let mut header = PROTOCOL_VERSION.to_le_bytes().to_vec();
         header.extend_from_slice(&((MAX_MESSAGE_BYTES as u32) + 1).to_le_bytes());
         let mut decoder = Decoder::new();
         decoder.push(&header).unwrap();
-        assert_eq!(decoder.next_message::<Request>(), Err(FrameProblem::TooBig { bytes: MAX_MESSAGE_BYTES + 1 }));
+        assert_eq!(decoder.next_message::<FromDoor>(), Err(FrameProblem::TooBig { bytes: MAX_MESSAGE_BYTES + 1 }));
 
         let mut decoder = Decoder::new();
         assert!(decoder.push(&vec![0u8; MAX_BUFFERED + 1]).is_err());
     }
 
     #[test]
-    fn a_malformed_message_is_refused_without_quoting_it() {
+    fn a_message_that_is_not_the_door_s_is_refused_without_quoting_it() {
         let mut decoder = Decoder::new();
-        decoder.push(&frame_of(r#"{"request":"sign_in","password":"hunter two","x":1}"#)).unwrap();
-        let problem = decoder.next_message::<Request>().unwrap_err();
+        decoder.push(&encode(&json!({ "say": "welcome", "secret": "hunter two" })).unwrap()).unwrap();
+        let problem = decoder.next_message::<FromDoor>().unwrap_err();
         assert!(matches!(problem, FrameProblem::Malformed { .. }));
         assert!(!problem.to_string().contains("hunter"), "{problem}");
-
-        let mut decoder = Decoder::new();
-        decoder.push(&frame_of(r#"{"request":"open_everything"}"#)).unwrap();
-        assert!(matches!(decoder.next_message::<Request>(), Err(FrameProblem::Malformed { .. })));
     }
 
     #[test]
     fn the_longest_message_fits_and_one_byte_more_does_not() {
         // A string of n characters is n + 2 bytes of JSON.
-        let fits = "x".repeat(MAX_MESSAGE_BYTES - 2);
-        let frame = encode(&fits).unwrap();
+        let frame = encode(&"x".repeat(MAX_MESSAGE_BYTES - 2)).unwrap();
         assert_eq!(frame.len(), HEADER_BYTES + MAX_MESSAGE_BYTES);
         let mut decoder = Decoder::new();
         decoder.push(&frame).unwrap();
         assert_eq!(decoder.next_message::<String>().unwrap().map(|s| s.len()), Some(MAX_MESSAGE_BYTES - 2));
-        let too_long = "x".repeat(MAX_MESSAGE_BYTES - 1);
-        assert_eq!(encode(&too_long).unwrap_err(), FrameProblem::TooBig { bytes: MAX_MESSAGE_BYTES + 1 });
+        assert_eq!(encode(&"x".repeat(MAX_MESSAGE_BYTES - 1)).unwrap_err(), FrameProblem::TooBig { bytes: MAX_MESSAGE_BYTES + 1 });
     }
 }

@@ -637,13 +637,19 @@ path: the Kotlin side calls the Rust engine itself, and on the PC the
 service alone holds the family's file.
 
 **The guardian's part** is `guardianHost` (`src/guardianSeam.ts`):
-`about()` and `signIn(password)`, the door's `about` and `sign_in`, each
-answered with one `DoorOutcome` (about, signed in, wrong with the tries
-left before a wait, a wait until a time, a child's account, an account the
-door cannot tell, or a problem in the console's own words). It never throws
-for the door's sake. Where nothing answers a guardian yet (the guardian form
-on a phone), it answers with a problem that says the settings open in the
-console on the family's PC.
+`about()` and `signIn(password)`, the door's `about` and `sign_in` as LiMo
+for Windows serves them (`../../windows/README.md`, "The console's door"),
+each answered with one `DoorOutcome`: done with the family file's own
+value; a wrong password with the tries left, or a wait until a time; a
+refusal for this Windows account (a child's); not done, with the reason
+(signed out, busy, no family yet); or, when the door could not be asked, a
+problem in the console's own words. Every outcome but done carries the
+sentence the screen shows: the service's own, or the console's. It never
+throws for the door's sake. Where nothing answers a guardian yet (the
+guardian form on a phone), it answers with a problem that says the
+settings open in the console on the family's PC. `console.moreInfo` asks
+the console to open LucidLoom AI's page in the PC's own browser; the
+console fixes the address.
 
 ## The child form's screens
 
@@ -857,7 +863,7 @@ mock host. Nothing in them runs on a phone.
 | `tests/access.test.tsx` | a role, a label and 48 of height for everything to tap, the way on and the banner with three off among them; headings; the reading order |
 | `tests/release.test.ts` | no screen names a native module, the network or a link out, or holds the engine's sentences for a step that is off; only `src/host.ts` reaches the child module; the app's imports, as Android resolves them from `index.ts`, never reach the mock, the preview or the tests |
 | `tests/seamContract.test.ts` | the child module's real answers (`tests/seam-answers/`, written by its JVM tests) each pass the reader the app's host checks it with, unchanged; none missing and none unknown; the engine's kinds turned, apps by their names only, what is switched off in setup order with its sentences |
-| `tests/console.test.tsx` | the console's sign in (G0): one password field after the door answered, the tries left and a wait in words, the field emptied after each try, a child's account told at once with no field, the door's problems in plain words, three lines of room under the field; the reader of the door's answers; the `console` place found by Tauri's bridge and each request sent to the one command by the door's name; the page's key guard, which stops the browser's keys and leaves a field's own alone; the console's entry reaching neither the mock, the preview nor the child's screens |
+| `tests/console.test.tsx` | the console's sign in (G0): one password field after the door answered, the door's own words for a wrong password, a wait and a busy door, the field emptied after each try, a child's account told at once with no field (and after a sign in too), an absent or lost service said plainly, three lines of room under the field; the reader of the door's replies as the console hands them on; the `console` place found by Tauri's bridge, each request and "More info" sent to the one command by its name; the page's key guard, which stops the browser's keys and leaves a field's own alone; the console's entry reaching neither the mock, the preview nor the child's screens |
 
 `npm run check:release-js` shows the last on the bundles themselves: it
 makes each form's JavaScript as Gradle's release build does (`expo

@@ -1,35 +1,36 @@
 // The guardian's part of the seam: what the guardian's screens ask, as plain
 // data. In the console on the PC, src/host.ts sends each request to the
 // console's Rust side, which passes it through the door to LiMo's service
-// (console/README.md); on a guardian's phone it will go over the phone's
-// own link, later. The tests pass a host of their own.
+// (../../console/README.md, and the service's side in
+// ../../windows/README.md, "The console's door"); on a guardian's phone it
+// will go over the phone's own link, later. The tests pass a host of their
+// own.
 //
-// The door answers in its own words (console/src/protocol.rs, Answer); the
-// reader below checks each answer and turns it into one outcome, so a wrong
-// shape fails in one place with a message.
+// The door answers in its own words: a wrong password, a wait, a refusal
+// all come with the service's sentence for the screen, and the screens show
+// it as it is. The reader below checks each answer and turns it into one
+// outcome, so a wrong shape fails in one place with a message.
 
 import { SeamError } from './childSeam';
 
-/** What the door can answer a guardian's screen, as the screen needs it. */
+/** What became of a request, as the guardian's screens need it. */
 export type DoorOutcome =
-  /** The door answered "about": whether a family exists on this PC. */
-  | { readonly kind: 'about'; readonly family: boolean }
-  /** The password was right. */
-  | { readonly kind: 'signed-in' }
+  /** Done: the family's file's own answer, in the hub's shapes. */
+  | { readonly kind: 'done'; readonly value: unknown }
   /** The password was not right; this many more wrong tries before a wait. */
-  | { readonly kind: 'wrong'; readonly triesBeforeWait: number }
-  /** Too many wrong tries: no password is looked at until then (seconds since 1970). */
-  | { readonly kind: 'wait'; readonly until: number }
-  /** The console runs in a child's Windows account: the settings never open there. */
-  | { readonly kind: 'child-account'; readonly child: string }
-  /** The door could not tell whose account the console runs in. */
-  | { readonly kind: 'unknown-account' }
-  /** The door could not be asked, in the console's own words for a guardian. */
+  | { readonly kind: 'wrong'; readonly triesBeforeWait: number; readonly words: string }
+  /** Too many wrong tries: nothing is checked until then (seconds since 1970). */
+  | { readonly kind: 'wait'; readonly until: number; readonly words: string }
+  /** The door does not open for this Windows account (a child's, or one Windows would not say). */
+  | { readonly kind: 'refused'; readonly words: string }
+  /** The door did not do it, and said why: signed out, busy, no family yet, and the rest. */
+  | { readonly kind: 'not-done'; readonly reason: string; readonly words: string }
+  /** The door could not be asked: the console's own words (not running, lost, not LiMo's service). */
   | { readonly kind: 'problem'; readonly code: string; readonly words: string };
 
 /** What the guardian's screens ask. Every call answers with an outcome and never throws for the door's sake. */
 export interface GuardianHost {
-  /** What answers, asked first: a child's account is told at once. */
+  /** What answers, asked first: a child's account is refused at once. */
   about(): Promise<DoorOutcome>;
   /** Signs in with the family's password. */
   signIn(password: string): Promise<DoorOutcome>;
@@ -42,36 +43,37 @@ function obj(x: unknown, what: string): Obj {
   return x as Obj;
 }
 
+function words(o: Obj, key: string, what: string): string {
+  const v = o[key];
+  if (typeof v !== 'string' || v === '') throw new SeamError(`${what}.${key} is not a sentence`);
+  return v;
+}
+
 function count(o: Obj, key: string, what: string): number {
   const v = o[key];
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) throw new SeamError(`${what}.${key} is not a whole number`);
   return v;
 }
 
-/** Reads one answer of the door, as console/src/protocol.rs writes it. */
+/** Reads one reply of the door as the console hands it on. */
 export function readDoorAnswer(x: unknown): DoorOutcome {
-  const a = obj(x, 'the answer');
-  switch (a.answer) {
-    case 'about':
-      if (typeof a.family !== 'boolean') throw new SeamError('the answer.family is not true or false');
-      return { kind: 'about', family: a.family };
-    case 'signed_in':
-      return { kind: 'signed-in' };
-    case 'wrong_password':
-      return { kind: 'wrong', triesBeforeWait: count(a, 'tries_before_wait', 'the answer') };
-    case 'must_wait':
-      return { kind: 'wait', until: count(a, 'until', 'the answer') };
-    case 'refused': {
-      const why = obj(a.why, 'the answer.why');
-      if (why.refusal === 'child_account') {
-        if (typeof why.child !== 'string' || why.child === '') throw new SeamError('the answer.why.child is not a name');
-        return { kind: 'child-account', child: why.child };
-      }
-      if (why.refusal === 'unknown_account') return { kind: 'unknown-account' };
-      throw new SeamError('the answer.why.refusal is not one the screens know');
+  const a = obj(x, 'the reply');
+  switch (a.outcome) {
+    case 'done':
+      if (!('value' in a)) throw new SeamError('the reply has no value');
+      return { kind: 'done', value: a.value };
+    case 'refused':
+      return { kind: 'refused', words: words(a, 'message', 'the reply') };
+    case 'problem': {
+      const p = obj(a.problem, 'the reply.problem');
+      if (typeof p.kind !== 'string' || p.kind === '') throw new SeamError('the reply.problem.kind is not a word');
+      const said = words(p, 'message', 'the reply.problem');
+      if (p.kind === 'wrong_password') return { kind: 'wrong', triesBeforeWait: count(p, 'tries_before_wait', 'the reply.problem'), words: said };
+      if (p.kind === 'must_wait') return { kind: 'wait', until: count(p, 'wait_until', 'the reply.problem'), words: said };
+      return { kind: 'not-done', reason: p.kind, words: said };
     }
     default:
-      throw new SeamError('the answer is not one the screens know');
+      throw new SeamError('the reply is not one the screens know');
   }
 }
 

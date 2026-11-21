@@ -71,6 +71,21 @@ tauri-build = { version = "=2.7.6", optional = true }
 # as limo-screens paints its icons. Never in the exe.
 resvg = { version = "0.50.0", default-features = false }
 tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "png-format"] }
+# LiMo for Windows' own door, its pipe threads and its decisions, with a
+# real family's file behind it, served in a test's own process or by
+# examples/real_door.rs for the self check: the console is tested against
+# the real protocol. Never in the exe.
+limo-windows = { path = "../windows" }
+limo-hub = { path = "../hub" }
+tempfile = "3.27.0"
+
+# The guardian password is hashed slowly on purpose (the hub's PBKDF2).
+# Optimised dependencies in debug and test builds keep a sign in at the real
+# door as quick as in the product, as in the hub and LiMo for Windows.
+[profile.dev.package."*"]
+opt-level = 3
+[profile.test.package."*"]
+opt-level = 3
 
 # The size settings Tauri suggests, as in spike 06, with the panic messages'
 # paths made relative by the release script (tools/build-release.ps1).

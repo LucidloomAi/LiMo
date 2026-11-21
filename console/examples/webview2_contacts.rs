@@ -3,9 +3,10 @@
 //!
 //!   cargo run --example webview2_contacts --no-default-features -- [--hold-ms 50000] [--sets default,both] [--modes host-log,open]
 //!
-//! Run from the console folder, after tools\build-release.ps1. For each set
-//! and each mode it starts `target\release\limo-console.exe --self-check`
-//! with a new WebView2 data folder (a first start on a new PC), holds the
+//! Run from the console folder, after tools\build-release.ps1. It serves LiMo
+//! for Windows' own door in this process, as `examples/real_door.rs` does,
+//! for the self check to sign in at. For each set and each mode it starts
+//! `target\release\limo-console.exe --self-check` with a new WebView2 data folder (a first start on a new PC), holds the
 //! window open `--hold-ms` (at most 55 s, so the window is gone within a
 //! minute), and meanwhile reads, every 50 ms, every TCP connection with a
 //! remote end owned by the console or any process it started. Modes:
@@ -25,6 +26,10 @@
 //! network service, renderer, ...), read from the process's command line;
 //! nothing else of it is kept. It writes target\measure\contacts-<modes>.json and
 //! prints a summary. It sends nothing anywhere itself.
+
+#[cfg(windows)]
+#[path = "../support/real_door.rs"]
+mod real_door;
 
 #[cfg(windows)]
 fn main() {
@@ -89,7 +94,26 @@ mod measure {
         args.iter().position(|a| a == name).and_then(|i| args.get(i + 1).cloned())
     }
 
-    fn one(console: &Path, out: &Path, run: &Run, hold_ms: u64) -> Value {
+    /// The real door for the self check: its pipe base, and the file that
+    /// holds its password.
+    struct Doors {
+        base: String,
+        password_file: PathBuf,
+        _hosts: (crate::real_door::RealDoorHost, crate::real_door::RealDoorHost),
+    }
+
+    fn doors(out: &Path) -> Doors {
+        let base = format!(r"\\.\pipe\limo.console.measure.{}", std::process::id());
+        let password = format!("measure {}", std::process::id());
+        let password_file = out.join("door-password.txt");
+        std::fs::write(&password_file, &password).expect("the password file");
+        let me = limo_windows::this_account().expect("this account");
+        let guardian = crate::real_door::RealDoorHost::start(&format!("{base}.guardian"), &password, None);
+        let child = crate::real_door::RealDoorHost::start(&format!("{base}.child"), &password, Some(&me));
+        Doors { base, password_file, _hosts: (guardian, child) }
+    }
+
+    fn one(console: &Path, out: &Path, run: &Run, hold_ms: u64, doors: &Doors) -> Value {
         let data = out.join(format!("webview-data-{}-{}", run.set.name(), run.mode));
         if run.start == "first" && data.exists() {
             let _ = std::fs::remove_dir_all(&data);
@@ -99,6 +123,8 @@ mod measure {
         let mut command = Command::new(console.join(r"target\release\limo-console.exe"));
         command.current_dir(console).arg("--self-check").arg(&log_file);
         command.args(["--hold-ms", &hold_ms.to_string(), "--switches", run.set.name(), "--webview-data"]).arg(&data);
+        let me = std::env::current_exe().expect("this program");
+        command.args(["--door-base", &doors.base, "--door-server"]).arg(&me).arg("--password-file").arg(&doors.password_file);
         if let Some(log) = &host_log {
             command.args(["--proxy", &log.port().to_string()]);
         }
@@ -210,7 +236,9 @@ mod measure {
             }
         }
         println!("{} runs of about {} s each", runs.len(), hold_ms / 1000 + 4);
-        let results: Vec<Value> = runs.iter().map(|r| one(&console, &out, r, hold_ms)).collect();
+        let doors = doors(&out);
+        let results: Vec<Value> = runs.iter().map(|r| one(&console, &out, r, hold_ms, &doors)).collect();
+        let _ = std::fs::remove_file(&doors.password_file);
         let file = out.join(format!("contacts-{}.json", modes.join("-")));
         std::fs::write(&file, serde_json::to_string_pretty(&results).expect("JSON")).expect("the results file");
         println!("written: {}", file.strip_prefix(&console).unwrap_or(&file).display());

@@ -1,117 +1,33 @@
-//! The door's named pipe, both halves: making and serving it (the stand in),
-//! opening it (the console), and asking Windows who is on the other end.
+//! The door's named pipe: opening it as the console, and asking Windows who
+//! serves it. Making and serving a pipe (`serve`) is here for the tests'
+//! stand in only.
 
-use std::ffi::c_void;
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{
-    ERROR_BROKEN_PIPE, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, ERROR_PIPE_NOT_CONNECTED, ERROR_SUCCESS,
-    GetLastError, HANDLE, HLOCAL, LocalFree,
+    ERROR_BROKEN_PIPE, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY, ERROR_PIPE_NOT_CONNECTED, ERROR_SUCCESS, HANDLE, HLOCAL, LocalFree,
 };
-use windows::Win32::Security::Authorization::{
-    ConvertSecurityDescriptorToStringSecurityDescriptorW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
-    SDDL_REVISION_1, SE_KERNEL_OBJECT,
-};
-use windows::Win32::Security::{
-    DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, RevertToSelf, SECURITY_ATTRIBUTES,
-};
+use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_KERNEL_OBJECT};
+use windows::Win32::Security::{OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_NONE, FlushFileBuffers, OPEN_EXISTING,
-    PIPE_ACCESS_DUPLEX, ReadFile, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT, WriteFile,
+    CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_NONE, OPEN_EXISTING, ReadFile, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
+    WriteFile,
 };
-use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, GetNamedPipeClientProcessId, GetNamedPipeServerProcessId,
-    GetNamedPipeServerSessionId, ImpersonateNamedPipeClient, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
-    PIPE_UNLIMITED_INSTANCES, PIPE_WAIT, PeekNamedPipe, WaitNamedPipeW,
-};
-use windows::core::{PCWSTR, PWSTR};
+use windows::Win32::System::Pipes::{GetNamedPipeServerProcessId, GetNamedPipeServerSessionId, PeekNamedPipe, WaitNamedPipeW};
+use windows::core::PCWSTR;
 
-use super::token::{image_of, sid_text, thread_account_and_level};
+use super::token::{image_of, sid_text};
 use super::{Owned, wide, win32_code};
 use crate::door::ServerSeen;
 
-/// Each way's buffer in the pipe, in bytes.
-const BUFFER_BYTES: u32 = 64 * 1024;
-
-/// Makes one instance of a pipe to serve, with the access list `sddl`.
-/// With `first`, Windows refuses when any instance of that name exists
-/// already, so a program that made the name first is never served beside.
-pub(crate) fn create_server(name: &str, sddl: &str, first: bool) -> Result<Owned, u32> {
-    let name = wide(name);
-    let text = wide(sddl);
-    let mut descriptor = PSECURITY_DESCRIPTOR::default();
-    // SAFETY: the descriptor is made by Windows from the text and freed with
-    // LocalFree once the pipe exists; the pipe's handle is owned by `Owned`.
-    unsafe {
-        ConvertStringSecurityDescriptorToSecurityDescriptorW(PCWSTR(text.as_ptr()), SDDL_REVISION_1, &mut descriptor, None)
-            .map_err(|e| win32_code(&e))?;
-        let attributes = SECURITY_ATTRIBUTES {
-            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-            lpSecurityDescriptor: descriptor.0,
-            bInheritHandle: false.into(),
-        };
-        let open = if first { PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE } else { PIPE_ACCESS_DUPLEX };
-        let handle = CreateNamedPipeW(
-            PCWSTR(name.as_ptr()),
-            open,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-            PIPE_UNLIMITED_INSTANCES,
-            BUFFER_BYTES,
-            BUFFER_BYTES,
-            0,
-            Some(&attributes),
-        );
-        let code = GetLastError();
-        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
-        Owned::new(handle).ok_or(code.0)
-    }
-}
-
-/// Waits until a client opens this instance.
-pub(crate) fn wait_for_client(pipe: &Owned) -> Result<(), u32> {
-    // SAFETY: waits on a pipe owned here, with no overlapped structure.
-    match unsafe { ConnectNamedPipe(pipe.raw(), None) } {
-        Ok(()) => Ok(()),
-        Err(e) if win32_code(&e) == ERROR_PIPE_CONNECTED.0 => Ok(()),
-        Err(e) => Err(win32_code(&e)),
-    }
-}
-
-/// Lets the client go, so the instance can wait for the next one.
-pub(crate) fn let_client_go(pipe: &Owned) {
-    // SAFETY: on a pipe owned here.
-    unsafe {
-        let _ = FlushFileBuffers(pipe.raw());
-        let _ = DisconnectNamedPipe(pipe.raw());
-    }
-}
-
-/// The client's process id, as the pipe knows it.
-pub(crate) fn client_pid(pipe: &Owned) -> Option<u32> {
-    let mut pid: u32 = 0;
-    // SAFETY: writes the id into the value handed to it.
-    unsafe { GetNamedPipeClientProcessId(pipe.raw(), &mut pid).ok()? };
-    Some(pid)
-}
-
-/// The account of the token the client lent the pipe, and the level it
-/// allowed, by acting as the client for as long as it takes to read them.
-/// Windows allows this only once something has been read from the pipe.
-///
-/// If this thread could not stop acting as the client, the process ends:
-/// nothing may ever run on as a client.
-pub(crate) fn lent_account(pipe: &Owned) -> Option<(String, i32)> {
-    // SAFETY: acts as the pipe's client on this thread, reads the thread's
-    // token, and goes back to the process's own account at once.
-    unsafe {
-        ImpersonateNamedPipeClient(pipe.raw()).ok()?;
-        let seen = thread_account_and_level();
-        if RevertToSelf().is_err() {
-            std::process::abort();
-        }
-        seen
-    }
-}
+/// The access the console asks for: read (`FILE_GENERIC_READ`), write the
+/// data and write the attributes (`FILE_WRITE_DATA`, `FILE_WRITE_ATTRIBUTES`),
+/// and nothing more. Not `GENERIC_WRITE`, which would ask for the right to
+/// make an instance of the pipe too (`FILE_APPEND_DATA`); Windows checks that
+/// right when an instance is made, not here, and the door's access list
+/// keeps it to LocalSystem and Administrators. The door grants interactive
+/// users `0x12019b`, of which this is a part.
+pub(crate) const CLIENT_ACCESS: u32 = 0x0012_018b;
 
 /// Why a client could not open the door.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,7 +80,7 @@ pub(crate) fn open_client(name: &str, access: u32, wait: Duration) -> Result<Own
 
 /// What the client can learn of the server: its process id and session
 /// from the pipe, the pipe's owner from its security descriptor, and the
-/// program file from the process.
+/// program file from the process, when this account may read it.
 pub(crate) fn server_seen(pipe: &Owned) -> ServerSeen {
     let mut pid: u32 = 0;
     let mut session: u32 = 0;
@@ -206,27 +122,6 @@ pub(crate) fn owner_of(handle: HANDLE) -> Option<String> {
     }
 }
 
-/// A kernel object's owner and access list, as SDDL.
-pub(crate) fn sddl_of(handle: HANDLE) -> Option<String> {
-    let parts = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
-    let mut descriptor = PSECURITY_DESCRIPTOR::default();
-    // SAFETY: both buffers come from Windows and are freed with LocalFree
-    // once read.
-    unsafe {
-        let found = GetSecurityInfo(handle, SE_KERNEL_OBJECT, parts, None, None, None, None, Some(&mut descriptor));
-        if found != ERROR_SUCCESS {
-            return None;
-        }
-        let mut text = PWSTR::null();
-        let converted = ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, parts, &mut text, None);
-        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
-        converted.ok()?;
-        let sddl = text.to_string().ok();
-        let _ = LocalFree(Some(HLOCAL(text.0 as *mut c_void)));
-        sddl
-    }
-}
-
 /// Writes all of `bytes`.
 pub(crate) fn write_all(pipe: &Owned, mut bytes: &[u8]) -> Result<(), u32> {
     while !bytes.is_empty() {
@@ -242,8 +137,8 @@ pub(crate) fn write_all(pipe: &Owned, mut bytes: &[u8]) -> Result<(), u32> {
 }
 
 /// Reads what is there, up to the buffer's size, waiting until something
-/// is. Ok(0) when the other end is closed: a server that has let its
-/// client go says "not connected" rather than "broken".
+/// is. Ok(0) when the other end is closed: a server that has let its client
+/// go says "not connected" rather than "broken".
 pub(crate) fn read_some(pipe: &Owned, buffer: &mut [u8]) -> Result<usize, u32> {
     let mut read: u32 = 0;
     // SAFETY: writes at most the buffer's length into it.
@@ -255,10 +150,103 @@ pub(crate) fn read_some(pipe: &Owned, buffer: &mut [u8]) -> Result<usize, u32> {
 }
 
 /// How many bytes wait to be read, without waiting. Err(code) when the
-/// other end has gone (`ERROR_BROKEN_PIPE`).
+/// other end has gone.
 pub(crate) fn waiting_bytes(pipe: &Owned) -> Result<u32, u32> {
     let mut available: u32 = 0;
     // SAFETY: only asks how much is waiting.
     unsafe { PeekNamedPipe(pipe.raw(), None, 0, None, Some(&mut available), None) }.map_err(|e| win32_code(&e))?;
     Ok(available)
+}
+
+/// Making and serving a pipe, for the tests' stand in.
+#[cfg(test)]
+pub(crate) mod serve {
+    use std::ffi::c_void;
+
+    use windows::Win32::Foundation::{ERROR_PIPE_CONNECTED, ERROR_SUCCESS, GetLastError, HLOCAL, LocalFree};
+    use windows::Win32::Security::Authorization::{
+        ConvertSecurityDescriptorToStringSecurityDescriptorW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
+        SDDL_REVISION_1, SE_KERNEL_OBJECT,
+    };
+    use windows::Win32::Security::{DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+    use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, FlushFileBuffers, PIPE_ACCESS_DUPLEX};
+    use windows::Win32::System::Pipes::{
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
+        PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    };
+    use windows::core::{PCWSTR, PWSTR};
+
+    use crate::win::{Owned, wide, win32_code};
+
+    /// Makes one instance of a pipe to serve, with the access list `sddl`,
+    /// refused when the name is taken.
+    pub(crate) fn create_server(name: &str, sddl: &str) -> Result<Owned, u32> {
+        let name = wide(name);
+        let text = wide(sddl);
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: the descriptor is made by Windows from the text and freed
+        // with LocalFree once the pipe exists; the handle is owned by `Owned`.
+        unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(PCWSTR(text.as_ptr()), SDDL_REVISION_1, &mut descriptor, None)
+                .map_err(|e| win32_code(&e))?;
+            let attributes = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: descriptor.0,
+                bInheritHandle: false.into(),
+            };
+            let handle = CreateNamedPipeW(
+                PCWSTR(name.as_ptr()),
+                PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                PIPE_UNLIMITED_INSTANCES,
+                64 * 1024,
+                64 * 1024,
+                0,
+                Some(&attributes),
+            );
+            let code = GetLastError();
+            let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+            Owned::new(handle).ok_or(code.0)
+        }
+    }
+
+    /// Waits until a client opens this instance.
+    pub(crate) fn wait_for_client(pipe: &Owned) -> Result<(), u32> {
+        // SAFETY: waits on a pipe owned here, with no overlapped structure.
+        match unsafe { ConnectNamedPipe(pipe.raw(), None) } {
+            Ok(()) => Ok(()),
+            Err(e) if win32_code(&e) == ERROR_PIPE_CONNECTED.0 => Ok(()),
+            Err(e) => Err(win32_code(&e)),
+        }
+    }
+
+    /// Lets the client go, so the instance can wait for the next one.
+    pub(crate) fn let_client_go(pipe: &Owned) {
+        // SAFETY: on a pipe owned here.
+        unsafe {
+            let _ = FlushFileBuffers(pipe.raw());
+            let _ = DisconnectNamedPipe(pipe.raw());
+        }
+    }
+
+    /// A pipe's owner and access list, as SDDL.
+    pub(crate) fn sddl_of(pipe: &Owned) -> Option<String> {
+        let parts = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: both buffers come from Windows and are freed with
+        // LocalFree once read.
+        unsafe {
+            let found = GetSecurityInfo(pipe.raw(), SE_KERNEL_OBJECT, parts, None, None, None, None, Some(&mut descriptor));
+            if found != ERROR_SUCCESS {
+                return None;
+            }
+            let mut text = PWSTR::null();
+            let converted = ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, parts, &mut text, None);
+            let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+            converted.ok()?;
+            let sddl = text.to_string().ok();
+            let _ = LocalFree(Some(HLOCAL(text.0 as *mut c_void)));
+            sddl
+        }
+    }
 }

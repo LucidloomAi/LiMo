@@ -5,15 +5,11 @@ use std::ffi::c_void;
 
 use windows::Win32::Foundation::{HANDLE, HLOCAL, LocalFree};
 use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
-use windows::Win32::Security::{
-    GetTokenInformation, PSID, SECURITY_IMPERSONATION_LEVEL, TOKEN_ELEVATION, TOKEN_INFORMATION_CLASS, TOKEN_QUERY, TOKEN_USER,
-    TokenElevation, TokenImpersonationLevel, TokenUser,
-};
+use windows::Win32::Security::{GetTokenInformation, PSID, TOKEN_ELEVATION, TOKEN_INFORMATION_CLASS, TOKEN_QUERY, TOKEN_USER, TokenElevation, TokenUser};
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, GetCurrentThread, OpenProcess, OpenProcessToken, OpenThreadToken, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::Shell::{FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
 use windows::core::PWSTR;
@@ -63,6 +59,7 @@ fn token_account(token: HANDLE) -> Option<String> {
 
 /// The account a process runs as. None when it cannot be opened, which
 /// for another account's process is usual unless the caller is LocalSystem.
+#[cfg(test)]
 pub(crate) fn process_account(pid: u32) -> Option<String> {
     // SAFETY: opens for reading what may be read of a process, and its
     // token for reading; both closed by `Owned`.
@@ -96,22 +93,6 @@ pub(crate) fn own_token_is_elevated() -> bool {
     // SAFETY: the buffer holds a TOKEN_ELEVATION.
     let elevation = unsafe { &*(buffer.as_ptr() as *const TOKEN_ELEVATION) };
     elevation.TokenIsElevated != 0
-}
-
-/// While this thread acts as a pipe's client: that client's account, and
-/// the level the client allowed (1 identification, 2 impersonation, 3
-/// delegation).
-pub(crate) fn thread_account_and_level() -> Option<(String, i32)> {
-    let mut token = HANDLE::default();
-    // SAFETY: opens the thread's own token for reading, checked against
-    // this process's own rights (open as self); closed by `Owned`.
-    unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, true, &mut token).ok()? };
-    let token = Owned::new(token)?;
-    let account = token_account(token.raw())?;
-    let buffer = token_information(token.raw(), TokenImpersonationLevel)?;
-    // SAFETY: the buffer holds a SECURITY_IMPERSONATION_LEVEL.
-    let level = unsafe { *(buffer.as_ptr() as *const SECURITY_IMPERSONATION_LEVEL) };
-    Some((account, level.0))
 }
 
 /// The session a process runs in.
@@ -170,7 +151,5 @@ mod tests {
         assert!(session_of(std::process::id()).is_some());
         let folder = program_files().unwrap();
         assert!(folder.len() > 3 && folder.chars().nth(1) == Some(':'), "{folder}");
-        // Not acting as anyone: the thread has no token of its own.
-        assert_eq!(thread_account_and_level(), None);
     }
 }

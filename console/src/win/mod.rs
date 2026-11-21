@@ -8,6 +8,8 @@
 pub(crate) mod keys;
 pub(crate) mod net;
 pub(crate) mod pipe;
+#[cfg(feature = "window")]
+pub(crate) mod shell;
 pub(crate) mod token;
 #[cfg(feature = "window")]
 pub(crate) mod webview2;

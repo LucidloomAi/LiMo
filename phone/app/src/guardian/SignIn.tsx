@@ -1,13 +1,13 @@
 // G0, the guardian console's first screen: sign in with the family's
-// guardian password. It asks the door who it is first, so a child's Windows
-// account is told at once that the settings are not for it, and is never
-// shown a password field.
+// guardian password. It asks the door first, so a child's Windows account is
+// told at once, in the service's own words, that the settings are not for
+// it, and is never shown a password field.
 //
 // Paper and Ink, at any width: one column, never wider than 440, in the
 // middle of the page; the console's window is about 1100 by 760, a phone
-// 390. The line under the field keeps its room when it is empty, and the
-// button keeps its size and words' room while a password is checked, so
-// nothing moves (design rule 3). Every tap shows a result (rule 4).
+// 390. The line under the field keeps three lines of room when it is empty,
+// and the button keeps its size while a password is checked, so nothing
+// moves (design rule 3). Every tap shows a result (rule 4).
 
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
@@ -21,8 +21,6 @@ import * as W from './words';
 
 export type SignInProps = {
   host: GuardianHost;
-  /** How a wait's end is written; the PC's own way by default. */
-  timeOfDay?: (unixSeconds: number) => string;
 };
 
 type Shown =
@@ -32,21 +30,33 @@ type Shown =
   | { kind: 'problem'; words: string }
   | { kind: 'signed-in' };
 
-/** What the line under the field says after an answer, or null when the screen changes instead. */
-function lineFor(outcome: DoorOutcome, timeOfDay: (s: number) => string): string | null {
+/** What shows after the door's answer to a sign in. */
+function afterSignIn(outcome: DoorOutcome): Shown {
   switch (outcome.kind) {
-    case 'wrong':
-      return W.signIn.wrong(outcome.triesBeforeWait);
-    case 'wait':
-      return W.signIn.wait(timeOfDay(outcome.until));
-    case 'problem':
-      return outcome.words;
+    case 'done':
+      return { kind: 'signed-in' };
+    case 'refused':
+      return { kind: 'refused', words: outcome.words };
     default:
-      return null;
+      return { kind: 'form', line: outcome.words, tone: 'coral', busy: false };
   }
 }
 
-export function SignIn({ host, timeOfDay = W.timeOfDay }: SignInProps) {
+/** What shows after the door's answer to the first question. */
+function afterAbout(outcome: DoorOutcome): Shown {
+  switch (outcome.kind) {
+    case 'refused':
+      return { kind: 'refused', words: outcome.words };
+    case 'problem':
+      return { kind: 'problem', words: outcome.words };
+    case 'done':
+      return { kind: 'form', line: '', tone: 'quiet', busy: false };
+    default:
+      return { kind: 'form', line: outcome.words, tone: 'coral', busy: false };
+  }
+}
+
+export function SignIn({ host }: SignInProps) {
   const [shown, setShown] = useState<Shown>({ kind: 'asking' });
   const [password, setPassword] = useState('');
   const live = useRef(true);
@@ -54,11 +64,7 @@ export function SignIn({ host, timeOfDay = W.timeOfDay }: SignInProps) {
   useEffect(() => {
     live.current = true;
     host.about().then((outcome) => {
-      if (!live.current) return;
-      if (outcome.kind === 'child-account') setShown({ kind: 'refused', words: W.notForThisAccount.child(outcome.child) });
-      else if (outcome.kind === 'unknown-account') setShown({ kind: 'refused', words: W.notForThisAccount.unknown });
-      else if (outcome.kind === 'problem') setShown({ kind: 'problem', words: outcome.words });
-      else setShown({ kind: 'form', line: '', tone: 'quiet', busy: false });
+      if (live.current) setShown(afterAbout(outcome));
     });
     return () => {
       live.current = false;
@@ -76,11 +82,7 @@ export function SignIn({ host, timeOfDay = W.timeOfDay }: SignInProps) {
     setPassword('');
     setShown({ kind: 'form', line: W.signIn.checking, tone: 'quiet', busy: true });
     host.signIn(typed).then((outcome) => {
-      if (!live.current) return;
-      if (outcome.kind === 'signed-in') setShown({ kind: 'signed-in' });
-      else if (outcome.kind === 'child-account') setShown({ kind: 'refused', words: W.notForThisAccount.child(outcome.child) });
-      else if (outcome.kind === 'unknown-account') setShown({ kind: 'refused', words: W.notForThisAccount.unknown });
-      else setShown({ kind: 'form', line: lineFor(outcome, timeOfDay) ?? '', tone: 'coral', busy: false });
+      if (live.current) setShown(afterSignIn(outcome));
     });
   };
 

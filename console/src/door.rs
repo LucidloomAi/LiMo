@@ -1,11 +1,11 @@
 //! The console's half of the door: who must be on the other end before the
-//! console says anything, and what a guardian is told when it is not.
+//! console says anything, the connection, and what a guardian is told when
+//! the door cannot be asked.
 //!
 //! Any program on the PC can make a named pipe, a child's too, and could
 //! make one called `limo.console` before LiMo's service does, or while it is
 //! stopped. So before the console sends anything, a password above all, it
-//! asks Windows who made the pipe it reached and checks three things, each
-//! of which a program in a child's account cannot fake:
+//! asks Windows who made the pipe it reached:
 //!
 //! - the process that serves it runs in session 0, where only services run
 //!   (`GetNamedPipeServerSessionId`);
@@ -14,10 +14,18 @@
 //! - that process's program file is LiMo's own, in `Program Files\LiMo`
 //!   (`GetNamedPipeServerProcessId`, then `QueryFullProcessImageNameW`).
 //!
-//! If one fails, the console closes the pipe having written nothing. The
-//! console also opens the pipe at the identification level only, so that
-//! whatever serves it can learn who the guardian is but can never act as
-//! the guardian.
+//! The first two are what a program in a child's account, or in any
+//! account that is not an administrator, cannot fake: making a process in
+//! session 0, or a pipe that belongs to LocalSystem, takes an
+//! administrator. The third is checked whenever Windows lets the guardian's
+//! account read the service's program file; when it does not (a standard
+//! account may not be allowed to look into a LocalSystem process), the
+//! first two decide, and the console says so in its log. If one check
+//! fails, the console closes the pipe having written nothing.
+//!
+//! The console opens the pipe at the identification level only, so whatever
+//! serves it can learn who the guardian is but can never act as the
+//! guardian.
 
 #![forbid(unsafe_code)]
 
@@ -57,7 +65,7 @@ pub struct ServerSeen {
     pub session: Option<u32>,
     /// The pipe's owner, as a security identifier.
     pub owner: Option<String>,
-    /// Its program file.
+    /// Its program file, when this account may read it.
     pub image: Option<String>,
 }
 
@@ -71,7 +79,7 @@ pub enum NotTheService {
     },
     /// The pipe belongs to another account, or Windows would not say which.
     Owner,
-    /// Its program file is another one, or could not be read.
+    /// Its program file is another one.
     Image,
 }
 
@@ -86,19 +94,29 @@ impl fmt::Display for NotTheService {
     }
 }
 
+/// How the program file was checked, when the server passed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageCheck {
+    /// Read, and LiMo's own.
+    Matched,
+    /// This account may not read it; the session and the owner decided.
+    Unreadable,
+}
+
 /// Checks the other end, in the order that costs least: the session, the
 /// owner, the program file.
-pub fn check_server(seen: &ServerSeen, must: &ServerMustBe) -> Result<(), NotTheService> {
+pub fn check_server(seen: &ServerSeen, must: &ServerMustBe) -> Result<ImageCheck, NotTheService> {
     if seen.session != Some(must.session) {
         return Err(NotTheService::Session { seen: seen.session });
     }
     if !seen.owner.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(&must.owner)) {
         return Err(NotTheService::Owner);
     }
-    if !seen.image.as_deref().is_some_and(|i| same_path(i, &must.image)) {
-        return Err(NotTheService::Image);
+    match seen.image.as_deref() {
+        Some(image) if same_path(image, &must.image) => Ok(ImageCheck::Matched),
+        Some(_) => Err(NotTheService::Image),
+        None => Ok(ImageCheck::Unreadable),
     }
-    Ok(())
 }
 
 /// True when two Windows paths name the same file as written: case does
@@ -121,9 +139,11 @@ pub enum DoorProblem {
     Busy,
     /// Something else serves it; nothing was sent.
     NotTheService(NotTheService),
-    /// The door stopped answering, or answered with something that is not a
-    /// message.
-    Broken(String),
+    /// The door stopped answering, closed, or answered with something that
+    /// is not the door's.
+    Lost(String),
+    /// The page asked faster than the door takes: nothing was sent.
+    TooFast,
 }
 
 impl DoorProblem {
@@ -133,19 +153,21 @@ impl DoorProblem {
             DoorProblem::NotRunning => "not_running",
             DoorProblem::Busy => "busy",
             DoorProblem::NotTheService(_) => "not_the_service",
-            DoorProblem::Broken(_) => "broken",
+            DoorProblem::Lost(_) => "lost",
+            DoorProblem::TooFast => "too_fast",
         }
     }
 
     /// What the screen says to a guardian.
     pub fn words(&self) -> &'static str {
         match self {
-            DoorProblem::NotRunning => "LiMo's service is not running on this PC, so its settings cannot open.",
-            DoorProblem::Busy => "LiMo's service is busy. Try again in a moment.",
+            DoorProblem::NotRunning => "LiMo’s service is not running on this PC, so its settings cannot open.",
+            DoorProblem::Busy => "LiMo’s service is busy. Try again in a moment.",
             DoorProblem::NotTheService(_) => {
-                "Something that is not LiMo's service answered, so the console sent it nothing. Your password was not sent."
+                "Something that is not LiMo’s service answered, so the console sent it nothing. Your password was not sent."
             }
-            DoorProblem::Broken(_) => "LiMo's service stopped answering. Close the settings and open them again.",
+            DoorProblem::Lost(_) => "LiMo’s service stopped answering. Try again: the console asks it afresh, and you sign in again.",
+            DoorProblem::TooFast => "The settings asked LiMo’s service too often at once. Try again in a moment.",
         }
     }
 }
@@ -156,40 +178,64 @@ impl fmt::Display for DoorProblem {
             DoorProblem::NotRunning => write!(f, "nothing serves the door"),
             DoorProblem::Busy => write!(f, "every instance of the door stayed busy"),
             DoorProblem::NotTheService(why) => write!(f, "the door is not LiMo's service: {why}"),
-            DoorProblem::Broken(why) => write!(f, "the door broke: {why}"),
+            DoorProblem::Lost(why) => write!(f, "the door was lost: {why}"),
+            DoorProblem::TooFast => write!(f, "the page asked faster than the door takes"),
         }
     }
 }
 
 impl std::error::Error for DoorProblem {}
 
+/// What became of a request that reached the door.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DoorReply {
+    /// The door's reply, as it came: `{"outcome":"done","value":...}` or
+    /// `{"outcome":"problem","problem":{...}}`.
+    Reply(serde_json::Value),
+    /// The door does not open for this connection, in its own sentence for
+    /// the screen (such as a child's account). The connection is closed.
+    Refused(String),
+}
+
+/// The most messages the console sends in one second. The door closes a
+/// connection that sends more than 20; a page that asks too often is told
+/// so instead, and nothing is sent.
+pub const MAX_SENT_PER_SECOND: usize = 15;
+
 #[cfg(windows)]
 pub use connection::Door;
 
 #[cfg(windows)]
 mod connection {
+    use std::collections::VecDeque;
     use std::time::{Duration, Instant};
 
-    use super::{DoorProblem, ServerMustBe, ServerSeen, check_server};
-    use crate::protocol::{Answer, Decoder, Request, encode};
-    use crate::stand_in::CLIENT_ACCESS;
+    use super::{DoorProblem, DoorReply, ImageCheck, MAX_SENT_PER_SECOND, ServerMustBe, ServerSeen, check_server};
+    use crate::protocol::{Decoder, FromDoor, PROTOCOL_VERSION, PageRequest, encode, hello};
     use crate::win::Owned;
-    use crate::win::pipe::{OpenProblem, open_client, read_some, server_seen, waiting_bytes, write_all};
+    use crate::win::pipe::{CLIENT_ACCESS, OpenProblem, open_client, read_some, server_seen, waiting_bytes, write_all};
 
     /// How long to wait for a free instance of the door.
     const OPEN_WAIT: Duration = Duration::from_secs(2);
-    /// How long an answer may take before the door counts as broken.
-    const ANSWER_WAIT: Duration = Duration::from_secs(10);
+    /// How long the hello may take.
+    const HELLO_WAIT: Duration = Duration::from_secs(5);
+    /// How long an answer may take before the door counts as lost: a sign
+    /// in is hashed slowly on purpose, and waits behind others'.
+    const ANSWER_WAIT: Duration = Duration::from_secs(20);
     /// How often to look for an answer while waiting.
     const LOOK_EVERY: Duration = Duration::from_millis(2);
 
-    /// The console's end of the door. It keeps one connection open, because
-    /// the door's sign in belongs to a connection; a broken one is dropped,
-    /// and the next request opens a new one, signed out.
+    /// The console's end of the door. It keeps one connection, since a
+    /// sign in belongs to a connection; a lost one is dropped, and the next
+    /// request opens a new one, signed out.
     pub struct Door {
         name: String,
         must: ServerMustBe,
         open: Option<Open>,
+        next_id: u32,
+        sent: VecDeque<Instant>,
+        notes: Vec<String>,
+        answer_wait: Duration,
     }
 
     struct Open {
@@ -208,7 +254,15 @@ mod connection {
         /// A door at the pipe `name`, which only a server that passes `must`
         /// is told anything through.
         pub fn new(name: &str, must: ServerMustBe) -> Door {
-            Door { name: name.to_string(), must, open: None }
+            Door { name: name.to_string(), must, open: None, next_id: 0, sent: VecDeque::new(), notes: Vec::new(), answer_wait: ANSWER_WAIT }
+        }
+
+        /// The same door with a shorter wait for an answer: for the tests,
+        /// which cannot wait twenty seconds for a door that says nothing.
+        #[cfg(test)]
+        pub(crate) fn answer_wait(mut self, wait: Duration) -> Door {
+            self.answer_wait = wait;
+            self
         }
 
         /// LiMo's own door, served by LiMo's service. None when Windows will
@@ -223,63 +277,138 @@ mod connection {
             self.open.as_ref().map(|o| &o.seen)
         }
 
-        /// Closes the connection, which signs it out.
+        /// What happened that the log should say, since the last call: never
+        /// a request's arguments.
+        pub fn take_notes(&mut self) -> Vec<String> {
+            std::mem::take(&mut self.notes)
+        }
+
+        /// Closes the connection, which ends its sign in.
         pub fn close(&mut self) {
             self.open = None;
         }
 
-        /// Asks one thing and waits for its answer. The server is checked
-        /// when the connection opens, before anything is written. After a
-        /// refusal the connection is closed, as the door closes it, so
-        /// nothing more is written into it.
-        pub fn ask(&mut self, request: &Request) -> Result<Answer, DoorProblem> {
-            if self.open.is_none() {
-                self.open = Some(self.connect()?);
+        /// Counts one message to send, or refuses it when the console has
+        /// sent [`MAX_SENT_PER_SECOND`] in the last second.
+        fn may_send(&mut self) -> bool {
+            let now = Instant::now();
+            while self.sent.front().is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(1)) {
+                self.sent.pop_front();
             }
+            if self.sent.len() >= MAX_SENT_PER_SECOND {
+                return false;
+            }
+            self.sent.push_back(now);
+            true
+        }
+
+        /// Asks one thing and waits for its answer. The server is checked
+        /// and greeted when the connection opens, before the request is
+        /// written. A refusal closes the connection.
+        pub fn ask(&mut self, request: PageRequest) -> Result<DoorReply, DoorProblem> {
+            if self.open.is_none() {
+                if !self.may_send() {
+                    return Err(DoorProblem::TooFast);
+                }
+                match self.connect()? {
+                    Connected::Open(open) => self.open = Some(open),
+                    Connected::Refused(message) => return Ok(DoorReply::Refused(message)),
+                }
+            }
+            if !self.may_send() {
+                return Err(DoorProblem::TooFast);
+            }
+            self.next_id = self.next_id.wrapping_add(1);
+            let id = self.next_id;
             let Some(open) = self.open.as_mut() else { return Err(DoorProblem::NotRunning) };
-            let answer = round_trip(open, request);
-            if !matches!(answer, Ok(ref a) if !matches!(a, Answer::Refused { .. })) {
-                self.open = None;
+            let answer = round_trip(open, request, id, self.answer_wait);
+            match &answer {
+                Ok(DoorReply::Reply(_)) => {}
+                Ok(DoorReply::Refused(_)) => {
+                    self.notes.push("the door refused this connection, and it was closed".to_string());
+                    self.open = None;
+                }
+                Err(problem) => {
+                    self.notes.push(format!("the connection was dropped: {problem}"));
+                    self.open = None;
+                }
             }
             answer
         }
 
-        fn connect(&self) -> Result<Open, DoorProblem> {
+        fn connect(&mut self) -> Result<Connected, DoorProblem> {
             let pipe = open_client(&self.name, CLIENT_ACCESS, OPEN_WAIT).map_err(|p| match p {
                 OpenProblem::NotThere => DoorProblem::NotRunning,
                 OpenProblem::Busy => DoorProblem::Busy,
-                OpenProblem::Failed(code) => DoorProblem::Broken(format!("opening the door failed with Win32 error {code}")),
+                OpenProblem::Failed(code) => DoorProblem::Lost(format!("opening the door failed with Win32 error {code}")),
             })?;
             let seen = server_seen(&pipe);
-            check_server(&seen, &self.must).map_err(DoorProblem::NotTheService)?;
-            Ok(Open { pipe, decoder: Decoder::new(), seen })
+            match check_server(&seen, &self.must) {
+                Ok(ImageCheck::Matched) => {}
+                Ok(ImageCheck::Unreadable) => self.notes.push(
+                    "the door's program file could not be read from this account; its session and its owner decided".to_string(),
+                ),
+                Err(why) => {
+                    self.notes.push(format!("nothing was sent to the pipe: {why}"));
+                    return Err(DoorProblem::NotTheService(why));
+                }
+            }
+            let mut open = Open { pipe, decoder: Decoder::new(), seen };
+            let frame = encode(&hello()).map_err(|p| DoorProblem::Lost(p.to_string()))?;
+            write_all(&open.pipe, &frame).map_err(|code| DoorProblem::Lost(format!("writing hello failed with Win32 error {code}")))?;
+            match read_message(&mut open, HELLO_WAIT)? {
+                FromDoor::Hello { protocol, .. } if protocol == PROTOCOL_VERSION => Ok(Connected::Open(open)),
+                FromDoor::Hello { protocol, .. } => {
+                    Err(DoorProblem::Lost(format!("the door speaks version {protocol} of its protocol, and this console {PROTOCOL_VERSION}")))
+                }
+                FromDoor::Refused { message } => {
+                    self.notes.push("the door refused this connection at hello".to_string());
+                    Ok(Connected::Refused(message))
+                }
+                FromDoor::Answer { .. } => Err(DoorProblem::Lost("the door answered before it was asked".to_string())),
+            }
         }
     }
 
-    fn round_trip(open: &mut Open, request: &Request) -> Result<Answer, DoorProblem> {
-        let frame = encode(request).map_err(|p| DoorProblem::Broken(p.to_string()))?;
-        write_all(&open.pipe, &frame).map_err(|code| DoorProblem::Broken(format!("writing failed with Win32 error {code}")))?;
+    enum Connected {
+        Open(Open),
+        Refused(String),
+    }
+
+    fn round_trip(open: &mut Open, request: PageRequest, id: u32, wait: Duration) -> Result<DoorReply, DoorProblem> {
+        let frame = request.into_frame(id).map_err(|p| DoorProblem::Lost(p.to_string()))?;
+        write_all(&open.pipe, &frame).map_err(|code| DoorProblem::Lost(format!("writing failed with Win32 error {code}")))?;
         drop(frame);
-        let until = Instant::now() + ANSWER_WAIT;
+        match read_message(open, wait)? {
+            FromDoor::Answer { id: got, reply } if got == id => Ok(DoorReply::Reply(reply)),
+            FromDoor::Answer { id: got, .. } => Err(DoorProblem::Lost(format!("the door answered request {got} when {id} was asked"))),
+            FromDoor::Refused { message } => Ok(DoorReply::Refused(message)),
+            FromDoor::Hello { .. } => Err(DoorProblem::Lost("the door said hello again".to_string())),
+        }
+    }
+
+    /// The next message from the door, waiting at most `wait`.
+    fn read_message(open: &mut Open, wait: Duration) -> Result<FromDoor, DoorProblem> {
+        let until = Instant::now() + wait;
         let mut chunk = zeroize::Zeroizing::new(vec![0u8; 16 * 1024]);
         loop {
-            if let Some(answer) = open.decoder.next_message::<Answer>().map_err(|p| DoorProblem::Broken(p.to_string()))? {
-                return Ok(answer);
+            if let Some(message) = open.decoder.next_message::<FromDoor>().map_err(|p| DoorProblem::Lost(p.to_string()))? {
+                return Ok(message);
             }
-            let waiting = waiting_bytes(&open.pipe).map_err(|_| DoorProblem::Broken("the door was closed".to_string()))?;
+            let waiting = waiting_bytes(&open.pipe).map_err(|_| DoorProblem::Lost("the door was closed".to_string()))?;
             if waiting == 0 {
                 if Instant::now() >= until {
-                    return Err(DoorProblem::Broken("no answer came in time".to_string()));
+                    return Err(DoorProblem::Lost("no answer came in time".to_string()));
                 }
                 std::thread::sleep(LOOK_EVERY);
                 continue;
             }
             let read = read_some(&open.pipe, &mut chunk)
-                .map_err(|code| DoorProblem::Broken(format!("reading failed with Win32 error {code}")))?;
+                .map_err(|code| DoorProblem::Lost(format!("reading failed with Win32 error {code}")))?;
             if read == 0 {
-                return Err(DoorProblem::Broken("the door was closed".to_string()));
+                return Err(DoorProblem::Lost("the door was closed".to_string()));
             }
-            open.decoder.push(&chunk[..read]).map_err(|p| DoorProblem::Broken(p.to_string()))?;
+            open.decoder.push(&chunk[..read]).map_err(|p| DoorProblem::Lost(p.to_string()))?;
         }
     }
 }
@@ -302,9 +431,19 @@ mod tests {
         let must = ServerMustBe::limo_service(r"C:\Program Files");
         assert_eq!(must.image, r"C:\Program Files\LiMo\limo.exe");
         assert_eq!(ServerMustBe::limo_service(r"C:\Program Files\").image, must.image);
-        assert_eq!(check_server(&service_seen(), &must), Ok(()));
+        assert_eq!(check_server(&service_seen(), &must), Ok(ImageCheck::Matched));
         let shouty = ServerSeen { image: Some(r"\\?\C:\PROGRAM FILES\LiMo\LIMO.EXE".to_string()), ..service_seen() };
-        assert_eq!(check_server(&shouty, &must), Ok(()));
+        assert_eq!(check_server(&shouty, &must), Ok(ImageCheck::Matched));
+    }
+
+    #[test]
+    fn an_unreadable_program_file_leaves_the_session_and_the_owner_to_decide() {
+        let must = ServerMustBe::limo_service(r"C:\Program Files");
+        let unread = ServerSeen { image: None, ..service_seen() };
+        assert_eq!(check_server(&unread, &must), Ok(ImageCheck::Unreadable));
+        // Unreadable never lets another session or owner through.
+        let elsewhere = ServerSeen { image: None, session: Some(1), ..service_seen() };
+        assert_eq!(check_server(&elsewhere, &must), Err(NotTheService::Session { seen: Some(1) }));
     }
 
     #[test]
@@ -334,8 +473,6 @@ mod tests {
         assert_eq!(check_server(&other_program, &must), Err(NotTheService::Image));
         let lookalike = ServerSeen { image: Some(r"C:\Program Files\LiMo\limo.exe.bak".to_string()), ..service_seen() };
         assert_eq!(check_server(&lookalike, &must), Err(NotTheService::Image));
-        let unreadable = ServerSeen { image: None, ..service_seen() };
-        assert_eq!(check_server(&unreadable, &must), Err(NotTheService::Image));
     }
 
     #[test]
@@ -344,7 +481,8 @@ mod tests {
             DoorProblem::NotRunning,
             DoorProblem::Busy,
             DoorProblem::NotTheService(NotTheService::Owner),
-            DoorProblem::Broken("x".into()),
+            DoorProblem::Lost("x".into()),
+            DoorProblem::TooFast,
         ];
         for p in &all {
             let words = p.words();

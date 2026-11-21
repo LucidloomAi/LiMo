@@ -94,6 +94,9 @@ export type Requests = {
   // readDoorAnswer (src/guardianSeam.ts).
   'guardian.about': { args: None; answer: DoorOutcome };
   'guardian.signIn': { args: { password: string }; answer: DoorOutcome };
+  // The console's one way out: LucidLoom AI's page in the PC's own browser,
+  // at an address the console fixes; it takes nothing.
+  'console.moreInfo': { args: None; answer: unknown };
   // The console's self check (console/README.md, "The self check"). The
   // console's Rust side answers it only when started with --self-check.
   'console.selfCheck': { args: SelfCheckArgs; answer: unknown };
@@ -109,6 +112,7 @@ export type SelfCheckArgs =
 const CONSOLE_WIRE: Partial<Record<RequestName, string>> = {
   'guardian.about': 'about',
   'guardian.signIn': 'sign_in',
+  'console.moreInfo': 'more_info',
   'console.selfCheck': 'self_check',
 };
 
@@ -187,6 +191,7 @@ const READ: { [N in RequestName]: (answer: unknown) => Requests[N]['answer'] } =
   'child.askForMoreTime': () => null,
   'guardian.about': readDoorAnswer,
   'guardian.signIn': readDoorAnswer,
+  'console.moreInfo': (a) => a,
   'console.selfCheck': (a) => a,
 };
 
