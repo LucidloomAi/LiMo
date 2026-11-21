@@ -117,7 +117,7 @@ top.
   (`capabilities/console.json`) grants to the window `main`, and nothing
   else: no core plugins, no events, no window calls.
 - **What a request does.** The page calls `request(name, args)`. Some
-  names are the console's own: `more_info`, the five requests for adding a
+  names are the console's own: `more_info`, the six requests for adding a
   phone (`phone.*`, see [Adding a phone](#adding-a-phone)) and the self
   check's; every other is the door's, forwarded as it is (see [The
   door](#the-door)), except `make_offer`, which only the console asks.
@@ -268,7 +268,10 @@ other standard account can. It holds, each line with its time in UTC:
   at hello, a connection dropped and why;
 - each request that could not be asked, by its name only, and why (the
   service not running, lost, busy, too fast, not LiMo's service);
-- the same for the requests the console asks for a phone.
+- the same for the requests the console asks for a phone;
+- a line for each ask of the phone, and its end (allowed, not allowed in
+  time, given up), and for each phone found that does not know this PC:
+  never the key, its fingerprint or the phone's serial number.
 
 Never a request's arguments, a password or a PIN: no line is made from
 them. Before a line is written, anything of an account is taken out: a
@@ -299,12 +302,16 @@ answered by the console and never sent to the service.
 connected, the phone. A request starts a step and answers at once, and
 `phone.look` reads where everything stands (`look.rs`), so the window never
 waits for the phone, not while the phone asks "Allow USB debugging?" (up to
-two minutes) nor while Android installs (up to three). The thread starts at
+ten minutes) nor while Android installs (up to three). The thread starts at
 the first `phone.look`. Once a second it looks at the USB ports (read only)
 and hands the look to limo-cable's state machine (`limo_cable::flow`). By
-itself it connects as soon as a phone LiMo can open is plugged in (the
-phone asks once to allow this PC's key), and looks whether LiMo is on the
-phone; when the phone holds the version this PC carries, nothing is
+itself it connects **quietly** as soon as a phone LiMo can open is plugged
+in: it never shows the phone this PC's key, so a phone that does not know
+this PC is only said to (the strip's `unknown`), and nothing more is tried
+while it stays plugged in. The phone is asked to allow this PC only by
+`phone.ask`, the guardian's tap, once (see [Never show the key
+unasked](#never-show-the-key-unasked)). Connected, it looks whether LiMo is
+on the phone; when the phone holds the version this PC carries, nothing is
 installed. What went wrong when connecting stays said for 5 seconds, then
 it tries again; an Android too old stays said until the phone is unplugged.
 A minute with no request and it lets go of the phone and stops.
@@ -352,6 +359,7 @@ the screen shows.
 | Request | Arguments | Answer | Errors |
 | --- | --- | --- | --- |
 | `phone.look` | none | the look (below) | `unknown_request` |
+| `phone.ask` | none | `{"started": true}`: the phone is shown this PC's key, once, and asked to allow it; the ask waits up to ten minutes for Allow, and ends early when the phone goes, at `phone.done`, or a minute after the screens' last request; never made again by itself | `no_phone`, `busy`, `already_connected`, `unknown_request` |
 | `phone.install` | none | `{"started": true}`; `{"started": false}` when LiMo is on the phone already | `no_phone`, `too_old`, `busy`, `no_app` |
 | `phone.pair` | `{"child": "<child id>"}`, nothing more | `{"started": true}`; `{"started": false}` when paired already | `no_phone`, `too_old`, `not_yet`, `busy`, `unknown_request` |
 | `phone.debugging_off` | none | `{"started": true}`; `{"started": false}` when off already | `no_phone`, `too_old`, `busy` |
@@ -362,6 +370,7 @@ the screen shows.
 | `no_phone` | "No phone is connected yet. Plug it in, unlocked, with USB debugging on." |
 | `too_old` | "This phone has Android 7.1. LiMo needs Android 8.0 or later." (its version) |
 | `busy` | "The phone is busy with another step. Wait a moment, then try again." |
+| `already_connected` | "The phone is connected already: it knows this PC." |
 | `not_yet` | "LiMo is not on the phone yet." |
 | `no_app` | the app's line, below |
 | `unknown_request` | "phone.pair takes the child, as {"child": "<its id>"}, and nothing else"; "phone.look takes nothing" (and so on); "that is not the name of a request" |
@@ -374,6 +383,7 @@ What `phone.look` answers, here while LiMo goes on the phone:
 {
   "cable": { "case": "ok", "line": "Connected: Galaxy S20 Ultra 5G.", "more": "Android 13." },
   "fingerprint": null,
+  "asked_secs": null,
   "phone": { "name": "Galaxy S20 Ultra 5G", "model": "SM-G988B", "maker": "samsung", "android": "13",
              "recent_enough": true, "limo": { "looked": true, "on_it": false, "version": null },
              "this_pc_carries": "0.3.0" },
@@ -397,7 +407,8 @@ What `phone.look` answers, here while LiMo goes on the phone:
 | `off` | "A phone is plugged in." | "USB debugging is off on it." | off |
 | `driver` | "No working driver for this phone." | "Install its maker’s USB driver for Windows, such as Samsung’s Android USB Driver." | driver, coral |
 | `connecting` | "A phone is plugged in." | "Connecting to it." | not drawn: as allow, for a moment |
-| `allow` | "A phone is plugged in." | "Waiting for Allow on the phone." | allow |
+| `unknown` | "A phone is plugged in." | "It does not know this PC yet." | not drawn: a phone with USB debugging on that does not know this PC; nothing was asked |
+| `allow` | "The phone is asking." | "Waiting for Allow on the phone." | allow: asked by `phone.ask`, waiting |
 | `ok` | "Connected: Galaxy S20 Ultra 5G." | "Android 13." | ok, teal |
 | `trouble` | what went wrong | what to do | not drawn: coral |
 
@@ -415,8 +426,9 @@ says what is plugged in: `off` while the phone is still in (A9's foot),
 else its model.
 
 **`fingerprint`**: the key's fingerprint as the phone shows it, sixteen
-pairs ("3C:91:5A:07:..."), only while `case` is `allow` (A3); otherwise
-null.
+pairs ("3C:91:5A:07:..."), while `case` is `unknown` or `allow` (A3);
+otherwise null. **`asked_secs`**: whole seconds since the phone was asked,
+while `case` is `allow`; otherwise null.
 
 **`phone`**: null until a phone has connected, then the last one's: its
 `name`, `model`, `maker`, `android`, `recent_enough`, `limo` (`looked`,
@@ -464,7 +476,7 @@ order first seen: `cable`, `home_network`.
 off."), `still_on` ("USB debugging is still on." "Switch it off on the
 phone: Settings, Developer options, USB debugging.").
 
-**`busy`**: the call running now, `connecting`, `checking`, `installing`,
+**`busy`**: the call running now, `connecting`, `asking`, `checking`, `installing`,
 `pairing`, `switching_off`, or null. **`held`**: true while the console
 holds the phone open.
 
@@ -473,13 +485,22 @@ holds the phone open.
 - Ask `phone.look` once a second from A1 to A9, as the drawing says; a
   minute with no request and the console lets go of the phone. Ask
   `phone.done` when Add a phone closes, by Done or by leaving it; a
-  `phone.look` after that starts afresh, and connects again to a phone
-  with USB debugging on.
-- The console connects as soon as a phone with USB debugging on is plugged
-  in, even on A1: a screen may move on when the strip says `allow` or `ok`.
+  `phone.look` after that starts afresh, and connects again, quietly, to a
+  phone with USB debugging on.
+- The console connects quietly as soon as a phone with USB debugging on is
+  plugged in, even on A1: a phone that allowed this PC before connects (`ok`)
+  with no question; one that does not know this PC is `unknown`, and nothing
+  is shown to it.
+- **A3's button asks the phone**: `phone.ask`, once, when the guardian taps
+  it with the phone unlocked; never by itself. While `case` is `unknown` the
+  screen shows the fingerprint and the button; at `allow` the phone asks, and
+  the screen may show `asked_secs`; at `ok` it moves on. An ask that
+  nobody answered in time is `trouble` ("The phone did not allow this PC in
+  time."), and stays until the phone goes or the guardian asks again: the
+  button then says to unlock the phone and ask again, and that a phone that
+  shows no question wants USB debugging off and on first.
 - Steps that wait for the phone move on by what the look says: A2 when
-  `case` is no longer `none`, `off` or `driver`; A3 shows `fingerprint`
-  while `case` is `allow`, and moves on at `ok`; A4 shows `checks`, asks
+  `case` is no longer `none`, `off` or `driver`; A3 as above; A4 shows `checks`, asks
   `phone.install` once `phone.limo.looked` is true, and moves on at
   `install.stage` `done` or `not_needed`; A5 asks `phone.pair` with the
   child chosen at A1, and moves on at `pairing.stage` `paired`, whose
@@ -493,9 +514,40 @@ holds the phone open.
   typographic apostrophe the drawings use. No answer holds a secret: never
   an offer, never the key, only its fingerprint.
 
+### Never show the key unasked
+
+**What the owner's first Add a phone found**, on the test phone (Galaxy,
+Android 13), 21 Nov 2026, from the phone's own log: the window connected
+and sent this PC's key the moment Add a phone opened, on step 1, while the
+phone was at its lock screen. Samsung's `AdbDebuggingManager` logged
+`startConfirmation: isLockScreenMode`, put nothing on the screen and never
+answered. From then on adbd logged `adbd_auth: prompt currently pending,
+skipping` for every later attempt (one about every two minutes, eleven of
+them): no question could show any more, not after unlocking, not after the
+cable was pulled out and in. Only a restart of adbd cleared it, which USB
+debugging off and on does. The key itself was right: Google's own tool gives
+the same fingerprint for LiMo's key file.
+
+**The rule since.** LiMo never shows its key to a phone unless the guardian
+has just asked for it, and never asks twice by itself. `phone.look` only
+ever makes quiet connections (limo-cable's `Knock::Quiet`: the token signed,
+and nothing more sent to a phone that does not know the key); after one
+found the phone does not know this PC, nothing is tried again until the
+phone goes and comes back, or the guardian asks. `phone.ask` makes one
+asking connection, which shows the key once and waits ten minutes for the
+answer, so that a late Allow still connects; it ends early when the phone
+goes, at `phone.done`, or a minute after the screens' last request, and is
+never made again by itself. The window's log has a line for each ask and
+for each phone that did not know this PC (no key, no fingerprint, no
+serial number).
+
+**What a person can do** when the phone shows no question: unlock the
+phone, then switch USB debugging off and on again on it (Settings,
+Developer options), then ask again.
+
 ### The answers as files, for the screens' tests
 
-`src/phone_answers.rs` writes the answers of the five requests, as the page
+`src/phone_answers.rs` writes the answers of the six requests, as the page
 gets them, into `../phone/app/tests/window-answers/`, one file per request
 and case (`look-none.json`, `look-allow.json`, `install-started.json` and so
 on): the answers the window itself gives, as against the door's in
@@ -512,15 +564,16 @@ cargo test --no-default-features phone_answers
 
 It plays limo-cable's fake phone through the console's real desk and
 writes each answer as it came: no phone, USB debugging off, no driver, the
-phone asking (with the key's fingerprint), not allowed in time, connected,
+phone not knowing this PC (nothing asked), the ask, not allowed in time, connected,
 LiMo put on, paired over the cable, then over the home Wi-Fi too, USB
 debugging switched off, done; LiMo there already, older, of another maker;
 no app on this PC, an Android too old, another program holding the phone,
 the phone unplugged; the service making no offer, an offer that runs out;
 and the requests' own answers and errors (started, not needed, busy, no
-phone, not yet, no child, too old, no app, arguments a request does not
-take). The moments too short for the fake phone to hold (looking,
-connecting, two phones, sending, installing, asking the service, handing,
+phone, not yet, no child, too old, no app, already connected, arguments a
+request does not take). The moments too short for the fake phone to hold,
+or whose seconds would change from run to run (looking, connecting, the
+phone asking with `asked_secs` 12, two phones, sending, installing, asking the service, handing,
 switching off, USB debugging still on, an install whose connection ended)
 come from the same answer code
 (`phone::look`), given that moment's state.
@@ -565,9 +618,15 @@ answer holds the offer.
    example lists them). With `--leave-debugging-on` the phone can be added
    again over the cable without a person switching USB debugging on again;
    a second run without it tries the switch off.
-6. **Watch**: the phone asks "Allow USB debugging?" with the fingerprint
-   the example printed: compare, tick "Always allow from this computer",
-   tap Allow. Then the checks, `sending` with `sent` rising, `installing`,
+6. **Watch**: the example connects quietly and says the phone does not know
+   this PC (the strip's `unknown`, with the fingerprint); nothing shows on the
+   phone yet. Unlock the phone, then press Enter: only now is the phone
+   asked, once (an input that ends first asks nothing: the example says so
+   and stops), and it asks "Allow USB debugging?": compare the fingerprint,
+   tick "Always allow from this computer", tap Allow (there are ten
+   minutes). If no question shows, switch USB debugging off and on again on
+   the phone, then run the example again (see [Never show the key
+   unasked](#never-show-the-key-unasked)). Then the checks, `sending` with `sent` rising, `installing`,
    `done` (or `not_needed`), `waiting`, LiMo opening on the phone, `paired`
    with the device's id and `cable`, then up to two minutes for
    `home_network`.
@@ -864,14 +923,14 @@ MiB). The control: the debug exe, built without the remapping, holds the user na
 
 ## Tests
 
-`cargo test --no-default-features`: 59 tests, no window and no page,
+`cargo test --no-default-features`: 62 tests, no window and no page,
 about nine seconds once built (21 Nov 2026, all passed; the answers for
 the screens take most of it). They open named pipes and loopback sockets in the
 test's own account, under names of their own
 (`limo.console.test.<process>.<n>`), never LiMo's own door, and nothing
 else. No test reaches a real phone or a real service.
 
-**Adding a phone** (`phone_tests.rs`), through the five requests as the
+**Adding a phone** (`phone_tests.rs`), through the six requests as the
 screens ask them, against limo-cable's fake phone (its cable held as the
 console holds the real one), a throwaway app (`test_apk.rs`: a zip with
 Android's binary manifest, LiMo's package, version 0.3.0, a release
@@ -882,8 +941,12 @@ never 8081:
 - the whole of it, through the stand in door over a real pipe, signed in:
   each of the cable's drawn cases in its words (a cable that only charges,
   USB debugging off, no driver, a maker's driver), with nothing opened
-  before there is a phone LiMo can open; the phone asking, with the key's
-  fingerprint, not allowed in time and said so, then allowed; connected,
+  before there is a phone LiMo can open; a phone that has never seen this
+  PC connected quietly and said to be `unknown`, with the fingerprint, the
+  fake phone sent no public key however often the screens looked (the
+  `AUTH` messages counted), one quiet connection and no more; asked, the
+  phone asking once, a second ask refused as busy, not allowed in time and
+  said so, not asked again by itself; asked again, allowed; connected,
   with the phone's name, Android and checks; pairing refused before LiMo
   is on it; LiMo put on, the bytes on the phone the app's own, and not
   again; the offer the door made handed to LiMo on the phone, the phone's
@@ -894,6 +957,14 @@ never 8081:
   the offer's secret in no answer;
 - the screens never wait: while the phone asks, each look answers in under
   150 ms, and a step asked then is refused at once;
+- an ask waits long: the screens looking for 2.5 s while the phone asks send
+  it nothing, `asked_secs` counts, a late Allow still connects, the key
+  shown once; the window's log has a line for the phone not knowing this PC
+  and for the ask, with no fingerprint; an ask once connected refused;
+- an ask ends when the phone is unplugged, and at `phone.done`, at once, not
+  after its wait;
+- an ask refused with no phone, with nothing plugged in, with arguments,
+  and for a phone that knows this PC, which is never asked;
 - LiMo at this PC's version not put on again; the service refusing an
   offer, in its own words, with nothing handed; asked again, paired;
 - an older LiMo replaced; one of another maker refused with limo-cable's
@@ -983,7 +1054,7 @@ src/
   lib.rs                    the crate's parts, for the window, the tests and the examples
   protocol.rs               what crosses the door: frames, hello, a page's request forwarded and wiped
   door.rs                   the console's half: the server's check, the connection, the words
-  phone/                    adding a phone: the five requests and the desk (mod.rs), the thread
+  phone/                    adding a phone: the six requests and the desk (mod.rs), the thread
                             that holds the cable (worker.rs), the look and its words (look.rs),
                             the real cable counting what it sends (counted.rs), the service
                             through the door (door_service.rs)
@@ -1101,8 +1172,8 @@ throwaway app's manifest is made as limo-cable's own tests make it.
   limo-cable to give the progress of an install (a callback, or a count of
   its own), that copy would go.
 - **Connecting at A1.** The console connects to a phone with USB debugging
-  on from the first look, before "Start": the phone may ask to allow this
-  PC while the guardian is still choosing the child.
+  on from the first look, before "Start", but quietly: nothing is shown to a
+  phone that does not know this PC until the guardian asks at A3.
 - **What LiMo for Windows offers the console's tests.** The tests and the
   self check run the real door with a quiet PC of their own
   (`support/real_door.rs`), which must implement every method of `Os`.

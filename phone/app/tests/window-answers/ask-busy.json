@@ -1,0 +1,11 @@
+{
+  "request": "phone.ask",
+  "case": "asked again while the phone asks",
+  "asked": {
+    "name": "phone.ask"
+  },
+  "error": {
+    "code": "busy",
+    "words": "The phone is busy with another step. Wait a moment, then try again."
+  }
+}

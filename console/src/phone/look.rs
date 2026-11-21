@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 pub(crate) const NO_PHONE: &str = "No phone is connected yet. Plug it in, unlocked, with USB debugging on.";
 /// Said when a request comes while another step runs.
 pub(crate) const BUSY: &str = "The phone is busy with another step. Wait a moment, then try again.";
+/// Said when an ask comes for a phone that is connected already.
+pub(crate) const ALREADY_CONNECTED: &str = "The phone is connected already: it knows this PC.";
 /// Said when pairing is asked before LiMo is on the phone.
 pub(crate) const NOT_INSTALLED: &str = "LiMo is not on the phone yet.";
 
@@ -127,8 +129,14 @@ pub(crate) struct Shared {
     pub app_version: Option<String>,
     /// Why this PC's app cannot be put on a phone.
     pub app_problem: Option<Words>,
-    /// The key's fingerprint, while the phone asks.
+    /// The key's fingerprint, once the key is had: shown while the phone
+    /// does not know this PC, and while it asks.
     pub fingerprint: Option<String>,
+    /// When the phone was shown the key and asked, while it asks.
+    pub asked_at: Option<std::time::Instant>,
+    /// When a request last came: an ask is given up a minute after the
+    /// screens stop asking.
+    pub last_request: std::time::Instant,
     /// A problem of the console's own with the cable (its key).
     pub cable_trouble: Option<Words>,
     pub install: Install,
@@ -154,6 +162,8 @@ impl Default for Shared {
             app_version: None,
             app_problem: None,
             fingerprint: None,
+            asked_at: None,
+            last_request: std::time::Instant::now(),
             cable_trouble: None,
             install: Install::default(),
             pairing: Pairing::default(),
@@ -180,6 +190,7 @@ fn strip(case: &str, line: &str, more: &str) -> (&'static str, String, String) {
     let case = match case {
         "looking" => "looking",
         "none" => "none",
+        "unknown" => "unknown",
         "off" => "off",
         "driver" => "driver",
         "connecting" => "connecting",
@@ -223,6 +234,20 @@ impl Shared {
         }
     }
 
+    /// May the phone be asked to allow this PC now: plugged in with USB
+    /// debugging on, not connected, nothing else running.
+    pub(crate) fn may_ask(&self) -> Result<(), Value> {
+        let present = self.look.as_ref().is_some_and(|look| matches!(flow::seen(look), State::Ready { .. }));
+        let busy = || json!({ "code": "busy", "words": BUSY });
+        match &self.state {
+            State::Connected(_) | State::Stopped(Problem::TooOld(_)) => Err(json!({ "code": "already_connected", "words": ALREADY_CONNECTED })),
+            State::Connecting | State::Asking => Err(busy()),
+            _ if self.busy.is_some() => Err(busy()),
+            State::Unknown | State::Ready { .. } | State::Stopped(_) if present => Ok(()),
+            _ => Err(json!({ "code": "no_phone", "words": NO_PHONE })),
+        }
+    }
+
     fn shown_name(&self, facts: &PhoneFacts) -> String {
         self.phone_name.clone().unwrap_or_else(|| if facts.model.is_empty() { "the phone".to_string() } else { facts.model.clone() })
     }
@@ -238,7 +263,8 @@ impl Shared {
         match &self.state {
             State::NotReady(case) => case_strip(case, &self.state),
             State::Ready { .. } | State::Connecting => strip("connecting", "A phone is plugged in.", "Connecting to it."),
-            State::Asking => strip("allow", "A phone is plugged in.", "Waiting for Allow on the phone."),
+            State::Unknown => strip("unknown", "A phone is plugged in.", "It does not know this PC yet."),
+            State::Asking => strip("allow", "The phone is asking.", "Waiting for Allow on the phone."),
             State::Connected(progress) => {
                 strip("ok", &format!("Connected: {}.", self.shown_name(&progress.facts)), &format!("Android {}.", progress.facts.android))
             }
@@ -394,7 +420,8 @@ impl Shared {
         let (case, line, more) = self.cable();
         json!({
             "cable": { "case": case, "line": line, "more": more },
-            "fingerprint": if case == "allow" { self.fingerprint.clone() } else { None },
+            "fingerprint": if case == "unknown" || case == "allow" { self.fingerprint.clone() } else { None },
+            "asked_secs": if case == "allow" { self.asked_at.map(|at| at.elapsed().as_secs()) } else { None },
             "phone": self.phone(),
             "checks": self.checks(),
             "install": self.install_answer(),
@@ -453,8 +480,10 @@ mod tests {
             shown(&s),
             ("driver".into(), "No working driver for this phone.".into(), "Install its maker’s USB driver for Windows, such as Samsung’s Android USB Driver.".into())
         );
+        s.state = State::Unknown;
+        assert_eq!(shown(&s), ("unknown".into(), "A phone is plugged in.".into(), "It does not know this PC yet.".into()));
         s.state = State::Asking;
-        assert_eq!(shown(&s), ("allow".into(), "A phone is plugged in.".into(), "Waiting for Allow on the phone.".into()));
+        assert_eq!(shown(&s), ("allow".into(), "The phone is asking.".into(), "Waiting for Allow on the phone.".into()));
         s.look = Some(galaxy());
         s.phone_name = phone_name(&galaxy());
         s.state = step(step(State::Ready { name: None }, Event::Connecting), Event::Connected(facts()));
@@ -468,9 +497,14 @@ mod tests {
     }
 
     #[test]
-    fn the_fingerprint_is_given_only_while_the_phone_asks() {
-        let mut s = Shared { look: Some(galaxy()), fingerprint: Some("3C:91".into()), state: State::Asking, ..Shared::default() };
+    fn the_fingerprint_is_given_while_the_phone_does_not_know_this_pc_and_while_it_asks() {
+        let asked = std::time::Instant::now() - std::time::Duration::from_secs(12);
+        let mut s = Shared { look: Some(galaxy()), fingerprint: Some("3C:91".into()), state: State::Asking, asked_at: Some(asked), ..Shared::default() };
         assert_eq!(s.answer()["fingerprint"], "3C:91");
+        assert_eq!(s.answer()["asked_secs"], 12);
+        s.state = State::Unknown;
+        assert_eq!(s.answer()["fingerprint"], "3C:91");
+        assert_eq!(s.answer()["asked_secs"], Value::Null);
         s.state = State::Connecting;
         assert_eq!(s.answer()["fingerprint"], Value::Null);
     }

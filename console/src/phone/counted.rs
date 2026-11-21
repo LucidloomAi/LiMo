@@ -11,7 +11,7 @@ use std::sync::atomic::AtomicU64;
 
 use limo_cable::key::AdbKey;
 use limo_cable::open::{Cable, Look, WindowsCable, adb_server_running};
-use limo_cable::phone::{OpenProblem, Phone, Waits};
+use limo_cable::phone::{Knock, OpenProblem, Phone, Waits};
 use limo_cable::win::winusb::{self, OpenError};
 
 use super::{ConsoleCable, CountingWire};
@@ -29,7 +29,7 @@ impl ConsoleCable for CountedCable {
 
     /// As `WindowsCable::open`: Google's adb server holds the phone while it
     /// runs, and is never stopped; the one interface on WinUSB is opened.
-    fn open(&mut self, key: &AdbKey, waits: Waits, on_asking: &mut dyn FnMut()) -> Result<Phone, OpenProblem> {
+    fn open(&mut self, key: &AdbKey, waits: Waits, knock: Knock<'_>) -> Result<Phone, OpenProblem> {
         if adb_server_running() {
             return Err(OpenProblem::AdbServerRunning);
         }
@@ -50,7 +50,7 @@ impl ConsoleCable for CountedCable {
             OpenError::NotWinUsb(why) => OpenProblem::DriverNotUsable(why),
             OpenError::Other(why) => OpenProblem::Other(why),
         })?;
-        Phone::connect(Box::new(CountingWire::new(wire, Arc::clone(&self.sent))), key, waits, on_asking)
+        Phone::connect(Box::new(CountingWire::new(wire, Arc::clone(&self.sent))), key, waits, knock)
     }
 
     fn sent(&self) -> Option<Arc<AtomicU64>> {

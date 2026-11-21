@@ -7,8 +7,10 @@
 //! ```
 //!
 //! With no option it connects with LiMo's own key for this Windows account
-//! (made the first time, in `%LOCALAPPDATA%\LiMo\adbkey`), so the phone asks
-//! "Allow USB debugging?" the first time. With `--key adb` it connects with
+//! (made the first time, in `%LOCALAPPDATA%\LiMo\adbkey`). It connects quietly
+//! first, showing the phone nothing; a phone that does not know the key is
+//! asked "Allow USB debugging?" only once the person at the PC presses Enter,
+//! with the phone unlocked, and only once. With `--key adb` it connects with
 //! the adb key of this Windows account instead, Google's adb's own, which a
 //! phone may have allowed long ago, so that it can be run with nobody at the
 //! phone. That key is only read: never written, copied or shown, and its
@@ -39,7 +41,7 @@ fn run(adb_key: bool) -> i32 {
     use limo_cable::flow::{State, seen, tell};
     use limo_cable::key::AdbKey;
     use limo_cable::open::{Cable, WindowsCable};
-    use limo_cable::phone::Waits;
+    use limo_cable::phone::{Knock, OpenProblem, Waits};
 
     println!("What this does to the phone: it opens the phone's debugging interface through Windows' own WinUSB and");
     println!("connects; then it reads the maker, the model, the Android version, whether USB debugging is on, and");
@@ -77,16 +79,38 @@ fn run(adb_key: bool) -> i32 {
         }
         return 1;
     }
-    println!("> open the phone through WinUSB, and connect");
+    println!("> open the phone through WinUSB, and connect quietly (nothing is shown to the phone)");
     let mut asked = false;
-    let waits = Waits::default();
-    let opened = cable.open(&key, waits, &mut || {
-        asked = true;
-        println!(
-            "The phone asks: Allow USB debugging? Tick \"Always allow from this computer\", then tap Allow (within {} seconds).",
-            waits.prompt.as_secs()
-        );
-    });
+    let waits = Waits { prompt: std::time::Duration::from_secs(600), ..Waits::default() };
+    let opened = match cable.open(&key, waits, Knock::Quiet) {
+        // The phone does not know this PC: it is asked only when the person
+        // says so, with the phone unlocked, and once.
+        Err(OpenProblem::NotKnown) => {
+            println!("The phone does not know this PC yet. Unlock it, then press Enter here to ask it to allow this PC (it asks once).");
+            // Only a line the person ended with Enter asks: an end of input
+            // (a closed or empty input) is not a yes.
+            let mut line = String::new();
+            match std::io::stdin().read_line(&mut line) {
+                Ok(_) if line.ends_with('\n') => {}
+                _ => {
+                    println!("Nothing was asked of the phone: the input ended before Enter was pressed.");
+                    return 1;
+                }
+            }
+            cable.open(
+                &key,
+                waits,
+                Knock::asking(&mut || {
+                    asked = true;
+                    println!(
+                        "The phone asks: Allow USB debugging? Tick \"Always allow from this computer\", then tap Allow (within {} minutes).",
+                        waits.prompt.as_secs() / 60
+                    );
+                }),
+            )
+        }
+        other => other,
+    };
     let phone = match opened {
         Ok(phone) => phone,
         Err(problem) => {

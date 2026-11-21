@@ -1,6 +1,8 @@
 //! Adds a phone from a terminal, with the console's own desk for a phone:
 //! the real cable (LiMo's own way through Windows' WinUSB, counting what it
-//! sends), LiMo's key in this account, and LiMo's service through its real
+//! sends), LiMo's key in this account (shown to the phone only when the
+//! person presses Enter, with the phone unlocked, and once), and LiMo's
+//! service through its real
 //! door, checked as the service. The same requests the Add a phone screens
 //! ask, one a second, with each change printed. For a first run on a real
 //! phone before the screens exist (README.md, "A first run on a real
@@ -122,8 +124,9 @@ fn main() {
         app: Some(o.app.clone()),
         key_folder: None,
         link_port: LINK_PORT,
-        waits: limo_cable::phone::Waits::default(),
+        waits: limo_cable::phone::Waits { prompt: limo_console::phone::ASK_WAIT, ..limo_cable::phone::Waits::default() },
         pace: Pace::default(),
+        log: None,
     });
     let ask = |name: &str, args: Value| {
         let answer = desk.request(name, args);
@@ -137,6 +140,8 @@ fn main() {
     let mut last = BTreeMap::new();
     let mut wifi_from: Option<Instant> = None;
     let mut asked_off = false;
+    // The phone is asked only once the person says so, unlocked, and once.
+    let (mut ask_now, mut asked) = (false, false);
     let outcome = loop {
         let look = ask("phone.look", Value::Null).unwrap_or_else(|e| fail(&e.to_string()));
         show(&look, &mut last);
@@ -159,7 +164,22 @@ fn main() {
         if debugging == "still_on" {
             break format!("{} {}", look["debugging"]["line"], look["debugging"]["advice"]);
         }
-        if connected && look["phone"]["limo"]["looked"] == true && install == "not_asked" {
+        if look["cable"]["case"] == "unknown" && !asked && !ask_now {
+            println!("         the phone does not know this PC: unlock it, then press Enter here to ask it to allow this PC (it asks once)");
+            // Only a line the person ended with Enter asks: an end of input
+            // (a closed or empty input) is not a yes.
+            let mut line = String::new();
+            match std::io::stdin().read_line(&mut line) {
+                Ok(_) if line.ends_with('\n') => ask_now = true,
+                _ => break "nothing was asked of the phone: the input ended before Enter was pressed".to_string(),
+            }
+        } else if look["cable"]["case"] == "unknown" && ask_now {
+            ask_now = false;
+            asked = true;
+            let _ = ask("phone.ask", Value::Null);
+        } else if look["cable"]["case"] == "trouble" && asked && look["held"] == false && look["phone"].is_null() {
+            break format!("{} {}", look["cable"]["line"], look["cable"]["more"]);
+        } else if connected && look["phone"]["limo"]["looked"] == true && install == "not_asked" {
             let _ = ask("phone.install", Value::Null);
         } else if connected && ["done", "not_needed"].contains(&install) && pairing == "not_asked" {
             let _ = ask("phone.pair", json!({ "child": child }));

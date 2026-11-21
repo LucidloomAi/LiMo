@@ -11,15 +11,23 @@ cargo test --no-default-features phone_answers
 ```
 
 These are the answers the console's window gives itself, for adding a
-phone (`phone.look`, `phone.install`, `phone.pair`, `phone.debugging_off`,
-`phone.done`), as against the door's, which are in `../console-answers/`.
-The test plays limo-cable's fake phone through the console's real code and
-writes each answer as the page gets it; a few moments too short for the
-fake phone to hold (looking, connecting, two phones, sending, installing, an
-install whose connection ended, asking the service, handing, switching
-off, USB debugging still on) come from the same answer code, given that
-moment's state. `console/README.md`, "Adding a phone", says what every part
-of an answer holds.
+phone (`phone.look`, `phone.ask`, `phone.install`, `phone.pair`,
+`phone.debugging_off`, `phone.done`), as against the door's, which are in
+`../console-answers/`. The test plays limo-cable's fake phone through the
+console's real code and writes each answer as the page gets it; a few
+moments too short for the fake phone to hold, or whose seconds would change
+from run to run (looking, connecting, the phone asking, two phones, sending,
+installing, an install whose connection ended, asking the service, handing,
+switching off, USB debugging still on) come from the same answer code,
+given that moment's state. `console/README.md`, "Adding a phone", says
+what every part of an answer holds.
+
+The phone is asked to allow this PC only by `phone.ask`, on the guardian's
+tap (see "Never show the key unasked" there): `look-unknown` is a phone that
+does not know this PC, nothing asked yet; `ask-started` the ask;
+`look-allow` the phone asking, `asked_secs` 12; `ask-busy` a second ask
+meanwhile; `look-not-allowed` an ask nobody answered in time;
+`ask-no-phone` and `ask-already-connected` the ask refused.
 
 Each file holds:
 

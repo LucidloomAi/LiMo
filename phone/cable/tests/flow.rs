@@ -1,6 +1,7 @@
 //! The state machine driven as the console will drive it, against the fake
-//! phone: plug in, connect (the question on the phone), LiMo looked for and
-//! installed, the offer handed, the link's port reversed, LiMo started,
+//! phone: plug in, connect quietly (the phone does not know this PC, and
+//! nothing is shown), ask (the question on the phone, once), LiMo looked
+//! for and installed, the offer handed, the link's port reversed, LiMo started,
 //! USB debugging off, unplug; and each thing that can stand in the way.
 
 mod common;
@@ -14,7 +15,7 @@ use limo_cable::fake::{CableKind, Driver, FakePhone};
 use limo_cable::flow::{Event, Next, State, next, step, tell};
 use limo_cable::key::AdbKey;
 use limo_cable::open::Cable;
-use limo_cable::phone::{DebuggingOff, Phone, Waits};
+use limo_cable::phone::{DebuggingOff, Knock, Phone, Waits};
 use limo_cable::usb::Case;
 
 use common::apk::apk_file;
@@ -48,15 +49,22 @@ impl Console {
         self.said.push(words.line);
     }
 
-    /// One turn: does the first thing `next` offers.
+    /// One turn: does the first thing `next` offers, and asks the phone
+    /// when it offers that too (the guardian's tap, in the test at once).
     fn turn(&mut self, cable: &mut FakePhone, apk: &Path) -> Next {
-        let todo = next(&self.state)[0];
+        let offered = next(&self.state);
+        let todo = if offered.contains(&Next::Ask) { Next::Ask } else { offered[0] };
         match todo {
             Next::LookAgain => self.hand(Event::Looked(cable.look())),
-            Next::Connect => {
+            Next::Connect | Next::Ask => {
                 self.hand(Event::Connecting);
                 let mut asked = false;
-                let result = cable.open(&key(), Waits { prompt: Duration::from_secs(2), ..Waits::default() }, &mut || asked = true);
+                let waits = Waits { prompt: Duration::from_secs(2), ..Waits::default() };
+                let result = if todo == Next::Ask {
+                    cable.open(&key(), waits, Knock::asking(&mut || asked = true))
+                } else {
+                    cable.open(&key(), waits, Knock::Quiet)
+                };
                 if asked {
                     self.hand(Event::Asking);
                 }
@@ -133,6 +141,7 @@ fn a_phone_is_added_over_the_cable_from_plugging_in_to_unplugging() {
         vec![
             Next::LookAgain,
             Next::Connect,
+            Next::Ask,
             Next::CheckLimo,
             Next::InstallLimo,
             Next::HandOffer,
@@ -174,6 +183,9 @@ fn unplugging_while_connected_is_lost_and_plugging_in_again_goes_on() {
     let mut cable = FakePhone::new();
     let mut console = Console::new();
     console.turn(&mut cable, &apk);
+    console.turn(&mut cable, &apk);
+    assert_eq!(console.state, State::Unknown, "a quiet connection: the phone does not know this PC");
+    assert_eq!(cable.seen().prompts, 0);
     console.turn(&mut cable, &apk);
     assert!(matches!(console.state, State::Connected(_)));
     cable.state().plugged = false;

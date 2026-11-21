@@ -1,0 +1,11 @@
+{
+  "request": "phone.ask",
+  "case": "asked once the phone is connected",
+  "asked": {
+    "name": "phone.ask"
+  },
+  "error": {
+    "code": "already_connected",
+    "words": "The phone is connected already: it knows this PC."
+  }
+}

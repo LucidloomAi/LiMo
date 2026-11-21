@@ -338,7 +338,7 @@ describe('the window’s answers for adding a phone (tests/window-answers)', () 
   it('are there for each request of the window’s', () => {
     expect(windowFiles.length).toBeGreaterThan(0);
     const asked = new Set(windowFiles.map(([, f]) => f.request));
-    expect(['phone.look', 'phone.install', 'phone.pair', 'phone.debugging_off', 'phone.done'].filter((n) => !asked.has(n))).toEqual([]);
+    expect(['phone.look', 'phone.ask', 'phone.install', 'phone.pair', 'phone.debugging_off', 'phone.done'].filter((n) => !asked.has(n))).toEqual([]);
   });
 
   const values = windowFiles.filter(([, f]) => f.answer !== undefined);
@@ -361,11 +361,14 @@ describe('the window’s answers for adding a phone (tests/window-answers)', () 
       if (got.kind === 'done') looks.push(got.value as PhoneLook);
     }
     const seen = (pick: (l: PhoneLook) => string) => [...new Set(looks.map(pick))].sort();
-    expect(seen((l) => l.cable.case)).toEqual(expect.arrayContaining(['allow', 'driver', 'none', 'off', 'ok', 'trouble']));
+    expect(seen((l) => l.cable.case)).toEqual(expect.arrayContaining(['allow', 'driver', 'none', 'off', 'ok', 'trouble', 'unknown']));
     expect(seen((l) => l.install.stage)).toEqual(expect.arrayContaining(['done', 'installing', 'sending']));
     expect(seen((l) => l.pairing.stage)).toEqual(expect.arrayContaining(['paired', 'waiting']));
     expect(seen((l) => l.debugging.stage)).toEqual(expect.arrayContaining(['off', 'still_on', 'switching_off']));
-    for (const l of looks) expect(l.fingerprint === null || l.cable.case === 'allow').toBe(true);
-    expect(looks.some((l) => l.cable.case === 'allow' && l.fingerprint !== null)).toBe(true);
+    // The key only while the phone does not know this PC: before the ask, and while it asks, with how long ago.
+    for (const l of looks) expect(l.fingerprint === null || l.cable.case === 'unknown' || l.cable.case === 'allow').toBe(true);
+    expect(looks.find((l) => l.cable.case === 'unknown')).toMatchObject({ fingerprint: expect.any(String), askedSecs: null });
+    expect(looks.find((l) => l.cable.case === 'allow')).toMatchObject({ fingerprint: expect.any(String), askedSecs: 12, busy: 'asking' });
+    for (const l of looks) expect(l.askedSecs === null || l.cable.case === 'allow').toBe(true);
   });
 });

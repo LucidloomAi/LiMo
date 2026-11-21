@@ -1,0 +1,38 @@
+{
+  "request": "phone.look",
+  "case": "a phone that does not know this PC yet: nothing was shown to it",
+  "asked": {
+    "name": "phone.look"
+  },
+  "answer": {
+    "asked_secs": null,
+    "busy": null,
+    "cable": {
+      "case": "unknown",
+      "line": "A phone is plugged in.",
+      "more": "It does not know this PC yet."
+    },
+    "checks": [],
+    "debugging": {
+      "advice": null,
+      "line": null,
+      "stage": "on"
+    },
+    "fingerprint": "3C:91:5A:07:E2:4B:D8:16:AF:62:0C:B9:75:18:4E:D3",
+    "held": false,
+    "install": {
+      "advice": null,
+      "line": null,
+      "sent": null,
+      "stage": "not_asked"
+    },
+    "pairing": {
+      "advice": null,
+      "device": null,
+      "line": null,
+      "stage": "not_asked",
+      "ways": []
+    },
+    "phone": null
+  }
+}

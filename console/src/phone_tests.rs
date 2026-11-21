@@ -17,7 +17,8 @@ use limo_cable::commands::{LINK_PORT, PACKAGE};
 use limo_cable::fake::{CableKind, Driver, FakeLimo, FakePhone, FakeState, Person};
 use limo_cable::key::AdbKey;
 use limo_cable::open::{Cable, Look};
-use limo_cable::phone::{OpenProblem, Phone, Waits};
+use limo_cable::phone::{Knock, OpenProblem, Phone, Waits};
+use limo_cable::protocol::{AUTH_RSAPUBLICKEY, AUTH_SIGNATURE};
 use serde_json::{Value, json};
 
 use crate::door::{Door, DoorReply};
@@ -45,8 +46,8 @@ impl ConsoleCable for FakeCable {
     fn look(&mut self) -> Look {
         phone_of(&self.0).look()
     }
-    fn open(&mut self, key: &AdbKey, waits: Waits, on_asking: &mut dyn FnMut()) -> Result<Phone, OpenProblem> {
-        phone_of(&self.0).open(key, waits, on_asking)
+    fn open(&mut self, key: &AdbKey, waits: Waits, knock: Knock<'_>) -> Result<Phone, OpenProblem> {
+        phone_of(&self.0).open(key, waits, knock)
     }
 }
 
@@ -116,6 +117,8 @@ pub(crate) struct Rig {
     fake: Arc<Mutex<FakeState>>,
     desk: PhoneDesk,
     app: PathBuf,
+    /// The window's log, when the rig has one.
+    log_path: Option<PathBuf>,
     answers: Mutex<Vec<String>>,
     _dir: tempfile::TempDir,
 }
@@ -123,6 +126,20 @@ pub(crate) struct Rig {
 pub(crate) struct RigSetup {
     pub(crate) app: AppKind,
     pub(crate) pace: Pace,
+    /// The phone allowed this PC before: a quiet connection connects.
+    pub(crate) known: bool,
+    /// How long an ask waits for Allow.
+    pub(crate) prompt: Duration,
+    /// A window's log of its own, in the rig's folder.
+    pub(crate) log: bool,
+}
+
+impl Default for RigSetup {
+    /// LiMo's app, the quick pace, a phone that knows this PC, an ask
+    /// waiting 700 ms.
+    fn default() -> RigSetup {
+        RigSetup { app: AppKind::Limo, pace: quick(), known: true, prompt: Duration::from_millis(700), log: false }
+    }
 }
 
 pub(crate) enum AppKind {
@@ -133,7 +150,7 @@ pub(crate) enum AppKind {
 
 impl Rig {
     pub(crate) fn new(change: impl FnOnce(&mut FakeState), service: Arc<dyn Service>, link_port: u16) -> Rig {
-        Rig::with(change, service, link_port, RigSetup { app: AppKind::Limo, pace: quick() })
+        Rig::with(change, service, link_port, RigSetup::default())
     }
 
     pub(crate) fn with(change: impl FnOnce(&mut FakeState), service: Arc<dyn Service>, link_port: u16, setup: RigSetup) -> Rig {
@@ -143,7 +160,11 @@ impl Rig {
             AppKind::Other => apk_in(dir.path(), "com.example.other", false),
             AppKind::Missing => dir.path().join(crate::phone::APP_FOLDER).join(crate::phone::APP_FILE),
         };
+        let log_path = setup.log.then(|| dir.path().join(crate::console_log::LOG_FILE));
         let fake_phone = FakePhone::with(change);
+        if setup.known {
+            fake_phone.state().knows(&AdbKey::load_or_make(&key_folder()).unwrap());
+        }
         let fake = Arc::clone(&fake_phone.state);
         let phone = Arc::new(Mutex::new(fake_phone));
         let theirs = Arc::clone(&phone);
@@ -153,10 +174,11 @@ impl Rig {
             app: Some(app.clone()),
             key_folder: Some(key_folder()),
             link_port,
-            waits: Waits { hello: Duration::from_secs(5), prompt: Duration::from_millis(700), call: Duration::from_secs(5), install: Duration::from_secs(10) },
+            waits: Waits { hello: Duration::from_secs(5), prompt: setup.prompt, call: Duration::from_secs(5), install: Duration::from_secs(10) },
             pace: setup.pace,
+            log: log_path.as_ref().map(|p| Arc::new(crate::console_log::ConsoleLog::at(p))),
         });
-        Rig { phone, fake, desk, app, answers: Mutex::new(Vec::new()), _dir: dir }
+        Rig { phone, fake, desk, app, log_path, answers: Mutex::new(Vec::new()), _dir: dir }
     }
 
     /// The fake phone's state, locked: plug it in, unplug it, switch USB
@@ -224,7 +246,13 @@ fn a_phone_is_added_over_the_cable_from_plugging_in_to_usb_debugging_off() {
     // The guardian signed in on the page, on the console's one connection.
     let signed = door.lock().unwrap().ask(PageRequest::from_page("sign_in", json!({ "password": PASSWORD })).unwrap()).unwrap();
     assert_eq!(signed, DoorReply::Reply(json!({ "outcome": "done", "value": {} })));
-    let rig = Rig::new(|s| s.cable = CableKind::ChargeOnly, Arc::new(DoorService::new(Arc::clone(&door))), port);
+    // A phone that has never seen this PC.
+    let rig = Rig::with(
+        |s| s.cable = CableKind::ChargeOnly,
+        Arc::new(DoorService::new(Arc::clone(&door))),
+        port,
+        RigSetup { known: false, ..RigSetup::default() },
+    );
 
     // A1 and A2: the cable's strip in each of its cases, as drawn.
     let look = rig.until("a cable that only charges", |v| v["cable"]["case"] == "none");
@@ -253,23 +281,42 @@ fn a_phone_is_added_over_the_cable_from_plugging_in_to_usb_debugging_off() {
     rig.state().driver = Driver::MakersOwn;
     std::thread::sleep(Duration::from_millis(100));
     assert_eq!(rig.until("a driver LiMo cannot use", |v| v["cable"]["case"] == "driver")["cable"]["line"], "No working driver for this phone.");
-    assert!(phone_of(&rig.phone).seen().services.is_empty(), "nothing was opened");
+    assert!(rig.state().seen.clone().services.is_empty(), "nothing was opened");
 
-    // A3: the phone asks, with the key's fingerprint to compare; nobody
-    // allows in time, which is said; then the person allows.
+    // A3: the phone is connected quietly and does not know this PC: nothing
+    // is shown to it, however often the screens look. Asked, once, it asks
+    // the person, with the key's fingerprint to compare; nobody allows in
+    // time, which is said, and it is not asked again by itself; asked again,
+    // the person allows.
     {
         let mut s = rig.state();
         s.driver = Driver::SamsungWinUsb;
         s.person = Person::Away;
     }
-    let look = rig.until("the phone asks", |v| v["cable"]["case"] == "allow");
-    assert_eq!(look["cable"], json!({ "case": "allow", "line": "A phone is plugged in.", "more": "Waiting for Allow on the phone." }));
+    let look = rig.until("the phone does not know this PC", |v| v["cable"]["case"] == "unknown");
+    assert_eq!(look["cable"], json!({ "case": "unknown", "line": "A phone is plugged in.", "more": "It does not know this PC yet." }));
     assert_eq!(look["fingerprint"], fingerprint());
-    assert_eq!(look["busy"], "connecting");
+    assert_eq!(look["asked_secs"], Value::Null);
+    std::thread::sleep(Duration::from_millis(400));
+    rig.until("still not asked", |v| v["cable"]["case"] == "unknown");
+    let seen = rig.state().seen.clone();
+    assert!(!seen.auth.contains(&AUTH_RSAPUBLICKEY) && seen.prompts == 0, "looks never show the key: {:?}", seen.auth);
+    assert_eq!(seen.auth.iter().filter(|a| **a == AUTH_SIGNATURE).count(), 1, "one quiet connection, not tried again: {:?}", seen.auth);
+    assert_eq!(rig.ask("phone.ask", Value::Null), Ok(json!({ "started": true })));
+    let look = rig.until("the phone asks", |v| v["cable"]["case"] == "allow");
+    assert_eq!(look["cable"], json!({ "case": "allow", "line": "The phone is asking.", "more": "Waiting for Allow on the phone." }));
+    assert_eq!(look["fingerprint"], fingerprint());
+    assert_eq!(look["busy"], "asking");
+    assert!(look["asked_secs"].is_u64(), "{look}");
+    assert_eq!(rig.ask("phone.ask", Value::Null).unwrap_err()["code"], "busy");
     let look = rig.until("not allowed in time", |v| v["cable"]["case"] == "trouble");
-    assert_eq!(look["cable"]["line"], "The phone did not allow this PC.");
-    assert_eq!(look["fingerprint"], Value::Null);
+    assert_eq!(look["cable"]["line"], "The phone did not allow this PC in time.");
+    assert_eq!(rig.state().seen.clone().prompts, 1, "the key shown once");
+    std::thread::sleep(Duration::from_millis(500));
+    rig.until("not asked again by itself", |v| v["cable"]["case"] == "trouble");
+    assert_eq!(rig.state().seen.clone().auth.iter().filter(|a| **a == AUTH_RSAPUBLICKEY).count(), 1, "never asked twice by itself");
     rig.state().person = Person::Allows;
+    assert_eq!(rig.ask("phone.ask", Value::Null), Ok(json!({ "started": true })));
 
     // A4: connected, the checks, then LiMo put on the phone.
     let look = rig.until("connected and checked", |v| v["cable"]["case"] == "ok" && v["phone"]["limo"]["looked"] == true);
@@ -290,7 +337,7 @@ fn a_phone_is_added_over_the_cable_from_plugging_in_to_usb_debugging_off() {
     let look = rig.until("installed", |v| v["install"]["stage"] == "done");
     assert_eq!(look["install"]["line"], "LiMo is on the phone.");
     assert_eq!(look["checks"][2]["words"], format!("LiMo {VERSION} is on it already"));
-    let seen = phone_of(&rig.phone).seen();
+    let seen = rig.state().seen.clone();
     assert_eq!(seen.installs, 1);
     assert_eq!(seen.installed[0], std::fs::read(&rig.app).unwrap(), "the bytes checked are the bytes sent");
     assert_eq!(rig.ask("phone.install", Value::Null), Ok(json!({ "started": false })));
@@ -350,7 +397,9 @@ fn a_phone_is_added_over_the_cable_from_plugging_in_to_usb_debugging_off() {
 #[test]
 fn the_screens_never_wait_for_the_phone() {
     let (_listener, port) = link_listener();
-    let rig = Rig::new(|s| s.person = Person::Away, InMemory::new(port), port);
+    let rig = Rig::with(|s| s.person = Person::Away, InMemory::new(port), port, RigSetup { known: false, ..RigSetup::default() });
+    rig.until("the phone does not know this PC", |v| v["cable"]["case"] == "unknown");
+    rig.ask("phone.ask", Value::Null).unwrap();
     rig.until("the phone asks", |v| v["cable"]["case"] == "allow");
     // The console's thread waits for the person; the requests do not.
     let mut slowest = Duration::ZERO;
@@ -383,7 +432,7 @@ fn limo_on_the_phone_at_this_pc_s_version_is_not_put_on_again() {
     assert_eq!(look["checks"][2], json!({ "ok": true, "words": format!("LiMo {VERSION} is on it already") }));
     assert_eq!(look["phone"]["limo"], json!({ "looked": true, "on_it": true, "version": VERSION }));
     assert_eq!(rig.ask("phone.install", Value::Null), Ok(json!({ "started": false })));
-    assert_eq!(phone_of(&rig.phone).seen().installs, 0);
+    assert_eq!(rig.state().seen.clone().installs, 0);
 
     // The service cannot make an offer: its own sentence, and nothing is
     // handed to the phone.
@@ -439,7 +488,7 @@ fn what_stands_in_the_way_is_said_plainly() {
 
     // This PC's app is missing, or is not LiMo's.
     for (kind, line) in [(AppKind::Missing, "LiMo’s app for phones is missing from this PC."), (AppKind::Other, "The app for phones beside this program is not LiMo’s own.")] {
-        let rig = Rig::with(|_| {}, InMemory::new(port), port, RigSetup { app: kind, pace: quick() });
+        let rig = Rig::with(|_| {}, InMemory::new(port), port, RigSetup { app: kind, ..RigSetup::default() });
         let look = rig.until("checked", |v| v["phone"]["limo"]["looked"] == true);
         assert_eq!(look["install"]["stage"], "no_app");
         assert_eq!(look["install"]["line"], line);
@@ -461,7 +510,8 @@ fn what_stands_in_the_way_is_said_plainly() {
     assert_eq!(look["checks"][1], json!({ "ok": false, "words": "Android 7.1, older than the Android 8.0 LiMo needs" }));
     assert_eq!(old.ask("phone.install", Value::Null).unwrap_err()["code"], "too_old");
     std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(phone_of(&old.phone).seen().prompts, 1, "connected once, not again while it stays plugged in");
+    assert_eq!(old.state().seen.clone().auth.len(), 1, "connected once, not again while it stays plugged in");
+    assert_eq!(old.state().seen.clone().prompts, 0, "and never asked");
 
     // Another program holds the phone.
     let held = Rig::new(|s| s.held_by_another = true, InMemory::new(port), port);
@@ -480,7 +530,7 @@ fn a_phone_unplugged_while_it_pairs_has_the_link_carried_again_when_it_is_back()
     rig.until("installed", |v| v["install"]["stage"] == "done");
     assert_eq!(rig.ask("phone.pair", json!({ "child": "c1" })), Ok(json!({ "started": true })));
     rig.until("waiting", |v| v["pairing"]["stage"] == "waiting");
-    let carried = || phone_of(&rig.phone).seen().services.iter().filter(|s| s.starts_with(&format!("reverse:forward:tcp:{port}"))).count();
+    let carried = || rig.state().seen.clone().services.iter().filter(|s| s.starts_with(&format!("reverse:forward:tcp:{port}"))).count();
     assert_eq!(carried(), 1);
 
     rig.state().plugged = false;
@@ -494,7 +544,7 @@ fn a_phone_unplugged_while_it_pairs_has_the_link_carried_again_when_it_is_back()
     }
     assert_eq!(carried(), 2, "the link's port carried again");
     assert_eq!(rig.state().offers.len(), 1, "the offer was handed once");
-    assert_eq!(phone_of(&rig.phone).seen().installs, 1, "and LiMo put on once");
+    assert_eq!(rig.state().seen.clone().installs, 1, "and LiMo put on once");
     service.family().devices.push(a_paired_phone());
     service.family().sessions.push(a_session("cable"));
     rig.until("paired", |v| v["pairing"]["stage"] == "paired" && v["pairing"]["ways"] == json!(["cable"]));
@@ -508,7 +558,7 @@ fn a_pairing_offer_that_runs_out_is_said() {
         |s| s.limo = Some(FakeLimo { version_code: 3, version_name: VERSION.into(), other_key: false }),
         InMemory::new(port),
         port,
-        RigSetup { app: AppKind::Limo, pace },
+        RigSetup { pace, ..RigSetup::default() },
     );
     rig.until("checked", |v| v["install"]["stage"] == "not_needed");
     assert_eq!(rig.ask("phone.pair", json!({ "child": "c1" })), Ok(json!({ "started": true })));
@@ -555,4 +605,83 @@ fn the_real_door_is_asked_for_the_offer_and_its_own_words_are_said() {
     assert!(rig.state().offers.is_empty() && rig.state().reverses.is_empty());
     // And a page may not ask for an offer at all.
     assert!(PageRequest::from_page("make_offer", json!({ "child": child })).is_err());
+}
+
+#[test]
+fn an_ask_waits_long_for_a_late_allow_and_looks_meanwhile_send_nothing() {
+    let (_listener, port) = link_listener();
+    let setup = RigSetup { known: false, prompt: Duration::from_secs(8), log: true, ..RigSetup::default() };
+    let rig = Rig::with(|s| s.person = Person::Away, InMemory::new(port), port, setup);
+    rig.until("the phone does not know this PC", |v| v["cable"]["case"] == "unknown");
+    assert_eq!(rig.ask("phone.ask", Value::Null), Ok(json!({ "started": true })));
+    rig.until("the phone asks", |v| v["cable"]["case"] == "allow");
+    let shown = rig.state().seen.clone().auth;
+    assert_eq!(shown.iter().filter(|a| **a == AUTH_RSAPUBLICKEY).count(), 1, "{shown:?}");
+    // The screens keep looking while the person finds the phone.
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_millis(2_500) {
+        let look = rig.ask("phone.look", Value::Null).unwrap();
+        assert_eq!(look["cable"]["case"], "allow", "{look}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(rig.state().seen.clone().auth, shown, "nothing more was sent while it waited");
+    let look = rig.until("a second", |v| v["asked_secs"].as_u64().is_some_and(|s| s >= 2));
+    assert!(look["asked_secs"].as_u64().unwrap() < 8, "{look}");
+    // A late Allow, well into the wait, still connects.
+    rig.state().person = Person::Allows;
+    rig.until("connected", |v| v["cable"]["case"] == "ok" && v["busy"].is_null());
+    let seen = rig.state().seen.clone();
+    assert_eq!((seen.prompts, seen.auth.iter().filter(|a| **a == AUTH_RSAPUBLICKEY).count()), (1, 1));
+    assert_eq!(rig.ask("phone.ask", Value::Null).unwrap_err()["code"], "already_connected");
+    // The window's log: a line for the phone that did not know this PC, and
+    // one for the ask, with no key and no fingerprint.
+    let log = std::fs::read_to_string(rig.log_path.as_ref().unwrap()).unwrap();
+    assert!(log.contains("a phone is plugged in that does not know this PC; it was not asked"), "{log}");
+    assert!(log.contains("the guardian asked: the phone is asked, once, to allow this PC"), "{log}");
+    assert!(log.contains("the phone allowed this PC"), "{log}");
+    assert!(!log.contains(&fingerprint()), "{log}");
+}
+
+#[test]
+fn an_ask_ends_when_the_phone_goes_and_at_done() {
+    let (_listener, port) = link_listener();
+    let long = RigSetup { known: false, prompt: Duration::from_secs(60), ..RigSetup::default() };
+    // The phone unplugged while it asks: the wait ends with it.
+    let rig = Rig::with(|s| s.person = Person::Away, InMemory::new(port), port, long);
+    rig.until("unknown", |v| v["cable"]["case"] == "unknown");
+    rig.ask("phone.ask", Value::Null).unwrap();
+    rig.until("asking", |v| v["cable"]["case"] == "allow");
+    let started = Instant::now();
+    rig.state().plugged = false;
+    rig.until("the wait ended", |v| v["cable"]["case"] != "allow" && v["busy"].is_null());
+    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+    drop(rig);
+    // Add a phone closed while it asks: given up at once.
+    let long = RigSetup { known: false, prompt: Duration::from_secs(60), ..RigSetup::default() };
+    let rig = Rig::with(|s| s.person = Person::Away, InMemory::new(port), port, long);
+    rig.until("unknown", |v| v["cable"]["case"] == "unknown");
+    rig.ask("phone.ask", Value::Null).unwrap();
+    rig.until("asking", |v| v["cable"]["case"] == "allow");
+    assert_eq!(rig.ask("phone.done", Value::Null), Ok(json!({ "done": true })));
+    let started = Instant::now();
+    drop(rig);
+    assert!(started.elapsed() < Duration::from_secs(5), "the ask was given up: {:?}", started.elapsed());
+}
+
+#[test]
+fn an_ask_is_refused_when_it_cannot_be_made() {
+    let (_listener, port) = link_listener();
+    let rig = Rig::with(|s| s.plugged = false, InMemory::new(port), port, RigSetup { known: false, ..RigSetup::default() });
+    assert_eq!(rig.ask("phone.ask", Value::Null).unwrap_err()["code"], "no_phone");
+    rig.until("nothing plugged in", |v| v["cable"]["case"] == "none");
+    assert_eq!(rig.ask("phone.ask", Value::Null).unwrap_err()["code"], "no_phone");
+    assert_eq!(rig.ask("phone.ask", json!({ "x": 1 })).unwrap_err()["code"], "unknown_request");
+    drop(rig);
+    let rig = Rig::new(|_| {}, InMemory::new(port), port);
+    rig.until("connected", |v| v["cable"]["case"] == "ok" && v["busy"].is_null());
+    assert_eq!(
+        rig.ask("phone.ask", Value::Null).unwrap_err(),
+        json!({ "code": "already_connected", "words": "The phone is connected already: it knows this PC." })
+    );
+    assert_eq!(rig.state().seen.clone().prompts, 0, "a phone that knows this PC is never asked");
 }

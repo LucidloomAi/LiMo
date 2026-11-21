@@ -1,15 +1,16 @@
 {
   "request": "phone.look",
-  "case": "nobody allowed this PC on the phone in time",
+  "case": "the phone was asked, and nobody allowed this PC in time",
   "asked": {
     "name": "phone.look"
   },
   "answer": {
+    "asked_secs": null,
     "busy": null,
     "cable": {
       "case": "trouble",
-      "line": "The phone did not allow this PC.",
-      "more": "Unplug the phone, plug it in again unlocked, and tap Allow when it asks."
+      "line": "The phone did not allow this PC in time.",
+      "more": "Unlock the phone and ask again. If the phone shows no question, switch USB debugging off and on again on the phone first."
     },
     "checks": [],
     "debugging": {

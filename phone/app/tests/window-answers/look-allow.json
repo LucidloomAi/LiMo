@@ -1,14 +1,15 @@
 {
   "request": "phone.look",
-  "case": "the phone asks to allow this PC, with the key’s fingerprint",
+  "case": "the phone asked twelve seconds ago, waiting for Allow, with the key’s fingerprint",
   "asked": {
     "name": "phone.look"
   },
   "answer": {
-    "busy": "connecting",
+    "asked_secs": 12,
+    "busy": "asking",
     "cable": {
       "case": "allow",
-      "line": "A phone is plugged in.",
+      "line": "The phone is asking.",
       "more": "Waiting for Allow on the phone."
     },
     "checks": [],

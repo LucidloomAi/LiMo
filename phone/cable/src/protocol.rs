@@ -14,9 +14,10 @@
 //!   phone answers `AUTH` with a 20 byte token; this side signs it with its
 //!   own key (RSA, PKCS#1 v1.5 over a SHA-1 digest, as adb signs: the token
 //!   stands in for the digest); a phone that knows the key answers `CNXN`;
-//!   one that does not sends a new token, this side then sends its public
-//!   key, the phone asks "Allow USB debugging?", and answers `CNXN` once the
-//!   person allows it.
+//!   one that does not sends a new token. A quiet connection ([`Knock`])
+//!   stops there, having shown nothing; only an asking one then sends its
+//!   public key, once, the phone asks "Allow USB debugging?", and answers
+//!   `CNXN` once the person allows it.
 //! - **Streams:** `OPEN` with a service name; the phone's `OKAY` opens it,
 //!   its `CLSE` refuses it. `WRTE` carries data one message at a time, each
 //!   answered by `OKAY` before the next; `CLSE` ends it. adb's streams have
@@ -270,9 +271,51 @@ impl std::fmt::Display for AdbError {
     }
 }
 
+/// Whether a connection may show this side's key to the phone.
+///
+/// Android asks "Allow USB debugging?" only when it is sent a public key it
+/// does not know. A phone at its lock screen may put nothing on the screen
+/// and never answer, and a Samsung phone then skips every later key with
+/// "prompt currently pending" until its adbd restarts (seen on the test
+/// phone, 21 Nov 2026). So a key is shown only when a person has just asked
+/// for it, and never twice by itself.
+pub enum Knock<'a> {
+    /// Never shown: a phone that does not know the key is said not to
+    /// ([`ConnectError::NotKnown`]), and nothing more is sent to it.
+    Quiet,
+    /// Shown once, when the phone does not know the key: then `on_prompt`
+    /// is called and the person has the prompt's wait to answer, and
+    /// `give_up` is asked about once a second while the answer is waited
+    /// for, ending the wait when it says so.
+    Asking {
+        /// Called once the key has been shown.
+        on_prompt: &'a mut dyn FnMut(),
+        /// True when the wait is to end.
+        give_up: &'a dyn Fn() -> bool,
+    },
+}
+
+fn never() -> bool {
+    false
+}
+static NEVER: fn() -> bool = never;
+
+impl<'a> Knock<'a> {
+    /// Asking, the wait ended only by its own length.
+    pub fn asking(on_prompt: &'a mut dyn FnMut()) -> Knock<'a> {
+        Knock::Asking { on_prompt, give_up: &NEVER }
+    }
+}
+
 /// Why connecting failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectError {
+    /// A quiet connection: the phone does not know this side's key, which
+    /// was not shown to it.
+    NotKnown,
+    /// The wait for the person's answer was given up (`Knock::Asking`'s
+    /// `give_up`).
+    GivenUp,
     /// The phone was shown this side's key and did not allow it in time.
     NotAllowed(Duration),
     /// The phone did not answer at all.
@@ -372,28 +415,39 @@ pub fn sign_token(key: &RsaPrivateKey, token: &[u8]) -> Result<Vec<u8>, String> 
     key.sign(Pkcs1v15Sign::new_unprefixed(), &prefixed).map_err(|e| e.to_string())
 }
 
-/// Reads one message, waiting until `deadline`.
-fn read_until(inner: &Inner, deadline: Instant) -> Result<Option<Message>, String> {
+/// What a read before `deadline` gave.
+enum Waited {
+    Message(Message),
+    Nothing,
+    GivenUp,
+}
+
+/// Reads one message, waiting until `deadline`, asking `give_up` before
+/// each read (a read waits at most [`HEADER_WAIT`] for a message to begin).
+fn read_until(inner: &Inner, deadline: Instant, give_up: &dyn Fn() -> bool) -> Result<Waited, String> {
     while Instant::now() < deadline {
+        if give_up() {
+            return Ok(Waited::GivenUp);
+        }
         if let Some(message) = inner.read()? {
-            return Ok(Some(message));
+            return Ok(Waited::Message(message));
         }
     }
-    Ok(None)
+    Ok(Waited::Nothing)
 }
 
 impl Connection {
     /// Connects over `wire` with `key`. `public_key` is the key's message for
-    /// the phone (`AdbKey::public_message`); `prompt_wait` how long the person
-    /// has to allow it, once `on_prompt` has been called.
+    /// the phone (`AdbKey::public_message`), shown only as `knock` says;
+    /// `prompt_wait` how long the person has to allow it once shown.
     pub fn connect(
         wire: Box<dyn Wire>,
         key: &RsaPrivateKey,
         public_key: &[u8],
         prompt_wait: Duration,
-        on_prompt: &mut dyn FnMut(),
+        knock: Knock<'_>,
     ) -> Result<Connection, ConnectError> {
-        Connection::connect_waiting(wire, key, public_key, HELLO_WAIT, prompt_wait, on_prompt)
+        Connection::connect_waiting(wire, key, public_key, HELLO_WAIT, prompt_wait, knock)
     }
 
     /// The same, the phone given `hello_wait` to answer at all.
@@ -403,8 +457,12 @@ impl Connection {
         public_key: &[u8],
         hello_wait: Duration,
         prompt_wait: Duration,
-        on_prompt: &mut dyn FnMut(),
+        knock: Knock<'_>,
     ) -> Result<Connection, ConnectError> {
+        let (mut on_prompt, give_up): (Option<&mut dyn FnMut()>, &dyn Fn() -> bool) = match knock {
+            Knock::Quiet => (None, &NEVER),
+            Knock::Asking { on_prompt, give_up } => (Some(on_prompt), give_up),
+        };
         let inner = Arc::new(Inner {
             wire,
             writing: Mutex::new(()),
@@ -421,10 +479,11 @@ impl Connection {
         let mut signed = false;
         let mut shown = false;
         let answer = loop {
-            let message = match read_until(&inner, deadline).map_err(ConnectError::Lost)? {
-                Some(message) => message,
-                None if shown => return Err(ConnectError::NotAllowed(prompt_wait)),
-                None => return Err(ConnectError::NoAnswer(hello_wait)),
+            let message = match read_until(&inner, deadline, give_up).map_err(ConnectError::Lost)? {
+                Waited::Message(message) => message,
+                Waited::GivenUp => return Err(ConnectError::GivenUp),
+                Waited::Nothing if shown => return Err(ConnectError::NotAllowed(prompt_wait)),
+                Waited::Nothing => return Err(ConnectError::NoAnswer(hello_wait)),
             };
             match message.command {
                 CNXN => break message,
@@ -434,7 +493,10 @@ impl Connection {
                     inner.send(&Message::new(AUTH, AUTH_SIGNATURE, 0, &signature)).map_err(lost)?;
                     signed = true;
                 }
+                // A second token: the phone does not know the key. A quiet
+                // connection stops here, having shown nothing.
                 AUTH if message.arg0 == AUTH_TOKEN && !shown => {
+                    let Some(on_prompt) = on_prompt.take() else { return Err(ConnectError::NotKnown) };
                     inner.send(&Message::new(AUTH, AUTH_RSAPUBLICKEY, 0, public_key)).map_err(lost)?;
                     shown = true;
                     on_prompt();

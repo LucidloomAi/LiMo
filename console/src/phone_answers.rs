@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use limo_cable::fake::{CableKind, Driver, FakeLimo, Person};
 use limo_cable::flow::{Event, State, step};
@@ -196,7 +196,16 @@ fn the_phone_requests_answers_are_written_for_the_screens_in_every_state() {
     // The moments too short for the fake phone to hold.
     f.moment("look-looking", "before the first look at the USB ports", &Shared::default());
     let mut s = Shared { look: Some(galaxy(1)), state: State::Connecting, busy: Some("connecting"), ..Shared::default() };
-    f.moment("look-connecting", "a phone with USB debugging on, being connected", &s);
+    f.moment("look-connecting", "a phone with USB debugging on, being connected quietly", &s);
+    s = Shared {
+        look: Some(galaxy(1)),
+        state: State::Asking,
+        busy: Some("asking"),
+        fingerprint: Some(fingerprint()),
+        asked_at: Some(Instant::now() - Duration::from_secs(12)),
+        ..Shared::default()
+    };
+    f.moment("look-allow", "the phone asked twelve seconds ago, waiting for Allow, with the key's fingerprint", &s);
     s = Shared { look: Some(galaxy(2)), state: State::TwoPhones(2), ..Shared::default() };
     f.moment("look-two-phones", "two phones plugged in", &s);
     let counter = Arc::new(AtomicU64::new(1_000 + 2_480_000));
@@ -241,7 +250,14 @@ fn the_phone_requests_answers_are_written_for_the_screens_in_every_state() {
 
     // No phone yet.
     let service = InMemory::new(port);
-    let rig = Rig::new(|s| s.cable = CableKind::ChargeOnly, Arc::clone(&service) as Arc<dyn Service>, port);
+    // A phone that has never seen this PC.
+    let rig = Rig::with(
+        |s| s.cable = CableKind::ChargeOnly,
+        Arc::clone(&service) as Arc<dyn Service>,
+        port,
+        RigSetup { known: false, ..RigSetup::default() },
+    );
+    f.ask(&rig, "ask-no-phone", "phone.ask", "no phone is plugged in", Value::Null).unwrap_err();
     f.ask(&rig, "install-no-phone", "phone.install", "no phone is connected", Value::Null).unwrap_err();
     f.ask(&rig, "debugging-off-no-phone", "phone.debugging_off", "no phone is connected", Value::Null).unwrap_err();
     f.ask(&rig, "look-with-arguments", "phone.look", "asked with arguments it does not take", json!({ "child": CHILD })).unwrap_err();
@@ -266,12 +282,18 @@ fn the_phone_requests_answers_are_written_for_the_screens_in_every_state() {
         st.driver = Driver::SamsungWinUsb;
         st.person = Person::Away;
     }
-    f.look_until(&rig, "look-allow", "the phone asks to allow this PC, with the key's fingerprint", |v| v["cable"]["case"] == "allow");
-    f.look_until(&rig, "look-not-allowed", "nobody allowed this PC on the phone in time", |v| v["cable"]["case"] == "trouble");
+    f.look_until(&rig, "look-unknown", "a phone that does not know this PC yet: nothing was shown to it", |v| v["cable"]["case"] == "unknown");
+    assert_eq!(f.ask(&rig, "ask-started", "phone.ask", "the phone asked, once, to allow this PC", Value::Null), Ok(json!({ "started": true })));
+    // Played here; its file is the moment above, with a fixed asked_secs.
+    rig.until("the phone asks", |v| v["cable"]["case"] == "allow");
+    f.ask(&rig, "ask-busy", "phone.ask", "asked again while the phone asks", Value::Null).unwrap_err();
+    f.look_until(&rig, "look-not-allowed", "the phone was asked, and nobody allowed this PC in time", |v| v["cable"]["case"] == "trouble");
     rig.state().person = Person::Allows;
+    rig.ask("phone.ask", Value::Null).unwrap();
     f.look_until(&rig, "look-ok", "connected and looked at: LiMo not on the phone yet", |v| {
         v["cable"]["case"] == "ok" && v["phone"]["limo"]["looked"] == true && v["busy"].is_null()
     });
+    f.ask(&rig, "ask-already-connected", "phone.ask", "asked once the phone is connected", Value::Null).unwrap_err();
     f.ask(&rig, "pair-not-yet", "phone.pair", "pairing asked before LiMo is on the phone", json!({ "child": CHILD })).unwrap_err();
     assert_eq!(f.ask(&rig, "install-started", "phone.install", "LiMo put on the phone", Value::Null), Ok(json!({ "started": true })));
     f.ask(&rig, "install-busy", "phone.install", "asked again while LiMo goes on the phone", Value::Null).unwrap_err();
@@ -322,7 +344,7 @@ fn the_phone_requests_answers_are_written_for_the_screens_in_every_state() {
         |s| s.limo = Some(FakeLimo { version_code: 3, version_name: VERSION.into(), other_key: false }),
         InMemory::new(port),
         port,
-        RigSetup { app: AppKind::Limo, pace },
+        RigSetup { pace, ..RigSetup::default() },
     );
     rig.until("checked", |v| v["install"]["stage"] == "not_needed");
     rig.ask("phone.pair", json!({ "child": CHILD })).unwrap();
@@ -338,7 +360,7 @@ fn the_phone_requests_answers_are_written_for_the_screens_in_every_state() {
     drop(rig);
 
     // What stands in the way.
-    let rig = Rig::with(|_| {}, InMemory::new(port), port, RigSetup { app: AppKind::Missing, pace: quick() });
+    let rig = Rig::with(|_| {}, InMemory::new(port), port, RigSetup { app: AppKind::Missing, ..RigSetup::default() });
     f.look_until(&rig, "look-no-app", "this PC's app for phones is missing", |v| v["phone"]["limo"]["looked"] == true && v["busy"].is_null());
     f.ask(&rig, "install-no-app", "phone.install", "this PC's app for phones is missing", Value::Null).unwrap_err();
     drop(rig);

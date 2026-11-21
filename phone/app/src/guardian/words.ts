@@ -411,7 +411,7 @@ export const addPhone = {
     line: 'Only a person can switch it on, on the phone itself. On most phones:',
     steps: [
       ['Open Settings, then About phone.', 'On a Samsung phone, then Software information.'],
-      ['Tap Build number seven times.', 'The phone may ask for its own PIN, then says that developer mode is on.'],
+      ['Tap Build number seven times.', 'The phone may ask for its own PIN, then says that developer mode is on. On a Samsung phone, Build number is under About phone, Software information.'],
       ['Go back to Settings, open Developer options, and switch on USB debugging.', 'Developer options is near the end of Settings.'],
       ['Plug the phone into this PC.', 'This screen moves on by itself when it sees USB debugging.'],
     ] as const,
@@ -423,6 +423,15 @@ export const addPhone = {
     line: 'Unlock the phone. It asks: Allow USB debugging? Tick Always allow from this computer, then tap Allow.',
     key: 'The phone shows this PC’s key',
     same: 'It should read the same. If it does not, tap Cancel on the phone. The phone asks once; after that it knows this PC.',
+    /** Before the phone is asked. */
+    unlock: 'Unlock the phone and keep its screen on.',
+    once: 'The phone asks once for LiMo, even if it allowed this PC before.',
+    ask: 'Ask the phone',
+    /** The button while the phone asks. */
+    waiting: 'Waiting for Allow',
+    /** After 20 seconds of asking with no answer. */
+    helpLabel: 'Nothing on the phone?',
+    help: 'Unlock it and keep its screen on. If it still shows nothing: on the phone, Settings, Developer options, switch USB debugging off and on again. Then ask again.',
   },
   a4: {
     heading: (name: string) => `Put LiMo on ${possessive(name)} phone`,

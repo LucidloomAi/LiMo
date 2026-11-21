@@ -11,7 +11,7 @@
 #![forbid(unsafe_code)]
 
 use crate::key::AdbKey;
-use crate::phone::{OpenProblem, Phone, Waits};
+use crate::phone::{Knock, OpenProblem, Phone, Waits};
 use crate::usb::UsbDevice;
 
 /// An interface that offers the Android USB interface class, as Windows
@@ -51,9 +51,9 @@ pub struct Look {
 pub trait Cable {
     /// What is plugged in now. Reads only; opens nothing.
     fn look(&mut self) -> Look;
-    /// Opens the one phone LiMo can open, and connects with `key`;
-    /// `on_asking` is called when the phone asks the person to allow it.
-    fn open(&mut self, key: &AdbKey, waits: Waits, on_asking: &mut dyn FnMut()) -> Result<Phone, OpenProblem>;
+    /// Opens the one phone LiMo can open, and connects with `key`, quietly
+    /// or asking as `knock` says (`Phone::connect`).
+    fn open(&mut self, key: &AdbKey, waits: Waits, knock: Knock<'_>) -> Result<Phone, OpenProblem>;
 }
 
 /// True when Google's adb server listens on its port on this PC: while it
@@ -80,7 +80,7 @@ impl Cable for WindowsCable {
         }
     }
 
-    fn open(&mut self, key: &AdbKey, waits: Waits, on_asking: &mut dyn FnMut()) -> Result<Phone, OpenProblem> {
+    fn open(&mut self, key: &AdbKey, waits: Waits, knock: Knock<'_>) -> Result<Phone, OpenProblem> {
         use crate::win::winusb::{self, OpenError};
         if adb_server_running() {
             return Err(OpenProblem::AdbServerRunning);
@@ -102,7 +102,7 @@ impl Cable for WindowsCable {
             OpenError::NotWinUsb(why) => OpenProblem::DriverNotUsable(why),
             OpenError::Other(why) => OpenProblem::Other(why),
         })?;
-        Phone::connect(Box::new(wire), key, waits, on_asking)
+        Phone::connect(Box::new(wire), key, waits, knock)
     }
 }
 

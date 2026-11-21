@@ -14,7 +14,8 @@ use limo_cable::commands::{Installed, OFFER_DOOR, PACKAGE, Started, install_advi
 use limo_cable::fake::{CableKind, Driver, FakeLimo, FakePhone, Person};
 use limo_cable::key::AdbKey;
 use limo_cable::open::Cable;
-use limo_cable::phone::{CallError, DebuggingOff, InstallError, OpenProblem, Phone, Waits};
+use limo_cable::phone::{CallError, DebuggingOff, InstallError, Knock, OpenProblem, Phone, Waits};
+use limo_cable::protocol::{AUTH_RSAPUBLICKEY, AUTH_SIGNATURE};
 
 use common::apk::apk_file;
 
@@ -35,14 +36,14 @@ fn quick() -> Waits {
 
 /// The fake phone, connected with LiMo's key, the person allowing it.
 fn open(phone: &mut FakePhone) -> Phone {
-    phone.open(&key(), quick(), &mut || {}).expect("connected")
+    phone.open(&key(), quick(), Knock::asking(&mut || {})).expect("connected")
 }
 
 #[test]
 fn the_first_connection_asks_the_person_and_the_next_one_does_not() {
     let mut phone = FakePhone::new();
     let mut asked = 0;
-    let connected = phone.open(&key(), quick(), &mut || asked += 1).unwrap();
+    let connected = phone.open(&key(), quick(), Knock::asking(&mut || asked += 1)).unwrap();
     assert_eq!(asked, 1, "the caller is told when the phone asks");
     assert_eq!(phone.seen().prompts, 1);
     let facts = connected.facts().clone();
@@ -51,13 +52,77 @@ fn the_first_connection_asks_the_person_and_the_next_one_does_not() {
     assert_eq!(facts.usb_debugging, Some(true));
     assert!(!facts.too_old());
     connected.close();
-    // The phone kept the key: no question now, even with nobody there.
+    // The phone kept the key: a quiet connection now connects, with nobody
+    // there and nothing shown.
     phone.state().person = Person::Away;
-    let mut asked_again = 0;
-    let again = phone.open(&key(), quick(), &mut || asked_again += 1).unwrap();
-    assert_eq!(asked_again, 0);
+    let again = phone.open(&key(), quick(), Knock::Quiet).unwrap();
     assert_eq!(phone.seen().prompts, 1);
     again.close();
+}
+
+#[test]
+fn a_quiet_connection_never_shows_the_key_to_a_phone_that_does_not_know_it() {
+    let mut phone = FakePhone::new();
+    assert_eq!(phone.open(&key(), quick(), Knock::Quiet).err(), Some(OpenProblem::NotKnown));
+    let seen = phone.seen();
+    assert_eq!(seen.auth, vec![AUTH_SIGNATURE], "the token signed, and no public key sent");
+    assert_eq!(seen.prompts, 0, "nothing was put on the phone's screen");
+    // Again: the same, nothing waiting on the phone.
+    assert_eq!(phone.open(&key(), quick(), Knock::Quiet).err(), Some(OpenProblem::NotKnown));
+    assert_eq!(phone.seen().auth, vec![AUTH_SIGNATURE, AUTH_SIGNATURE]);
+    assert_eq!(phone.seen().prompts, 0);
+}
+
+#[test]
+fn an_asking_connection_shows_the_key_once_and_a_late_allow_still_connects() {
+    let mut phone = FakePhone::with(|s| s.person = Person::Away);
+    let state = std::sync::Arc::clone(&phone.state);
+    let mut asked = 0;
+    let allow = std::thread::spawn(move || {
+        // The person comes to the phone a while after it asked.
+        std::thread::sleep(Duration::from_millis(1_500));
+        state.lock().unwrap().person = Person::Allows;
+    });
+    let waits = Waits { prompt: Duration::from_secs(6), ..quick() };
+    let connected = phone.open(&key(), waits, Knock::asking(&mut || asked += 1)).unwrap();
+    allow.join().unwrap();
+    assert_eq!(asked, 1);
+    let seen = phone.seen();
+    assert_eq!(seen.auth, vec![AUTH_SIGNATURE, AUTH_RSAPUBLICKEY], "the key shown once");
+    assert_eq!(seen.prompts, 1);
+    connected.close();
+}
+
+#[test]
+fn the_wait_for_an_answer_ends_when_it_is_given_up_or_the_phone_goes() {
+    let mut phone = FakePhone::with(|s| s.person = Person::Away);
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = std::sync::Arc::clone(&stop);
+    let giver = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(600));
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    let started = std::time::Instant::now();
+    let waits = Waits { prompt: Duration::from_secs(60), ..quick() };
+    let give_up = || stop.load(std::sync::atomic::Ordering::SeqCst);
+    let result = phone.open(&key(), waits, Knock::Asking { on_prompt: &mut || {}, give_up: &give_up });
+    giver.join().unwrap();
+    assert_eq!(result.err(), Some(OpenProblem::GivenUp));
+    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+    assert_eq!(phone.seen().prompts, 1);
+
+    // Unplugged while it asks: the link goes, and the wait with it.
+    let mut phone = FakePhone::with(|s| s.person = Person::Away);
+    let state = std::sync::Arc::clone(&phone.state);
+    let unplug = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(600));
+        state.lock().unwrap().plugged = false;
+    });
+    let started = std::time::Instant::now();
+    let result = phone.open(&key(), waits, Knock::asking(&mut || {}));
+    unplug.join().unwrap();
+    assert!(matches!(result, Err(OpenProblem::Lost(_))), "{result:?}");
+    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
 }
 
 #[test]
@@ -65,7 +130,7 @@ fn a_key_not_allowed_in_time_is_said() {
     let mut phone = FakePhone::with(|s| s.person = Person::Away);
     let started = std::time::Instant::now();
     let mut asked = 0;
-    let result = phone.open(&key(), quick(), &mut || asked += 1);
+    let result = phone.open(&key(), quick(), Knock::asking(&mut || asked += 1));
     assert_eq!(result.err(), Some(OpenProblem::NotAllowed));
     assert_eq!(asked, 1);
     assert!(started.elapsed() >= Duration::from_secs(2) && started.elapsed() < Duration::from_secs(10));
@@ -87,19 +152,19 @@ fn each_cable_and_driver_is_seen_as_the_pc_would_see_it() {
     let mut charge = FakePhone::with(|s| s.cable = CableKind::ChargeOnly);
     let look = charge.look();
     assert!(look.windows.unwrap().is_empty() && look.interfaces.unwrap().is_empty());
-    assert_eq!(charge.open(&key(), quick(), &mut || {}).err(), Some(OpenProblem::NoPhone));
+    assert_eq!(charge.open(&key(), quick(), Knock::Quiet).err(), Some(OpenProblem::NoPhone));
     // USB debugging off: the phone's files, no debugging interface.
     let mut off = FakePhone::with(|s| s.debugging = false);
     assert_eq!(off.look().windows.unwrap().len(), 1);
     // A maker's own driver: listed, but LiMo cannot open it.
     let mut makers = FakePhone::with(|s| s.driver = Driver::MakersOwn);
-    assert!(matches!(makers.open(&key(), quick(), &mut || {}), Err(OpenProblem::DriverNotUsable(_))));
+    assert!(matches!(makers.open(&key(), quick(), Knock::Quiet), Err(OpenProblem::DriverNotUsable(_))));
     // No driver: Windows sees the interface not working.
     let mut none = FakePhone::with(|s| s.driver = Driver::None);
     assert!(!none.look().windows.unwrap()[1].working);
     // Another program holding it.
     let mut held = FakePhone::with(|s| s.held_by_another = true);
-    assert_eq!(held.open(&key(), quick(), &mut || {}).err(), Some(OpenProblem::Busy));
+    assert_eq!(held.open(&key(), quick(), Knock::Quiet).err(), Some(OpenProblem::Busy));
 }
 
 #[test]
@@ -134,7 +199,7 @@ fn the_apk_sent_is_the_one_checked_even_when_the_file_changes_on_the_way() {
     debug.extend_from_slice(&[0; 100]);
     let mut phone = FakePhone::with(|s| s.change_on_install = Some((apk.clone(), debug.clone())));
     let waits = Waits { install: Duration::from_secs(5), ..quick() };
-    let connected = phone.open(&key(), waits, &mut || {}).unwrap();
+    let connected = phone.open(&key(), waits, Knock::asking(&mut || {})).unwrap();
     assert_eq!(connected.install_limo(&apk).unwrap(), Installed::Done);
     assert_eq!(std::fs::read(&apk).unwrap(), debug, "the file did change on the way");
     let seen = phone.seen();
@@ -250,7 +315,7 @@ fn switching_usb_debugging_off_ends_the_link_and_the_pc_sees_it_go() {
     let look = phone.look();
     assert!(look.interfaces.unwrap().is_empty());
     assert_eq!(look.windows.unwrap().len(), 1, "the phone's files only");
-    assert_eq!(phone.open(&key(), quick(), &mut || {}).err(), Some(OpenProblem::NoPhone));
+    assert_eq!(phone.open(&key(), quick(), Knock::Quiet).err(), Some(OpenProblem::NoPhone));
     assert!(phone.seen().commands.contains(&"settings put global adb_enabled 0".to_string()));
 }
 

@@ -1,10 +1,11 @@
 {
   "request": "phone.look",
-  "case": "a phone with USB debugging on, being connected",
+  "case": "a phone with USB debugging on, being connected quietly",
   "asked": {
     "name": "phone.look"
   },
   "answer": {
+    "asked_secs": null,
     "busy": "connecting",
     "cable": {
       "case": "connecting",

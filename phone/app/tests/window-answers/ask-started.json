@@ -1,0 +1,10 @@
+{
+  "request": "phone.ask",
+  "case": "the phone asked, once, to allow this PC",
+  "asked": {
+    "name": "phone.ask"
+  },
+  "answer": {
+    "started": true
+  }
+}

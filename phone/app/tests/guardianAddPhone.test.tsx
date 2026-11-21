@@ -11,9 +11,9 @@ import { LOOK_EVERY_MS } from '../src/guardian/AddPhone';
 import type { GuardianRoute } from '../src/guardian/GuardianApp';
 import * as W from '../src/guardian/words';
 import { guardianStates } from '../src/mock/guardianMock';
-import { connected, FINGERPRINT, freshCable, GALAXY, type MockCable, OLD_PHONE, PHONE_WORDS } from '../src/mock/phoneMock';
+import { ASK_WAITS_SECS, connected, FINGERPRINT, freshCable, GALAXY, type MockCable, OLD_PHONE, PHONE_WORDS } from '../src/mock/phoneMock';
 import { GUARDIAN_FRAMES } from '../src/preview/guardianFrames';
-import { asked, renderGuardian } from './guardianRender';
+import { asked, press, renderGuardian } from './guardianRender';
 import type { TreeNode } from './render';
 
 const A = W.addPhone;
@@ -55,7 +55,8 @@ describe('the cable’s state at the foot of every step, in the console’s word
     ['off', 'A phone is plugged in.', 'USB debugging is off on it.'],
     ['driver', 'No working driver for this phone.', 'Install its maker’s USB driver for Windows, such as Samsung’s Android USB Driver.'],
     ['connecting', 'A phone is plugged in.', 'Connecting to it.'],
-    ['allow', 'A phone is plugged in.', 'Waiting for Allow on the phone.'],
+    ['unknown', 'A phone is plugged in.', 'It does not know this PC yet.'],
+    ['allow', 'The phone is asking.', 'Waiting for Allow on the phone.'],
     ['looking', 'Looking at this PC’s USB ports.', ''],
   ] as const)('%s', async (cableCase, line, more) => {
     await open(freshCable({ frozen: true, case: cableCase }), 1);
@@ -80,7 +81,7 @@ describe('the cable’s state at the foot of every step, in the console’s word
 
 describe('the whole way', () => {
   it('from a phone plugged in to Devices with the new phone, each step moving on by itself as the look says', async () => {
-    const { door } = await open(freshCable({ plan: ['none', 'off', 'connecting', 'allow', 'allow', 'ok'] }));
+    const { door } = await open(freshCable({ plan: ['none', 'off', 'connecting', 'unknown'] }));
     // A1: whose phone, and what is needed.
     expect(screen.getByRole('radio', { name: 'Asha' })).toBeChecked();
     expect(screen.getByText('Asha’s phone')).toBeOnTheScreen();
@@ -95,12 +96,26 @@ describe('the whole way', () => {
     expect(strip()[1]).toBe('USB debugging is off on it.');
     expect(stepNow()).toBe(2);
     await second();
-    // A3: the key, while the phone asks.
-    expect(stepNow()).toBe(3);
+    // Connecting: still A2.
+    expect(stepNow()).toBe(2);
     await second();
+    // A3: the phone does not know this PC, and nothing was asked of it; the key, and the button that asks.
+    expect(stepNow()).toBe(3);
+    expect(screen.getByTestId('unlock')).toHaveTextContent(A.a3.unlock);
+    expect(screen.getByText(A.a3.once)).toBeOnTheScreen();
     expect(within(screen.getByTestId('fingerprint')).getByText('3C:91:5A:07:E2:4B:D8:16:\nAF:62:0C:B9:75:18:4E:D3')).toBeOnTheScreen();
     expect(screen.getByTestId('fingerprint').props.accessibilityLabel).toBe(FINGERPRINT);
-    await second(2);
+    expect(screen.getByRole('button', { name: A.a3.ask })).toBeEnabled();
+    await second(3);
+    // Never asked without the button.
+    expect(asked(door, 'phone.ask')).toHaveLength(0);
+    await go();
+    expect(asked(door, 'phone.ask')).toHaveLength(1);
+    await second();
+    // Asked: waiting for Allow, the button off and saying so.
+    expect(screen.getByText(A.a3.line)).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: A.a3.waiting })).toBeDisabled();
+    await second();
     // A4: connected; the checks, then LiMo goes on the phone, asked once.
     expect(stepNow()).toBe(4);
     expect(strip()).toEqual(['Connected: Galaxy S20 Ultra.', 'Android 13.']);
@@ -193,6 +208,69 @@ describe('the whole way', () => {
   });
 });
 
+describe('step 3: the phone is asked only when the button says so', () => {
+  it('a phone that already knows this PC never sees the button', async () => {
+    const { door } = await open(freshCable({ plan: ['off', 'ok'] }), 1);
+    await second(2);
+    expect(stepNow()).toBe(4);
+    expect(asked(door, 'phone.ask')).toHaveLength(0);
+  });
+
+  it('a phone locked when asked shows nothing: after 20 seconds, what to do; gone and back, the button returns, and asked again it answers', async () => {
+    const { door } = await open(freshCable({ case: 'unknown', locked: true }), 2);
+    await go();
+    await second(19);
+    expect(screen.getByRole('button', { name: A.a3.waiting })).toBeDisabled();
+    expect(screen.queryByTestId('nothing-on-the-phone')).toBeNull();
+    await second(2);
+    const help = screen.getByTestId('nothing-on-the-phone');
+    expect(within(help).getByText(A.a3.helpLabel)).toBeOnTheScreen();
+    expect(within(help).getByText(A.a3.help)).toBeOnTheScreen();
+    expect(stepNow()).toBe(3);
+    // The cure: USB debugging off and on again on the phone, which the PC sees as the phone gone and back.
+    door.state.cable.locked = false;
+    door.state.cable.plan = ['off', 'unknown'];
+    await second(2);
+    expect(screen.queryByTestId('nothing-on-the-phone')).toBeNull();
+    expect(screen.getByRole('button', { name: A.a3.ask })).toBeEnabled();
+    await go();
+    expect(asked(door, 'phone.ask')).toHaveLength(2);
+    await second(2);
+    expect(stepNow()).toBe(4);
+  });
+
+  it('Allow given late, after the help showed: on it goes', async () => {
+    await open(freshCable({ case: 'unknown', allowAfter: 25 }), 2);
+    await go();
+    await second(21);
+    expect(screen.getByTestId('nothing-on-the-phone')).toBeOnTheScreen();
+    await second(4);
+    expect(stepNow()).toBe(4);
+  });
+
+  it('an ask nobody answered in ten minutes: the window’s words, and the button asks again', async () => {
+    const { door } = await open(freshCable({ case: 'unknown', locked: true }), 2);
+    await go();
+    door.state.cable.askedSecs = ASK_WAITS_SECS - 1;
+    await second();
+    expect(strip()).toEqual([PHONE_WORDS.notAllowedInTime.line, PHONE_WORDS.notAllowedInTime.more]);
+    expect(screen.queryByTestId('nothing-on-the-phone')).toBeNull();
+    door.state.cable.locked = false;
+    await press(A.a3.ask);
+    expect(asked(door, 'phone.ask')).toHaveLength(2);
+    await second(2);
+    expect(stepNow()).toBe(4);
+  });
+
+  it('the button asks once; asked again while waiting, nothing more is sent', async () => {
+    const { door } = await open(freshCable({ case: 'unknown', locked: true }), 2);
+    await go();
+    await second();
+    await go();
+    expect(asked(door, 'phone.ask')).toHaveLength(1);
+  });
+});
+
 describe('what goes wrong on the way', () => {
   it('a phone too old: said in the strip and the checks, and nothing is put on it', async () => {
     const { door } = await open(freshCable({ plugs: OLD_PHONE, plan: ['ok'] }), 3);
@@ -266,7 +344,7 @@ describe('what goes wrong on the way', () => {
 });
 
 describe('for a finger and a screen reader', () => {
-  const frames = GUARDIAN_FRAMES.filter((f) => /^A\d$/.test(f.id));
+  const frames = GUARDIAN_FRAMES.filter((f) => /^A\d[uh]?$/.test(f.id));
   const cases = frames.flatMap((f) => [[f.id, 'a phone’s width, 48', false, 48] as const, [f.id, 'the console’s width, 40', true, 40] as const]);
   it.each(cases)('%s: everything to tap has a role, a label and its height at %s', async (id, _what, wide, least) => {
     const frame = frames.find((f) => f.id === id)!;

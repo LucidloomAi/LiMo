@@ -5,6 +5,7 @@
     "name": "phone.look"
   },
   "answer": {
+    "asked_secs": null,
     "busy": null,
     "cable": {
       "case": "trouble",
@@ -31,7 +32,7 @@
       "stage": "on"
     },
     "fingerprint": null,
-    "held": true,
+    "held": false,
     "install": {
       "advice": null,
       "line": null,

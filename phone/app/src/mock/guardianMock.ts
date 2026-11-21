@@ -578,6 +578,7 @@ export function guardianMock(start: GuardianMockState, options: { now?: () => nu
         return done({ device_id: d.device_id, kind: d.kind, source: phone ? 'phone_list' : 'seen_running', apps, kept_at: phone && d.list ? NOW - 3_600 : null, total: apps.length, max: 2000, cut: false });
       }
       case 'phone.look':
+      case 'phone.ask':
       case 'phone.install':
       case 'phone.pair':
       case 'phone.debugging_off':

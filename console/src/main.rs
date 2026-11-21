@@ -413,8 +413,9 @@ fn main() {
         app: std::env::current_exe().ok().and_then(|program| phone::app_beside(&program)),
         key_folder: None,
         link_port: LINK_PORT,
-        waits: limo_cable::phone::Waits::default(),
+        waits: limo_cable::phone::Waits { prompt: phone::ASK_WAIT, ..limo_cable::phone::Waits::default() },
         pace: Pace::default(),
+        log: Some(Arc::clone(&log)),
     });
     let console = Console {
         door,

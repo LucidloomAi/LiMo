@@ -4,8 +4,10 @@
 // DEVELOPMENT ONLY; nothing in the app imports it.
 //
 // The cable plays a plan: each `phone.look` takes the next case from it, as
-// a person plugging the phone in, switching USB debugging on and tapping
-// Allow would. Installing, pairing and switching USB debugging off then go
+// a person plugging the phone in and switching USB debugging on would. The
+// phone is asked to allow this PC only by `phone.ask`; it taps Allow a few
+// looks later, unless it was locked when asked, when it shows nothing until
+// it goes and comes back. Installing, pairing and switching USB debugging off then go
 // on by themselves, one stage a look, unless the cable is `frozen` (the
 // preview's pictures). A case can be set at any time, as pulling the cable.
 
@@ -29,6 +31,15 @@ export type MockCable = {
   plan: CableCase[];
   /** What went wrong, while the case is `trouble`. */
   trouble: { line: string; more: string } | null;
+  /**
+   * Asked while locked: a Samsung phone puts up no Allow on a locked screen,
+   * and none later until it goes and comes back. It stays `allow` for ever.
+   */
+  locked: boolean;
+  /** Looks after it is asked before the guardian taps Allow on the phone. */
+  allowAfter: number;
+  /** Seconds since it was asked, while `allow` (a look a second). */
+  askedSecs: number | null;
   /** The phone that plugs in when the case comes to `ok`. */
   plugs: MockPhoneFacts;
   /** The phone connected, once it was. */
@@ -50,6 +61,9 @@ export type MockCable = {
   busy: string | null;
   held: boolean;
 };
+
+/** How long the window waits for Allow after asking, in seconds. */
+export const ASK_WAITS_SECS = 600;
 
 export const FINGERPRINT = '3C:91:5A:07:E2:4B:D8:16:AF:62:0C:B9:75:18:4E:D3';
 
@@ -74,7 +88,8 @@ export const CABLE_WORDS: Record<Exclude<CableCase, 'ok' | 'trouble'>, [string, 
   off: ['A phone is plugged in.', 'USB debugging is off on it.'],
   driver: ['No working driver for this phone.', 'Install its maker’s USB driver for Windows, such as Samsung’s Android USB Driver.'],
   connecting: ['A phone is plugged in.', 'Connecting to it.'],
-  allow: ['A phone is plugged in.', 'Waiting for Allow on the phone.'],
+  unknown: ['A phone is plugged in.', 'It does not know this PC yet.'],
+  allow: ['The phone is asking.', 'Waiting for Allow on the phone.'],
 };
 
 export const PHONE_WORDS = {
@@ -82,6 +97,8 @@ export const PHONE_WORDS = {
   tooOld: (android: string) => ({ line: `This phone has Android ${android}. LiMo needs Android 8.0 or later.`, more: '' }),
   noPhone: 'No phone is connected yet. Plug it in, unlocked, with USB debugging on.',
   busy: 'The phone is busy with another step. Wait a moment, then try again.',
+  alreadyConnected: 'The phone is connected already: it knows this PC.',
+  notAllowedInTime: { line: 'The phone did not allow this PC in time.', more: 'Unlock the phone and ask again. If the phone shows no question, switch USB debugging off and on again on the phone first.' },
   notYet: 'LiMo is not on the phone yet.',
   sending: 'Sending LiMo to the phone.',
   installing: 'The phone is installing LiMo.',
@@ -108,6 +125,9 @@ export function freshCable(change: Partial<MockCable> = {}): MockCable {
     case: 'none',
     plan: [],
     trouble: null,
+    locked: false,
+    allowAfter: 2,
+    askedSecs: null,
     plugs: GALAXY,
     phone: null,
     install: { ...NOT_ASKED, sent: null },
@@ -169,7 +189,8 @@ function checks(p: MockPhoneFacts | null): { ok: boolean; words: string }[] {
 export function lookOf(c: MockCable): unknown {
   return {
     cable: strip(c),
-    fingerprint: c.case === 'allow' ? FINGERPRINT : null,
+    fingerprint: c.case === 'allow' || c.case === 'unknown' ? FINGERPRINT : null,
+    asked_secs: c.case === 'allow' ? c.askedSecs : null,
     phone: c.phone,
     checks: checks(c.phone),
     install: { stage: c.install.stage, sent: c.install.sent, line: c.install.line, advice: c.install.advice },
@@ -183,7 +204,26 @@ export function lookOf(c: MockCable): unknown {
 /** One look's worth of the world going on. */
 function tick(c: MockCable, family: FamilySide): void {
   const next = c.plan.shift();
-  if (next) c.case = next;
+  if (next) {
+    c.case = next;
+    // Gone and come back: whatever was asked is forgotten.
+    if (next !== 'allow') c.askedSecs = null;
+  }
+  // Asked: a second more of waiting, and Allow tapped in time unless the phone was locked when asked.
+  if (c.case === 'allow' && c.askedSecs !== null) {
+    c.askedSecs += 1;
+    if (!c.locked && c.askedSecs >= c.allowAfter) {
+      c.case = 'ok';
+      c.askedSecs = null;
+      c.busy = null;
+    } else if (c.askedSecs >= ASK_WAITS_SECS) {
+      // Nobody answered in ten minutes: said until the phone goes or the guardian asks again.
+      c.case = 'trouble';
+      c.trouble = PHONE_WORDS.notAllowedInTime;
+      c.askedSecs = null;
+      c.busy = null;
+    }
+  }
   // A phone LiMo can open is connected by itself as soon as it allows this PC.
   if (c.case === 'ok' && !c.phone) {
     c.phone = structuredClone(c.plugs);
@@ -262,6 +302,15 @@ export function answerPhone(c: MockCable, name: string, args: Record<string, unk
     case 'phone.look':
       if (!c.frozen) tick(c, family);
       return { ok: true, value: lookOf(c) };
+    case 'phone.ask':
+      if (c.case === 'ok') return err('already_connected', PHONE_WORDS.alreadyConnected);
+      if (c.case === 'allow') return err('busy', PHONE_WORDS.busy);
+      if (c.case !== 'unknown' && !(c.case === 'trouble' && c.trouble === PHONE_WORDS.notAllowedInTime)) return err('no_phone', PHONE_WORDS.noPhone);
+      c.case = 'allow';
+      c.trouble = null;
+      c.askedSecs = 0;
+      c.busy = 'asking';
+      return { ok: true, value: { started: true } };
     case 'phone.install':
       if (c.phone && !c.phone.recent_enough) return err('too_old', `This phone has Android ${c.phone.android}. LiMo needs Android 8.0 or later.`);
       if (!phoneThere) return err('no_phone', PHONE_WORDS.noPhone);

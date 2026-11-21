@@ -9,13 +9,20 @@
 //! 1. While no phone is connected, once a second: [`Event::Looked`] with
 //!    what [`crate::open::Cable::look`] gives; show [`tell`].
 //! 2. When [`next`] offers [`Next::Connect`]: [`Event::Connecting`], then
-//!    open; when the cable calls back that the phone is asking,
-//!    [`Event::Asking`]; then [`Event::Connected`] or [`Event::OpenFailed`].
-//! 3. Then each step [`next`] offers, in turn, each outcome handed in:
+//!    open quietly ([`crate::phone::Knock::Quiet`]): [`Event::Connected`],
+//!    or [`Event::OpenFailed`], [`crate::phone::OpenProblem::NotKnown`]
+//!    for a phone that does not know this PC, which makes the state
+//!    [`State::Unknown`]: nothing more is tried while the phone stays.
+//! 3. Only when a person asks ([`Next::Ask`]): [`Event::Connecting`], then
+//!    open asking ([`crate::phone::Knock::Asking`]); when the cable calls
+//!    back that the phone is asking, [`Event::Asking`]; then
+//!    [`Event::Connected`] or [`Event::OpenFailed`]. A phone that did not
+//!    allow in time stays so while it stays plugged in.
+//! 4. Then each step [`next`] offers, in turn, each outcome handed in:
 //!    LiMo checked, installed, the offer handed, the link's port reversed,
 //!    LiMo started; pairing and the phone's own setup happen meanwhile over
 //!    the link, which is not this crate's.
-//! 4. At the end, USB debugging switched off, and the phone unplugged.
+//! 5. At the end, USB debugging switched off, and the phone unplugged.
 //!
 //! [`tell`] holds the words a guardian reads for every state; none of them
 //! names adb.
@@ -39,6 +46,10 @@ pub enum State {
         /// Its name, as Windows shows its interface.
         name: Option<String>,
     },
+    /// A phone LiMo can open is plugged in, and does not know this PC yet:
+    /// a quiet connection found so, and nothing was asked. Nothing more is
+    /// tried until the phone goes, or a person asks.
+    Unknown,
     /// Connecting.
     Connecting,
     /// The phone asks the person "Allow USB debugging?" now.
@@ -138,8 +149,11 @@ pub enum Event {
 pub enum Next {
     /// Nothing to do but look again in a second.
     LookAgain,
-    /// Open the phone and connect.
+    /// Open the phone and connect, quietly.
     Connect,
+    /// Ask the phone to allow this PC: shows it the key, once (a person's
+    /// tap, never done by itself).
+    Ask,
     /// Look whether LiMo is on the phone, and which version.
     CheckLimo,
     /// Install LiMo (the console skips it when the phone holds the same
@@ -183,12 +197,20 @@ pub fn step(state: State, event: Event) -> State {
             _ => State::Connected(progress),
         },
         (State::Done, Event::Looked(_)) => State::Done,
+        // A phone that does not know this PC, or did not allow it, stays so
+        // while it stays plugged in: nothing is tried by itself.
+        (state @ (State::Unknown | State::Stopped(Problem::Open(OpenProblem::NotAllowed | OpenProblem::GivenUp))), Event::Looked(look)) => {
+            match seen(&look) {
+                State::Ready { .. } => state,
+                other => other,
+            }
+        }
         (State::Connecting | State::Asking, Event::Looked(look)) => match seen(&look) {
             State::NotReady(_) => State::Stopped(Problem::Lost),
             _ => State::Connecting,
         },
         (_, Event::Looked(look)) => seen(&look),
-        (State::Ready { .. } | State::Stopped(_), Event::Connecting) => State::Connecting,
+        (State::Ready { .. } | State::Unknown | State::Stopped(_), Event::Connecting) => State::Connecting,
         (State::Connecting, Event::Asking) => State::Asking,
         (State::Connecting | State::Asking, Event::Connected(facts)) => {
             if facts.too_old() {
@@ -197,6 +219,7 @@ pub fn step(state: State, event: Event) -> State {
                 State::Connected(Progress::new(facts))
             }
         }
+        (State::Connecting, Event::OpenFailed(OpenProblem::NotKnown)) => State::Unknown,
         (State::Connecting | State::Asking, Event::OpenFailed(problem)) => State::Stopped(Problem::Open(problem)),
         (State::Connected(mut p), event) => {
             p.trouble = None;
@@ -229,6 +252,7 @@ pub fn next(state: &State) -> Vec<Next> {
         State::NotReady(_) | State::TwoPhones(_) | State::Connecting | State::Asking => vec![Next::LookAgain],
         State::Ready { .. } => vec![Next::Connect],
         State::Stopped(Problem::TooOld(_)) => vec![Next::Unplug],
+        State::Unknown | State::Stopped(Problem::Open(OpenProblem::NotAllowed | OpenProblem::GivenUp)) => vec![Next::LookAgain, Next::Ask],
         State::Stopped(_) => vec![Next::LookAgain],
         State::Done => vec![Next::Unplug],
         State::Connected(p) => {
@@ -314,6 +338,10 @@ pub fn tell(state: &State) -> Tell {
             },
             advice: Some("Unlock the phone.".to_string()),
         },
+        State::Unknown => say(
+            "The phone is plugged in, with USB debugging on, and does not know this PC yet.",
+            Some("Unlock the phone, then ask it to allow this PC: it asks once, on its own screen."),
+        ),
         State::Connecting => say("Connecting to the phone.", Some("Unlock the phone.")),
         State::Asking => say(
             "The phone asks: Allow USB debugging?",
@@ -321,8 +349,13 @@ pub fn tell(state: &State) -> Tell {
         ),
         State::Stopped(Problem::Open(problem)) => match problem {
             OpenProblem::NotAllowed => say(
-                "The phone did not allow this PC.",
-                Some("Unplug the phone, plug it in again unlocked, and tap Allow when it asks."),
+                "The phone did not allow this PC in time.",
+                Some("Unlock the phone and ask again. If the phone shows no question, switch USB debugging off and on again on the phone first."),
+            ),
+            OpenProblem::GivenUp => say("The phone was not waited for any longer.", Some("Unlock the phone and ask again.")),
+            OpenProblem::NotKnown => say(
+                "The phone does not know this PC yet.",
+                Some("Unlock the phone, then ask it to allow this PC: it asks once, on its own screen."),
             ),
             OpenProblem::AdbServerRunning | OpenProblem::Busy => say(
                 "Another program on this PC holds the phone's connection (Android Studio, or Google's adb).",
@@ -462,7 +495,20 @@ mod tests {
         assert_eq!(gone, State::Stopped(Problem::Lost));
         assert_eq!(next(&gone), vec![Next::LookAgain]);
         let not_allowed = step(State::Connecting, Event::OpenFailed(OpenProblem::NotAllowed));
-        assert!(tell(&not_allowed).advice.unwrap().contains("tap Allow"));
+        assert!(tell(&not_allowed).advice.unwrap().contains("ask again"));
+        // Asked and not allowed, or not known: nothing tried by itself while
+        // the phone stays plugged in; the person may ask.
+        assert_eq!(step(not_allowed.clone(), Event::Looked(galaxy_look())), not_allowed);
+        assert_eq!(next(&not_allowed), vec![Next::LookAgain, Next::Ask]);
+        let unknown = step(State::Connecting, Event::OpenFailed(OpenProblem::NotKnown));
+        assert_eq!(unknown, State::Unknown);
+        assert_eq!(step(State::Unknown, Event::Looked(galaxy_look())), State::Unknown);
+        assert_eq!(next(&State::Unknown), vec![Next::LookAgain, Next::Ask]);
+        // The phone gone and back: looked at afresh, and connected quietly.
+        let gone = step(State::Unknown, Event::Looked(Look { windows: Ok(vec![]), interfaces: Ok(vec![]) }));
+        assert_eq!(gone, State::NotReady(Case::NoPhone));
+        assert_eq!(next(&step(gone, Event::Looked(galaxy_look()))), vec![Next::Connect]);
+        assert_eq!(step(State::Unknown, Event::Connecting), State::Connecting);
         let busy = step(State::Connecting, Event::OpenFailed(OpenProblem::AdbServerRunning));
         assert!(tell(&busy).line.contains("Android Studio"));
         let old = PhoneFacts { sdk: Some(25), android: "7.1".to_string(), ..facts() };
@@ -476,6 +522,7 @@ mod tests {
             State::NotReady(Case::NoDriver { names: vec![] }),
             State::NotReady(Case::DebuggingNotListed { names: vec![] }),
             State::Ready { name: None },
+            State::Unknown,
             State::Asking,
             State::Stopped(Problem::Lost),
             State::Done,

@@ -132,7 +132,9 @@ function ADD_FRAMES(): GuardianFrame[] {
   const rows: [string, string, () => GuardianMockState, number][] = [
     ['A1', 'Start: whose phone, and what is needed', () => guardianStates.adding(still({ case: 'none' })), 0],
     ['A2', 'Switch on USB debugging', () => guardianStates.adding(still({ case: 'off' })), 1],
-    ['A3', 'Allow this PC on the phone, and compare its key', () => guardianStates.adding(still({ case: 'allow' })), 2],
+    ['A3', 'Allow this PC on the phone, and compare its key', () => guardianStates.adding(still({ case: 'allow', askedSecs: 5 })), 2],
+    ['A3u', 'Step 3 before the phone is asked: Ask the phone', () => guardianStates.adding(still({ case: 'unknown' })), 2],
+    ['A3h', 'Step 3 after 20 seconds of asking: nothing on the phone?', () => guardianStates.adding(still({ case: 'allow', askedSecs: 25 })), 2],
     ['A4', 'Checks, then putting LiMo on the phone', () => guardianStates.adding(on({ install: { stage: 'sending', sent: 0.62, line: PHONE_WORDS.sending, advice: null }, busy: 'installing' })), 3],
     ['A5', 'Paired over the cable, and the phone’s name', () => guardianStates.adding(on({ phone: withLimo, install: installed, pairing: paired(['cable']) }), 0), 4],
     ['A6', 'The phone’s own six steps, done on the phone', () => guardianStates.adding(on({ phone: withLimo, install: installed, pairing: paired(['cable']) }), 3), 5],

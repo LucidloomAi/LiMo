@@ -30,6 +30,7 @@ reads each one.
 - [LiMo's own adb](#limos-own-adb)
 - [The key](#the-key)
 - [Every call on the phone](#every-call-on-the-phone)
+- [Never show the key unasked](#never-show-the-key-unasked)
 - [The state machine](#the-state-machine)
 - [What the others must do](#what-the-others-must-do)
 - [The fake phone](#the-fake-phone)
@@ -74,10 +75,20 @@ let mut state = State::NotReady(Case::NoPhone);
 loop {
     match next(&state)[0] {
         Next::LookAgain => state = step(state, Event::Looked(cable.look())),   // once a second
-        Next::Connect => {
+        Next::Connect => {                          // quietly: the key is never shown here
             state = step(state, Event::Connecting);
-            // on_asking: the phone shows "Allow USB debugging?" now
-            match cable.open(&key, Waits::default(), &mut || tell_the_screen_asking()) {
+            match cable.open(&key, waits, Knock::Quiet) {
+                Ok(phone) => state = step(state, Event::Connected(phone.facts().clone())),
+                // OpenProblem::NotKnown: the phone does not know this PC; the
+                // state is Unknown, and nothing more is tried while it stays
+                Err(problem) => state = step(state, Event::OpenFailed(problem)),
+            }
+        }
+        Next::Ask => {                              // only on the guardian's tap, once
+            state = step(state, Event::Connecting);
+            // on_prompt: the phone shows "Allow USB debugging?" now; give_up
+            // ends the wait (the phone gone, Add a phone closed)
+            match cable.open(&key, waits, Knock::Asking { on_prompt: &mut || tell_the_screen_asking(), give_up: &|| closed() }) {
                 Ok(phone) => state = step(state, Event::Connected(phone.facts().clone())),
                 Err(problem) => state = step(state, Event::OpenFailed(problem)),
             }
@@ -168,9 +179,13 @@ the fake phone's in memory cable):
   LiMo signs it with its own key (PKCS#1 v1.5 with SHA-1's prefix, the token
   standing in for the digest, as adb signs; a test checks it against the
   `sha1` crate's signature). A phone that knows the key answers at once; one
-  that does not sends a new token, LiMo shows it the key, the caller is told
-  that the phone asks the person now, and the person has two minutes to
-  allow it.
+  that does not sends a new token. **A quiet connection stops there,
+  showing the phone nothing** (`Knock::Quiet`, `OpenProblem::NotKnown`): only
+  an asking one (`Knock::Asking`), made when a person has just asked for it,
+  shows the key, once; the caller is told that the phone asks the person
+  now, and the person has the prompt's wait to allow it (the console gives
+  ten minutes, so that a late Allow still connects), the wait ending early
+  when the caller gives it up. See [Never show the key unasked](#never-show-the-key-unasked).
 - **Streams:** `OPEN`, `OKAY`, `WRTE` and `CLSE`, each message acknowledged
   before the next. adb's streams have no half close: either side's close
   ends both directions.
@@ -228,6 +243,36 @@ Every call has a time limit ([`Waits`](src/phone.rs): ten seconds for the
 phone to answer at all, two minutes for the person, half a minute a call,
 three minutes an install). A lost link is said as [`CallError::Lost`].
 
+## Never show the key unasked
+
+**What was found** in the owner's first Add a phone, on the test phone
+(Galaxy, Android 13), 21 Nov 2026, from the phone's own log: the console
+connected and showed this PC's key the moment Add a phone opened, while the
+phone was at its lock screen. Samsung's `AdbDebuggingManager` logged
+`startConfirmation: isLockScreenMode`, put nothing on the screen and never
+answered; from then on adbd logged `adbd_auth: prompt currently pending,
+skipping` for every later connection (about one every two minutes, eleven
+in all), so no question could show any more: not after unlocking, not after
+the cable was pulled out and in. Only a restart of adbd cleared it, which
+switching USB debugging off and on does. The key itself was right: Google's
+own tool gives the same fingerprint for LiMo's key file.
+
+**The rule since.** LiMo never shows its key to a phone unless the guardian
+has just asked for it, and never asks twice by itself. A connection is quiet
+unless told otherwise (`Knock::Quiet`): `CNXN`, the token signed; a phone
+that sends a second token does not know this PC, and the connection stops
+there with nothing more sent (`OpenProblem::NotKnown`). Only an asking
+connection (`Knock::Asking`) sends the public key, once, and waits for the
+person, as long as its caller says, ending early when the caller gives it up
+or the phone goes. The state machine keeps a phone that does not know this
+PC, or that was asked and did not allow it, as it is while it stays plugged
+in: nothing is tried by itself until the phone goes and comes back, or a
+person asks again.
+
+**What a person can do** when a phone shows no question: unlock the phone,
+then switch USB debugging off and on again on it (Settings, Developer
+options), which restarts what answers on the phone, then ask again.
+
 ## The state machine
 
 [`flow.rs`](src/flow.rs), pure: `seen(look)`, `step(state, event)`,
@@ -237,11 +282,12 @@ three minutes an install). A lost link is said as [`CallError::Lost`].
 | --- | --- | --- |
 | `NotReady(case)` | look again | the case's line and what to do (above) |
 | `TwoPhones(n)` | look again | n phones are plugged in; unplug all but one |
-| `Ready` | connect | the phone is plugged in, with USB debugging on; unlock it |
+| `Ready` | connect (quietly) | the phone is plugged in, with USB debugging on; unlock it |
+| `Unknown` | look again, or ask (a person's tap) | the phone does not know this PC yet; unlock it, then ask it to allow this PC: it asks once. Nothing is tried while it stays plugged in |
 | `Connecting` | look again | connecting; unlock the phone |
 | `Asking` | look again | The phone asks: Allow USB debugging? Tick "Always allow from this computer", then tap Allow. |
 | `Connected(progress)` | the first not done of: check LiMo, install LiMo, hand the offer, reverse the link, start LiMo; and switching USB debugging off | where adding the phone stands, or what went wrong and what to do (an install refused, an offer not taken, USB debugging still on) |
-| `Stopped(problem)` | look again (unplug, for an Android too old) | not allowed in time; another program holds the phone; Android too old; the connection ended |
+| `Stopped(problem)` | look again (unplug, for an Android too old); after an ask not allowed in time, or given up, look again or ask, nothing tried while the phone stays | not allowed in time (unlock and ask again; if no question shows, USB debugging off and on first); another program holds the phone; Android too old; the connection ended |
 | `Done` | unplug | USB debugging is off again on the phone. Unplug the phone. |
 
 The console skips installing when the phone holds the version it carries;
@@ -253,7 +299,7 @@ connection. None of its words names adb.
 **The console** (in the guardian's Windows account): holds a
 [`WindowsCable`](src/open.rs) and LiMo's [`AdbKey`](src/key.rs), runs the
 loop above while its Add a phone screen is open, shows [`tell`](src/flow.rs)
-and the key's fingerprint beside "Allow USB debugging?", carries LiMo's
+and the key's fingerprint beside "Allow USB debugging?", connects quietly by itself and asks the phone only on the guardian's tap, carries LiMo's
 child form as a release APK for [`install_limo`](src/phone.rs), asks the
 service for a pairing offer and hands it with
 [`hand_offer`](src/phone.rs), holds the [`Phone`](src/phone.rs) for as long as
@@ -288,8 +334,11 @@ as a test sets it, on a cable that only charges, with USB debugging off, with
 no driver, with a maker's driver LiMo cannot open, or held by another
 program. Its adbd speaks the protocol as AOSP's does over a wire shaped like
 USB: it asks for the key, checks the signature against the keys it allows,
-shows an unknown key and lets the person allow it or not, keeps an allowed
-key, answers LiMo's commands as Android did, installs with no question (and
+shows an unknown key and lets the person allow it or not, now or later while
+the PC still waits, keeps an allowed key (a test may give it one at the
+start, `FakeState::knows`: a phone that allowed this PC before), records the
+kind of every `AUTH` the PC sends (`Seen::auth`: a signature, or a public
+key), ends its link the moment it is unplugged, answers LiMo's commands as Android did, installs with no question (and
 refuses a LiMo of another key as Android does), takes an offer through the
 door, hands `am start` to an open screen, keeps reverses, switches USB
 debugging off and goes. A test can have it change a file at the worst
@@ -310,8 +359,10 @@ cargo run --example phone_model
 cargo run --example phone_model -- --key adb
 ```
 
-The first connects with LiMo's own key for this Windows account, so the
-phone asks "Allow USB debugging?" the first time. The second connects with
+The first connects with LiMo's own key for this Windows account, quietly:
+a phone that does not know it is asked "Allow USB debugging?" only after the
+person presses Enter, with the phone unlocked, and once; an input that ends
+first (closed, or empty) asks nothing, and the example says so and stops. The second connects with
 the adb key of this Windows account instead (Google's adb's own), which a
 phone may have allowed long ago, for a run with nobody at the phone: that key
 is only read, never written, copied or shown, and its place is never said.
@@ -334,8 +385,8 @@ the tests).
 | Where | What | Count |
 | --- | --- | --- |
 | `src/*.rs` | the look: a phone recognised on the USB bus only, a stick never, the debugging interface by its compatible id in any case, each case from what is listed; the APK reader's numbers; the commands as they cross the cable, the answers read with carriage returns, versions, `am start` handed to an open screen, Android's install refusals and their words; adb's messages (the header's sum and check), shell packets cut across messages, messages read in transfers that end where they do, a zero length packet passed over, a broken one refused; the key made once and kept, a damaged one never replaced unasked, its public half as Android reads it, base64, both PEM forms; WinUSB known in any case; the state machine's states from what is plugged in, adding a phone step by step, what goes wrong said and tried again, no word naming adb | 21 |
-| `tests/phone.rs` | against the fake phone: the first connection asking and the next not; a key not allowed in time; each cable and driver as the PC sees it; LiMo looked for, installed with replace and no question; only LiMo's release build installed, a LiMo of another key refused and left; the APK sent the one checked, even when the file changes after the phone was told its size; the offer through the door from memory, whole, never in a command; LiMo started, an open screen handed the start; `reverse` carrying the app's 256 KiB both ways, the app closing first; USB debugging off ending the link, the PC seeing it go; an unplugged phone lost; the phone hearing only LiMo's commands; the signature the one adb makes | 12 |
-| `tests/flow.rs` | the console's loop against the fake phone, from a cable that only charges to unplugging; no driver and a driver LiMo cannot use, never opened; unplugged while connected, and on again with no second question | 3 |
+| `tests/phone.rs` | against the fake phone: the first connection asking and the next, quiet, connecting; a quiet connection to a phone that does not know the key sending no public key (the bytes counted); an asking one showing it once, a late Allow still connecting; the wait given up, and ended by an unplug; a key not allowed in time; each cable and driver as the PC sees it; LiMo looked for, installed with replace and no question; only LiMo's release build installed, a LiMo of another key refused and left; the APK sent the one checked, even when the file changes after the phone was told its size; the offer through the door from memory, whole, never in a command; LiMo started, an open screen handed the start; `reverse` carrying the app's 256 KiB both ways, the app closing first; USB debugging off ending the link, the PC seeing it go; an unplugged phone lost; the phone hearing only LiMo's commands; the signature the one adb makes | 15 |
+| `tests/flow.rs` | the console's loop against the fake phone, from a cable that only charges to unplugging, a quiet connection finding the phone does not know this PC and the ask after it; no driver and a driver LiMo cannot use, never opened; unplugged while connected, and on again, quietly, with no second question | 3 |
 | `tests/house_rules.rs` | unsafe code only in `src/win/`, each block and each `unsafe impl` saying why; which Windows calls each file makes, the look only reading; no allow attributes; nothing printed by its Debug form; every command and service touching only LiMo, none removing an app; no device path and no key printed; no dash punctuation | 6 |
 
 Three more are ignored by default, run with `--ignored`: `real_apk` (an APK

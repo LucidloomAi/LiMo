@@ -263,8 +263,13 @@ export type DeviceAndStanding = DeviceInfo & { readonly standing: Standing | nul
 export type Started = { readonly started: boolean };
 
 /** The cable strip's case (console/README.md, "The look"). */
-export type CableCase = 'looking' | 'none' | 'off' | 'driver' | 'connecting' | 'allow' | 'ok' | 'trouble';
-export const CABLE_CASES: readonly CableCase[] = ['looking', 'none', 'off', 'driver', 'connecting', 'allow', 'ok', 'trouble'];
+/**
+ * `unknown`: a phone with USB debugging on that does not know this PC yet,
+ * and nothing was asked of it; `allow`: it was asked (`phone.ask`) and the
+ * window waits for Allow on the phone.
+ */
+export type CableCase = 'looking' | 'none' | 'off' | 'driver' | 'connecting' | 'unknown' | 'allow' | 'ok' | 'trouble';
+export const CABLE_CASES: readonly CableCase[] = ['looking', 'none', 'off', 'driver', 'connecting', 'unknown', 'allow', 'ok', 'trouble'];
 export type InstallStage = 'not_asked' | 'not_needed' | 'sending' | 'installing' | 'done' | 'refused' | 'failed' | 'no_app';
 export const INSTALL_STAGES: readonly InstallStage[] = ['not_asked', 'not_needed', 'sending', 'installing', 'done', 'refused', 'failed', 'no_app'];
 export type PairStage = 'not_asked' | 'asking_the_service' | 'handing' | 'waiting' | 'paired' | 'failed';
@@ -279,8 +284,10 @@ type Said = { readonly line: string | null; readonly advice: string | null };
 /** Where adding a phone stands: what `phone.look` answers, every line in the console's own words. */
 export type PhoneLook = {
   readonly cable: { readonly case: CableCase; readonly line: string; readonly more: string };
-  /** The key's fingerprint as the phone shows it, only while the phone asks to allow this PC. */
+  /** The key's fingerprint as the phone shows it, while the phone does not know this PC: before it is asked and while it asks. */
   readonly fingerprint: string | null;
+  /** How long ago the phone was asked to allow this PC, while the case is `allow`. */
+  readonly askedSecs: number | null;
   readonly phone: {
     readonly name: string;
     readonly model: string;
@@ -356,6 +363,8 @@ export type DoorRequests = {
   // Adding a phone: the console's own requests, answered by the window and
   // never sent to the service (console/README.md, "Adding a phone").
   'phone.look': { args: None; answer: PhoneLook };
+  /** Asks the phone once to allow this PC: only when a guardian taps Ask the phone. */
+  'phone.ask': { args: None; answer: Started };
   'phone.install': { args: None; answer: Started };
   'phone.pair': { args: { child: string }; answer: Started };
   'phone.debugging_off': { args: None; answer: Started };
@@ -667,6 +676,7 @@ export function readPhoneLook(x: unknown): PhoneLook {
   return {
     cable: { case: oneOf(c, 'case', CABLE_CASES, 'the look.cable'), line: words(c, 'line', 'the look.cable'), more: str(c, 'more', 'the look.cable') },
     fingerprint: fingerprint === '' ? null : fingerprint,
+    askedSecs: maybeCount(o, 'asked_secs', 'the look'),
     phone: p && {
       name: words(p, 'name', 'the look.phone'),
       model: str(p, 'model', 'the look.phone'),
@@ -912,6 +922,7 @@ const READ: { [N in DoorName]: (x: unknown) => DoorRequests[N]['answer'] } = {
   app_names: readAppNames,
   device_apps: readDeviceApps,
   'phone.look': readPhoneLook,
+  'phone.ask': readStarted,
   'phone.install': readStarted,
   'phone.pair': readStarted,
   'phone.debugging_off': readStarted,

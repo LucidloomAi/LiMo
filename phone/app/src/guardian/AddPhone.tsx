@@ -5,7 +5,10 @@
 //
 // The console's window answers these screens itself (console/README.md,
 // "Adding a phone"): `phone.look` is asked once a second while the flow is
-// open, and at no other time; `phone.install`, `phone.pair` and
+// open, and at no other time; it never asks the phone anything. The phone is
+// asked to allow this PC (`phone.ask`) only when the guardian taps Ask the
+// phone on step 3, with the phone unlocked: a Samsung phone shows no Allow on
+// a locked screen, and none later. `phone.install`, `phone.pair` and
 // `phone.debugging_off` each start a step and answer at once; `phone.done`
 // when the flow closes, whichever way. Every line the console sends is shown
 // as given. The phone's own six steps (A6) are the service's, from `device`.
@@ -30,6 +33,8 @@ import * as W from './words';
 
 /** How often the screens ask the console where adding the phone stands, in milliseconds. */
 export const LOOK_EVERY_MS = 1_000;
+/** After this long asking with no Allow, step 3 says what to do when the phone shows nothing. */
+export const HELP_AFTER_SECS = 20;
 
 const A = W.addPhone;
 const LAST = A.steps - 1;
@@ -198,7 +203,7 @@ export function AddPhone({
   };
 
   const start = useCallback(
-    async (name: 'phone.install' | 'phone.debugging_off') => {
+    async (name: 'phone.ask' | 'phone.install' | 'phone.debugging_off') => {
       setBusy(true);
       const got = await ask(door, name, {});
       if (!live.current) return;
@@ -224,7 +229,11 @@ export function AddPhone({
   const setUp = standing?.setupFinished === true;
   const home = look?.pairing.ways.includes('home_network') ?? false;
   const debuggingOff = look?.debugging.stage === 'off';
-  const canGoOn = [true, c === 'connecting' || c === 'allow' || c === 'ok', c === 'ok', installed, paired, setUp, true, true, true][step];
+  const canGoOn = [true, c === 'unknown' || c === 'allow' || c === 'ok', c === 'ok', installed, paired, setUp, true, true, true][step];
+  // Step 3: the phone does not know this PC and was not asked (the button asks it), or it was asked and the window waits.
+  const asking = step === 2 && c === 'allow';
+  // Asked and not answered in time, the strip says so as trouble, and the guardian may ask again.
+  const canAsk = step === 2 && (c === 'unknown' || c === 'trouble');
 
   // Moving on by what the look says, when the step was come to going forward;
   // and starting the install and the pairing once each.
@@ -240,7 +249,8 @@ export function AddPhone({
     }
     if (step === 4 && look.pairing.device && name === null) setName(look.pairing.device.name);
     if (!forward.current) return;
-    if (step === 1 && (c === 'connecting' || c === 'allow')) go(2);
+    // On to step 3 when the phone is there and does not know this PC; past it when it does.
+    if (step === 1 && (c === 'unknown' || c === 'allow')) go(2);
     else if ((step === 1 || step === 2) && c === 'ok') go(3);
     else if (step === 3 && installed) go(4);
     else if (step === 5 && setUp) go(6);
@@ -253,7 +263,7 @@ export function AddPhone({
   const next = async () => {
     if (step === 0) {
       // A phone may be connected already: on to the first step it needs.
-      return go(c === 'ok' ? 3 : c === 'allow' || c === 'connecting' ? 2 : 1);
+      return go(c === 'ok' ? 3 : c === 'unknown' || c === 'allow' ? 2 : 1);
     }
     if (step === 4 && look?.pairing.device && name !== null && name.trim() !== '' && name.trim() !== look.pairing.device.name) {
       setBusy(true);
@@ -262,6 +272,8 @@ export function AddPhone({
       setBusy(false);
       if (got.kind !== 'done') return setErr(said(got));
     }
+    // The phone is asked only by this button, never by itself.
+    if (step === 2 && canAsk) return void start('phone.ask');
     if (step === 7) return void start('phone.debugging_off');
     if (step === LAST) return onAdded();
     go(step + 1);
@@ -341,9 +353,20 @@ export function AddPhone({
     case 2:
       body = (
         <>
-          <Txt style={[gtype.detail, styles.detail]} wrap="pretty">
-            {A.a3.line}
-          </Txt>
+          {asking ? (
+            <Txt style={[gtype.detail, styles.detail]} wrap="pretty">
+              {A.a3.line}
+            </Txt>
+          ) : (
+            <>
+              <Txt style={[gtype.detail, styles.detail]} wrap="pretty" testID="unlock">
+                {A.a3.unlock}
+              </Txt>
+              <Txt style={[gtype.small, styles.small]} wrap="pretty">
+                {A.a3.once}
+              </Txt>
+            </>
+          )}
           <Label style={styles.gap}>{A.a3.key}</Label>
           <View style={styles.finger} accessible accessibilityLabel={look?.fingerprint ?? ''} testID="fingerprint">
             <Txt style={gtype.finger}>{fingerprintLines(look?.fingerprint ?? null)}</Txt>
@@ -351,6 +374,14 @@ export function AddPhone({
           <Txt style={[gtype.small, styles.small]} wrap="pretty">
             {A.a3.same}
           </Txt>
+          {asking && (look?.askedSecs ?? 0) >= HELP_AFTER_SECS ? (
+            <View style={styles.note} testID="nothing-on-the-phone">
+              <Label>{A.a3.helpLabel}</Label>
+              <Txt style={[gtype.note, styles.noteText]} wrap="pretty">
+                {A.a3.help}
+              </Txt>
+            </View>
+          ) : null}
         </>
       );
       break;
@@ -498,11 +529,12 @@ export function AddPhone({
     }
   }
 
-  const button = [A.start, A.next, A.next, A.next, A.next, A.next, A.next, A.a8.button, A.done][step];
+  const button = [A.start, A.next, canAsk ? A.a3.ask : asking ? A.a3.waiting : A.next, A.next, A.next, A.next, A.next, A.a8.button, A.done][step];
   const off =
     busy ||
     (step === 0 && (!children || !childId)) ||
-    ([1, 2, 3, 5].includes(step) && !canGoOn) ||
+    ([1, 3, 5].includes(step) && !canGoOn) ||
+    (step === 2 && !canAsk && !canGoOn) ||
     (step === 4 && !paired) ||
     (step === 7 && (look?.debugging.stage === 'switching_off' || busy));
   const strip = {

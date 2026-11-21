@@ -37,7 +37,7 @@ use rsa::{BigUint, RsaPublicKey};
 use crate::commands::{ACTIVITY, Ask, PACKAGE};
 use crate::key::AdbKey;
 use crate::open::{Cable, Interface, Look};
-use crate::phone::{OpenProblem, Phone, Waits};
+use crate::phone::{Knock, OpenProblem, Phone, Waits};
 use crate::protocol::{
     AUTH, AUTH_RSAPUBLICKEY, AUTH_SIGNATURE, AUTH_TOKEN, CLSE, CNXN, Message, OKAY, OPEN, SHA1_PREFIX, VERSION, WRTE,
     Wire, shell_id, shell_packet,
@@ -102,8 +102,12 @@ pub struct Seen {
     pub services: Vec<String>,
     /// Services and commands refused, because the fake does not know them.
     pub refused: Vec<String>,
-    /// How many times it asked "Allow USB debugging?".
+    /// How many times it asked "Allow USB debugging?": each time the PC
+    /// sent it a public key it did not know.
     pub prompts: u32,
+    /// The kind of every `AUTH` message the PC sent, in order: 2 a
+    /// signature, 3 a public key.
+    pub auth: Vec<u32>,
     /// How many installs it took.
     pub installs: u32,
     /// The bytes of every install it took, in order.
@@ -153,6 +157,14 @@ pub struct FakeState {
     /// file LiMo checked changes after LiMo told the phone its size and
     /// before the bytes go. Once.
     pub change_on_install: Option<(PathBuf, Vec<u8>)>,
+}
+
+impl FakeState {
+    /// The phone knows `key` already, as one that allowed this PC before:
+    /// it connects with no question.
+    pub fn knows(&mut self, key: &AdbKey) {
+        self.known_keys.push(RsaPublicKey::from(key.private()));
+    }
 }
 
 impl Default for FakeState {
@@ -267,7 +279,7 @@ impl Cable for FakePhone {
         Look { windows: Ok(windows), interfaces: Ok(self.interface().into_iter().collect()) }
     }
 
-    fn open(&mut self, key: &AdbKey, waits: Waits, on_asking: &mut dyn FnMut()) -> Result<Phone, OpenProblem> {
+    fn open(&mut self, key: &AdbKey, waits: Waits, knock: Knock<'_>) -> Result<Phone, OpenProblem> {
         let Some(interface) = self.interface() else { return Err(OpenProblem::NoPhone) };
         if self.state().held_by_another {
             return Err(OpenProblem::Busy);
@@ -277,7 +289,7 @@ impl Cable for FakePhone {
         }
         let (adbd, wire) = FakeAdbd::start(self.state.clone());
         self.running.lock().unwrap_or_else(|e| e.into_inner()).push(adbd);
-        Phone::connect(Box::new(wire), key, waits, on_asking)
+        Phone::connect(Box::new(wire), key, waits, knock)
     }
 }
 
@@ -424,6 +436,9 @@ struct Adbd {
     token: Vec<u8>,
     tokens: u8,
     pending_app: HashMap<u32, (Sender<Result<AppSocket, String>>, AppSocket)>,
+    /// A key shown while nobody allowed it: allowed if the person does so
+    /// later, while the PC still waits.
+    pending_key: Option<RsaPublicKey>,
 }
 
 fn base64_decode(text: &str) -> Vec<u8> {
@@ -452,7 +467,7 @@ fn base64_decode(text: &str) -> Vec<u8> {
 
 impl Adbd {
     fn new(state: Arc<Mutex<FakeState>>, to_host: Sender<Vec<u8>>) -> Adbd {
-        Adbd { state, to_host, streams: HashMap::new(), next_id: 1000, token: Vec::new(), tokens: 0, pending_app: HashMap::new() }
+        Adbd { state, to_host, streams: HashMap::new(), next_id: 1000, token: Vec::new(), tokens: 0, pending_app: HashMap::new(), pending_key: None }
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, FakeState> {
@@ -475,6 +490,21 @@ impl Adbd {
                 Err(TryRecvError::Empty) => {}
             }
             self.pump();
+            {
+                // Unplugged, or USB debugging switched off: the interface goes,
+                // at once, as a real phone's does, whatever it was doing.
+                let s = self.state();
+                if !s.debugging || !s.plugged {
+                    return;
+                }
+            }
+            // The person allows a key shown earlier, while the PC waits.
+            if self.pending_key.is_some() && self.state().person == Person::Allows {
+                if let Some(key) = self.pending_key.take() {
+                    self.state().known_keys.push(key);
+                }
+                self.hello();
+            }
             let message = match read_host(&from_host, Duration::from_millis(10)) {
                 Ok(Some(m)) => m,
                 Ok(None) => continue,
@@ -547,6 +577,9 @@ impl Adbd {
             if message.command == WRTE {
                 s.seen.largest_write = s.seen.largest_write.max(message.data.len());
             }
+            if message.command == AUTH {
+                s.seen.auth.push(message.arg0);
+            }
         }
         match message.command {
             CNXN => self.ask_for_key(),
@@ -566,16 +599,18 @@ impl Adbd {
                 let n = BigUint::from_bytes_le(&blob[8..264]);
                 let e = BigUint::from_bytes_le(&blob[520..524]);
                 let Ok(key) = RsaPublicKey::new(n, e) else { return };
-                let allows = {
+                let waiting = {
                     let mut s = self.state();
                     s.seen.prompts += 1;
                     if s.person == Person::Allows {
                         s.known_keys.push(key);
-                        true
+                        None
                     } else {
-                        false
+                        Some(key)
                     }
                 };
+                let allows = waiting.is_none();
+                self.pending_key = waiting;
                 if allows {
                     self.hello();
                 }

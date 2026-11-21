@@ -3,7 +3,8 @@
 //!
 //! | Request | Arguments | What it does |
 //! |---|---|---|
-//! | `phone.look` | none | where adding the phone stands, in the words the Add a phone screens show; starts the looking |
+//! | `phone.look` | none | where adding the phone stands, in the words the Add a phone screens show; starts the looking, and connects quietly, never showing the phone this PC's key |
+//! | `phone.ask` | none | asks the phone, once, to allow this PC: shows it the key and waits up to ten minutes for Allow |
 //! | `phone.install` | none | starts putting LiMo on the connected phone |
 //! | `phone.pair` | `child` | starts pairing the phone with that child |
 //! | `phone.debugging_off` | none | starts switching USB debugging off on the phone |
@@ -43,7 +44,7 @@ use std::time::Duration;
 
 use limo_cable::key::AdbKey;
 use limo_cable::open::Look;
-use limo_cable::phone::{OpenProblem, Phone, Waits};
+use limo_cable::phone::{Knock, OpenProblem, Phone, Waits};
 use limo_cable::protocol::Wire;
 use serde_json::{Value, json};
 
@@ -58,7 +59,11 @@ pub use door_service::DoorService;
 pub use limo_cable::commands::LINK_PORT;
 
 /// The console's own requests for a phone, by name.
-pub const REQUESTS: [&str; 5] = ["phone.look", "phone.install", "phone.pair", "phone.debugging_off", "phone.done"];
+pub const REQUESTS: [&str; 6] = ["phone.look", "phone.ask", "phone.install", "phone.pair", "phone.debugging_off", "phone.done"];
+
+/// How long an ask waits for the person to tap Allow: long, so that a late
+/// Allow still connects. The ask is never made again by itself.
+pub const ASK_WAIT: Duration = Duration::from_secs(10 * 60);
 
 /// True for a name the console answers itself, for a phone: never sent to
 /// the service.
@@ -83,9 +88,9 @@ pub fn app_beside(program: &Path) -> Option<PathBuf> {
 pub trait ConsoleCable: Send {
     /// What is plugged in now. Reads only; opens nothing.
     fn look(&mut self) -> Look;
-    /// Opens the one phone LiMo can open, and connects with `key`;
-    /// `on_asking` is called when the phone asks the person to allow it.
-    fn open(&mut self, key: &AdbKey, waits: Waits, on_asking: &mut dyn FnMut()) -> Result<Phone, OpenProblem>;
+    /// Opens the one phone LiMo can open, and connects with `key`, quietly
+    /// or asking as `knock` says (limo-cable's `Phone::connect`).
+    fn open(&mut self, key: &AdbKey, waits: Waits, knock: Knock<'_>) -> Result<Phone, OpenProblem>;
     /// The bytes sent to the phone so far, when this cable counts them.
     fn sent(&self) -> Option<Arc<AtomicU64>> {
         None
@@ -200,8 +205,12 @@ pub struct PhoneSetup {
     /// The port the phone reaches the service's link on, over the cable:
     /// [`LINK_PORT`]. Tests use a port of their own.
     pub link_port: u16,
-    /// How long each call to the phone may take.
+    /// How long each call to the phone may take; `waits.prompt` is how long
+    /// an ask waits for Allow ([`ASK_WAIT`]).
     pub waits: Waits,
+    /// The window's own log, for a line on each ask and each phone that did
+    /// not know this PC.
+    pub log: Option<Arc<crate::console_log::ConsoleLog>>,
     /// How often things are done.
     pub pace: Pace,
 }
@@ -274,6 +283,7 @@ impl PhoneDesk {
         wipe(&mut args);
         match name {
             "phone.look" if takes_nothing => self.look(),
+            "phone.ask" if takes_nothing => self.ask(),
             "phone.install" if takes_nothing => self.install(),
             "phone.pair" => match child {
                 Some(child) => self.pair(child),
@@ -291,7 +301,22 @@ impl PhoneDesk {
             return Err(problem("failed", "The console could not start looking at the USB ports. Close it and open it again."));
         };
         let _ = orders.send(Order::Look);
-        Ok(look::lock(&shared).answer())
+        let mut s = look::lock(&shared);
+        s.last_request = std::time::Instant::now();
+        Ok(s.answer())
+    }
+
+    /// Asks the phone to allow this PC: only for a phone plugged in with USB
+    /// debugging on that is not connected, and only once a request.
+    fn ask(&self) -> Result<Value, Value> {
+        let (orders, shared) = self.connected()?;
+        let mut s = look::lock(&shared);
+        s.last_request = std::time::Instant::now();
+        s.may_ask()?;
+        s.busy = Some("asking");
+        drop(s);
+        let _ = orders.send(Order::Ask);
+        Ok(json!({ "started": true }))
     }
 
     /// The thread's way in and what it shares, or the words for "no phone".
@@ -362,6 +387,8 @@ impl PhoneDesk {
     fn done(&self) -> Value {
         let mut inner = self.inner();
         if let Some(handle) = inner.worker.take() {
+            // An ask waiting for the phone is given up at once.
+            handle.stop.store(true, Ordering::SeqCst);
             let _ = handle.orders.send(Order::Done);
             inner.ending = Some(handle.thread);
         }

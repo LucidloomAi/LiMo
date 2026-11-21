@@ -17,6 +17,7 @@ use zeroize::Zeroizing;
 use crate::apk::{ApkProblem, apk_facts};
 use crate::commands::{self, Ask, Installed, LINK_PORT, MAX_OFFER_BYTES, OLDEST_SDK, PACKAGE, Started};
 use crate::key::AdbKey;
+pub use crate::protocol::Knock;
 use crate::protocol::{AdbError, ConnectError, Connection, Wire};
 
 /// How long each kind of call may take.
@@ -59,6 +60,11 @@ pub enum OpenProblem {
     Busy,
     /// The interface's driver is not one LiMo can open; Windows' words.
     DriverNotUsable(String),
+    /// A quiet connection: the phone does not know LiMo's key, which was
+    /// not shown to it, so nothing waits on the phone.
+    NotKnown,
+    /// The wait for the person's answer was given up.
+    GivenUp,
     /// The phone was shown LiMo's key and the person did not allow it in time.
     NotAllowed,
     /// The interface opened, but adb on the phone did not answer.
@@ -77,6 +83,8 @@ impl std::fmt::Display for OpenProblem {
             OpenProblem::AdbServerRunning => f.write_str("Google's adb server runs on this PC and holds the phone"),
             OpenProblem::Busy => f.write_str("another program holds the phone's debugging interface"),
             OpenProblem::DriverNotUsable(why) => write!(f, "the phone's driver is not one LiMo can open ({why})"),
+            OpenProblem::NotKnown => f.write_str("the phone does not know this PC's key, and was not asked"),
+            OpenProblem::GivenUp => f.write_str("the wait for the phone's answer was given up"),
             OpenProblem::NotAllowed => f.write_str("the phone did not allow this PC in time"),
             OpenProblem::NoAnswer => f.write_str("the phone's debugging interface opened, but the phone did not answer"),
             OpenProblem::Lost(why) => write!(f, "the link to the phone failed while connecting ({why})"),
@@ -201,13 +209,16 @@ impl std::fmt::Debug for Phone {
 }
 
 impl Phone {
-    /// Connects over `wire` with `key`, and reads what the phone is.
-    /// `on_asking` is called when the phone has been shown the key and asks
-    /// the person "Allow USB debugging?": from then on the person has
-    /// `waits.prompt` to answer.
-    pub fn connect(wire: Box<dyn Wire>, key: &AdbKey, waits: Waits, on_asking: &mut dyn FnMut()) -> Result<Phone, OpenProblem> {
-        let connection = Connection::connect_waiting(wire, key.private(), &key.public_message(), waits.hello, waits.prompt, on_asking)
+    /// Connects over `wire` with `key`, and reads what the phone is. A quiet
+    /// `knock` never shows the key: a phone that does not know it is
+    /// [`OpenProblem::NotKnown`]. An asking one shows it once, calls its
+    /// `on_prompt` when the phone asks the person "Allow USB debugging?",
+    /// and waits `waits.prompt` for the answer, or until its `give_up`.
+    pub fn connect(wire: Box<dyn Wire>, key: &AdbKey, waits: Waits, knock: Knock<'_>) -> Result<Phone, OpenProblem> {
+        let connection = Connection::connect_waiting(wire, key.private(), &key.public_message(), waits.hello, waits.prompt, knock)
             .map_err(|e| match e {
+                ConnectError::NotKnown => OpenProblem::NotKnown,
+                ConnectError::GivenUp => OpenProblem::GivenUp,
                 ConnectError::NotAllowed(_) => OpenProblem::NotAllowed,
                 ConnectError::NoAnswer(_) => OpenProblem::NoAnswer,
                 ConnectError::WantsTls => OpenProblem::Other("the phone asked for TLS, which only wireless debugging uses".to_string()),

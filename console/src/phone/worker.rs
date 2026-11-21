@@ -13,6 +13,7 @@
 
 #![forbid(unsafe_code)]
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
@@ -22,7 +23,7 @@ use limo_cable::apk::{ApkProblem, read_apk};
 use limo_cable::commands::{Installed, PACKAGE, Started, install_advice};
 use limo_cable::flow::{self, Event, Next, Problem, State};
 use limo_cable::key::{AdbKey, KeyError};
-use limo_cable::phone::{CallError, DebuggingOff, InstallError, LimoOnPhone, Phone};
+use limo_cable::phone::{CallError, DebuggingOff, InstallError, Knock, LimoOnPhone, OpenProblem, Phone};
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
@@ -34,6 +35,8 @@ use crate::protocol::wipe;
 pub(crate) enum Order {
     /// The screen looked: keep looking.
     Look,
+    /// Ask the phone, once, to allow this PC.
+    Ask,
     /// Put LiMo on the phone.
     Install,
     /// Pair the phone with this child.
@@ -49,6 +52,8 @@ pub(crate) struct Handle {
     pub orders: Sender<Order>,
     pub shared: Arc<Mutex<Shared>>,
     pub thread: JoinHandle<()>,
+    /// Set to end an ask that waits for the phone, at once.
+    pub stop: Arc<AtomicBool>,
 }
 
 /// Starts the thread. It first waits for `before`, a thread that was told
@@ -57,6 +62,8 @@ pub(crate) fn start(setup: Arc<PhoneSetup>, before: Option<JoinHandle<()>>) -> O
     let (orders, inbox) = mpsc::channel();
     let shared = Arc::new(Mutex::new(Shared::default()));
     let theirs = Arc::clone(&shared);
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopping = Arc::clone(&stop);
     let thread = std::thread::Builder::new()
         .name("limo phone".to_string())
         .spawn(move || {
@@ -64,10 +71,10 @@ pub(crate) fn start(setup: Arc<PhoneSetup>, before: Option<JoinHandle<()>>) -> O
                 let _ = before.join();
             }
             let cable = (setup.cable)();
-            Worker::new(setup, cable, theirs, inbox).run();
+            Worker::new(setup, cable, theirs, inbox, stopping).run();
         })
         .ok()?;
-    Some(Handle { orders, shared, thread })
+    Some(Handle { orders, shared, thread, stop })
 }
 
 /// A pairing handed to the phone, waited for.
@@ -170,11 +177,15 @@ struct Worker {
     stopped_at: Instant,
     want_install: bool,
     want_pair: Option<String>,
+    /// The guardian asked for the phone to be asked.
+    want_ask: bool,
+    /// Set by the desk to end an ask at once.
+    stop: Arc<AtomicBool>,
     watch: Option<Watch>,
 }
 
 impl Worker {
-    fn new(setup: Arc<PhoneSetup>, cable: Box<dyn ConsoleCable>, shared: Arc<Mutex<Shared>>, inbox: Receiver<Order>) -> Worker {
+    fn new(setup: Arc<PhoneSetup>, cable: Box<dyn ConsoleCable>, shared: Arc<Mutex<Shared>>, inbox: Receiver<Order>, stop: Arc<AtomicBool>) -> Worker {
         let now = Instant::now();
         Worker {
             setup,
@@ -190,7 +201,17 @@ impl Worker {
             stopped_at: now,
             want_install: false,
             want_pair: None,
+            want_ask: false,
+            stop,
             watch: None,
+        }
+    }
+
+    /// A line in the window's own log, when it has one: never a key, a
+    /// fingerprint or a serial number.
+    fn log(&self, what: &str) {
+        if let Some(log) = &self.setup.log {
+            log.write(&format!("phone: {what}"));
         }
     }
 
@@ -230,6 +251,11 @@ impl Worker {
         self.asked_at = Instant::now();
         match order {
             Order::Look | Order::Done => {}
+            Order::Ask => {
+                self.want_ask = true;
+                self.advance();
+                self.settle();
+            }
             Order::Install => {
                 self.want_install = true;
                 self.advance();
@@ -284,6 +310,12 @@ impl Worker {
                 let was = matches!(s.state, State::Connected(_));
                 s.state = flow::step(s.state.clone(), Event::Looked(look.clone()));
                 lost = was && !matches!(s.state, State::Connected(_));
+                if lost {
+                    // Said in the same moment as the state, so that no look
+                    // sees the phone gone and still held.
+                    s.held = false;
+                    s.busy = None;
+                }
             }
             s.look = Some(look);
             lost
@@ -299,7 +331,15 @@ impl Worker {
     fn advance(&mut self) {
         let mut done: Vec<Next> = Vec::new();
         for _ in 0..10 {
-            let next = flow::next(&self.shared().state)[0];
+            // An ask the guardian asked for, while the phone is there and not
+            // connected: before anything else, and once.
+            let state = self.shared().state.clone();
+            let askable = matches!(state, State::Unknown | State::Ready { .. } | State::Stopped(Problem::Open(_) | Problem::Lost));
+            if self.want_ask && askable && !self.key_failed {
+                self.ask();
+                continue;
+            }
+            let next = flow::next(&state)[0];
             if done.contains(&next) {
                 break;
             }
@@ -322,6 +362,12 @@ impl Worker {
     /// A step asked for that could not start, because the phone went in the
     /// meantime: said, not left waiting.
     fn settle(&mut self) {
+        if std::mem::take(&mut self.want_ask) {
+            let mut s = self.shared();
+            if s.busy == Some("asking") {
+                s.busy = None;
+            }
+        }
         if self.phone.is_some() {
             return;
         }
@@ -370,19 +416,61 @@ impl Worker {
             let mut s = self.shared();
             s.state = flow::step(s.state.clone(), Event::Connecting);
             s.busy = Some("connecting");
+            s.fingerprint = Some(key.fingerprint());
             s.look.as_ref().and_then(look::phone_name)
         };
+        // Quiet: the phone is never shown the key here.
+        let opened = self.cable.open(&key, self.setup.waits, Knock::Quiet);
+        if opened.as_ref().err() == Some(&OpenProblem::NotKnown) {
+            self.log("a phone is plugged in that does not know this PC; it was not asked");
+        }
+        self.opened(opened, name);
+    }
+
+    /// Asks the phone, once, to allow this PC: shows it the key, and waits
+    /// for Allow as long as `waits.prompt` (ten minutes), or until the phone
+    /// goes, `phone.done`, or a minute with no request from the screens.
+    fn ask(&mut self) {
+        self.want_ask = false;
+        let key = match self.key() {
+            Ok(key) => key,
+            Err(words) => {
+                self.key_failed = true;
+                self.shared().cable_trouble = Some(words);
+                return;
+            }
+        };
+        let name = {
+            let mut s = self.shared();
+            s.state = flow::step(s.state.clone(), Event::Connecting);
+            s.busy = Some("asking");
+            s.fingerprint = Some(key.fingerprint());
+            s.look.as_ref().and_then(look::phone_name)
+        };
+        self.log("the guardian asked: the phone is asked, once, to allow this PC");
         let shared = Arc::clone(&self.shared);
-        let fingerprint = key.fingerprint();
-        let mut on_asking = move || {
+        let mut on_prompt = move || {
             let mut s = look::lock(&shared);
             s.state = flow::step(s.state.clone(), Event::Asking);
-            s.fingerprint = Some(fingerprint.clone());
+            s.asked_at = Some(Instant::now());
         };
-        let opened = self.cable.open(&key, self.setup.waits, &mut on_asking);
+        let (stop, watched, forget) = (Arc::clone(&self.stop), Arc::clone(&self.shared), self.setup.pace.forget_after);
+        let give_up = move || stop.load(Ordering::SeqCst) || look::lock(&watched).last_request.elapsed() >= forget;
+        let opened = self.cable.open(&key, self.setup.waits, Knock::Asking { on_prompt: &mut on_prompt, give_up: &give_up });
+        self.log(match &opened {
+            Ok(_) => "the phone allowed this PC",
+            Err(OpenProblem::NotAllowed) => "the phone was asked, and not allowed in time; it is not asked again by itself",
+            Err(OpenProblem::GivenUp) => "the ask was given up",
+            Err(_) => "the ask ended: the phone could not be reached",
+        });
+        self.shared().asked_at = None;
+        self.opened(opened, name);
+    }
+
+    /// What a connection, quiet or asking, came to.
+    fn opened(&mut self, opened: Result<Phone, OpenProblem>, name: Option<String>) {
         let mut s = self.shared();
         s.busy = None;
-        s.fingerprint = None;
         match opened {
             Ok(phone) => {
                 let facts = phone.facts().clone();

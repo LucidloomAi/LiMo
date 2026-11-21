@@ -5,6 +5,7 @@
     "name": "phone.look"
   },
   "answer": {
+    "asked_secs": null,
     "busy": "switching_off",
     "cable": {
       "case": "ok",
