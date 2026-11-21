@@ -9,7 +9,7 @@
     "name": "remove_device"
   },
   "answer": {
-    "id": 66,
+    "id": 70,
     "reply": {
       "outcome": "done",
       "value": {}

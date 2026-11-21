@@ -50,6 +50,7 @@
 
 pub mod about;
 pub mod announce;
+pub mod apps;
 pub mod cli;
 pub mod close;
 pub mod console;
@@ -79,7 +80,7 @@ mod win;
 /// process's own account: for the tests over a real named pipe, and for
 /// `limo dev-console`.
 #[cfg(windows)]
-pub use win::door::{CLIENT_ACCESS, DOOR_SDDL, DoorClient, DoorLine, RealDoor, ServerSeen, this_account};
+pub use win::door::{CLIENT_ACCESS, DOOR_OWNER, DOOR_SDDL, DoorClient, DoorLine, RealDoor, ServerSeen, door_descriptor, this_account};
 
 /// True when this process runs elevated: for the tests of the door, whose
 /// access list an elevated administrator passes.

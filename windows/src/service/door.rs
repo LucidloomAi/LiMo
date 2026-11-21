@@ -229,6 +229,8 @@ fn changes(request: &Request) -> bool {
             | Request::PcSettings
             | Request::Events { .. }
             | Request::DeviceLink { .. }
+            | Request::AppNames { .. }
+            | Request::DeviceApps { .. }
     )
 }
 
@@ -690,11 +692,13 @@ impl<O: Os> Service<O> {
             Request::Lift { child } => value(self.hub.lift(child, wall)?),
             Request::MakeCode { device, minutes } => {
                 let code = self.hub.make_code(device, *minutes, wall)?;
+                let codes_left_today = self.hub.codes_left(device, wall).ok();
                 Ok(json!({
                     "shown": code.shown,
                     "minutes": code.minutes,
                     "day": code.day,
                     "device_id": code.device_id,
+                    "codes_left_today": codes_left_today,
                 }))
             }
             Request::Devices { child } => {
@@ -767,6 +771,8 @@ impl<O: Os> Service<O> {
                 ))),
                 Err(OfferNotMade::Link(why)) => Err(Fail::Problem(Problem::new(ProblemKind::Failed, why))),
             },
+            Request::AppNames { child } => self.app_names(child, wall),
+            Request::DeviceApps { device } => self.device_apps(device),
             Request::DeviceLink { device } => {
                 self.hub.device(device)?;
                 Ok(json!({ "device_id": device, "sessions": self.phones.sessions_of(device) }))
@@ -781,7 +787,10 @@ impl<O: Os> Service<O> {
     /// the engine's shape, or null), `setup_finished`, `usb_debugging_on`,
     /// and the whole `standing`. The master PC's own device has all four
     /// null; so has a phone whose notes cannot be read, rather than the
-    /// whole answer failing.
+    /// whole answer failing. Beside them, `phone_facts` (the phone's form,
+    /// model, Android's API level and LiMo's version on it, as the family's
+    /// file keeps what it last said) and, for every device, `codes_left_today`
+    /// (null for one that is removed).
     fn with_standing(&mut self, mut answer: Value, wall: i64) -> Result<Value, Fail> {
         let mut found: Vec<&mut serde_json::Map<String, Value>> = Vec::new();
         match &mut answer {
@@ -825,11 +834,25 @@ impl<O: Os> Service<O> {
         };
         for device in found {
             let id = device.get("device_id").and_then(Value::as_str).unwrap_or_default().to_string();
-            let standing = if phone(device) {
-                self.hub.phone(&id).ok().map(|info| Standing::of(&info.notes, clock_of(device, &id), far_off_since.get(&id).copied()))
-            } else {
-                None
-            };
+            let info = if phone(device) { self.hub.phone(&id).ok() } else { None };
+            let standing =
+                info.as_ref().map(|info| Standing::of(&info.notes, clock_of(device, &id), far_off_since.get(&id).copied()));
+            // What the phone is, as it last said over the link and the
+            // family's file keeps it: its model and LiMo's version on it
+            // (null until it said), and Android's API level (from the
+            // pairing until it said).
+            let facts = info.as_ref().map(|info| {
+                json!({
+                    "form": info.form,
+                    "model": info.model,
+                    "android_version": info.android_version,
+                    "limo_version": info.app_version,
+                })
+            });
+            device.insert("phone_facts".to_string(), facts.unwrap_or(Value::Null));
+            // How many one time codes it can still be given today, of ten.
+            let codes = self.hub.codes_left(&id, wall).ok();
+            device.insert("codes_left_today".to_string(), codes.map_or(Value::Null, Value::from));
             let needed = standing.as_ref().and_then(Standing::guardian_needed);
             device.insert("guardian_needed".to_string(), serde_json::to_value(&needed).unwrap_or(Value::Null));
             device.insert("setup_finished".to_string(), standing.as_ref().map_or(Value::Null, |s| Value::Bool(s.setup_finished)));
@@ -837,6 +860,78 @@ impl<O: Os> Service<O> {
             device.insert("standing".to_string(), serde_json::to_value(&standing).unwrap_or(Value::Null));
         }
         Ok(answer)
+    }
+
+    /// Where each of a child's apps is named: on each phone, by its list as
+    /// the family's file keeps it; on the master PC, by the programs seen
+    /// running in the child's accounts.
+    fn sightings(&mut self, child: &str) -> Result<Vec<crate::apps::Sighting>, Fail> {
+        let mut sightings = Vec::new();
+        for device in self.hub.devices(child)? {
+            for app in self.apps_of(&device)?.0 {
+                sightings.push(crate::apps::Sighting { device_id: device.device_id.clone(), device_name: device.name.clone(), app });
+            }
+        }
+        Ok(sightings)
+    }
+
+    /// A device's apps by name, and where they came from, when that was.
+    fn apps_of(&mut self, device: &limo_hub::DeviceInfo) -> Result<(Vec<crate::apps::NamedApp>, &'static str, Option<i64>), Fail> {
+        use crate::apps::NamedApp;
+        Ok(match device.kind {
+            limo_core::DeviceKind::Portable => match self.hub.phone_apps(&device.device_id)? {
+                Some(list) => (
+                    list.apps.into_iter().map(|a| NamedApp { app_id: a.package, name: a.label }).collect(),
+                    "phone_list",
+                    Some(list.kept_at),
+                ),
+                None => (Vec::new(), "phone_list", None),
+            },
+            limo_core::DeviceKind::OnMaster => {
+                let accounts: Vec<String> = self
+                    .hub
+                    .accounts()?
+                    .into_iter()
+                    .filter(|a| matches!(&a.link, AccountLink::Child { child_id } if *child_id == device.child_id))
+                    .map(|a| a.account_id)
+                    .collect();
+                let programs = self.seen_programs.of_accounts(&accounts);
+                (programs.into_iter().map(|p| NamedApp { app_id: p.app_id, name: p.name }).collect(), "seen_running", None)
+            }
+        })
+    }
+
+    /// `app_names`: each app a child's rules or today's use name, with its
+    /// name as a device gave it (null when none did) and the devices it is
+    /// on.
+    fn app_names(&mut self, child: &str, wall: i64) -> Result<Value, Fail> {
+        let rules = self.hub.rules(child)?;
+        let today = self.hub.child_today(child, wall)?;
+        let used = self.hub.usage(child, today.day, today.day)?;
+        let mut ids: Vec<String> = rules.always_allowed_apps.clone();
+        ids.extend(rules.blocked_apps.iter().cloned());
+        ids.extend(used.apps.iter().map(|a| a.app_id.clone()).filter(|id| !id.is_empty()));
+        let sightings = self.sightings(child)?;
+        value(crate::apps::app_names(&ids, &sightings))
+    }
+
+    /// `device_apps`: a device's apps by name, at most
+    /// [`crate::apps::MAX_APPS_ANSWERED`], and where they came from.
+    fn device_apps(&mut self, device: &str) -> Result<Value, Fail> {
+        let info = self.hub.device(device)?;
+        let (mut apps, source, kept_at) = self.apps_of(&info)?;
+        let total = apps.len();
+        apps.truncate(crate::apps::MAX_APPS_ANSWERED);
+        Ok(json!({
+            "device_id": info.device_id,
+            "kind": info.kind,
+            "source": source,
+            "kept_at": kept_at,
+            "apps": apps,
+            "total": total,
+            "max": crate::apps::MAX_APPS_ANSWERED,
+            "cut": total > crate::apps::MAX_APPS_ANSWERED,
+        }))
     }
 
     /// Every Windows account of this PC, with its link, whether it is an

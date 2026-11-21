@@ -8,17 +8,24 @@
     "name": "device"
   },
   "answer": {
-    "id": 61,
+    "id": 65,
     "reply": {
       "outcome": "done",
       "value": {
         "child_id": "child-0000000000000001",
+        "codes_left_today": 10,
         "device_id": "device-0000000000000002",
         "guardian_needed": null,
         "kind": "portable",
         "last_heard_at": 1794998143,
         "name": "Asha’s tablet",
         "paired_at": 1794998143,
+        "phone_facts": {
+          "android_version": 35,
+          "form": "child",
+          "limo_version": "0.4.0",
+          "model": "samsung SM-S911B"
+        },
         "platform": "android",
         "setup_finished": false,
         "standing": {

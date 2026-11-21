@@ -8,17 +8,24 @@
     "name": "device"
   },
   "answer": {
-    "id": 64,
+    "id": 68,
     "reply": {
       "outcome": "done",
       "value": {
         "child_id": "child-0000000000000001",
+        "codes_left_today": 10,
         "device_id": "device-0000000000000002",
         "guardian_needed": null,
         "kind": "portable",
-        "last_heard_at": 1794998229,
+        "last_heard_at": 1794998233,
         "name": "Asha’s tablet",
         "paired_at": 1794998143,
+        "phone_facts": {
+          "android_version": 35,
+          "form": "child",
+          "limo_version": "0.4.0",
+          "model": "samsung SM-S911B"
+        },
         "platform": "android",
         "setup_finished": true,
         "standing": {
@@ -29,47 +36,47 @@
           "needs_guardian": true,
           "protection": {
             "level": "base",
-            "since": 1794998287
+            "since": 1794998291
           },
           "restarted_at": null,
           "setup_finished": true,
-          "setup_finished_at": 1794998287,
+          "setup_finished_at": 1794998291,
           "steps": [
             {
               "on": true,
               "permission": "notifications",
-              "since": 1794998227
+              "since": 1794998231
             },
             {
               "on": true,
               "permission": "phone",
-              "since": 1794998227
+              "since": 1794998231
             },
             {
               "on": true,
               "permission": "usage_access",
-              "since": 1794998227
+              "since": 1794998231
             },
             {
               "on": true,
               "permission": "accessibility",
-              "since": 1794998407
+              "since": 1794998411
             },
             {
               "on": true,
               "permission": "battery",
-              "since": 1794998227
+              "since": 1794998231
             },
             {
               "on": true,
               "permission": "protection",
-              "since": 1794998227
+              "since": 1794998231
             }
           ],
           "steps_off": [],
           "usb_debugging": {
             "on": true,
-            "since": 1794998467
+            "since": 1794998471
           }
         },
         "usb_debugging_on": true

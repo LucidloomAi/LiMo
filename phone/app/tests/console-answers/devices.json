@@ -14,12 +14,14 @@
       "value": [
         {
           "child_id": "child-0000000000000001",
+          "codes_left_today": 10,
           "device_id": "device-0000000000000001",
           "guardian_needed": null,
           "kind": "on_master",
           "last_heard_at": 1794998140,
           "name": "Family PC",
           "paired_at": 1794997825,
+          "phone_facts": null,
           "platform": "windows",
           "setup_finished": null,
           "standing": null,

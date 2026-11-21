@@ -1,0 +1,20 @@
+[
+  {
+    "device_id": "device-1d1bff08ab8319e0",
+    "child_id": "child-69ef4800a1a90a1a",
+    "name": "Family PC",
+    "kind": "on_master",
+    "platform": "windows",
+    "paired_at": 1794965700,
+    "last_heard_at": 1794969000
+  },
+  {
+    "device_id": "device-8579b281d440d6de",
+    "child_id": "child-69ef4800a1a90a1a",
+    "name": "Asha’s phone",
+    "kind": "portable",
+    "platform": "android",
+    "paired_at": 1794966000,
+    "last_heard_at": 1794973200
+  }
+]

@@ -285,6 +285,18 @@ pub enum Request {
         /// The device.
         device: String,
     },
+    /// The names of the apps a child's rules and today's use name, and the
+    /// devices each is on.
+    AppNames {
+        /// The child.
+        child: String,
+    },
+    /// A device's apps by name: a phone's list as it last sent it, or the
+    /// programs seen running on this PC in the child's accounts.
+    DeviceApps {
+        /// The device.
+        device: String,
+    },
 }
 
 impl Request {
@@ -330,6 +342,8 @@ impl Request {
             Request::DeleteFamily { .. } => "delete_family",
             Request::MakeOffer { .. } => "make_offer",
             Request::DeviceLink { .. } => "device_link",
+            Request::AppNames { .. } => "app_names",
+            Request::DeviceApps { .. } => "device_apps",
         }
     }
 

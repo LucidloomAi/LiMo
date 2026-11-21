@@ -1,0 +1,36 @@
+{
+  "request": "device_apps",
+  "case": "a phone’s apps, by the names its list gave",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000002"
+    },
+    "name": "device_apps"
+  },
+  "answer": {
+    "id": 61,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "apps": [
+          {
+            "app_id": "com.example.game",
+            "name": "Game"
+          },
+          {
+            "app_id": "com.example.maps",
+            "name": "Maps"
+          }
+        ],
+        "cut": false,
+        "device_id": "device-0000000000000002",
+        "kept_at": 1794998226,
+        "kind": "portable",
+        "max": 2000,
+        "source": "phone_list",
+        "total": 2
+      }
+    },
+    "say": "answer"
+  }
+}

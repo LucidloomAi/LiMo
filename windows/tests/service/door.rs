@@ -777,3 +777,20 @@ fn the_step_time_with_the_door_busy() {
     assert!(!pc.console_closed(first) && !pc.console_closed(second));
     assert!(mean(&busy_steps) < 50.0, "a step is slow: {:.2} ms", mean(&busy_steps));
 }
+
+#[test]
+fn each_device_says_how_many_one_time_codes_it_can_still_be_given_today() {
+    let (mut pc, asha, door) = family_with_a_console();
+    pc.login(2, ASHA, "asha");
+    pc.run(2);
+    pc.sign_in(door);
+    let devices = pc.done(door, Request::Devices { child: asha.clone() });
+    let device = devices[0]["device_id"].as_str().unwrap().to_string();
+    assert_eq!(devices[0]["codes_left_today"], 10, "{devices}");
+    let made = pc.done(door, Request::MakeCode { device: device.clone(), minutes: 15 });
+    assert_eq!(made["codes_left_today"], 9, "{made}");
+    pc.done(door, Request::MakeCode { device: device.clone(), minutes: 60 });
+    assert_eq!(pc.done(door, Request::Device { device: device.clone() })["codes_left_today"], 8);
+    let today = pc.done(door, Request::ChildToday { child: asha.clone() });
+    assert_eq!(today["devices"][0]["codes_left_today"], 8, "{today}");
+}

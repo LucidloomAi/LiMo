@@ -718,3 +718,86 @@ fn a_phone_paired_by_the_pc_is_told_whose_it_is_in_the_welcome() {
     assert_eq!(second.child_name.as_deref(), Some(long.as_str()));
     assert_eq!(second.paired.child_id, mira);
 }
+
+#[test]
+fn the_door_names_a_childs_apps_from_the_phones_list_and_the_programs_seen_on_the_pc() {
+    let (mut pc, asha, address, door) = counting_with_the_link();
+    // A program in Asha's session, whose file describes it.
+    pc.described_file(r"C:\Games\gl.exe", Some("GameLauncher.exe"), Some("Example"), "Game Launcher");
+    let gl = pc.start(2, r"C:\Games\gl.exe");
+    pc.report(2, 0, Some(gl), false);
+    pc.run(2);
+    // A phone, before it sent its list: nothing listed, and said so.
+    let phone = paired_phone(&mut pc, door, &asha, address);
+    let device = phone.paired.device_id.clone();
+    let mut session = phone.open(address, &mut || pc.answer_link()).unwrap();
+    let none = pc.done(door, Request::DeviceApps { device: device.clone() });
+    assert_eq!((none["source"].as_str(), none["total"].as_u64()), (Some("phone_list"), Some(0)), "{none}");
+    assert!(none["kept_at"].is_null() && none["apps"] == serde_json::json!([]));
+    // Its list, as it sends it over the link: the labels it gave.
+    let apps = vec![AppEntry { package: GAME.into(), label: "Game".into() }, AppEntry { package: "com.example.maps".into(), label: "Maps".into() }];
+    session.send_apps(apps, &mut || pc.answer_link()).unwrap();
+    assert!(until(&mut pc, |pc| pc.hub().phone_apps(&device).unwrap().is_some()));
+    let listed = pc.done(door, Request::DeviceApps { device: device.clone() });
+    assert_eq!(
+        listed["apps"],
+        serde_json::json!([{ "app_id": GAME, "name": "Game" }, { "app_id": "com.example.maps", "name": "Maps" }]),
+        "{listed}"
+    );
+    assert!(listed["kept_at"].is_i64() && listed["cut"] == false && listed["max"] == 2_000);
+    // The PC's own device: the programs seen running in Asha's account.
+    let devices = pc.done(door, Request::Devices { child: asha.clone() });
+    let on_master = devices.as_array().unwrap().iter().find(|d| d["kind"] == "on_master").unwrap()["device_id"].as_str().unwrap().to_string();
+    let seen = pc.done(door, Request::DeviceApps { device: on_master.clone() });
+    assert_eq!(seen["source"], "seen_running", "{seen}");
+    assert!(seen["apps"].as_array().unwrap().contains(&serde_json::json!({ "app_id": "gamelauncher.exe", "name": "Game Launcher" })), "{seen}");
+    assert!(seen["kept_at"].is_null());
+    // The apps her rules and her day name, with their names and devices.
+    pc.change_rules(&asha, |rules| {
+        rules.always_allowed_apps = vec![GAME.into()];
+        rules.blocked_apps = vec!["GameLauncher.exe".into(), "unknown.exe".into()];
+    });
+    let names = pc.done(door, Request::AppNames { child: asha.clone() });
+    let named = |id: &str| names.as_array().unwrap().iter().find(|n| n["app_id"] == id).cloned().unwrap_or_else(|| panic!("{id}: {names}"));
+    assert_eq!(named(GAME)["name"], "Game");
+    assert_eq!(named(GAME)["devices"], serde_json::json!([{ "device_id": device, "name": "Asha’s phone" }]));
+    assert_eq!(named("GameLauncher.exe")["name"], "Game Launcher", "case aside, as the rules match");
+    assert_eq!(named("GameLauncher.exe")["devices"][0]["device_id"], on_master);
+    assert!(named("unknown.exe")["name"].is_null() && named("unknown.exe")["devices"] == serde_json::json!([]));
+    session.bye(&mut || pc.answer_link());
+}
+
+#[test]
+fn what_a_phone_says_it_is_reaches_the_doors_answers_and_what_it_did_not_say_is_null() {
+    use limo_link::messages::PhoneAbout;
+    let (mut pc, asha, address, door) = family_with_the_link(60);
+    let phone = paired_phone(&mut pc, door, &asha, address);
+    let device = phone.paired.device_id.clone();
+    // Paired, and nothing said yet: Android's level from the pairing, the
+    // rest null.
+    let paired = pc.done(door, Request::Device { device: device.clone() });
+    assert_eq!(
+        paired["phone_facts"],
+        serde_json::json!({ "form": "child", "model": null, "android_version": 34, "limo_version": null }),
+        "{paired}"
+    );
+    // Its session says what it is, as LiMo for Android does when it opens.
+    let mut session = phone.open(address, &mut || pc.answer_link()).unwrap();
+    session.send_about(&PhoneAbout::new("samsung", "SM-S911B", Some(35), "0.4.0"), &mut || pc.answer_link()).unwrap();
+    let said = |pc: &mut Pc| pc.hub().phone(&device).unwrap().model.is_some();
+    assert!(until(&mut pc, said));
+    for answer in [
+        pc.done(door, Request::Device { device: device.clone() }),
+        phone_in(&pc.done(door, Request::Devices { child: asha.clone() }), &device).clone(),
+    ] {
+        assert_eq!(
+            answer["phone_facts"],
+            serde_json::json!({ "form": "child", "model": "samsung SM-S911B", "android_version": 35, "limo_version": "0.4.0" }),
+            "{answer}"
+        );
+    }
+    // Nothing of it reaches the log; the family's file keeps it.
+    assert!(pc.logged("SM-S911B").is_empty() && pc.logged("0.4.0").is_empty());
+    assert_eq!(pc.hub().phone(&device).unwrap().app_version.as_deref(), Some("0.4.0"));
+    session.bye(&mut || pc.answer_link());
+}

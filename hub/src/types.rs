@@ -745,8 +745,16 @@ pub struct PhoneInfo {
     pub last_heard_at: Option<i64>,
     /// Which form of the app it runs.
     pub form: PhoneForm,
-    /// Android's API level, as it said when it paired.
+    /// Android's API level: as it said when it paired, and then as it last
+    /// said what it is.
     pub android_version: Option<u32>,
+    /// The maker and the model, as it last said what it is; None until it
+    /// said.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// LiMo's version on it, as it last said what it is; None until it said.
+    #[serde(default)]
+    pub app_version: Option<String>,
     /// True when the link knows its key; false for a phone paired before the
     /// link, which cannot open a session and must be paired again.
     pub has_link_key: bool,

@@ -5,7 +5,7 @@
     "name": "family_today"
   },
   "answer": {
-    "id": 63,
+    "id": 67,
     "reply": {
       "outcome": "done",
       "value": [
@@ -18,26 +18,29 @@
             {
               "added_secs": 0,
               "clock_off_by_secs": null,
+              "codes_left_today": 9,
               "device_id": "device-0000000000000001",
               "giving_back_secs": 0,
               "guardian_needed": null,
-              "holds_secs": 499,
+              "holds_secs": 495,
               "in_use": true,
               "kind": "on_master",
-              "last_heard_at": 1794998227,
+              "last_heard_at": 1794998231,
               "name": "Family PC",
+              "phone_facts": null,
               "pin_unlocked_until": null,
               "platform": "windows",
               "setup_finished": null,
               "standing": null,
               "usb_debugging_on": null,
-              "used_secs": 401,
+              "used_secs": 405,
               "waiting_secs": 0,
               "wrong_guesses": 0
             },
             {
               "added_secs": 0,
               "clock_off_by_secs": null,
+              "codes_left_today": 10,
               "device_id": "device-0000000000000002",
               "giving_back_secs": 0,
               "guardian_needed": {
@@ -51,8 +54,14 @@
               "holds_secs": 1800,
               "in_use": false,
               "kind": "portable",
-              "last_heard_at": 1794998227,
+              "last_heard_at": 1794998231,
               "name": "Asha’s tablet",
+              "phone_facts": {
+                "android_version": 35,
+                "form": "child",
+                "limo_version": "0.4.0",
+                "model": "samsung SM-S911B"
+              },
               "pin_unlocked_until": null,
               "platform": "android",
               "setup_finished": true,
@@ -64,41 +73,41 @@
                 "needs_guardian": true,
                 "protection": {
                   "level": "base",
-                  "since": 1794998287
+                  "since": 1794998291
                 },
                 "restarted_at": null,
                 "setup_finished": true,
-                "setup_finished_at": 1794998287,
+                "setup_finished_at": 1794998291,
                 "steps": [
                   {
                     "on": true,
                     "permission": "notifications",
-                    "since": 1794998227
+                    "since": 1794998231
                   },
                   {
                     "on": true,
                     "permission": "phone",
-                    "since": 1794998227
+                    "since": 1794998231
                   },
                   {
                     "on": true,
                     "permission": "usage_access",
-                    "since": 1794998227
+                    "since": 1794998231
                   },
                   {
                     "on": false,
                     "permission": "accessibility",
-                    "since": 1794998347
+                    "since": 1794998351
                   },
                   {
                     "on": true,
                     "permission": "battery",
-                    "since": 1794998227
+                    "since": 1794998231
                   },
                   {
                     "on": true,
                     "permission": "protection",
-                    "since": 1794998227
+                    "since": 1794998231
                   }
                 ],
                 "steps_off": [
@@ -114,10 +123,10 @@
           ],
           "extra_secs": 1500,
           "guardian": "nothing",
-          "left_secs": 4699,
+          "left_secs": 4695,
           "name": "Asha",
           "over_secs": 0,
-          "used_secs": 401,
+          "used_secs": 405,
           "waiting_requests": 0
         }
       ]

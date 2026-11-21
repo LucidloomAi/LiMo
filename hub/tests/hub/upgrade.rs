@@ -1,6 +1,6 @@
 //! Files made by earlier versions of the hub open, are carried to this
 //! version, and go on: one of the first version, one from before the agent,
-//! and one from before the link.
+//! one from before the link, and one from before phones said what they are.
 //!
 //! A file made by the first version of the hub (schema version 1, with the
 //! rules core of that time) opens, is carried to this version, and goes on.
@@ -326,4 +326,65 @@ fn a_file_made_by_the_hub_before_the_link_opens_and_goes_on() {
     assert_eq!(hub.link_phones().unwrap().len(), 1);
     assert_eq!(hub.child_today(&asha, NOW + 460).unwrap().devices.len(), 3);
     hub.tidy(NOW + 500).unwrap();
+}
+
+/// `tests/fixtures/store_v4.limo` was made by the hub of version 4, before
+/// a phone could say what it is, by a program that called only that hub's
+/// public calls: a family with the password of the stories, Asha with the
+/// family PC and a phone paired with an offer (Android's level 33 at
+/// pairing), the phone's notes (setup finished, accessibility off, USB
+/// debugging on), its list of one app, and two codes made for the PC. The
+/// `store_v4_*.json` files beside it are what that hub showed at Wednesday
+/// 12:00, and the two devices' states.
+#[test]
+fn a_file_made_by_the_hub_before_phones_said_what_they_are_opens_and_goes_on() {
+    use limo_hub::PhoneInfo;
+
+    let place = place();
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/store_v4.limo"), &place.path).unwrap();
+    let devices: Vec<DeviceInfo> = json(include_str!("../fixtures/store_v4_devices.json"));
+    let asha = devices[0].child_id.clone();
+    let shown: PhoneInfo = json(include_str!("../fixtures/store_v4_phone.json"));
+    let mut phone = Device { id: shown.device_id.clone(), state: json(include_str!("../fixtures/store_v4_phone_state.json")) };
+    let mut pc = Device { id: devices[0].device_id.clone(), state: json(include_str!("../fixtures/store_v4_pc_state.json")) };
+    {
+        let conn = raw(&place.path);
+        assert_eq!(version(&conn), 4);
+        assert!(!has_column(&conn, "phone", "model"));
+    }
+
+    let hub = Hub::open(&place.path).unwrap();
+    // What the guardian sees is what the hub before showed; the phone has
+    // said nothing of what it is yet, and keeps its level from the pairing.
+    let today: Vec<ChildToday> = json(include_str!("../fixtures/store_v4_family_today.json"));
+    assert_eq!(hub.family_today(NOW).unwrap(), today);
+    assert_eq!(hub.devices(&asha).unwrap(), devices);
+    let seen = hub.phone(&phone.id).unwrap();
+    assert_eq!(seen, shown, "the same, with no model and no version of LiMo");
+    assert_eq!((seen.android_version, seen.model.as_deref(), seen.app_version.as_deref()), (Some(33), None, None));
+    assert!(seen.setup_finished_at.is_some() && seen.usb_debugging_on == Some(true) && seen.apps == Some(1));
+    // The codes made that day count, in a file older than the call.
+    assert_eq!(hub.codes_left(&pc.id, NOW).unwrap(), limo_core::CODES_PER_DAY - 2);
+    assert_eq!(hub.codes_left(&phone.id, NOW).unwrap(), limo_core::CODES_PER_DAY);
+    hub.close().unwrap();
+    {
+        let conn = raw(&place.path);
+        assert_eq!(version(&conn), SCHEMA_VERSION as i64);
+        assert!(has_column(&conn, "phone", "model") && has_column(&conn, "phone", "app_version"));
+    }
+
+    // It goes on: the phone says what it is, kept across a restart; both
+    // devices exchange; a code is made.
+    let mut hub = Hub::open(&place.path).unwrap();
+    assert!(hub.keep_phone_about(&phone.id, "samsung SM-S911B", Some(34), "0.4.0").unwrap());
+    hub.close().unwrap();
+    let mut hub = Hub::open(&place.path).unwrap();
+    let said = hub.phone(&phone.id).unwrap();
+    assert_eq!((said.android_version, said.model.as_deref(), said.app_version.as_deref()), (Some(34), Some("samsung SM-S911B"), Some("0.4.0")));
+    assert_eq!(said.notes, shown.notes, "its notes are as they were");
+    use_app(&mut hub, &mut phone, "com.example.game", NOW, NOW + 300);
+    exchange(&mut hub, &mut pc, NOW + 310, false);
+    hub.make_code(&pc.id, 15, NOW + 320).unwrap();
+    assert_eq!(hub.codes_left(&pc.id, NOW + 320).unwrap(), limo_core::CODES_PER_DAY - 3);
+    hub.tidy(NOW + 400).unwrap();
 }

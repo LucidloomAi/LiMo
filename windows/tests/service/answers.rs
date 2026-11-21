@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use limo_core::{BlockedWindow, DailyBudget, PhoneNote, PhonePermission, RequestReply, RuleSet, WeekBudgets, Weekday};
 use limo_hub::{AccountLink, AgeBand, UnlinkedAccounts};
-use limo_link::Offer;
+use limo_link::{AppEntry, Offer};
 use limo_windows::console::{CONSOLE_PROTOCOL_VERSION, FromConsole, Request, ToConsole};
 use limo_windows::played_phone::PlayedPhone;
 use limo_windows::protocol::{FromHelper, Secret};
@@ -429,7 +429,7 @@ fn a_small_family_through_the_real_door_writes_each_answer_the_screens_read() {
     a.done(p, c, "device-link", "the phone's session, through the cable", Request::DeviceLink { device: phone_device.clone() });
 
     a.done(p, c, "rename-device", "the phone renamed", Request::RenameDevice { device: phone_device.clone(), name: "Asha’s tablet".into() });
-    a.done(p, c, "device-pc", "the PC's own device", Request::Device { device: pc_device });
+    a.done(p, c, "device-pc", "the PC's own device", Request::Device { device: pc_device.clone() });
     a.done(p, c, "rename-child", "Asha renamed, to the same name", Request::RenameChild { child: asha.clone(), name: "Asha".into() });
     a.done(p, c, "set-age-band", "Asha is 13 now", Request::SetAgeBand { child: asha.clone(), age_band: AgeBand::ThirteenToSeventeen });
     a.problem(p, c, "child-today-not-found", "a child that is not in the family", "not_found", Request::ChildToday {
@@ -468,6 +468,39 @@ fn a_small_family_through_the_real_door_writes_each_answer_the_screens_read() {
     c.write_raw(&frame).unwrap();
     let message = next_message(p, c);
     a.keep("unknown-request", "take_over_the_pc", "a request this LiMo does not know", Some(json!({ "name": "take_over_the_pc", "args": {} })), &message);
+
+    // The apps by name: the phone's list as it sent it, the programs seen
+    // running in Asha's account on the PC, and the names her rules and her
+    // day use.
+    let apps = vec![
+        AppEntry { package: "com.example.game".into(), label: "Game".into() },
+        AppEntry { package: "com.example.maps".into(), label: "Maps".into() },
+    ];
+    session.send_apps(apps, &mut || p.answer_link()).unwrap();
+    let give_up = Instant::now() + Duration::from_secs(10);
+    while p.hub().phone_apps(&phone_device).unwrap().is_none() {
+        assert!(Instant::now() < give_up, "the phone's list did not arrive");
+        p.answer_link();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    a.done(p, c, "device-apps-phone", "a phone's apps, by the names its list gave", Request::DeviceApps { device: phone_device.clone() });
+    a.done(p, c, "device-apps-pc", "the programs seen running on this PC in Asha's account", Request::DeviceApps { device: pc_device });
+    a.done(p, c, "app-names", "the apps Asha's rules and her day name, with their names and devices", Request::AppNames {
+        child: asha.clone(),
+    });
+    // What the phone says it is, as LiMo for Android does when a session
+    // opens: its model, Android's level and LiMo's version.
+    let about = limo_link::messages::PhoneAbout::new("samsung", "SM-S911B", Some(35), "0.4.0");
+    session.send_about(&about, &mut || p.answer_link()).unwrap();
+    let give_up = Instant::now() + Duration::from_secs(10);
+    while p.hub().phone(&phone_device).unwrap().model.is_none() {
+        assert!(Instant::now() < give_up, "what the phone is did not arrive");
+        p.answer_link();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    a.done(p, c, "device-phone-about", "the phone, after it said what it is: model, Android and LiMo's version", Request::Device {
+        device: phone_device.clone(),
+    });
 
     // What the phone needs a guardian for, as its notes come in.
     a.done(p, c, "device-phone-setup-not-finished", "a phone paired, with setup not finished on it", Request::Device {

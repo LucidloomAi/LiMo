@@ -143,6 +143,20 @@ impl Hub {
         Ok(code)
     }
 
+    /// How many one time codes can still be made for a device today: a
+    /// device takes [`limo_core::CODES_PER_DAY`] a day, counted for the home
+    /// day of its child's book, whatever their minutes. Refused for a
+    /// removed device.
+    pub fn codes_left(&self, device_id: &str, now: i64) -> Result<u8, HubError> {
+        let row = store::active_device(&self.conn, device_id)?;
+        let book = store::load_book(&self.conn, &row.child_id)?;
+        let day = book.today(now);
+        let made: i64 =
+            self.conn.query_row("SELECT count(*) FROM code_made WHERE device_id = ?1 AND day = ?2", params![device_id, day], |r| r.get(0))?;
+        let made = u8::try_from(made).unwrap_or(u8::MAX);
+        Ok(limo_core::CODES_PER_DAY.saturating_sub(made))
+    }
+
     /// Loads a child's book, changes it, saves it, records an event if one
     /// is given, and commits, all in one transaction.
     fn change_book<T>(

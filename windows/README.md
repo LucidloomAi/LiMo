@@ -434,6 +434,17 @@ family file; its messages and frames are in `src/console.rs`.
 
 **The pipe.** `\\.\pipe\limo.console`.
 
+- Its owner is SYSTEM, said in the descriptor it is made with
+  (`O:SY`, `DOOR_OWNER`). Left unsaid, the owner is the default of the
+  service's token, which for LocalSystem is the Administrators group
+  (`S-1-5-32-544`): the owner's first run of the console against the
+  installed service read the pipe back so. Only a process running as SYSTEM
+  may name SYSTEM as an object's owner, on Windows 10 and 11 alike, so a
+  door with it can be made by LiMo's service alone; a test, in its own
+  account, makes its doors with the access list and no owner, and a story
+  shows Windows refusing the owner (error 1307) to a process that is not
+  SYSTEM. A console that checks the owner should take SYSTEM, and may still
+  take Administrators for a service made before this.
 - Its access list is `D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;IU)`:
   SYSTEM and Administrators full control; interactive users read, write and
   the attributes (`0x12019b`), never the right to make an instance of the
@@ -526,7 +537,7 @@ are answered before sign in.
 | `create_family` | `password` | `create_family`, while there is none; it signs the connection in | no |
 | `set_pin` | `pin` | `set_pin` | yes |
 | `change_password` | `old`, `new` | `change_password` | yes |
-| `family_today`, `child_today` | `child` | `family_today`, `child_today`; each device with `guardian_needed`, `setup_finished`, `usb_debugging_on` and `standing` (below) | yes |
+| `family_today`, `child_today` | `child` | `family_today`, `child_today`; each device with `guardian_needed`, `setup_finished`, `usb_debugging_on`, `standing` and, for a phone, `phone_facts` (below) | yes |
 | `add_child` | `name`, `age_band` | `add_child`, in the PC's time zone now | yes |
 | `rename_child`, `set_age_band` | `child`, `name` or `age_band` | the same | yes |
 | `remove_child` | `child`, `password` | the password again, then `remove_child` | yes |
@@ -535,8 +546,8 @@ are answered before sign in.
 | `waiting_requests`, `answer_request` | `child`, `request`, `reply` | the same | yes |
 | `give_extra` | `child`, `minutes`, `tap_id` | `give_extra` | yes |
 | `lock_now`, `unlock_until`, `lift` | `child`, `until` | the same | yes |
-| `make_code` | `device`, `minutes` | `make_code`: `shown`, `minutes`, `day`, `device_id` | yes |
-| `devices`, `device`, `rename_device` | `child` or `device`, `name` | the same; `devices` and `device` with each device's `guardian_needed`, `setup_finished`, `usb_debugging_on` and `standing` (below) | yes |
+| `make_code` | `device`, `minutes` | `make_code`: `shown`, `minutes`, `day`, `device_id`, and `codes_left_today` after it | yes |
+| `devices`, `device`, `rename_device` | `child` or `device`, `name` | the same; `devices` and `device` with each device's `guardian_needed`, `setup_finished`, `usb_debugging_on`, `standing` and, for a phone, `phone_facts` (below) | yes |
 | `remove_device` | `device`, `password` | the password again, then `remove_device` | yes |
 | `accounts` | | every account of the PC (below) with its link | yes |
 | `link_account`, `unlink_account` | `account`, `link` | the same, for an account of this PC only | yes |
@@ -547,6 +558,44 @@ are answered before sign in.
 | `delete_family` | `password` | the password again, then `delete_family`; every session ends | yes |
 | `make_offer` | `child` | a pairing offer for a phone of the child's, made by the link with the master's key, the link's port and the PC's home addresses, kept by `keep_offer`: `offer` (its `limo1:` text, which holds its secret: the console hands it to the phone and wipes it), `offer_id`, `expires_at` (ten minutes on), `port`, `addresses`, `master_id`. `failed` while the link is not running | yes |
 | `device_link` | `device` | the device's open session, if it has one: `way` (`cable` or `home_network`), `opened_at`, `last_report_at` | yes |
+| `app_names` | `child` | each app the child's rules (always allowed and blocked) and today's use name: `app_id`, `name` (as a device gave it, null when none did) and `devices` (each `device_id` and `name` whose list has it), by id (below) | yes |
+| `device_apps` | `device` | the device's apps by name (below): `apps` (each `app_id` and `name`), `source` (`phone_list` or `seen_running`), `kept_at` (when a phone's list was kept; null for the PC), `total`, `max` and `cut` | yes |
+
+**A child's apps, by name.** What LiMo knows of an app is only what a
+device gave (`src/apps.rs`):
+
+- a phone's list, as it last sent it over the link when it changed: each
+  app's package name and the label the phone shows, kept in the family's
+  file, at most 2,000 apps (the family's file refuses more);
+- the master PC's programs as the service saw them running in the child's
+  accounts since it started: each program's app id (its original file
+  name, else its file name, in lower case, as the rules and the day's use
+  name it) and the name a child knows it by (its file's description, else
+  its file name), at most 500 for each account, the one seen longest ago
+  making room. Kept in memory only.
+
+`device_apps` lists one device's: the phone's list in the phone's order, the
+PC's programs by name; at most 2,000 in one answer, with `total` and `cut`
+saying when there were more. `app_names` names each app a child's rules or
+today's use name, matched without regard to case, as the rules match
+programs. What LiMo does not know, it says as null or leaves out: a program
+on the PC that has not run since the service started (installed programs are
+not read), an app of a phone that has sent no list yet, and any name a
+device did not give.
+
+**A phone's facts.** Each phone in `family_today`, `child_today`, `devices`
+and `device` has `phone_facts`: `form` (`child`), `model` (the maker and the
+model, such as "samsung SM-S911B"), `android_version` (Android's API level)
+and `limo_version`. A phone says what it is over the link once after each
+session opens, and again when it changes; the service keeps the newest in
+the family's file (`Hub::keep_phone_about`), so it outlives a restart, and
+never logs it. Until a phone has said it, `android_version` is the one it
+gave when it paired, and `model` and `limo_version` are null.
+
+**Codes left today.** Every device in those answers has `codes_left_today`:
+how many one time codes it can still be given today, of the ten a device
+takes a day, whatever their minutes (`Hub::codes_left`); `make_code` answers
+it too, after the code it made. Null for a device that is removed.
 
 **What a device needs a guardian for.** In `family_today`, `child_today`,
 `devices` and `device`, each phone has four fields, derived in one place
@@ -1484,10 +1533,10 @@ object's access list, with the user's security identifier in it.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the console's requests read by name and arguments, through a frame and back, one that cannot be read answered by its number, one that is not a message refused saying only where, the longest answer and one too long, a password never in `Debug`; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain`, `dev-code`, `reset-password` and `dev-console`); `dev-console`'s lines, a secret never taken on the line; the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup`, `dev-code` and `reset-password` on a real file, the code tried on the device it was made for, the reset clearing the wait and keeping everything else; an audio session counted as playing only when active, not the system sounds, in this session and above zero, anything unknown counting as no; sound heard held for 3 seconds, then stale; the screen kept awake only by the display bit; a connection from loopback is the cable's; connections counted in all and by address; the link's clock; only the private ranges of home routers are home addresses, each once, at most eight; the announcement holds the id and the port and nothing of the family, word for word; this PC's home addresses read; the installer's judgement of a data folder that is there (made by SYSTEM or an administrator with LiMo's protection, or not), versions read and compared, the two firewall rules for `limo.exe` only from the local subnet; the command line's `uninstall` with its choice and `stop-for-upgrade`, a password never taken on it; `dev-console`'s `allow-removal`; a phone's standing from its notes in the order they came (a step switched off and later on is on, the newest of each kind wins), the six steps in setup order and one never noted neither on nor off, setup not finished until noted, all well needing no guardian, USB debugging on and a clock far off (beyond five minutes, not at them) needing one and saying since when, the other notes kept as their newest; a child's name for the welcome trimmed and cut to the link's longest, in characters | 63 |
+| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the console's requests read by name and arguments, through a frame and back, one that cannot be read answered by its number, one that is not a message refused saying only where, the longest answer and one too long, a password never in `Debug`; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain`, `dev-code`, `reset-password` and `dev-console`); `dev-console`'s lines, a secret never taken on the line; the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup`, `dev-code` and `reset-password` on a real file, the code tried on the device it was made for, the reset clearing the wait and keeping everything else; an audio session counted as playing only when active, not the system sounds, in this session and above zero, anything unknown counting as no; sound heard held for 3 seconds, then stale; the screen kept awake only by the display bit; a connection from loopback is the cable's; connections counted in all and by address; the link's clock; only the private ranges of home routers are home addresses, each once, at most eight; the announcement holds the id and the port and nothing of the family, word for word; this PC's home addresses read; the installer's judgement of a data folder that is there (made by SYSTEM or an administrator with LiMo's protection, or not), versions read and compared, the two firewall rules for `limo.exe` only from the local subnet; the command line's `uninstall` with its choice and `stop-for-upgrade`, a password never taken on it; `dev-console`'s `allow-removal`; a phone's standing from its notes in the order they came (a step switched off and later on is on, the newest of each kind wins), the six steps in setup order and one never noted neither on nor off, setup not finished until noted, all well needing no guardian, USB debugging on and a clock far off (beyond five minutes, not at them) needing one and saying since when, the other notes kept as their newest; a child's name for the welcome trimmed and cut to the link's longest, in characters; a program seen kept by its app id with its description or its file name, once, at its newest, each account's its own; a full account making room by forgetting the program seen longest ago; the names of a child's apps from the devices that list them, each once, case aside, and none for an id no device names | 66 |
 | `src/drawn/tests.rs` | The drawn display's decisions, with no window: Windows keys to the lock's keys, with the layout's text handed in; the modifiers and the keyboard state; text and points from Windows; the PC's clock from the time format; where the time left display starts, a drag kept on the screen, where a notice goes; pixels into a bitmap, and only a change saying so; the notices' turns; a way out sent once and only its own answer back to the same lock; an answer for a lock taken down, or one that waited too long, dropped; a PIN moved into its secret with nothing left behind; a reason typed with the layout's text, shortcuts typing nothing; keys reaching nothing but a lock; the same lock again keeping what the child did; the time left display and its notices only while the PC may be used, OK, and the notice by name; the lock drawn on the main monitor and the others; the service's answers as the lock's | 19 |
-| `src/win/*.rs` | Pure functions, harmless reads of the test's own process, and harmless reads of what the PC says of itself, which pass whatever the answer: the time zone offset; the clocks, and this account's own time format; session states and administrators; this process's own account; the order version resources are read in; this process's own entry, file and version resource (none); frames across a pipe inside this process; the three access lists and that they parse for this user; the command line a helper gets, with and without `--plain`; a log line; full screen; a helper run by hand doing nothing; what this process got; the display bit as Windows numbers it; this process's own Windows session, and none for a process that is not there; whether this PC plays sound (twice, with COM started and ended) and keeps the screen awake, read and not judged, on a PC with a sound device or none; the door's access list keeps the right to make an instance from interactive users, and parses; this process's own account; this PC's accounts, read and not judged; the other end's own row of the TCP table naming the process; a loopback connection inside this test process found to be this account's; the firewall profiles as Windows numbers them; a shortcut made in the test's own temporary folder and read back, opening its program, and the Start menu of every account found (nothing made there); an owner and access list read apart; a folder made with LiMo's protection by the test's standard account, judged not LiMo's, given back to its owner and removed | 33 |
-| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders, the fallback and the console's door; the door over a real named pipe; and the link with a played phone over real loopback sockets; and the door's answers written for the screens' tests; and the installer's work against a fake PC whose door is the real service's (below) | 106 |
+| `src/win/*.rs` | Pure functions, harmless reads of the test's own process, and harmless reads of what the PC says of itself, which pass whatever the answer: the time zone offset; the clocks, and this account's own time format; session states and administrators; this process's own account; the order version resources are read in; this process's own entry, file and version resource (none); frames across a pipe inside this process; the three access lists and that they parse for this user; the command line a helper gets, with and without `--plain`; a log line; full screen; a helper run by hand doing nothing; what this process got; the display bit as Windows numbers it; this process's own Windows session, and none for a process that is not there; whether this PC plays sound (twice, with COM started and ended) and keeps the screen awake, read and not judged, on a PC with a sound device or none; the door's access list keeps the right to make an instance from interactive users, and parses with its owner SYSTEM, read back as written; this process's own account; this PC's accounts, read and not judged; the other end's own row of the TCP table naming the process; a loopback connection inside this test process found to be this account's; the firewall profiles as Windows numbers them; a shortcut made in the test's own temporary folder and read back, opening its program, and the Start menu of every account found (nothing made there); an owner and access list read apart; a folder made with LiMo's protection by the test's standard account, judged not LiMo's, given back to its owner and removed | 33 |
+| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders, the fallback and the console's door; the door over a real named pipe; and the link with a played phone over real loopback sockets; and the door's answers written for the screens' tests; and the installer's work against a fake PC whose door is the real service's (below) | 110 |
 | `tests/door_host.rs` | The door's test host, as another crate's tests use it: a sign in, a child added and the day read over its pipe, the door gone with the host; a host with no family taking the first start's requests; the real door's name refused; the uninstaller's line to the door refusing a door not served from session 0 before it sends anything, and over the host's real pipe the family's state, a wrong password in the door's words, the next secret a second later, the right one, and the allowed removal seen by the next line | 3 |
 | `tests/house_rules.rs` | Unsafe code only in `src/win/`; no allow attributes; no dash punctuation; the typographic apostrophe in the crate's own words | 4 |
 | `src/door_host.rs` | Its example, built (never run) | 1 |
@@ -1522,7 +1571,7 @@ said once; problems logged once in a while.
 `fallback.rs` (6): disconnected after 5 seconds unconfirmed; confirmed in
 time, left alone; a helper that dies must confirm again; only a lock in a
 session on the screen; the test cap; no cap, the lock stays.
-`door.rs` (24): a family made through the door with no `dev-setup`, and the
+`door.rs` (25): a family made through the door with no `dev-setup`, and the
 PC following it (the child limited, an account not set up locked with the
 PIN offered); a child's account refused in the guardian's words, at hello
 and after a link made while it was open; a client Windows would not name
@@ -1540,8 +1589,11 @@ with their links; the console's own account never linked to a child from
 it; the password again to remove a child, allow removal or delete the
 family; rules answered with their own problems; adding a phone not yet; a
 code made at the door and never logged; no secret logged, kept or shown;
-the lock of an account not set up taking the guardian PIN; and the step
-time with the door busy, measured. `pipe.rs` (7), over a real named pipe in
+the lock of an account not set up taking the guardian PIN; each device
+saying how many one time codes it can still be given today, counting down as
+codes are made, in `devices`, `device`, `child_today` and `make_code`'s
+answer; and the step
+time with the door busy, measured. `pipe.rs`, over a real named pipe in
 the test's own account: answered, with the door's access list and the
 service told by Windows who the client is; the test's own account linked
 to a child refused; two clients at once, each with its own session, and a
@@ -1549,7 +1601,9 @@ closed connection's session ended; garbage, a frame too long, a flood and a
 silent client each closed, and the door open for the next; only SYSTEM and
 Administrators able to make an instance; a door whose name is taken not
 opened, and saying so; a fifth connection from one session closed at once,
-and the session served again when the others go. `link.rs` (17), a phone
+and the session served again when the others go; the service's door, with
+its owner SYSTEM, refused by Windows to this test's account (error 1307),
+saying so, and no pipe made. `pipe.rs` has 8. `link.rs` (19), a phone
 played over real loopback sockets with the link's own phone side and the
 core's device: paired with an offer from the door, its key kept, its
 session through the cable with a report and a grant, the door's
@@ -1579,7 +1633,12 @@ and not set up; set up with accessibility off and USB debugging on, in
 `device`, `child_today` and `family_today` alike; all well again; a clock
 nine minutes ahead, with since when), and the PC's own device with no
 standing; a phone paired by the PC told whose it is in the welcome, and the
-family file's longest name arriving whole.
+family file's longest name arriving whole; a child's apps by name, a
+phone's list (nothing before it sent one, said so) and the programs seen in
+the child's account on the PC, with the names of the apps her rules name,
+case aside, and null for one no device names; what a phone says it is
+reaching `device` and `devices`, Android's level from the pairing before,
+kept in the family's file, and nothing of it in the log.
 `answers.rs` (1): the small family through the real door, its answers
 written for the screens' tests (above). `installer.rs` (19), against a fake
 PC whose door is the stories' real service: without elevation install, stop
@@ -1773,6 +1832,9 @@ windows/
     played_phone.rs a phone played over the link (feature played-phone)
     door_host.rs  the door's test host for other crates' tests (feature
                   door-host)
+    apps.rs       a child's apps by name: the programs seen in each
+                  account, and the names of the apps the rules name
+    standing.rs   how a phone stands, and what it needs a guardian for
     installer.rs  what install, stop-for-upgrade and uninstall decide, and
                   the Machine trait: the installer's seam
     protocol.rs   the channel: messages, frames, limits, Secret

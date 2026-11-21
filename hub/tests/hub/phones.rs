@@ -259,3 +259,73 @@ fn a_phones_apps_are_kept_once_and_made_fit_to_show() {
     let err = hub.keep_phone_apps(&phone.id, &[], "ab", at(8, 4)).unwrap_err();
     assert_eq!(err, HubError::DeviceRemoved { device_id: phone.id.clone() });
 }
+
+#[test]
+fn what_a_phone_says_it_is_is_kept_made_fit_and_only_for_a_paired_phone() {
+    let place = place();
+    let mut hub = new_family(&place.path);
+    let asha = child(&mut hub, "Asha").child_id;
+    let phone = pair_phone(&mut hub, &asha, "Asha\u{2019}s phone", 1, at(8, 0));
+    let pc = pair(&mut hub, &asha, "Family PC", DeviceKind::OnMaster, at(8, 0));
+    // Paired: Android's level from the pairing, and nothing said yet.
+    let paired = hub.phone(&phone.id).unwrap();
+    assert_eq!((paired.android_version, paired.model, paired.app_version), (Some(33), None, None));
+    // Said: all three kept, replacing the pairing's level.
+    assert!(hub.keep_phone_about(&phone.id, "samsung SM-S911B", Some(35), "0.4.0").unwrap());
+    let said = hub.phone(&phone.id).unwrap();
+    assert_eq!(
+        (said.android_version, said.model.as_deref(), said.app_version.as_deref()),
+        (Some(35), Some("samsung SM-S911B"), Some("0.4.0"))
+    );
+    // The same again changes nothing.
+    assert!(!hub.keep_phone_about(&phone.id, "samsung SM-S911B", Some(35), "0.4.0").unwrap());
+    // Made fit: hidden characters out, cut to the limits; empty is none.
+    let long = format!("  \u{202e}{}\u{0007} ", "M".repeat(limo_hub::MAX_PHONE_MODEL_CHARS + 20));
+    assert!(hub.keep_phone_about(&phone.id, &long, Some(35), &"9".repeat(60)).unwrap());
+    let fit = hub.phone(&phone.id).unwrap();
+    assert_eq!(fit.model.as_deref().map(|m| m.chars().count()), Some(limo_hub::MAX_PHONE_MODEL_CHARS));
+    assert!(fit.model.as_deref().unwrap().chars().all(|c| c == 'M'));
+    assert_eq!(fit.app_version.as_deref().map(str::len), Some(limo_hub::MAX_APP_VERSION_CHARS));
+    assert!(hub.keep_phone_about(&phone.id, "   ", None, "").unwrap());
+    let empty = hub.phone(&phone.id).unwrap();
+    assert_eq!((empty.android_version, empty.model, empty.app_version), (None, None, None));
+    assert!(hub.keep_phone_about(&phone.id, "samsung SM-S911B", Some(35), "0.4.0").unwrap());
+    // Only for a phone, and only while it is paired.
+    assert!(matches!(hub.keep_phone_about(&pc.id, "x", None, "1"), Err(HubError::NotAPhone { .. })));
+    hub.remove_device(&phone.id, at(9, 0)).unwrap();
+    assert!(matches!(hub.keep_phone_about(&phone.id, "x", None, "1"), Err(HubError::DeviceRemoved { .. })));
+    // It is no event, and kept across a restart.
+    assert!(hub.events(500, None).unwrap().iter().all(|e| !format!("{:?}", e.what).contains("SM-S911B")));
+    hub.close().unwrap();
+    let hub = Hub::open(&place.path).unwrap();
+    let kept = hub.phone(&phone.id).unwrap();
+    assert_eq!(
+        (kept.model.as_deref(), kept.app_version.as_deref(), kept.android_version),
+        (Some("samsung SM-S911B"), Some("0.4.0"), Some(35)),
+        "the last said, after the restart"
+    );
+}
+
+#[test]
+fn codes_left_today_count_down_from_ten_and_start_again_the_next_day() {
+    let place = place();
+    let mut hub = new_family(&place.path);
+    let asha = child(&mut hub, "Asha").child_id;
+    let pc = pair(&mut hub, &asha, "Family PC", DeviceKind::OnMaster, at(8, 0));
+    let phone = pair_phone(&mut hub, &asha, "Asha\u{2019}s phone", 2, at(8, 0));
+    assert_eq!(hub.codes_left(&pc.id, at(9, 0)).unwrap(), limo_core::CODES_PER_DAY);
+    hub.make_code(&pc.id, 15, at(9, 0)).unwrap();
+    hub.make_code(&pc.id, 60, at(9, 1)).unwrap();
+    assert_eq!(hub.codes_left(&pc.id, at(9, 2)).unwrap(), 8, "codes of any minutes count");
+    assert_eq!(hub.codes_left(&phone.id, at(9, 2)).unwrap(), 10, "each device its own");
+    for minute in 0..8 {
+        hub.make_code(&pc.id, 30, at(10, minute)).unwrap();
+    }
+    assert_eq!(hub.codes_left(&pc.id, at(11, 0)).unwrap(), 0);
+    assert!(hub.make_code(&pc.id, 15, at(11, 0)).is_err(), "and none is made then");
+    // The next home day, ten again.
+    assert_eq!(hub.codes_left(&pc.id, at(11, 0) + 24 * HOUR).unwrap(), 10);
+    // A removed device has none to give.
+    hub.remove_device(&phone.id, at(12, 0)).unwrap();
+    assert!(matches!(hub.codes_left(&phone.id, at(12, 0)), Err(HubError::DeviceRemoved { .. })));
+}

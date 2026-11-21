@@ -1,0 +1,36 @@
+{
+  "device_id": "device-8579b281d440d6de",
+  "child_id": "child-69ef4800a1a90a1a",
+  "name": "Asha’s phone",
+  "paired_at": 1794966000,
+  "last_heard_at": 1794973200,
+  "form": "child",
+  "android_version": 33,
+  "has_link_key": true,
+  "setup_finished_at": 1794966600,
+  "switched_on": [],
+  "switched_off": [
+    "accessibility"
+  ],
+  "protection": null,
+  "usb_debugging_on": true,
+  "notes": [
+    {
+      "note": "setup_finished",
+      "at": 1794966600
+    },
+    {
+      "note": "permission_off",
+      "permission": "accessibility",
+      "at": 1794972600
+    },
+    {
+      "note": "usb_debugging",
+      "on": true,
+      "at": 1794972900
+    }
+  ],
+  "apps": 1,
+  "removed_at": null,
+  "released_at": null
+}

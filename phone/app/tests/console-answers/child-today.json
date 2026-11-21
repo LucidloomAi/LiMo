@@ -20,6 +20,7 @@
           {
             "added_secs": 0,
             "clock_off_by_secs": null,
+            "codes_left_today": 10,
             "device_id": "device-0000000000000001",
             "giving_back_secs": 0,
             "guardian_needed": null,
@@ -28,6 +29,7 @@
             "kind": "on_master",
             "last_heard_at": 1794998128,
             "name": "Family PC",
+            "phone_facts": null,
             "pin_unlocked_until": null,
             "platform": "windows",
             "setup_finished": null,

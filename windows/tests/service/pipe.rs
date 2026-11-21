@@ -253,8 +253,9 @@ fn a_door_whose_name_is_already_taken_is_not_opened_and_says_so() {
     let (mut pc, name) = pc_with_a_real_door(Duration::from_secs(10));
     let _first = connect(&name);
     // A second door of the same name, as a program that took the name
-    // first would make it: it cannot make the first instance.
-    let mut second = RealDoor::open(&name, || {});
+    // first would make it: it cannot make the first instance. Made with the
+    // door's access list and no owner, as a program in this account could.
+    let mut second = RealDoor::open_with(&name, || {}, Duration::from_secs(10), DOOR_SDDL);
     let give_up = Instant::now() + Duration::from_secs(5);
     let mut notes = Vec::new();
     while notes.is_empty() && Instant::now() < give_up {
@@ -288,4 +289,25 @@ fn a_session_that_opens_connection_after_connection_is_capped_and_the_next_close
     let mut after = connect(&name);
     after.send(&FromConsole::Hello { protocol: CONSOLE_PROTOCOL_VERSION }).unwrap();
     assert!(matches!(next(&mut pc, &mut after).unwrap(), ToConsole::Hello { .. }));
+}
+
+#[test]
+fn the_services_door_names_system_its_owner_so_no_other_account_can_make_it() {
+    // The door as the service makes it, from this test's own account: Windows
+    // refuses the owner SYSTEM to a process that is not SYSTEM, so the pipe
+    // is never made, and the door says why. The name is the test's own.
+    let name = pipe_name();
+    let mut door = RealDoor::open(&name, || {});
+    let give_up = Instant::now() + Duration::from_secs(5);
+    let mut notes = Vec::new();
+    while notes.is_empty() && Instant::now() < give_up {
+        notes = door.received();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let said = format!("{notes:?}");
+    assert!(said.contains("could not be opened: Win32 error 1307"), "{said}");
+    assert!(said.contains("only LiMo\u{2019}s service, running as SYSTEM, can make it"), "{said}");
+    assert!(DoorClient::connect(&name, 200).is_err(), "no pipe of that name was made");
+    drop(door);
+    assert_eq!(limo_windows::door_descriptor(), format!("O:SY{DOOR_SDDL}"));
 }

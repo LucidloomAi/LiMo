@@ -5,6 +5,8 @@
 //!
 //! **The pipe.** `\\.\pipe\limo.console`, made by the service only:
 //!
+//! - its owner, [`DOOR_OWNER`], is SYSTEM, said in its descriptor rather
+//!   than left to the service token's default (the Administrators group);
 //! - its access list, [`DOOR_SDDL`], gives SYSTEM and Administrators full
 //!   control and interactive users ([`CLIENT_ACCESS`]) read, write and the
 //!   attributes, but not the right to make an instance of their own
@@ -84,6 +86,24 @@ use crate::protocol::{ChannelProblem, Decoder, Frame};
 /// The door's access list: SYSTEM and Administrators full control,
 /// interactive users [`CLIENT_ACCESS`]; nothing inherited.
 pub const DOOR_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;IU)";
+
+/// The door's owner: SYSTEM, said in the descriptor the service makes the
+/// pipe with, so that it does not rest on the default owner of the
+/// service's token (which for LocalSystem is the Administrators group).
+/// Only a process running as SYSTEM may name SYSTEM as an object's owner,
+/// so a door with it can be made by LiMo's service alone; a test, in its
+/// own account, makes its doors with [`DOOR_SDDL`] and no owner.
+pub const DOOR_OWNER: &str = "O:SY";
+
+/// The whole descriptor of the service's door: [`DOOR_OWNER`], then
+/// [`DOOR_SDDL`].
+pub fn door_descriptor() -> String {
+    format!("{DOOR_OWNER}{DOOR_SDDL}")
+}
+
+/// `ERROR_INVALID_OWNER`: the owner a descriptor names may not be given by
+/// this process.
+const INVALID_OWNER: &str = "Win32 error 1307";
 
 /// What a console asks for, and all the access list gives an interactive
 /// user: read (`FILE_GENERIC_READ`), and of writing only the data, its
@@ -587,9 +607,13 @@ impl Acceptor {
                         Err(problem) if first => {
                             if !said_taken {
                                 said_taken = true;
+                                let why = if problem.starts_with(INVALID_OWNER) {
+                                    "Its owner is SYSTEM, so only LiMo’s service, running as SYSTEM, can make it."
+                                } else {
+                                    "Another program may hold its name."
+                                };
                                 self.note(format!(
-                                    "The door for LiMo’s settings could not be opened: {problem}. Another program may hold its name. \
-                                     LiMo tries again every five seconds."
+                                    "The door for LiMo’s settings could not be opened: {problem}. {why} LiMo tries again every five seconds."
                                 ));
                             }
                             if self.stopped_within(5_000) {
@@ -721,7 +745,7 @@ impl RealDoor {
     /// Opens the door at `name`. `wake` is called, on another thread,
     /// whenever something came, so that the service answers it at once.
     pub fn open(name: &str, wake: impl Fn() + Send + Sync + 'static) -> RealDoor {
-        RealDoor::open_with(name, wake, Duration::from_millis(HELLO_WAIT_MS), DOOR_SDDL)
+        RealDoor::open_with(name, wake, Duration::from_millis(HELLO_WAIT_MS), &door_descriptor())
     }
 
     /// As [`RealDoor::open`], with the wait for a client's first bytes and
@@ -1070,14 +1094,29 @@ mod tests {
         for nobody in ["WD", "AU", "BU", "AN", "NU"] {
             assert!(!DOOR_SDDL.contains(&format!(";;;{nobody})")), "{nobody}");
         }
-        // It parses as Windows reads it.
-        let sddl = wide(DOOR_SDDL);
+        // It parses as Windows reads it, with its owner.
+        let sddl = wide(&door_descriptor());
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
-        // SAFETY: the descriptor is freed at once.
-        unsafe {
+        let mut text = windows::core::PWSTR::null();
+        // SAFETY: both buffers come from Windows and are freed once read.
+        let read = unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(PCWSTR(sddl.as_ptr()), SDDL_REVISION_1, &mut descriptor, None).unwrap();
+            let what = windows::Win32::Security::OWNER_SECURITY_INFORMATION | windows::Win32::Security::DACL_SECURITY_INFORMATION;
+            windows::Win32::Security::Authorization::ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                descriptor,
+                SDDL_REVISION_1,
+                what,
+                &mut text,
+                None,
+            )
+            .unwrap();
+            let read = text.to_string().unwrap();
+            let _ = LocalFree(Some(HLOCAL(text.0 as *mut core::ffi::c_void)));
             let _ = LocalFree(Some(HLOCAL(descriptor.0)));
-        }
+            read
+        };
+        assert_eq!(read, door_descriptor(), "the owner SYSTEM and the access list, as Windows reads them back");
+        assert!(read.starts_with("O:SYD:P"));
     }
 
     #[test]

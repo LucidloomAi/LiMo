@@ -12,32 +12,35 @@ use crate::notes::{Newest, PhoneNote};
 use crate::store::{self, DeviceRow, add_event, to_u32};
 use crate::text;
 use crate::types::{EventKind, PhoneApp, PhoneApps, PhoneForm, PhoneInfo};
-use crate::{MAX_APP_LABEL_CHARS, MAX_APPS_HASH_DIGITS, MAX_PACKAGE_BYTES, MAX_PHONE_APPS};
+use crate::{MAX_APP_LABEL_CHARS, MAX_APP_VERSION_CHARS, MAX_APPS_HASH_DIGITS, MAX_PACKAGE_BYTES, MAX_PHONE_APPS, MAX_PHONE_MODEL_CHARS};
 
 /// What the `phone` table holds for one phone.
 struct PhoneRow {
     has_link_key: bool,
     form: PhoneForm,
     android_version: Option<u32>,
+    model: Option<String>,
+    app_version: Option<String>,
     newest: Newest,
     released_at: Option<i64>,
 }
 
 /// A row of `phone` as read: whether it has a link key, the form, the
-/// Android version, the notes and when it was released.
-type RawPhone = (bool, String, Option<i64>, String, Option<i64>);
+/// Android version, the notes, when it was released, the model and LiMo's
+/// version.
+type RawPhone = (bool, String, Option<i64>, String, Option<i64>, Option<String>, Option<String>);
 
 /// The phone row of a device, or [`HubError::NotAPhone`] for a device of
 /// the master PC.
 fn phone_row(conn: &Connection, device: &DeviceRow) -> Result<PhoneRow, HubError> {
     let raw: Option<RawPhone> = conn
         .query_row(
-            "SELECT link_key IS NOT NULL, form, android_version, notes, released_at FROM phone WHERE device_id = ?1",
+            "SELECT link_key IS NOT NULL, form, android_version, notes, released_at, model, app_version FROM phone WHERE device_id = ?1",
             [&device.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
         )
         .optional()?;
-    let Some((has_link_key, form, android_version, notes, released_at)) = raw else {
+    let Some((has_link_key, form, android_version, notes, released_at, model, app_version)) = raw else {
         return Err(HubError::NotAPhone { device_id: device.id.clone() });
     };
     let form = PhoneForm::from_key(&form).ok_or_else(|| HubError::damaged(format!("a phone has an unknown form {form:?}")))?;
@@ -46,6 +49,8 @@ fn phone_row(conn: &Connection, device: &DeviceRow) -> Result<PhoneRow, HubError
         has_link_key,
         form,
         android_version: android_version.map(to_u32),
+        model,
+        app_version,
         newest: Newest::from_notes(notes),
         released_at,
     })
@@ -76,6 +81,8 @@ fn info(conn: &Connection, device: DeviceRow) -> Result<PhoneInfo, HubError> {
         last_heard_at: device.last_heard_at,
         form: phone.form,
         android_version: phone.android_version,
+        model: phone.model,
+        app_version: phone.app_version,
         has_link_key: phone.has_link_key,
         apps: apps.map(to_u32),
         removed_at: device.removed_at,
@@ -201,6 +208,39 @@ impl Hub {
             .optional()?;
         let Some((apps, hash, kept_at)) = kept else { return Ok(None) };
         Ok(Some(PhoneApps { device_id: device.id, apps: serde_json::from_str(&apps)?, hash, kept_at }))
+    }
+
+    /// Keeps what a phone says it is: its maker and model (at most
+    /// [`MAX_PHONE_MODEL_CHARS`] characters), Android's API level, and
+    /// LiMo's version on it (at most [`MAX_APP_VERSION_CHARS`]), replacing
+    /// what it said before. Hidden characters are taken out and each text is
+    /// cut to its limit; an empty one is kept as none. True when something
+    /// changed. Refused for a removed device and for one that is not a
+    /// phone. Nothing is noted as an event: it is not something that
+    /// happened, and it is never logged.
+    pub fn keep_phone_about(
+        &mut self,
+        device_id: &str,
+        model: &str,
+        android_version: Option<u32>,
+        app_version: &str,
+    ) -> Result<bool, HubError> {
+        let model = Some(text::fit(model, MAX_PHONE_MODEL_CHARS)).filter(|t| !t.is_empty());
+        let app_version = Some(text::fit(app_version, MAX_APP_VERSION_CHARS)).filter(|t| !t.is_empty());
+        let tx = self.change()?;
+        let device = store::active_device(&tx, device_id)?;
+        let phone = phone_row(&tx, &device)?;
+        if (phone.model.as_ref(), phone.android_version, phone.app_version.as_ref())
+            == (model.as_ref(), android_version, app_version.as_ref())
+        {
+            return Ok(false);
+        }
+        tx.execute(
+            "UPDATE phone SET model = ?1, android_version = ?2, app_version = ?3 WHERE device_id = ?4",
+            params![model, android_version, app_version, device.id],
+        )?;
+        tx.commit()?;
+        Ok(true)
     }
 
     /// Notes that a phone removed from the family was told so and let go of

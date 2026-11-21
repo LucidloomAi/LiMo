@@ -325,6 +325,15 @@ impl<O: Os> Service<O> {
                     self.log_quiet(&format!("link-apps/{device_id}"), &text, now);
                 }
             }
+            LinkAsk::About { device_id, about } => {
+                // Kept in the family's file for the guardian's list of
+                // devices, so that it outlives a restart; never logged, as the
+                // link asks (a failure says only which phone).
+                if let Err(error) = self.hub.keep_phone_about(&device_id, &about.model, about.android_version, &about.app_version) {
+                    let text = format!("What the phone {device_id} is was not kept: {error}");
+                    self.log_quiet(&format!("link-about/{device_id}"), &text, now);
+                }
+            }
             LinkAsk::Ended { why } => {
                 self.phones.sessions.retain(|_, open| open.conn != conn);
                 if let Some(why) = why {

@@ -14,12 +14,14 @@
       "value": [
         {
           "child_id": "child-0000000000000001",
+          "codes_left_today": 9,
           "device_id": "device-0000000000000001",
           "guardian_needed": null,
           "kind": "on_master",
           "last_heard_at": 1794998143,
           "name": "Family PC",
           "paired_at": 1794997825,
+          "phone_facts": null,
           "platform": "windows",
           "setup_finished": null,
           "standing": null,
@@ -27,12 +29,19 @@
         },
         {
           "child_id": "child-0000000000000001",
+          "codes_left_today": 10,
           "device_id": "device-0000000000000002",
           "guardian_needed": null,
           "kind": "portable",
           "last_heard_at": 1794998143,
           "name": "Asha’s phone",
           "paired_at": 1794998143,
+          "phone_facts": {
+            "android_version": 34,
+            "form": "child",
+            "limo_version": null,
+            "model": null
+          },
           "platform": "android",
           "setup_finished": false,
           "standing": {

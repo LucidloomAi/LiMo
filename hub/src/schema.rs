@@ -18,7 +18,7 @@ use crate::{random, store};
 
 /// The version of the file this code writes. A file of a later version is
 /// refused, unchanged.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// "LiMo" in ASCII: marks the file as a LiMo family file.
 pub(crate) const APPLICATION_ID: i32 = 0x4C69_4D6F;
@@ -224,6 +224,15 @@ CREATE TABLE phone_apps (
 CREATE INDEX phone_apps_by_child ON phone_apps(child_id);
 ";
 
+/// Version 5: what a phone says it is, kept beside its Android version:
+/// - `phone.model`: the maker and the model, as the phone gave them (null
+///   until it said);
+/// - `phone.app_version`: LiMo's version on the phone (null until it said).
+const V5: &str = "
+ALTER TABLE phone ADD COLUMN model TEXT;
+ALTER TABLE phone ADD COLUMN app_version TEXT;
+";
+
 /// Work that a step's SQL cannot do.
 type Work = fn(&Connection) -> Result<(), HubError>;
 
@@ -242,6 +251,7 @@ const MIGRATIONS: &[Step] = &[
     Step { sql: V2, work: Some(convert_books) },
     Step { sql: V3, work: None },
     Step { sql: V4, work: Some(add_link_records) },
+    Step { sql: V5, work: None },
 ];
 
 /// Version 4's work: a family already set up gets its master key, and every
@@ -403,24 +413,29 @@ mod tests {
         assert_eq!((idle, unlinked.as_str()), (crate::DEFAULT_IDLE_MINUTES as i64, "free"));
         assert!(!has_column(&conn, "family", "master_key"));
 
-        bring_up_to_date(&mut conn, MIGRATIONS).unwrap();
+        bring_up_to_date(&mut conn, &MIGRATIONS[..4]).unwrap();
         assert_eq!(version(&conn), 4);
         assert!(has_column(&conn, "family", "master_key") && has_column(&conn, "offer", "offer_text"));
         assert!(has_column(&conn, "phone", "link_key") && has_column(&conn, "phone_apps", "hash"));
+        assert!(!has_column(&conn, "phone", "model"));
 
-        let five = [MIGRATIONS[0], MIGRATIONS[1], MIGRATIONS[2], MIGRATIONS[3], Step { sql: TEST_NEXT, work: None }];
-        bring_up_to_date(&mut conn, &five).unwrap();
+        bring_up_to_date(&mut conn, MIGRATIONS).unwrap();
         assert_eq!(version(&conn), 5);
+        assert!(has_column(&conn, "phone", "model") && has_column(&conn, "phone", "app_version"));
+
+        let six = [MIGRATIONS[0], MIGRATIONS[1], MIGRATIONS[2], MIGRATIONS[3], MIGRATIONS[4], Step { sql: TEST_NEXT, work: None }];
+        bring_up_to_date(&mut conn, &six).unwrap();
+        assert_eq!(version(&conn), 6);
         let probe: i64 = conn.query_row("SELECT probe FROM settings", [], |row| row.get(0)).unwrap();
         let days: i64 = conn.query_row("SELECT detail_days FROM settings", [], |row| row.get(0)).unwrap();
         assert_eq!((probe, days), (7, DEFAULT_DETAIL_DAYS as i64));
         // Opening it again changes nothing.
-        bring_up_to_date(&mut conn, &five).unwrap();
-        assert_eq!(version(&conn), 5);
+        bring_up_to_date(&mut conn, &six).unwrap();
+        assert_eq!(version(&conn), 6);
         drop(conn);
 
-        // This code knows up to version 4, so the file is now too new for it.
-        assert_eq!(open(&path).unwrap_err(), HubError::FileTooNew { file_version: 5, known_version: 4 });
+        // This code knows up to version 5, so the file is now too new for it.
+        assert_eq!(open(&path).unwrap_err(), HubError::FileTooNew { file_version: 6, known_version: 5 });
     }
 
     #[test]

@@ -1,0 +1,81 @@
+{
+  "request": "device",
+  "case": "the phone, after it said what it is: model, Android and LiMo’s version",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000002"
+    },
+    "name": "device"
+  },
+  "answer": {
+    "id": 64,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "child_id": "child-0000000000000001",
+        "codes_left_today": 10,
+        "device_id": "device-0000000000000002",
+        "guardian_needed": null,
+        "kind": "portable",
+        "last_heard_at": 1794998143,
+        "name": "Asha’s tablet",
+        "paired_at": 1794998143,
+        "phone_facts": {
+          "android_version": 35,
+          "form": "child",
+          "limo_version": "0.4.0",
+          "model": "samsung SM-S911B"
+        },
+        "platform": "android",
+        "setup_finished": false,
+        "standing": {
+          "clock": null,
+          "clock_moved": null,
+          "guard_opened": null,
+          "guarded_pages": [],
+          "needs_guardian": true,
+          "protection": null,
+          "restarted_at": null,
+          "setup_finished": false,
+          "setup_finished_at": null,
+          "steps": [
+            {
+              "on": null,
+              "permission": "notifications",
+              "since": null
+            },
+            {
+              "on": null,
+              "permission": "phone",
+              "since": null
+            },
+            {
+              "on": null,
+              "permission": "usage_access",
+              "since": null
+            },
+            {
+              "on": null,
+              "permission": "accessibility",
+              "since": null
+            },
+            {
+              "on": null,
+              "permission": "battery",
+              "since": null
+            },
+            {
+              "on": null,
+              "permission": "protection",
+              "since": null
+            }
+          ],
+          "steps_off": [],
+          "usb_debugging": null
+        },
+        "usb_debugging_on": false
+      }
+    },
+    "say": "answer"
+  }
+}

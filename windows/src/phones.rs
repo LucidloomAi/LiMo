@@ -257,6 +257,13 @@ pub enum LinkAsk {
         /// Their hash, checked by the link.
         hash: String,
     },
+    /// What the phone is: its model, Android version and LiMo's version.
+    About {
+        /// The phone.
+        device_id: String,
+        /// What it said, checked by the link.
+        about: limo_link::messages::PhoneAbout,
+    },
     /// The connection ended, and why when it was not a goodbye, in plain
     /// words for the log.
     Ended {
@@ -590,6 +597,13 @@ impl Connection {
                     if let Some(phone) = link.phone() {
                         let device_id = phone.device_id.clone();
                         self.shared.call(self.conn, self.peer, LinkAsk::Apps { device_id, apps, hash });
+                    }
+                }
+                MasterEvent::About { about } => {
+                    self.count_call(now)?;
+                    if let Some(phone) = link.phone() {
+                        let device_id = phone.device_id.clone();
+                        self.shared.call(self.conn, self.peer, LinkAsk::About { device_id, about });
                     }
                 }
                 MasterEvent::Bye => return Err(End::Quiet),

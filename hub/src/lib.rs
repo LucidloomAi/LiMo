@@ -98,6 +98,14 @@ pub const MAX_PHONE_APPS: usize = 2_000;
 pub const MAX_PACKAGE_BYTES: usize = 255;
 /// The longest app label kept, in characters: 120, as the link allows.
 pub const MAX_APP_LABEL_CHARS: usize = 120;
+
+/// The longest maker and model a phone's record keeps, in characters: 120,
+/// as the link carries it.
+pub const MAX_PHONE_MODEL_CHARS: usize = 120;
+
+/// The longest version of LiMo on a phone the record keeps, in characters:
+/// 40, as the link carries it.
+pub const MAX_APP_VERSION_CHARS: usize = 40;
 /// The longest hash of an app list, in hex digits.
 pub const MAX_APPS_HASH_DIGITS: usize = 64;
 

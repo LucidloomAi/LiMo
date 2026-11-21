@@ -244,6 +244,9 @@ pub struct Service<O: Os> {
     slots: BTreeMap<u32, Slot>,
     ending: Vec<Ending>,
     programs: ProgramCache,
+    /// The programs seen running in each account's sessions since the
+    /// service started, by name, for the guardian's screens.
+    seen_programs: crate::apps::SeenPrograms,
     processes: Vec<ProcessSeen>,
     names: BTreeMap<String, (Option<String>, u64)>,
     quiet: Quiet,
@@ -299,6 +302,7 @@ impl<O: Os> Service<O> {
             slots: BTreeMap::new(),
             ending: Vec::new(),
             programs: ProgramCache::new(),
+            seen_programs: crate::apps::SeenPrograms::new(),
             processes: Vec::new(),
             names: BTreeMap::new(),
             quiet: Quiet::new(QUIET_MS),
@@ -753,8 +757,11 @@ impl<O: Os> Service<O> {
             if self.is_own(process) || !sessions.iter().any(|s| s.session_id == process.session_id) {
                 continue;
             }
-            let program = self.programs.program(&mut self.os, process);
-            running.entry(process.session_id).or_default().insert(program);
+            let known = self.programs.known(&mut self.os, process);
+            if let Some(session) = sessions.iter().find(|s| s.session_id == process.session_id) {
+                self.seen_programs.note(&session.account_id, &known, wall);
+            }
+            running.entry(process.session_id).or_default().insert(known.program);
         }
         for session in &mut sessions {
             let mut programs: Vec<Program> = running.remove(&session.session_id).unwrap_or_default().into_iter().collect();

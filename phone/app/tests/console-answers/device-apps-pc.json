@@ -1,0 +1,32 @@
+{
+  "request": "device_apps",
+  "case": "the programs seen running on this PC in Asha’s account",
+  "asked": {
+    "args": {
+      "device": "device-0000000000000001"
+    },
+    "name": "device_apps"
+  },
+  "answer": {
+    "id": 62,
+    "reply": {
+      "outcome": "done",
+      "value": {
+        "apps": [
+          {
+            "app_id": "notes.exe",
+            "name": "notes.exe"
+          }
+        ],
+        "cut": false,
+        "device_id": "device-0000000000000001",
+        "kept_at": null,
+        "kind": "on_master",
+        "max": 2000,
+        "source": "seen_running",
+        "total": 1
+      }
+    },
+    "say": "answer"
+  }
+}

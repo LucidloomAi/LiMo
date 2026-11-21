@@ -88,8 +88,20 @@ the books that SQL cannot do.
   old phone and tablet report, the request is answered, the PC's device
   exchanges, a removed phone stays refused, an old phone takes notes, and a
   new phone pairs with an offer.
+- **Version 5**: what a phone says it is, kept beside its Android version:
+  the `phone` table gains `model` (the maker and the model) and
+  `app_version` (LiMo's version on the phone), both none until the phone
+  says them. It only adds; nothing a file holds changes. The test
+  `a_file_made_by_the_hub_before_phones_said_what_they_are_opens_and_goes_on`
+  opens a file made by the hub of version 4 (`tests/fixtures/store_v4.limo`,
+  made by a program that called only that hub's public calls), checks that
+  the family's day, the devices and the phone's record are what that hub
+  showed (no model, no version, Android's level from the pairing), that the
+  codes made that day count, and goes on: the phone says what it is, kept
+  across a restart with its notes as they were, both devices exchange, and a
+  code is made.
 
-The tables, at version 4:
+The tables, at version 5:
 
 - `settings`: how many days of usage are kept in detail (35 unless changed);
   after how many idle minutes the count pauses on the master PC (3 unless
@@ -128,7 +140,8 @@ The tables, at version 4:
   and by which device.
 - `phone`: for each device that can be carried away: its link key (the
   phone's public key; none for a phone paired before the link), the form of
-  the app, its Android version, the newest note of each kind it sent (as
+  the app, its Android version, its maker and model and LiMo's version on
+  it (as it last said them), the newest note of each kind it sent (as
   JSON), and when, removed, it was told so.
 - `phone_apps`: each phone's newest list of apps with their labels (as
   JSON), the hash the phone gave it, and when it was kept.
@@ -168,6 +181,7 @@ hub.answer_request(&child_id, &request_id, RequestReply::Grant { minutes: 20 }, 
 hub.lock_now(&child_id, None, now)?;             // or unlock_until, or lift
 hub.set_pin(&pin, now)?;                         // 6 to 8 digits, every child at once
 let code = hub.make_code(&device_id, 30, now)?;  // read out code.shown
+hub.codes_left(&device_id, now)?;                // how many more today, of ten
 // ...after each of these, prod hub.wanted_reports(now) as above.
 
 // What the guardian sees:
@@ -200,6 +214,7 @@ let pairing = hub.pair_device_with_offer(&offer_id.to_hex(), phone_key.as_bytes(
 
 let grant = hub.handle_report(&report, now)?;    // a phone's report, and the notes it carries
 hub.keep_phone_apps(&device_id, &apps, &hash, now)?;             // the phone's apps
+hub.keep_phone_about(&device_id, &model, android_version, &app_version)?; // what it is
 hub.note_released(&device_id, now)?;             // a removed phone was told so
 hub.phones(&asha.child_id)?;                     // what the guardian sees of each phone
 ```
@@ -519,6 +534,15 @@ hub keeps the bytes and the facts.
   whether LiMo followed it). Which note replaces which is the hub's, in one
   place (`src/notes.rs`), which does not build until a kind the core adds is
   placed there.
+- **What a phone is.** `keep_phone_about(device, model, android_version,
+  app_version)` keeps what the phone says it is (the link carries it once
+  after each session opens): its maker and model (cut to 120 characters),
+  Android's API level (replacing the one it gave at pairing), and LiMo's
+  version on it (cut to 40), hidden characters taken out and an empty text
+  kept as none; it says whether anything changed. It is no event and never
+  logged. Refused for a removed device and for one that is not a phone.
+  `phone(device)` reads them as `model` and `app_version`, none until the
+  phone said them.
 - **Apps.** `keep_phone_apps(device, apps, hash, now)` keeps a phone's list
   of apps with their labels, and the hash the phone gave it (1 to 64 hex
   digits, kept in lowercase), replacing the one before; it says whether the
@@ -638,8 +662,8 @@ meanwhile.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | Unit tests: a version 1 file carried to version 2, to version 3, to version 4 and on to a test version 5 through the migration path (and then refused by version 4 code); version 4's step giving a family set up before it its master key and each phone (removed ones too) its row, and the file refusing a key of the wrong length; version 3's settings refusing a value they do not know; a fresh file's tables and settings; password known answers (worked out separately with Python's `hashlib`); names of any script, and hidden characters refused; text from a device made fit to show; ids and seeded randomness; the same note kept once; the newest note of each kind kept in the order notes came, a clock set back included; notes kept in the shape the file holds, and unknown ones refused; a PIN record of the core checked by the core's rule, a four digit one from before included, and a device opening with the same PIN | 16 |
-| `tests/hub/` | The stories: a whole day of a family with the views checked at every stage; a file made by the first version of the hub opened, converted and going on, with every view as that version showed it; a file made by the hub before the agent (version 2) opened and going on, its PC device paired the old way replaced once; files made, reopened, copied, refused when newer or foreign, damaged in a row or in the middle, and two hubs on one file; every grant on the disk before it is returned; an exchange and a change that fail part way leaving nothing; reports that do not fit and hostile reports; wanted reports after new rules; in use; clocks far off; removing a child and deleting the family, down to the file's bytes; removed devices, their time freed and the code time they did not use dropped; a removed device leaving the book at once and its use with its days; wrong passwords and the wait across a restart; a forgotten password reset with the PIN, rules, devices and keys kept and the reset in the history; the PIN typed on the PC with its own wrong count and wait, kept across a restart, cleared by a right PIN and by a new one; secrets out of `Debug`, errors and the file; folding forty days, and a late slice for a folded day neither counted nor kept; trimming books, codes and events; hostile names, unknown ids and numbers out of range. For the master PC: its device paired once and its state kept; an exchange writing the book and the device state together, and one that fails part way leaving both as they were; the book revision growing with every change to the book; a PC device paired the old way replaced once; only a kept PC device saved, and a removed one taking its state with it; the PC's settings kept, checked and reset with the family; notes kept once where once is asked; the kept state hiding its secrets. For the link: the master's key made with the family, kept across a restart, different for another family, hidden, deleted with the family and new for a new one; offers kept and read back, and every shape that cannot be an offer refused; a phone paired with an offer, its key kept and the offer used in one step, then reporting, taking a code, and a second phone refused; an unknown, expired, guardian's or known key offer pairing nothing, and an offer pairing at its last second; a phone's name made fit to show; a pairing that fails at its last two steps leaving nothing; a removed phone still known to the link as removed, its apps gone, and released once; offers and their secrets gone from the file a day after they expire; a file made by the hub before the link (version 3) opened and going on, with every view as that hub showed it. For phones: the notes a report carries kept once as events and as the newest of each kind, sent again and again, every one confirmed by the grant, a clock set back; at most the newest 200 notes of a report; notes and the report kept together or not at all; notes refused for the master PC's device, taken by a phone paired before the link, and refused with a removed phone's report; apps made fit to show, kept once, replaced, refused when too many or with a bad hash, for phones only. Deleting a child and the family also searched for the master's key, the phones' link keys, an offer's text, a phone's apps and its notes | 60 |
+| `src/*.rs` | Unit tests: a version 1 file carried to version 2, to version 3, to version 4, to version 5 and on to a test version 6 through the migration path (and then refused by version 5 code); version 4's step giving a family set up before it its master key and each phone (removed ones too) its row, and the file refusing a key of the wrong length; version 3's settings refusing a value they do not know; a fresh file's tables and settings; password known answers (worked out separately with Python's `hashlib`); names of any script, and hidden characters refused; text from a device made fit to show; ids and seeded randomness; the same note kept once; the newest note of each kind kept in the order notes came, a clock set back included; notes kept in the shape the file holds, and unknown ones refused; a PIN record of the core checked by the core's rule, a four digit one from before included, and a device opening with the same PIN | 16 |
+| `tests/hub/` | The stories: a whole day of a family with the views checked at every stage; a file made by the first version of the hub opened, converted and going on, with every view as that version showed it; a file made by the hub before the agent (version 2) opened and going on, its PC device paired the old way replaced once; files made, reopened, copied, refused when newer or foreign, damaged in a row or in the middle, and two hubs on one file; every grant on the disk before it is returned; an exchange and a change that fail part way leaving nothing; reports that do not fit and hostile reports; wanted reports after new rules; in use; clocks far off; removing a child and deleting the family, down to the file's bytes; removed devices, their time freed and the code time they did not use dropped; a removed device leaving the book at once and its use with its days; wrong passwords and the wait across a restart; a forgotten password reset with the PIN, rules, devices and keys kept and the reset in the history; the PIN typed on the PC with its own wrong count and wait, kept across a restart, cleared by a right PIN and by a new one; secrets out of `Debug`, errors and the file; folding forty days, and a late slice for a folded day neither counted nor kept; trimming books, codes and events; hostile names, unknown ids and numbers out of range. For the master PC: its device paired once and its state kept; an exchange writing the book and the device state together, and one that fails part way leaving both as they were; the book revision growing with every change to the book; a PC device paired the old way replaced once; only a kept PC device saved, and a removed one taking its state with it; the PC's settings kept, checked and reset with the family; notes kept once where once is asked; the kept state hiding its secrets. For the link: the master's key made with the family, kept across a restart, different for another family, hidden, deleted with the family and new for a new one; offers kept and read back, and every shape that cannot be an offer refused; a phone paired with an offer, its key kept and the offer used in one step, then reporting, taking a code, and a second phone refused; an unknown, expired, guardian's or known key offer pairing nothing, and an offer pairing at its last second; a phone's name made fit to show; a pairing that fails at its last two steps leaving nothing; a removed phone still known to the link as removed, its apps gone, and released once; offers and their secrets gone from the file a day after they expire; a file made by the hub before the link (version 3) opened and going on, with every view as that hub showed it; a file made by the hub before phones said what they are (version 4) opened and going on, the phone's record as that hub showed it, its codes made that day counted, and what it then says kept across a restart. For phones: the notes a report carries kept once as events and as the newest of each kind, sent again and again, every one confirmed by the grant, a clock set back; at most the newest 200 notes of a report; notes and the report kept together or not at all; notes refused for the master PC's device, taken by a phone paired before the link, and refused with a removed phone's report; apps made fit to show, kept once, replaced, refused when too many or with a bad hash, for phones only; what a phone says it is kept, replacing the pairing's Android level, made fit (hidden characters out, cut to its limits, empty as none), unchanged saying so, for paired phones only, no event, and kept across a restart; codes left today counting down from ten for each device, codes of any minutes counted, none made at none left, ten again the next home day, and none for a removed device. Deleting a child and the family also searched for the master's key, the phones' link keys, an offer's text, a phone's apps and its notes | 63 |
 
 `cargo build`, `cargo test`, `cargo doc --no-deps` and
 `cargo clippy --all-targets -- -D warnings` pass with no warnings and no

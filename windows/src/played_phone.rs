@@ -337,6 +337,15 @@ impl Session {
         self.wire.send(&out).map_err(other)
     }
 
+    /// Says what the phone is (its model, Android version and LiMo's
+    /// version), as LiMo for Android does once after each session opens.
+    pub fn send_about(&mut self, about: &limo_link::messages::PhoneAbout, pump: &mut dyn FnMut() -> Now) -> Result<(), PhoneProblem> {
+        let now = pump();
+        self.session.send_about(about, now).map_err(problem)?;
+        let out = self.session.take_outgoing();
+        self.wire.send(&out).map_err(other)
+    }
+
     /// Says goodbye and closes.
     pub fn bye(mut self, pump: &mut dyn FnMut() -> Now) {
         let now = pump();

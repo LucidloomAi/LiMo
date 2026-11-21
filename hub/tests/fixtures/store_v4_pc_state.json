@@ -1,0 +1,127 @@
+{
+  "child_id": "child-69ef4800a1a90a1a",
+  "device_id": "device-1d1bff08ab8319e0",
+  "rules": {
+    "version": 1,
+    "utc_offset_secs": 19800,
+    "day_start_minute": 0,
+    "budgets": {
+      "monday": {
+        "minutes": 120
+      },
+      "tuesday": {
+        "minutes": 120
+      },
+      "wednesday": {
+        "minutes": 120
+      },
+      "thursday": {
+        "minutes": 120
+      },
+      "friday": {
+        "minutes": 120
+      },
+      "saturday": {
+        "minutes": 120
+      },
+      "sunday": {
+        "minutes": 120
+      }
+    },
+    "blocked_hours": [],
+    "always_allowed_apps": [],
+    "blocked_apps": [],
+    "away_share_percent": 50,
+    "lease_minutes": 10,
+    "warning_minutes": [
+      15,
+      5,
+      1
+    ]
+  },
+  "holding": {
+    "day": 20775,
+    "lease_total_secs": 0,
+    "lease_used_secs": 0,
+    "away_cap_secs": 0,
+    "away_used_secs": 0,
+    "away_percent": 0,
+    "master_word": {
+      "left_secs": 3600,
+      "used_then_secs": 0,
+      "held_elsewhere_secs": 3600
+    },
+    "warned": {
+      "time_day": null,
+      "time_points": [],
+      "blocked_start": null,
+      "blocked_points": [],
+      "unlock_end": null,
+      "unlock_points": []
+    },
+    "added_secs": 0,
+    "added_used_secs": 0,
+    "codes_used": []
+  },
+  "grant_taken": 3,
+  "last_message": 1,
+  "last_slice": 0,
+  "unconfirmed": [],
+  "code_secret": [
+    230,
+    210,
+    102,
+    79,
+    206,
+    18,
+    177,
+    2,
+    76,
+    27,
+    167,
+    242,
+    95,
+    87,
+    47,
+    4,
+    25,
+    35,
+    115,
+    189,
+    12,
+    146,
+    33,
+    21,
+    99,
+    173,
+    50,
+    252,
+    98,
+    57,
+    169,
+    196
+  ],
+  "pin": null,
+  "pin_version": 0,
+  "guardian": {
+    "version": 0,
+    "mode": "nothing",
+    "set_at": -9223372036854775808
+  },
+  "pin_unlock": null,
+  "tries": {
+    "wrong": 0,
+    "wait_until": null
+  },
+  "last_pin_add": 0,
+  "unsent_added": [],
+  "last_request": 0,
+  "own_requests": [],
+  "requests_seen": [],
+  "news_taken": 0,
+  "others_used": {
+    "day": 20775,
+    "secs": 0,
+    "all_on_master": false
+  }
+}
