@@ -93,7 +93,9 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
     val pick = front.pick(roles)
     if (pick != lastPick) logFront(pick)
     lastPick = pick
-    val guarded = guardedNow(pick, now)
+    val screenOn = remembered(interactive, now) { phone.interactive() }
+    val lockScreen = remembered(keyguard, now) { phone.keyguardLocked() }
+    val guarded = guardedNow(pick, now, putDown = !screenOn || lockScreen)
     lastGuarded = guarded
     val facts = PhoneFacts(
       wallSecs = wallMs.floorDiv(1_000L),
@@ -102,8 +104,8 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
       utcOffsetSecs = remembered(offset, now) { phone.utcOffsetSecs(wallMs) },
       hours24 = remembered(hours24, now) { phone.hours24() },
       autoTime = remembered(autoTime, now) { phone.autoTime() },
-      interactive = remembered(interactive, now) { phone.interactive() },
-      keyguardLocked = remembered(keyguard, now) { phone.keyguardLocked() },
+      interactive = screenOn,
+      keyguardLocked = lockScreen,
       call = call,
       front = toFront(pick),
       inReach = inReach,
@@ -211,6 +213,14 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
     return pickChanged()
   }
 
+  /**
+   * The screen went off or on, or the phone was unlocked (Android's screen
+   * signals): the guard learns at once whether the phone is put down,
+   * whether or not the host looks then. True when the guarded page in front
+   * changed.
+   */
+  fun screenChanged(): Boolean = pickChanged()
+
   /** LiMo's own activity came to the front or left it. True when what is in front changed. */
   fun limoScreen(shown: Boolean): Boolean {
     front.limoScreen(shown)
@@ -277,15 +287,22 @@ internal class WatchCore(private val phone: PhoneSource, private val log: WatchL
     val changed = pick != lastPick
     if (changed) logFront(pick)
     lastPick = pick
-    val guarded = guardedNow(pick, elapsedNow())
+    val now = elapsedNow()
+    // Whether the phone is put down matters only to a raised guard: read
+    // then, and only then, so a window event costs no more otherwise.
+    val guarded = guardedNow(pick, now, putDown = guard.isRaised && putDownNow(now))
     val guardChanged = guarded != lastGuarded
     lastGuarded = guarded
     return changed || guardChanged
   }
 
-  /** The guarded page in front now, as [GuardWatch] says from what the front watch knows. */
-  private fun guardedNow(pick: Pick, nowMs: Long): GuardedPage? =
-    guard.now(pick, front.track.frontSinceWallMs, front.lastWindow, front.usage == UsageState.ON, nowMs)
+  /** The guarded page in front now, as [GuardWatch] says from what the front watch knows and whether the phone is [putDown]. */
+  private fun guardedNow(pick: Pick, nowMs: Long, putDown: Boolean): GuardedPage? =
+    guard.now(pick, front.track.frontSinceWallMs, front.lastWindow, front.usage == UsageState.ON, putDown, nowMs)
+
+  /** The phone put down: its screen off, or Android's lock screen up, read now. */
+  private fun putDownNow(now: Long): Boolean =
+    !remembered(interactive, now) { phone.interactive() } || remembered(keyguard, now) { phone.keyguardLocked() }
 
   private fun logFront(pick: Pick) {
     val kind = pick.kind.name.lowercase()

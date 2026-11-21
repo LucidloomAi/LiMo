@@ -5,6 +5,11 @@ import ai.lucidloom.limo.child.ffi.GuardedPage
 import ai.lucidloom.limo.child.ffi.PIN
 import ai.lucidloom.limo.child.ffi.TryKind
 import ai.lucidloom.limo.child.ffi.app
+import ai.lucidloom.limo.child.watch.Guarded
+import ai.lucidloom.limo.child.watch.LAUNCHER
+import ai.lucidloom.limo.child.watch.LIMO
+import ai.lucidloom.limo.child.watch.Rig
+import ai.lucidloom.limo.child.watch.TestPhone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -67,6 +72,101 @@ class HostGuardTest {
       assertTrue(rig.log.contains("way_out guard_pin answer=release_confirmed"))
       assertFalse(rig.log.any { it.contains(PIN) || it.contains("000000") })
     }
+  }
+
+  /**
+   * The rule the guard keeps, through the real watch on a made up phone and
+   * the real engine: a guardian opens a guarded page with the PIN and puts
+   * the phone down; its screen goes off, which closes the opening; a child
+   * picks it up, unlocks it, and the same page comes back with no window
+   * event at all. The guard must be ordered again, however it was raised.
+   */
+  @Test
+  fun aPageOpenedByThePinIsGuardedAgainWhenThePhoneComesBackFromItsScreenOff() {
+    val adminPage = "com.android.settings.applications.specialaccess.deviceadmin.DeviceAdminAdd"
+    val settings = Guarded.SETTINGS
+    val failed = ArrayList<String>()
+    for (how in listOf("page", "event", "package")) {
+      HostRig(folder.newFolder()).use { host ->
+        val phone = TestPhone().apply { admin = true }
+        val watch = Rig(phone)
+        watch.core.serviceConnected(true)
+        host.watch = { watch.facts() }
+        // The watch tells the host of a change, on the phone's own clocks.
+        fun told(): CoverKind {
+          host.wall = phone.wall / 1_000
+          host.elapsedMs = phone.elapsed
+          host.changed()
+          return host.shower.last.kind
+        }
+        host.pair()
+
+        watch.open(LAUNCHER)
+        val pkg = when (how) {
+          "page", "event" -> {
+            watch.open(settings)
+            assertEquals(CoverKind.NOTHING, told())
+            phone.pass(10)
+            phone.paused(settings)
+            phone.pass(30)
+            phone.resumed(settings)
+            phone.pass(20)
+            // The device admin's page by its name, or another maker's name, then Deactivate.
+            val name = if (how == "page") adminPage else "org.example.maker.AdminPage"
+            watch.core.windowEvent(settings, Guarded.page(settings, name))
+            if (how == "event") {
+              assertEquals(CoverKind.NOTHING, told())
+              phone.pass(2_000)
+              watch.core.adminOffAsked()
+            }
+            settings
+          }
+          else -> "com.samsung.accessibility".also { watch.open(it) }
+        }
+        assertEquals(how, CoverKind.GUARD, told())
+
+        // The guard's row opens LiMo's own screen; the right PIN; back to the page, open.
+        phone.pass(500)
+        phone.paused(pkg)
+        phone.pass(10)
+        phone.resumed(LIMO)
+        watch.core.limoScreen(true)
+        assertEquals(how, CoverKind.NOTHING, told())
+        phone.pass(4_000)
+        host.wall = phone.wall / 1_000
+        assertEquals(TryKind.RELEASE_CONFIRMED, (host.core.tryGuardPin(PIN.toByteArray()) as WayOut.Done).value.kind)
+        phone.pass(1_500)
+        watch.core.limoScreen(false)
+        phone.paused(LIMO)
+        phone.pass(10)
+        phone.resumed(pkg)
+        phone.pass(20)
+        assertEquals(how, CoverKind.NOTHING, told())
+
+        // Put down: the page pauses, the screen goes off (the opening closes), Android's lock screen.
+        phone.pass(1_000)
+        phone.paused(pkg)
+        phone.screenOn = false
+        phone.stopped(pkg)
+        assertEquals(how, CoverKind.NOTHING, told())
+        phone.pass(5_000)
+        phone.keyguard = true
+        told()
+
+        // Picked up: the screen on, unlocked, the same page resumes and tells nothing.
+        phone.pass(60_000)
+        phone.screenOn = true
+        told()
+        phone.pass(3_000)
+        phone.keyguard = false
+        phone.pass(40)
+        phone.resumed(pkg)
+        phone.pass(20)
+        val back = told()
+        if (back != CoverKind.GUARD) failed += "$how: $back"
+      }
+    }
+    assertTrue("not guarded again: $failed", failed.isEmpty())
   }
 
   @Test

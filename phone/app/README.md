@@ -646,7 +646,7 @@ per point they match the drawings to within the smoothing of the letters
 | S1 | Welcome, for a guardian, naming the child: six short steps | Start pinned |
 | S2, S2b | What LiMo does here, and the guardian agrees | Continue switched off until the box is ticked |
 | S3 to S8 | One step each: notifications, phone, usage access, accessibility, battery, protection ("Step 2 of 6" and six dots) | NOT ON YET (coral) with the step's own button, or ON (teal), "Android says it is on." and Next; still off after two tries: a line and "Go on without it" |
-| S9 | This phone is set up | six rows, a teal tick for each step Android says is on; leaving it finishes setup on the phone, after which LiMo counts and covers |
+| S9 | This phone is set up | six rows: a teal tick for each step Android says is on, and for a step that is off an ink ring in the tick's place and NOT ON (coral) at the end of its row, with one sentence under the rows that names it (or says how many) and that the child's Today shows a guardian how to turn it on; no row marked either way when the host cannot say; leaving it finishes setup on the phone, after which LiMo counts and covers |
 | C1 to C3 | For the child: what LiMo counts, what it never looks at, how to ask for more time | Next, Next, Got it |
 | E | Today, under the floating tab bar | the time left, the bar, where the time went, the hours off, Ask for more time, the apps |
 | T | Today with the banner | steps switched off: Needs a guardian, the engine's sentence for the first, "And 2 more" when there are more, and a button that shows a guardian each step |

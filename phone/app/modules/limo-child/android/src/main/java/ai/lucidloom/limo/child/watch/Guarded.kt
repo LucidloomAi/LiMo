@@ -100,6 +100,15 @@ internal object Guarded {
  *   guard's PIN is typed in LiMo's own screen, and Emergency call opens the
  *   emergency dialler, and coming back to the same page must find it guarded
  *   again, whether or not that page tells anything again.
+ * - **So does the phone put down**: its screen off, or Android's lock screen
+ *   up. The page waits under it, paused, and resumes when the phone is
+ *   unlocked; that first resume is the same page coming back, guarded again
+ *   whether or not its window tells anything. The engine closes a PIN's
+ *   opening at that same moment, so a phone handed back with its screen off
+ *   comes back guarded. Only the watch can keep this: Android's record tells
+ *   it the same page coming back (its first resume after the phone was put
+ *   down) from another page of the same app (a resume while in use), which
+ *   the engine, seeing only the kind of page, cannot tell apart.
  * - **For a moment after it is raised** ([WatchTimes.CONFIRM_GRACE_MS]) it
  *   holds while usage shows nothing newer than the raise, since Android may
  *   write the page's own resume after its window told the service; an app
@@ -142,40 +151,56 @@ internal class GuardWatch(private val log: WatchLog) {
   /** True while a raised guard holds for [packageName]: a window event of it may have left the page. */
   fun holdsFor(packageName: String?): Boolean = packageName != null && raised?.packageName == packageName
 
+  /** True while a page or the event raised the guard: only then does [now] need to know whether the phone is put down. */
+  val isRaised: Boolean get() = raised != null
+
   /**
    * The guarded page in front now, from what is in front ([pick]), when its
    * activity resumed ([frontSinceWallMs], null with usage access off), the
-   * package that last sent a window event ([lastWindow]) and whether usage
-   * can be read ([usageOn]). Logs one line when the answer changes.
+   * package that last sent a window event ([lastWindow]), whether usage can
+   * be read ([usageOn]) and whether the phone is put down ([putDown]: its
+   * screen off, or Android's lock screen up). Logs one line when the answer
+   * changes.
    */
-  fun now(pick: Pick, frontSinceWallMs: Long?, lastWindow: String?, usageOn: Boolean, nowMs: Long): GuardedPage? {
+  fun now(pick: Pick, frontSinceWallMs: Long?, lastWindow: String?, usageOn: Boolean, putDown: Boolean, nowMs: Long): GuardedPage? {
     val inFront = if (usageOn) pick.packageName ?: lastWindow else lastWindow
-    raised?.let { r ->
+    val r = raised
+    if (r != null) {
       // Usage has said nothing newer than the raise yet: what it shows in
       // front may be from before the page came up.
       val since = frontSinceWallMs.takeIf { usageOn }
       val older = since == null || since <= r.sinceWallMs
-      when {
-        pick.kind == FrontKind.LIMO || pick.kind == FrontKind.DIALLER || pick.kind == FrontKind.EMERGENCY_DIALLER -> {
-          r.aside = true
-          return answer(null, null, null)
-        }
-        inFront == r.packageName || (r.packageName.isEmpty() && inFront == null) -> {
-          if (older) return answer(r.page, r.packageName, r.by)
-          if (r.aside) {
-            // The same app came back after LiMo's own screen or a dialler:
-            // the page that was guarded, guarded again.
-            r.sinceWallMs = since
-            r.aside = false
-            return answer(r.page, r.packageName, r.by)
-          }
+      val same = inFront == r.packageName || (r.packageName.isEmpty() && inFront == null)
+      if (pick.kind == FrontKind.LIMO || pick.kind == FrontKind.DIALLER || pick.kind == FrontKind.EMERGENCY_DIALLER) {
+        r.aside = true
+        return answer(null, null, null)
+      }
+      if (putDown) {
+        // The phone put down: the page waits under the dark screen or the
+        // lock screen, and its next resume is the page coming back. What
+        // comes up over the lock screen meanwhile (its camera) is not the
+        // page, and does not end it.
+        r.aside = true
+        if (same) return answer(r.page, r.packageName, r.by)
+      } else if (same) {
+        if (since == null || since <= r.sinceWallMs) return answer(r.page, r.packageName, r.by)
+        if (!r.aside) {
+          // Another page of the same app resumed: the guard ends.
           raised = null
+        } else {
+          // The same app came back after LiMo's own screen, a dialler or
+          // the phone put down: the page that was guarded, guarded again.
+          r.sinceWallMs = since
+          r.aside = false
+          return answer(r.page, r.packageName, r.by)
         }
+      } else if (older && nowMs - r.sinceMs < WatchTimes.CONFIRM_GRACE_MS) {
         // Another app is in front by what usage last read: for a moment
         // after the raise that may be from before the page came up, unless
         // usage shows it resumed after the raise.
-        older && nowMs - r.sinceMs < WatchTimes.CONFIRM_GRACE_MS -> return answer(r.page, r.packageName, r.by)
-        else -> raised = null
+        return answer(r.page, r.packageName, r.by)
+      } else {
+        raised = null
       }
     }
     val pkg = if (usageOn) pick.packageName else lastWindow

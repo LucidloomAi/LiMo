@@ -225,9 +225,10 @@ drawn then.
 tests. They drive `HostCore`, the host without Android, against the REAL
 engine through the bindings that ship (the PC library, loaded by JNA), with
 the testkit's family playing the master PC for the welcome and the codes.
-The phone is made up (`HostRig`): facts the test sets, the state file in
-memory, a clock the test moves, and the host's tick and alarm run when they
-fall due. It is set up at once (a guardian finishes setup as soon as it is
+The phone is made up (`HostRig`): facts the test sets (or, in
+`HostGuardTest`, the real watch's facts from the watch's own made up phone,
+on the same clocks), the state file in memory, a clock the test moves, and
+the host's tick and alarm run when they fall due. It is set up at once (a guardian finishes setup as soon as it is
 paired), but in `HostSetupTest`. `EngineSpy` wraps each engine to record
 its orders and to fail on purpose.
 
@@ -245,7 +246,7 @@ its orders and to fail on purpose.
 | `HostTroubleTest.aPairingWhoseStateCannotBeKeptChangesNothing` | A pairing that cannot be written: refused, the secret wiped, the engine made for it closed, still not paired, nothing ticking, nothing told |
 | `HostTroubleTest.withTheScreenOffNothingTicksEverySecondAndTheAlarmWakesTheHost` | The screen off: one tick at once, the time left paused, at most one tick in ten minutes, the alarm at most fifteen minutes away and firing, set again; the screen on: a tick at once and every second again |
 | `HostTroubleTest.forgettingThePairingStopsEverything` | The state deleted, no tick, no alarm, no watching, nothing covered, the keeper cleared, told; a way out answered `NotPaired` |
-| `HostGuardTest` (2) | The watch saying the device admin's page is in front: the guard to the shower at once, noted by its page; a wrong PIN on it wiped, kept before the answer, still guarded; the right one wiped, the guard gone by the time the answer comes and for five minutes, then back; logged by kind, never the PIN; the stand in shower's line for the guard, by its page only |
+| `HostGuardTest` (3) | The watch saying the device admin's page is in front: the guard to the shower at once, noted by its page; a wrong PIN on it wiped, kept before the answer, still guarded; the right one wiped, the guard gone by the time the answer comes and for five minutes, then back; logged by kind, never the PIN; the stand in shower's line for the guard, by its page only; through the real watch, for a page raised by its name, by Android's event and by One UI's package: the PIN on LiMo's own screen, the page open, the phone put down (the screen off, Android's lock screen), picked up and unlocked, the same page back with no window event, and the guard ordered again |
 | `HostNameTest` (6) | The name from a pairing cleaned and kept beside the state, read by a new process, removed by forgetting, told, never logged; a pairing with no name keeping none and removing an older one; a name file lost or damaged is no name, and a name that cannot be written leaves the phone paired; not paired, no name whatever the file holds; cleaning (direction marks, control characters, cut at 40 without splitting a character); the file read back exactly, anything else refused |
 | `HostHouseRulesTest` (2) | No log line in host/, keep/ or dev/ interpolates a label, the child's name, a reason, a message, words, a title, a welcome, a secret, a code or a PIN; no dash punctuation in their files, READMEs, the module's words and manifests |
 

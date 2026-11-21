@@ -277,6 +277,20 @@ raised, as Android's usage record tells:
 - LiMo's own screens (where the guard's PIN is typed), the dialler and the
   emergency dialler set it aside, and the same page coming back after them
   is guarded again, whether or not its window tells anything again;
+- so does the phone put down, its screen off or Android's lock screen up:
+  the page waits under it, paused, and its first resume once the phone is
+  unlocked is the same page coming back, guarded again whether or not its
+  window tells anything; an app opened over the lock screen meanwhile (its
+  camera) does not end it, and another page or app after the unlock ends it
+  as before. The watch reads the screen and the lock screen at every look,
+  and at once on Android's screen signals, so it knows even when the host
+  did not look while the screen was off. The engine closes a PIN's five
+  minutes at that same moment (phone/engine/README.md, rule 12), so a phone
+  handed back with its screen off comes back guarded. This is the watch's
+  to keep, not the engine's: only Android's record tells the same page
+  coming back (its first resume after the phone was put down) from another
+  page of the same app (a resume while in use), and the engine sees only
+  the kind of page;
 - for a second after it is raised (`CONFIRM_GRACE_MS`) it holds while
   usage shows nothing newer than the raise, since Android may write the
   page's own resume late; so a page's window sent late over the home screen
@@ -433,7 +447,7 @@ While someone listens (`listen`), and only then:
 
 | Signal | Android's call | Tells |
 | --- | --- | --- |
-| the screen on, off, unlocked | receiver: `SCREEN_ON`, `SCREEN_OFF`, `USER_PRESENT` | `SCREEN` |
+| the screen on, off, unlocked | receiver: `SCREEN_ON`, `SCREEN_OFF`, `USER_PRESENT` | `SCREEN`; the guard reads at once whether the phone is put down |
 | a call, Android 12 and later | `AudioManager.addOnModeChangedListener` | `CALL` |
 | a call, Android 12 and later, while the Phone permission is granted | `TelephonyManager.registerTelephonyCallback` with a `CallStateListener` | `CALL` |
 | a call, Android 8 to 11 | `TelephonyManager.listen(LISTEN_CALL_STATE)` | `CALL` |
@@ -492,11 +506,11 @@ back to write them late.
 | Where | What | Count |
 | --- | --- | --- |
 | `FrontTest` | An app in front once its activity resumed and its window said so; proof two's late event after "Go home", fourteen tries, the home screen in front throughout, the event dropped after three rechecks; the home screen's resume written late with the late event first; an event usage has not written yet, confirmed by a recheck; a floating window never in front; the shade, system dialogs, keyboards and LiMo's cover proposing nothing, older phones' recent apps and a permission dialog leaving the app in front; LiMo's activity and its cover; LiMo's word for its screen with usage access off, and a missed word put right; the dialler, a call's own screen learned and still the dialler after the call, a game during a call still a game; a screen with no icon the call's only during a call and learned only as it starts; an in call screen Android names; a package with no icon brought up after the call's own screen never learned, whether that screen was learned or named; one that came up before the call never learned, read before the call was seen or only as it was; the call's own screen, unnamed and first to come up as a call rings or after one answered from a heads up notification, learned and still the dialler after the call; the emergency dialler named, learned, never learned for an app with an icon or after ten seconds; the first run's sequence (the named emergency dialler, the home screen, Settings, then a package with no icon 8.7 seconds after the tap) learning nothing; an emergency dialler Android does not name learned as the first screen after the tap, from LiMo's own screen, when left before the watch read the record, and when brought up again while already in front, and a second package with no icon after it never learned; the dialler, the home screen, LiMo or an app with an icon coming first and ending the wait; no wait where Android names no dialler or with usage off; the wait ended by ten seconds, the clock set and a refused read; usage access off: unknown, a dialler still saying so, LiMo's covers changing nothing, back on at once; split screen; picture in picture, and Android 9 and older; an app with no label, a blank one, an unseen one, one that cannot be read; the clock set back, told or not; a restart of the phone in the record; events read twice near the edge, written late, the clock gone back | 27 |
-| `GuardTest` | The device admin's page guarded by its name, through a dialog over it (minutes), ended by another page of Settings and by home, Android 8.0 to 9's name too, the log naming page and package and never a class; a page whose own resume Android writes late guarded at once, and a page's late window over home guarded for at most a second; LiMo's own screen (the PIN) and the emergency dialler setting it aside, the same page guarded again on its return, another page ending it; Android asking the device admin to switch off raising it over its question, held through the dialog, ended by home; One UI's accessibility package guarded while usage shows it, never by a late window alone, and with usage access off by the last window, a page by name held until another app's window; a class name read for Settings and the installer only, the same name from any other app nothing | 6 |
+| `GuardTest` | The device admin's page guarded by its name, through a dialog over it (minutes), ended by another page of Settings and by home, Android 8.0 to 9's name too, the log naming page and package and never a class; a page whose own resume Android writes late guarded at once, and a page's late window over home guarded for at most a second; LiMo's own screen (the PIN) and the emergency dialler setting it aside, the same page guarded again on its return, another page ending it; Android asking the device admin to switch off raising it over its question, held through the dialog, ended by home; One UI's accessibility package guarded while usage shows it, never by a late window alone, and with usage access off by the last window, a page by name held until another app's window; a class name read for Settings and the installer only, the same name from any other app nothing; a page raised by its name, by Android's event and by One UI's package, after the PIN on LiMo's own screen, coming back as the same page with no window event and guarded again after each way away (the screen off with the lock screen, the screen off alone, the lock screen alone, the lock screen's camera, LiMo's own screen, a call), and another page or app after it still ending it; Android's screen signal alone keeping it when nothing looks while the screen is off, and a window event with no guard raised reading nothing of the screen; after a restart of LiMo's process, the package guarded at once, a page by name or by event only once it tells again | 9 |
 | `FactsTest` | Every fact from its reading in one place; each fact's fallback, its last good reading and then its default; every reading refused at once, logged once each, and the facts back when Android answers; a refusal logged once a minute without its message or a label; the call state from the audio mode and the telephony state, against Android's own numbers, a silent ring on Android 8 to 11 with or without the Phone permission; on Android 12 and later a silent ring read with the Phone permission, and without it the telephony state never asked for and the audio mode alone the fallback, a permission granted while LiMo runs taken within five seconds, a refused reading falling back to the audio mode, logged once; usage event kinds against Android's numbers; the accessibility permission switched on, connected, starting; the permissions read again after five seconds or when told; the accessibility setting in both forms; the launchable apps sorted, LiMo left out, the dialler never counted; labels kept and forgotten; the roles asked again and kept when refused; usage that cannot be read; the Phone permission as Android grants it, each of the six reaching the engine's own field, off when it cannot be read | 15 |
 | `HouseRulesTest` | No source here reads a window's content, its text, or changes the service's settings at run time; a window's class name read in exactly one place, the service, only after asking that the package is Settings or the installer, and handed only to `WindowPage`; its release copy only matches (no log, no probe), its debug copy hands the name to the probe and matches as release does; the list's packages exactly Settings and the installer; no log line names a class; a caller's number is never used; package names only in the framework's list (`Roles.kt`) and the guard's (`Guarded.kt`); no dash punctuation in a comment or this README | 3 |
 
-All 51 pass, with the module's other tests (the engine and the link from
+All 54 pass, with the module's other tests (the engine and the link from
 Kotlin, host/, keep/ and dev/), in well under a second of test time each.
 
 ## The first run
@@ -601,6 +615,15 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
 14. **Timing.** How long after the device admin's page comes up the guard
     is drawn (`show cover drawn ms=`), and whether a quick tap on
     Deactivate can beat it.
+15. **The same page after the screen off.** With the device admin's page,
+    and then One UI's accessibility settings, open under the PIN: the
+    screen off, the lock screen, the screen on, unlocked. The guard must be
+    over the same page at once (tag `LiMo`: `show cover now guard`), before
+    anything is tapped. The watch writes no new `guard now` line for it,
+    since the page never left; whether One UI's page sends a window event
+    after the unlock (the probe shows it) is worth a note, since the guard
+    no longer needs one. The same with the lock screen's camera opened and
+    closed before unlocking.
 
 ## Left open
 
@@ -670,6 +693,24 @@ For the owner, on the Galaxy S20 Ultra (Android 13, One UI 5.1), with
   at all.
 - **Another app's device admin page** is guarded too while LiMo's
   protection is on: a class name cannot tell whose page it is.
+- **A restart of LiMo's process with a guarded page in front.** Nothing of
+  a raised guard outlives the process: the watch keeps no file. A package
+  guarded whole (One UI's accessibility settings) is guarded again at the
+  new process's first look, from Android's record. A page guarded by its
+  name is guarded again only when its window tells again (it comes back to
+  the front after the shade, a dialog or another screen over it), and a
+  guard raised by Android's event only when Deactivate asks again; until
+  then a device admin's page already in front, or Android's question
+  already up, is open. A new process cannot ask Android which page is in
+  front: that needs a window's content, which the watch never reads.
+  Either of two changes would close it, each a choice for the lead: a small
+  note of the raise kept outside the process (the kind of page, its package
+  and when its activity resumed), believed by a new process only while
+  Android's record shows that same activity still in front; or the class of
+  the activity that resumed, read from Android's usage record for Settings
+  only, under the same narrow rule as a window's class name. With the
+  device admin on, Settings' Force stop is greyed out, so such a restart
+  takes a crash or Android ending LiMo for memory.
 
 ## Layout
 

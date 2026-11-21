@@ -1198,8 +1198,9 @@ The protection off, forget and uninstall:
    `.\limo-phone-dev uninstall`: `uninstall removes LiMo from the phone,
    with everything it kept there.`, then `Android will not remove LiMo
    while it is a device admin on this phone (its protection). Switch the
-   protection off on the phone (Settings, Security, Device admin apps),
-   then run uninstall again. This tool never changes it.` and `Nothing was
+   protection off on the phone, on Android's Device admin apps page (the
+   search in Settings finds it), then run uninstall again. This tool never
+   changes it.` and `Nothing was
    changed on the phone.` Exit code 2. (The home screen's refusal is part
    P, step 8.) Then find Device admin apps (on One UI 5, Settings, Security
    and privacy, Other security settings; Settings' search finds "Device

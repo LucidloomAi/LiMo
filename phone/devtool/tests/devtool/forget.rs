@@ -115,6 +115,12 @@ fn uninstall_refused_while_limo_is_a_device_admin_and_harmless_twice() {
     bench.phone.admin = true;
     assert_eq!(bench.run("uninstall"), REFUSED);
     assert!(bench.printed().contains("Android will not remove LiMo while it is a device admin on this phone (its protection)."));
+    // Where, in words true on any phone: the page's own name, and Settings' search, never one maker's path.
+    assert!(bench.printed().contains(
+        "Switch the protection off on the phone, on Android's Device admin apps page (the search in Settings finds it), \
+         then run uninstall again."
+    ));
+    assert!(!bench.printed().contains("Settings, Security"));
     assert!(bench.printed().contains("This tool never changes it."));
     assert!(bench.phone.app.is_some());
 

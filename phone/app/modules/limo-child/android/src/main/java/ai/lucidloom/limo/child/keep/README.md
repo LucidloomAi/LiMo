@@ -283,10 +283,22 @@ LiMo`:
    Samsung note on the Battery step) is needed for the alarm to come on time
    with the screen off.
 8. **The device admin asked to switch off.** Settings, Device admin apps,
-   LiMo, Deactivate: the log says `keep admin_off asked` and the watch's
-   `guard now device_admin`, the guard is over Android's question at once,
-   and Android's question, once the PIN opened it, holds LiMo's words.
-   Whether a quick tap can reach OK before the guard is drawn.
+   LiMo, Deactivate, with `adb logcat -s LiMo LiMoWatch`. What the log says
+   depends on whether the page's name is on the watch's list:
+   - **On the list** (Android's own names): the page was guarded as it came
+     up (`guard now device_admin by=page package=com.android.settings`), so
+     Deactivate can be tapped only after a guardian's PIN opened it. Then
+     the log says `keep admin_off asked` and nothing more: the watch already
+     says the device admin's page is in front, so it writes no new guard
+     line, and the PIN's five minutes still stand, so Android's question
+     shows at once.
+   - **Not on the list** (a maker's own name): nothing covered the page.
+     Deactivate logs `guard now device_admin by=event
+     package=com.android.settings`, then `keep admin_off asked`, and the
+     guard is over Android's question at once. A guardian's PIN opens it.
+
+   Either way Android's question holds LiMo's words. Whether a quick tap
+   can reach OK before the guard is drawn.
 9. **What One UI refuses** an active device admin: Force stop and Clear
    storage greyed out, as Android's own Settings does, or not; and
    Uninstall from App info going to the device admin's page.

@@ -214,6 +214,9 @@ internal class HostRig(folder: File, start: Long = WEDNESDAY_4_PM) : AutoCloseab
   var permissions = ALL_PERMISSIONS
   var guarded: GuardedPage? = null
 
+  /** The facts from a real watch on a made up phone, when a test gives one, in place of the fields above. */
+  var watch: (() -> PhoneFacts)? = null
+
   val store = MemoryStore(trail)
   val names = MemoryNames()
   val shower = RecordingShower(trail)
@@ -233,7 +236,7 @@ internal class HostRig(folder: File, start: Long = WEDNESDAY_4_PM) : AutoCloseab
   private var onChange: (() -> Unit)? = null
 
   private val facts = object : FactsSource {
-    override fun factsNow(): PhoneFacts = PhoneFacts(
+    override fun factsNow(): PhoneFacts = watch?.invoke() ?: PhoneFacts(
       wallSecs = wall,
       elapsedMs = elapsedMs,
       bootCount = 7,

@@ -121,7 +121,12 @@ class Watch private constructor(context: Context) : PhoneWatch {
     if (changed) announce(WatchChange.FRONT)
   }
 
-  internal fun screenChanged() = guard("screen") { announce(WatchChange.SCREEN) }
+  internal fun screenChanged() = guard("screen") {
+    // The guard learns of the phone put down at once, whether or not the
+    // host looks then; the host's tick at this signal sees the rest.
+    synchronized(lock) { core.screenChanged() }
+    announce(WatchChange.SCREEN)
+  }
 
   internal fun appsChanged(tell: Boolean) = guard("apps") {
     synchronized(lock) { core.appsChanged() }

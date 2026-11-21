@@ -1074,8 +1074,8 @@ fn uninstall(tool: &mut Tool<'_>) -> i32 {
         Removed::StillAdmin => {
             ui.say(
                 "Android will not remove LiMo while it is a device admin on this phone (its protection). Switch the \
-                 protection off on the phone (Settings, Security, Device admin apps), then run uninstall again. This \
-                 tool never changes it.",
+                 protection off on the phone, on Android's Device admin apps page (the search in Settings finds it), \
+                 then run uninstall again. This tool never changes it.",
             );
             ui.say(NOTHING_CHANGED);
             REFUSED

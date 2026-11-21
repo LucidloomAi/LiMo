@@ -7,6 +7,29 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** A camera that opens over Android's lock screen. */
+private const val CAMERA = "org.example.camera"
+
+/**
+ * The guard's PIN, typed on LiMo's own screen: [pkg]'s activity pauses,
+ * LiMo's resumes, then LiMo's closes and the same activity of [pkg] resumes
+ * again. No window event at all.
+ */
+private fun Rig.pinOnLimosScreen(pkg: String) {
+  phone.pass(500)
+  phone.paused(pkg)
+  phone.pass(10)
+  phone.resumed(LIMO)
+  core.limoScreen(true)
+  phone.pass(6_000)
+  core.limoScreen(false)
+  phone.paused(LIMO)
+  phone.pass(10)
+  phone.resumed(pkg)
+  phone.stopped(LIMO)
+  phone.pass(20)
+}
+
 /**
  * The watch's part of the guard: which page that could switch LiMo off or
  * remove it is in front, by the page's name inside Settings, by Android's
@@ -37,6 +60,226 @@ class GuardTest {
   }
 
   private fun Rig.guarded(): GuardedPage? = facts().guarded
+
+  /** The three ways a guard is raised. */
+  private enum class Raised { BY_PAGE, BY_EVENT, BY_PACKAGE }
+
+  /** Brings up a page that is guarded as [how] says, from the home screen; returns the package it is in and the page. */
+  private fun Rig.raise(how: Raised): Pair<String, GuardedPage> {
+    open(LAUNCHER)
+    return when (how) {
+      Raised.BY_PAGE -> {
+        open(settings)
+        settingsPage(adminPage)
+        settings to GuardedPage.DEVICE_ADMIN
+      }
+      Raised.BY_EVENT -> {
+        // A device admin's page whose name is not on the list (another maker's), then Deactivate.
+        open(settings)
+        settingsPage("org.example.maker.AdminPage")
+        phone.pass(2_000)
+        core.adminOffAsked()
+        settings to GuardedPage.DEVICE_ADMIN
+      }
+      Raised.BY_PACKAGE -> {
+        open(oneUiAccessibility)
+        oneUiAccessibility to GuardedPage.ACCESSIBILITY
+      }
+    }
+  }
+
+  /**
+   * The ways a page leaves the front and comes back as the same page, each
+   * as Android does it, the host looking at every change of the screen as
+   * its tick at the screen's signal does, and **no window event from the page
+   * on its way back**.
+   */
+  private enum class Away(val play: Rig.(String) -> Unit) {
+    /** The screen off, Android's lock screen locking a few seconds later, then on, the lock screen, unlocked. */
+    SCREEN_OFF_AND_LOCK_SCREEN({ pkg ->
+      phone.pass(1_000)
+      phone.paused(pkg)
+      phone.pass(5)
+      phone.screenOn = false
+      phone.stopped(pkg)
+      look()
+      phone.pass(5_000)
+      phone.keyguard = true
+      look()
+      phone.pass(60_000)
+      phone.screenOn = true
+      look()
+      phone.pass(3_000)
+      phone.keyguard = false
+      phone.pass(40)
+      phone.resumed(pkg)
+      phone.pass(20)
+    }),
+
+    /** The screen off and on again on a phone with no screen lock: no lock screen at all. */
+    SCREEN_OFF_ONLY({ pkg ->
+      phone.pass(1_000)
+      phone.paused(pkg)
+      phone.pass(5)
+      phone.screenOn = false
+      phone.stopped(pkg)
+      look()
+      phone.pass(30_000)
+      phone.screenOn = true
+      phone.pass(40)
+      phone.resumed(pkg)
+      phone.pass(20)
+    }),
+
+    /** Android's lock screen coming up while the screen stays on, then unlocked. */
+    LOCK_SCREEN_ONLY({ pkg ->
+      phone.pass(1_000)
+      phone.keyguard = true
+      phone.paused(pkg)
+      phone.stopped(pkg)
+      look()
+      phone.pass(10_000)
+      phone.keyguard = false
+      phone.pass(40)
+      phone.resumed(pkg)
+      phone.pass(20)
+    }),
+
+    /** The screen off, then on over the lock screen, the lock screen's camera opened and closed there, then unlocked. */
+    LOCK_SCREEN_CAMERA({ pkg ->
+      phone.pass(1_000)
+      phone.paused(pkg)
+      phone.pass(5)
+      phone.screenOn = false
+      phone.keyguard = true
+      phone.stopped(pkg)
+      look()
+      phone.pass(20_000)
+      phone.screenOn = true
+      look()
+      phone.pass(1_000)
+      phone.resumed(CAMERA)
+      phone.pass(20)
+      core.windowEvent(CAMERA)
+      look()
+      phone.pass(10_000)
+      phone.paused(CAMERA)
+      phone.stopped(CAMERA)
+      look()
+      phone.pass(2_000)
+      phone.keyguard = false
+      phone.pass(40)
+      phone.resumed(pkg)
+      phone.pass(20)
+    }),
+
+    /** LiMo's own screen over it and away again (the guard's PIN, or any of LiMo's screens). */
+    LIMOS_SCREEN({ pkg -> pinOnLimosScreen(pkg) }),
+
+    /** A call: its screen over the page while it rings and is on, then the call ends and the page comes back. */
+    A_CALL({ pkg ->
+      phone.pass(1_000)
+      phone.audioMode = 1
+      core.callChanged()
+      phone.paused(pkg)
+      phone.pass(30)
+      phone.resumed(PHONE_APP)
+      phone.pass(20)
+      core.windowEvent(PHONE_APP)
+      phone.pass(3_000)
+      phone.audioMode = 2
+      core.callChanged()
+      phone.pass(60_000)
+      phone.audioMode = 0
+      core.callChanged()
+      phone.paused(PHONE_APP)
+      phone.pass(30)
+      phone.resumed(pkg)
+      phone.stopped(PHONE_APP)
+      phone.pass(20)
+    }),
+  }
+
+  @Test
+  fun aGuardedPageThatComesBackIsGuardedAgainWhateverTookItAwayWithNoWindowEvent() {
+    val failed = ArrayList<String>()
+    for (how in Raised.values()) {
+      for (away in Away.values()) {
+        val rig = Rig()
+        val (pkg, page) = rig.raise(how)
+        assertEquals("$how", page, rig.guarded())
+        // A guardian typed the PIN on LiMo's own screen and came back to the
+        // page (the engine keeps it open; the watch still says what it is).
+        rig.pinOnLimosScreen(pkg)
+        assertEquals("$how after the PIN", page, rig.guarded())
+
+        away.play(rig, pkg)
+        val back = rig.guarded()
+        if (back != page) failed += "$how $away: $back"
+
+        // Then another page of Settings, or another app, ends it as before.
+        if (pkg == settings) rig.settingsPage("com.android.settings.SubSettings") else rig.open(GAME)
+        rig.phone.pass(WatchTimes.CONFIRM_GRACE_MS)
+        assertNull("$how $away then elsewhere", rig.guarded())
+      }
+    }
+    assertTrue("not guarded again: $failed", failed.isEmpty())
+  }
+
+  @Test
+  fun androidsScreenSignalAloneKeepsTheGuardWhenNothingLooksWhileTheScreenIsOff() {
+    for (how in listOf(Raised.BY_PAGE, Raised.BY_EVENT)) {
+      val rig = Rig()
+      val (pkg, page) = rig.raise(how)
+      rig.pinOnLimosScreen(pkg)
+      // The screen goes off: Android's signal tells the watch, and nothing
+      // else looks until the phone is picked up.
+      rig.phone.pass(1_000)
+      rig.phone.paused(pkg)
+      rig.phone.screenOn = false
+      rig.phone.stopped(pkg)
+      assertFalse("$how: still the page, under the dark screen", rig.core.screenChanged())
+      rig.phone.pass(60_000)
+      rig.phone.screenOn = true
+      rig.phone.pass(40)
+      rig.phone.resumed(pkg)
+      rig.phone.pass(20)
+      assertEquals("$how", page, rig.guarded())
+    }
+    // With no guard raised, a window event reads nothing of the screen: it costs no more than before.
+    val plain = Rig()
+    plain.open(LAUNCHER)
+    plain.look()
+    plain.phone.failing += listOf("interactive", "keyguard_locked")
+    plain.open(GAME)
+    plain.core.screenChanged()
+    assertFalse(plain.log.lines.any { it.startsWith("fact interactive") || it.startsWith("fact keyguard_locked") })
+  }
+
+  @Test
+  fun afterARestartOfLimosProcessAPackageIsGuardedAtOnceAndAPageOnlyWhenItTellsAgain() {
+    for (how in Raised.values()) {
+      val phone = TestPhone()
+      val (_, page) = Rig(phone).raise(how)
+      phone.pass(5_000)
+      // LiMo's process ends and starts again with the page still in front,
+      // which tells nothing: a new watch on the same phone.
+      val again = Rig(phone)
+      if (how == Raised.BY_PACKAGE) {
+        // Android's record says which package is in front: guarded at once.
+        assertEquals(page, again.guarded())
+        continue
+      }
+      // What a new process cannot know: nothing of the raise outlives the
+      // process, and Android's record says only that Settings is in front.
+      assertNull("$how", again.guarded())
+      // Guarded again as soon as the page tells again: its window by name
+      // (its focus back after the shade, say), or Deactivate asking once more.
+      phone.pass(2_000)
+      if (how == Raised.BY_PAGE) again.window(adminPage) else again.core.adminOffAsked()
+      assertEquals("$how", page, again.guarded())
+    }
+  }
 
   @Test
   fun theDeviceAdminsPageIsGuardedByItsNameAndADialogOverItKeepsItGuarded() {
