@@ -311,6 +311,13 @@ their phones, Add a guardian, and Add a guardian's phone.
   putting LiMo Guardian on the phone, the phone's own part (its own screen
   lock, and the choice Tell me of requests at home), and Done. The other
   steps are Add a phone's, with the guardian's name.
+- **Add a phone's first three steps are drawn as built.** A1 says a
+  guardian's own phone is added from More; A2 says where Build number is
+  on a Samsung phone; A3 is drawn in its three states: the phone does not
+  know this PC yet, and Ask the phone asks it, once, with the phone
+  unlocked; asked, and waiting for Allow; and after twenty seconds with no
+  answer, what to do when the phone shows nothing. Add a guardian's phone
+  uses the same three.
 - **What a guardian's phone can do is said plainly,** at Done and in
   Devices: behind its own screen lock it sees the day and answers it
   (requests, time, lock, open, a one time code); with the password it

@@ -90,10 +90,10 @@
 
 <section class="part" id="sheet-2b">
   <h2>A1 to A9. Add a phone</h2>
-  <p class="lead">One step a screen, as in the first start, with the cable’s state live at the foot of every step: read once a second, beside the main button on the PC and above it on a phone. A step that waits for the phone keeps its button switched off and moves on by itself. The phone asks once to allow this PC’s key, and the screen shows the key so a guardian can compare it. Installing asks nothing on the phone. The phone’s own six steps are done on the phone while this screen shows which are on. At the end LiMo offers to switch USB debugging off again.</p>
+  <p class="lead">One step a screen, as in the first start, with the cable’s state live at the foot of every step: read once a second, beside the main button on the PC and above it on a phone. A step that waits for the phone keeps its button switched off and moves on by itself. Step 3 asks the phone to allow this PC only when the guardian taps Ask the phone, with the phone unlocked, because a phone puts no question on a locked screen; the screen shows the key so a guardian can compare it, and after twenty seconds with no answer it says what to do. Installing asks nothing on the phone. The phone’s own six steps are done on the phone while this screen shows which are on. At the end LiMo offers to switch USB debugging off again.</p>
   <div id="add"></div>
   <h3>The cable’s state, in each case</h3>
-  <p class="lead">Only the pinned strip. The PC tells these apart: no phone on any USB port, so the cable probably only charges; a phone with USB debugging off; a phone whose debugging side has no working driver on Windows; a phone that has not allowed this PC yet; and connected.</p>
+  <p class="lead">Only the pinned strip. The PC tells these apart: no phone on any USB port, so the cable probably only charges; a phone with USB debugging off; a phone whose debugging side has no working driver on Windows; a phone that does not know this PC yet; a phone asked and waiting for Allow; and connected.</p>
   <div id="cable"></div>
   <h3>Unrolled: the frames that scroll</h3>
   <p class="lead">Each frame that does not fit its window, drawn at its full length.</p>
@@ -126,7 +126,7 @@
 
   <h2>W4 to W8. Add a guardian’s phone</h2>
   <p class="lead">Over the cable, as a child’s phone is added, in Add a phone’s nine steps, so a guardian who has added a child’s phone knows it already. The family’s PC puts LiMo Guardian on the phone and pairs it over the cable, and the cable’s state is at the foot of every step. Only the steps that differ from Add a phone are drawn here: the start, putting LiMo Guardian on the phone, the phone’s own part, and Done, which says plainly what the phone can do and what stays on the PC.</p>
-  <div class="card"><div class="line"><span class="k">W7, not drawn</span><span>Steps 2, 3, 5, 7 and 8 are Add a phone’s A2, A3, A5, A7 and A8 as drawn, with step 3’s Ask the phone and its help when the phone shows nothing, with Devi’s name and phone in place of Asha’s.</span></div></div>
+  <div class="card"><div class="line"><span class="k">W7, not drawn</span><span>Steps 2, 3, 5, 7 and 8 are Add a phone’s A2, A3 (in its three states, A3 to A3c), A5, A7 and A8 as drawn, with Devi’s name and phone in place of Asha’s.</span></div></div>
   <div id="gphone"></div>
   <h3>Unrolled: the frames that scroll</h3>
   <p class="lead">Each frame that does not fit its window, drawn at its full length.</p>
@@ -183,7 +183,9 @@
     add: [
       ['A1', 'Start: whose phone, and what is needed', C.addPhone(0)],
       ['A2', 'Switch on USB debugging', C.addPhone(1)],
-      ['A3', 'Allow this PC on the phone, and compare its key', C.addPhone(2)],
+      ['A3', 'Allow this PC: the phone does not know it yet, and Ask the phone', C.allowStep('unknown')],
+      ['A3b', 'Allow this PC: asked, waiting for Allow on the phone', C.allowStep('asked')],
+      ['A3c', 'Allow this PC: twenty seconds with no answer', C.allowStep('help')],
       ['A4', 'Checks, then putting LiMo on the phone', C.addPhone(3)],
       ['A5', 'Paired over the cable, and the phone’s name', C.addPhone(4)],
       ['A6', 'The phone’s own six steps, done on the phone', C.addPhone(5)],
@@ -239,7 +241,8 @@
     ['none', 'No phone on any USB port'],
     ['off', 'A phone, with USB debugging off'],
     ['driver', 'A phone whose debugging side has no working driver'],
-    ['allow', 'A phone that has not allowed this PC yet'],
+    ['unknown', 'A phone that does not know this PC yet'],
+    ['allow', 'A phone asked, waiting for Allow'],
     ['ok', 'Connected']
   ].map(function (c) {
     var s = C.cableStrip(c[0]);
@@ -270,7 +273,7 @@
     ['Steps', 'Eight in the first start and nine in Add a phone, with Back at the left and the counter at the right. Done ones teal, this one marigold, later ones outlined; every dot keeps its size. Back keeps what was typed.'],
     ['Messages', 'A message under a field has two lines of room kept when there is none. A problem Save finds in the rules is the rules’ own sentence, beside the row it is about, and the strip says Not saved.'],
     ['Accounts', 'LiMo changes no Windows account itself. An account left for later is locked once the first start ends; an administrator’s account never is. Devices can set accounts not told about to be used freely instead.'],
-    ['The cable', 'Read once a second while Add a phone is open. Five cases, each with its own words. LiMo never switches USB debugging on; only a person can. The key shown in A3 is the one the phone shows in its own question.'],
+    ['The cable', 'Read once a second while Add a phone is open. Six cases, each with its own words; reading it never asks the phone anything. LiMo never switches USB debugging on; only a person can. The key shown in A3 is the one the phone shows in its own question.'],
     ['Today', 'Times come from the service as numbers and are written in the engine’s words, such as 1 h 12 min. The screen asks again every few seconds while it is open. Lift is switched off unless a guardian’s lock or unlock is in force.'],
     ['Tabs', 'Today, Rules, Devices, More. On a phone the bar is set in 14 from the sides and the bottom; at the console’s width it keeps a width of 440 in the middle, 14 above the window’s edge. Where the window cannot blur, the bar is the card colour at nearly full strength.'],
     ['Icons', 'From the set, at 24 in a tab and a row, 32 on a tile, 48 beside a heading, 64 on sign in. Rules has its own icon, a clipboard of ticked rows. An app’s first letter on a tile stands for its own icon, which the real screens show.'],

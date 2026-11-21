@@ -545,7 +545,8 @@
     none: ['', 'No phone on a USB port.', 'If it is plugged in, the cable may only charge it. Try the one that came with the phone.'],
     off: ['', 'A phone is plugged in.', 'USB debugging is off on it.'],
     driver: ['coral', 'No working driver for this phone.', 'Install its maker’s USB driver for Windows, such as Samsung’s Android USB Driver.'],
-    allow: ['', 'A phone is plugged in.', 'Waiting for Allow on the phone.'],
+    unknown: ['', 'A phone is plugged in.', 'It does not know this PC yet.'],
+    allow: ['', 'The phone is asking.', 'Waiting for Allow on the phone.'],
     ok: ['teal', 'Connected: Galaxy S20 Ultra.', 'Android 13.']
   };
   function foot(c) {
@@ -568,11 +569,34 @@
     return '<div class="cn-oks">' + list.map(function (m) { return '<div class="cn-ok">' + MARK.tick + '<span>' + m + '</span></div>'; }).join('') + '</div>';
   }
 
+  /** Step 3 in its three states. 'unknown': the phone does not know this
+      PC and nothing was asked of it; Ask the phone asks it, once, with the
+      phone unlocked, since a phone puts no question on a locked screen.
+      'asked': waiting for Allow, the button off. 'help': twenty seconds
+      asked with no answer: what to do when the phone shows nothing. */
+  function allowStep(state) {
+    var asked = state !== 'unknown';
+    return addStep(2, 'key', 'Allow this PC on the phone',
+      (asked
+        ? '<p class="cn-detail">Unlock the phone. It asks: Allow USB debugging? Tick Always allow from this computer, then tap Allow.</p>'
+        : '<p class="cn-detail">Unlock the phone and keep its screen on.</p>' +
+          '<p class="cn-small">The phone asks once for LiMo, even if it allowed this PC before.</p>') +
+      label('The phone shows this PC’s key', 'gap') +
+      '<div class="cn-finger">3C:91:5A:07:E2:4B:D8:16:<br>AF:62:0C:B9:75:18:4E:D3</div>' +
+      '<p class="cn-small">It should read the same. If it does not, tap Cancel on the phone. The phone asks once; after that it knows this PC.</p>' +
+      (state === 'help'
+        ? '<div class="cn-note">' + label('Nothing on the phone?') +
+          '<p>Unlock it and keep its screen on. If it still shows nothing: on the phone, Settings, Developer options, switch USB debugging off and on again. Then ask again.</p></div>'
+        : ''),
+      asked ? 'Waiting for Allow' : 'Ask the phone', asked ? 'allow' : 'unknown', asked);
+  }
+
   function addPhone(at) {
     switch (at) {
       case 0:
         return addStep(0, 'phone', 'Add a phone',
           label('Whose phone', 'gap') + chips([['a', 'Asha'], ['m', 'Mira']], 'a') +
+          '<p class="cn-small">This adds a child’s phone. For your own, use Add a guardian’s phone in More.</p>' +
           label('You need', 'gap') +
           '<div class="cn-need-list">' +
             '<div class="cn-li"><span class="cn-tile">' + icon('phone', 32) + '</span><span><b>Asha’s phone</b></span></div>' +
@@ -585,7 +609,7 @@
           '<p class="cn-detail">Only a person can switch it on, on the phone itself. On most phones:</p>' +
           ol([
             ['Open Settings, then About phone.', 'On a Samsung phone, then Software information.'],
-            ['Tap Build number seven times.', 'The phone may ask for its own PIN, then says that developer mode is on.'],
+            ['Tap Build number seven times.', 'The phone may ask for its own PIN, then says that developer mode is on. On a Samsung phone, Build number is under About phone, Software information.'],
             ['Go back to Settings, open Developer options, and switch on USB debugging.', 'Developer options is near the end of Settings.'],
             ['Plug the phone into this PC.', 'This screen moves on by itself when it sees USB debugging.']
           ]) +
@@ -593,12 +617,7 @@
             '<p>Also switch off Auto Blocker, in Settings, Security and privacy. It blocks installs over the cable.</p></div>',
           'Next', 'off', true);
       case 2:
-        return addStep(2, 'key', 'Allow this PC on the phone',
-          '<p class="cn-detail">Unlock the phone. It asks: Allow USB debugging? Tick Always allow from this computer, then tap Allow.</p>' +
-          label('The phone shows this PC’s key', 'gap') +
-          '<div class="cn-finger">3C:91:5A:07:E2:4B:D8:16:<br>AF:62:0C:B9:75:18:4E:D3</div>' +
-          '<p class="cn-small">It should read the same. If it does not, tap Cancel on the phone. The phone asks once; after that it knows this PC.</p>',
-          'Next', 'allow', true);
+        return allowStep('unknown');
       case 3:
         return addStep(3, 'install', 'Put LiMo on Asha’s phone',
           oks(['One phone plugged in', 'Android 13, recent enough for LiMo', 'LiMo is not on it yet']) +
@@ -934,7 +953,7 @@
     welcome: welcome, password: password, pin: pin, child: child, timeADay: timeADay,
     bedtime: bedtime, accounts: accounts, done: done,
     today: today,
-    rules: rules, devices: devices, addPhone: addPhone, cableStrip: cableStrip,
+    rules: rules, devices: devices, addPhone: addPhone, allowStep: allowStep, cableStrip: cableStrip,
     code: code, more: more, secrets: secrets, about: about, deleteFamily: deleteFamily,
     yourName: yourName, nameOnce: nameOnce, moreGuardians: moreGuardians, guardians: guardians, addGuardian: addGuardian,
     gStart: gStart, gInstall: gInstall, gOwn: gOwn, gDone: gDone, devicesGuardian: devicesGuardian,
