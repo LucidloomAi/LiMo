@@ -25,6 +25,13 @@
 //!   family's file. A child's account is refused; everything else needs the
 //!   guardian password. Requests are answered on the service's one thread,
 //!   between two of its steps. See [`console`] and [`service::door`].
+//! - The **link with the family's phones** listens on TCP port 47810 (see
+//!   [`phones`]): one thread for each connection runs the link's master
+//!   side, and everything that needs the family's file is answered on the
+//!   service's one thread, between two steps ([`service::link`]), so a phone
+//!   and the PC spend one budget and the PC's counting never waits for a
+//!   phone. While the family has a phone, the PC announces itself on its
+//!   home networks ([`announce`]).
 //!
 //! Everything the service decides is written against the [`os::Os`] trait,
 //! and tested against a fake PC. The calls into Windows are thin and live in
@@ -40,6 +47,7 @@
 #![warn(missing_docs)]
 
 pub mod about;
+pub mod announce;
 pub mod cli;
 pub mod close;
 pub mod console;
@@ -47,6 +55,9 @@ pub mod devconsole;
 pub mod drawn;
 pub mod helper;
 pub mod os;
+#[cfg(feature = "played-phone")]
+pub mod played_phone;
+pub mod phones;
 pub mod programs;
 pub mod protocol;
 pub mod quiet;

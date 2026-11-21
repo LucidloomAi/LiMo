@@ -3,11 +3,17 @@
 //! the real service, with a real family file in a temporary folder.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use limo_agent::{Session, SessionState, Show};
 use limo_core::{CivilDate, DailyBudget, RuleSet, WeekBudgets};
 use limo_hub::{AccountLink, AgeBand, Hub};
+use limo_link::{MasterId, Now};
 use limo_windows::RealDoor;
+use limo_windows::announce::Announce;
+use limo_windows::phones::{LinkClock, LinkServer};
 use limo_windows::console::{
     CONSOLE_PROTOCOL_VERSION, ConsoleIncoming, ConsoleReader, FromConsole, Reply, Request, ToConsole, answer_decoder, encode_from_console,
 };
@@ -96,6 +102,8 @@ pub struct FakeOs {
     pub accounts_fail: Option<String>,
     /// A real door on a named pipe, in place of the fake one.
     pub real_door: Option<RealDoor>,
+    /// The PC's home addresses, for a pairing offer.
+    pub home: Vec<Ipv4Addr>,
 }
 
 impl FakeOs {
@@ -134,6 +142,7 @@ impl FakeOs {
             accounts: Vec::new(),
             accounts_fail: None,
             real_door: None,
+            home: vec![Ipv4Addr::new(192, 168, 1, 20)],
         }
     }
 
@@ -306,6 +315,48 @@ impl Os for FakeOs {
             None => Ok(self.accounts.clone()),
         }
     }
+
+    fn home_addresses(&mut self) -> Vec<Ipv4Addr> {
+        self.home.clone()
+    }
+}
+
+/// The fake PC's clocks, shared with the link's threads: they move only
+/// when the story steps.
+#[derive(Debug, Clone, Default)]
+pub struct SharedClock {
+    ms: Arc<AtomicU64>,
+    unix: Arc<AtomicI64>,
+}
+
+impl SharedClock {
+    pub fn set(&self, ms: u64, unix: i64) {
+        self.ms.store(ms, Ordering::SeqCst);
+        self.unix.store(unix, Ordering::SeqCst);
+    }
+}
+
+impl LinkClock for SharedClock {
+    fn now(&self) -> Now {
+        Now { ms: self.ms.load(Ordering::SeqCst), unix: self.unix.load(Ordering::SeqCst) }
+    }
+}
+
+/// An announcer that only notes what it was asked.
+#[derive(Debug, Clone, Default)]
+pub struct NotedAnnouncer {
+    pub said: Arc<Mutex<Vec<String>>>,
+}
+
+impl Announce for NotedAnnouncer {
+    fn announce(&mut self, id: &MasterId, port: u16) -> Result<(), String> {
+        self.said.lock().unwrap().push(format!("announce {} {port}", id.to_hex()));
+        Ok(())
+    }
+
+    fn withdraw(&mut self) {
+        self.said.lock().unwrap().push("withdraw".into());
+    }
 }
 
 impl FakeOs {
@@ -356,6 +407,10 @@ impl FakeOs {
 pub struct Pc {
     _dir: TempDir,
     pub service: Service<FakeOs>,
+    /// The clocks the link's threads read.
+    pub clock: SharedClock,
+    /// What the announcer was asked.
+    pub announced: Arc<Mutex<Vec<String>>>,
 }
 
 impl Pc {
@@ -383,7 +438,26 @@ impl Pc {
         };
         let mut os = FakeOs::new(start);
         os.processes.push(ProcessSeen { pid: OWN_PID, session_id: 0, started: 1, name: "limo.exe".into(), path: OWN_EXE.into() });
-        Pc { _dir: dir, service: Service::new(os, hub, config) }
+        let clock = SharedClock::default();
+        clock.set(os.steady_ms, os.wall_ms.div_euclid(1_000));
+        Pc { _dir: dir, service: Service::new(os, hub, config), clock, announced: Arc::new(Mutex::new(Vec::new())) }
+    }
+
+    /// Starts the link on the loopback address, at a port the system
+    /// chooses; its address. Its threads read the fake PC's clocks.
+    pub fn with_link(&mut self) -> SocketAddr {
+        let bind: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let server = LinkServer::start(bind, Arc::new(self.clock.clone()), Arc::new(|| {})).unwrap();
+        let address = server.local_addr();
+        let announcer = NotedAnnouncer { said: self.announced.clone() };
+        self.service.open_link(server, Box::new(announcer));
+        address
+    }
+
+    /// The clocks as the link's threads will read them now.
+    pub fn link_now(&mut self) -> Now {
+        let os = self.os();
+        Now { ms: os.steady_ms, unix: os.wall_ms.div_euclid(1_000) }
     }
 
     pub fn os(&mut self) -> &mut FakeOs {
@@ -462,8 +536,18 @@ impl Pc {
         let os = self.os();
         os.steady_ms += STEP_MS;
         os.wall_ms += STEP_MS as i64;
+        let (ms, unix) = (os.steady_ms, os.wall_ms.div_euclid(1_000));
+        self.clock.set(ms, unix);
         self.service.step();
         self.service.door();
+        self.service.link();
+    }
+
+    /// What the link's threads asked meanwhile, answered with no step: the
+    /// pump of a played phone between two steps.
+    pub fn answer_link(&mut self) -> Now {
+        self.service.link();
+        self.link_now()
     }
 
     /// Steps for `ms` milliseconds.

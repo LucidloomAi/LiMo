@@ -591,14 +591,14 @@ fn rules_that_do_not_fit_are_answered_with_their_own_problems() {
 }
 
 #[test]
-fn adding_a_phone_answers_not_yet() {
+fn a_phone_is_added_only_while_the_link_runs_and_only_a_known_device_has_a_link() {
+    // The link's own stories pair phones; here, the door alone.
     let (mut pc, asha, door) = family_with_a_console();
     pc.sign_in(door);
-    for request in [Request::MakeOffer { child: asha }, Request::DeviceLink { device: "d".into() }] {
-        let not_yet = problem(pc.ask(door, request));
-        assert_eq!(not_yet.kind, ProblemKind::NotYet);
-        assert_eq!(not_yet.message, "Adding a phone is not built into LiMo for Windows yet.");
-    }
+    let no_link = problem(pc.ask(door, Request::MakeOffer { child: asha }));
+    assert_eq!(no_link.kind, ProblemKind::Failed);
+    assert!(no_link.message.contains("not running"), "{}", no_link.message);
+    assert_eq!(problem(pc.ask(door, Request::DeviceLink { device: "d".into() })).kind, ProblemKind::NotFound);
 }
 
 #[test]

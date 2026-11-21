@@ -23,6 +23,11 @@ pub enum DevLine {
     CreateFamily,
     /// Set the PIN: asked for twice, not shown.
     SetPin,
+    /// Removes a device: the password is asked for, not shown.
+    RemoveDevice {
+        /// The device's id.
+        device: String,
+    },
     /// A child's minutes a day, every day: the rules are read, changed and
     /// sent back.
     Minutes {
@@ -60,6 +65,8 @@ pub fn dev_console_help() -> String {
         "  free ACCOUNT_SID          mark a Windows account as not limited (a guardian's)",
         "  finish                    finish the first start: accounts not set up are locked",
         "  today                     every child's day",
+        "  offer CHILD_ID            a pairing offer for a phone of the child's",
+        "  remove-device DEVICE_ID   remove a device (the password is asked for, not shown)",
         "  about                     LiMo for Windows' version",
         "  request NAME [JSON]       any other request, such as: request lift {\"child\":\"...\"}",
         "  quit                      close and end",
@@ -97,6 +104,8 @@ pub fn parse_dev_line(line: &str) -> Result<DevLine, String> {
             link: AccountLink::Child { child_id: (*child).to_string() },
         }),
         ("free", [account]) => DevLine::Send(Request::LinkAccount { account: (*account).to_string(), link: AccountLink::NotLimited }),
+        ("offer", [child]) => DevLine::Send(Request::MakeOffer { child: (*child).to_string() }),
+        ("remove-device", [device]) => DevLine::RemoveDevice { device: (*device).to_string() },
         ("request", _) if !rest.is_empty() => {
             let (name, args) = rest.split_once(char::is_whitespace).map_or((rest, ""), |(n, a)| (n, a.trim()));
             let mut json = serde_json::json!({ "name": name });
@@ -174,6 +183,8 @@ mod tests {
             Ok(DevLine::Raw { json: serde_json::json!({"name": "lift", "args": {"child": "c1"}}) })
         );
         assert_eq!(parse_dev_line("request waiting_requests"), Ok(DevLine::Raw { json: serde_json::json!({"name": "waiting_requests"}) }));
+        assert_eq!(parse_dev_line("offer c1"), Ok(DevLine::Send(Request::MakeOffer { child: "c1".into() })));
+        assert_eq!(parse_dev_line("remove-device d1"), Ok(DevLine::RemoveDevice { device: "d1".into() }));
         assert!(parse_dev_line("take over").is_err());
         assert!(dev_console_help().contains("sign-in"));
     }

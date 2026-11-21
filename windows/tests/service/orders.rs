@@ -335,7 +335,7 @@ fn a_part_of_windows_the_rules_block_is_said_once_for_each_session_and_never_aga
 }
 
 #[test]
-fn phones_the_books_want_to_hear_from_are_ignored_and_said_once() {
+fn a_phone_the_books_want_to_hear_from_with_no_session_open_changes_nothing_here() {
     let mut pc = Pc::new(at(16, 0));
     let asha = pc.add_child("Asha", ASHA, 60);
     let now = pc.now();
@@ -344,9 +344,13 @@ fn phones_the_books_want_to_hear_from_are_ignored_and_said_once() {
     pc.step();
     pc.greet(1);
     pc.run(20);
+    let counted = pc.counted(&asha);
     pc.change_rules(&asha, |rules| rules.warning_minutes = vec![10]);
     pc.run(20);
-    assert_eq!(pc.logged("no network yet").len(), 1);
+    // A phone out of reach is prodded when its session opens (the link's
+    // stories); meanwhile the PC counts on, and nothing is said.
+    assert!(pc.counted(&asha) >= counted + 19);
+    assert!(pc.logged("phone").is_empty(), "{:?}", pc.os().log);
 }
 
 #[test]

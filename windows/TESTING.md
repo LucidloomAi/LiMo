@@ -512,6 +512,81 @@ with no family.
 
 Undo: type `quit` in dev-console; then `.\limo uninstall`.
 
+## Part P: the link with a phone, from a second PC
+
+This part tries the link with the family's phones (see "The link with the
+phones" in README.md) over the home Wi-Fi, with no phone: a second PC plays
+the child's phone with `limo-phone`, a small program that runs the link's
+own phone side, as LiMo for Android will. It pairs with an offer the master
+makes, reports use every minute, and is limited from the same budget as
+the PC. About 30 minutes. It needs part O's family (or one from
+`dev-setup`), and a second Windows PC on the same home Wi-Fi.
+
+LiMo adds no firewall rule yet; the installer will. For this part a rule is
+added by hand, and removed at its end.
+
+1. Here, in the `windows` folder: `cargo build --release --example
+   limo-phone`. Copy `target\release\examples\limo-phone.exe` to the second
+   PC (a USB stick will do).
+2. Elevated: `.\limo status`. The log has `The link for the family's phones
+   listens on port 47810.` If it says the port could not be had, copy the
+   line: another program holds 47810. There is no `announces` line yet: the
+   family has no phone, and LiMo says nothing on the network.
+3. Elevated, the firewall rule for this test only, both lines:
+   `New-NetFirewallRule -DisplayName "LiMo test link" -Direction Inbound -Program "C:\Program Files\LiMo\limo.exe" -Protocol TCP -LocalPort 47810 -RemoteAddress LocalSubnet -Profile Private,Public -Action Allow`
+   `New-NetFirewallRule -DisplayName "LiMo test mdns" -Direction Inbound -Program "C:\Program Files\LiMo\limo.exe" -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Private,Public -Action Allow`
+4. In `.\limo dev-console` from your own account, signed in (`sign-in`):
+   `today`, and copy Asha's `child_id`. Then `offer CHILD_ID`: `Done:` with
+   `"offer": "limo1:..."`, `"addresses"` (this PC's address on the home
+   network: check it is the one Windows shows, `ipconfig`), `"port": 47810`
+   and `"expires_at"`. Copy the offer's text. It works once, for ten
+   minutes, and holds a secret: paste it only into `limo-phone`.
+5. On the second PC, in a PowerShell in the folder of `limo-phone.exe`:
+   `.\limo-phone.exe pair --keep .\asha-phone`, paste the offer, and press
+   Enter: `Paired: device ... of child ...`. Paste it once more and run
+   `pair` again: `the master PC refused: the pairing offer was used
+   already`.
+6. Here, elevated, `.\limo status`: `A phone was paired with a child over
+   the home network, with a pairing offer (device ...).`, then `LiMo
+   announces itself on the home network: service _limo._tcp.local.,
+   instance "LiMo xxxxxxxx", host limo-xxxxxxxx.local., port 47810, TXT v=1
+   id=..., and the PC's address on each home network.` Write down the id.
+   No line holds the offer's text.
+7. On the second PC: `.\limo-phone.exe look`: `Found "LiMo
+   xxxxxxxx._limo._tcp.local." at` this PC's home address `port 47810`,
+   with `LiMo link version 1, master id` the id of step 6. Note every
+   address it shows: there should be no other (no virtual adapter's, no
+   IPv6).
+8. On the second PC: `.\limo-phone.exe use --keep .\asha-phone --minutes
+   5`. `A session is open with the master at ...`, then each minute
+   `Minute N: com.example.game used; left on the phone: ...`. Meanwhile,
+   here in dev-console: `today` shows Asha's `A test phone` with its
+   `used_secs` growing and `in_use` true, and Asha's `used_secs` with it;
+   `request device_link {"device":"DEVICE_ID"}` (the phone's id) shows
+   `"way": "home_network"`.
+9. **A lock reaches the phone.** While step 8 runs: `request lock_now
+   {"child":"CHILD_ID"}` in dev-console. Within a few seconds `limo-phone`
+   prints `The master asked for a report, and had it.`, and at its next
+   minute `allowed: false`. Then `request lift {"child":"CHILD_ID"}`: at the
+   minute after, `allowed: true`.
+10. **One budget.** If the child's account is used on this PC while step 8
+    runs, its time left display goes down by the phone's minutes too, and
+    the phone's `left on the phone` by the PC's.
+11. **A removed phone is told so.** In dev-console: `remove-device
+    DEVICE_ID` and the guardian password. On the second PC: `.\limo-phone.exe
+    use --keep .\asha-phone --minutes 1`: the session ends with `the master
+    PC refused: this phone was removed from the family`. In `.\limo
+    status`: `A phone removed from the family (device ...) connected, and
+    was told so.`, and within ten seconds `LiMo withdrew its announcement
+    on the home network: the family has no phone now.`
+12. On the second PC, `.\limo-phone.exe look` again: nothing is found.
+
+Undo: on the second PC, delete the folder `asha-phone` (it holds the played
+phone's private key) and `limo-phone.exe`. Here, elevated:
+`Remove-NetFirewallRule -DisplayName "LiMo test link"` and
+`Remove-NetFirewallRule -DisplayName "LiMo test mdns"`; then `.\limo
+uninstall`.
+
 ## Finish
 
 1. Elevated, from the build folder: `.\limo uninstall`. It stops and removes
@@ -585,6 +660,16 @@ Undo: type `quit` in dev-console; then `.\limo uninstall`.
 | O8 log lines, and none with a password, PIN or name, none slow | yes | |
 | O9 optional: an account not set up locked, the guardian PIN opens it for 15 minutes | yes | |
 | O10 optional: reset-password, old password wrong, new right, the family kept | yes | |
+| P2 the link listens on 47810; nothing announced before a phone | yes | |
+| P4 an offer with this PC's home address and port 47810 | yes | |
+| P5 paired from the second PC; the same offer refused the second time | yes | |
+| P6 paired over the home network, then announced, with the id; no offer text in the log | yes | |
+| P7 `look` finds LiMo at this PC's home address only, with the same id | note the addresses | |
+| P8 a session over the home network; the phone's minutes in the PC's today; device_link home_network | yes | |
+| P9 a lock from dev-console reaches the phone within seconds; lift opens it | yes | |
+| P10 one budget: the PC's minutes off the phone's, and the phone's off the PC's | yes | |
+| P11 a removed phone told so; the announcement withdrawn | yes | |
+| P12 nothing found after the last phone is removed | yes | |
 | Finish: uninstall twice, status not installed | yes | yes |
 
 ## Notes from the first run, 19 November 2026

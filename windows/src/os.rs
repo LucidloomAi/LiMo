@@ -217,4 +217,7 @@ pub trait Os {
     fn door_close(&mut self, id: DoorId);
     /// Every enabled user account on this PC.
     fn accounts(&mut self) -> Result<Vec<AccountSeen>, String>;
+    /// The PC's IPv4 addresses on its home networks, for a pairing offer
+    /// (`crate::announce::is_home_address`), at most eight.
+    fn home_addresses(&mut self) -> Vec<std::net::Ipv4Addr>;
 }

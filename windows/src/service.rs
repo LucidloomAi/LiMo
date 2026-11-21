@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod door;
+pub mod link;
 mod unlinked;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -251,10 +252,10 @@ pub struct Service<O: Os> {
     last_tick: Option<u64>,
     last_tidy: Option<u64>,
     last_look: Option<(i64, u64)>,
-    told_no_network: bool,
     facts: Option<Facts>,
     door: door::Door,
     open: unlinked::OpenAccounts,
+    phones: link::Phones,
 }
 
 impl<O: Os> std::fmt::Debug for Service<O> {
@@ -306,10 +307,10 @@ impl<O: Os> Service<O> {
             last_tick: None,
             last_tidy: None,
             last_look: None,
-            told_no_network: false,
             facts: None,
             door: door::Door::default(),
             open: unlinked::OpenAccounts::default(),
+            phones: link::Phones::default(),
         }
     }
 
@@ -368,11 +369,13 @@ impl<O: Os> Service<O> {
         self.fallback(now);
         self.hand_over(now);
         self.watch_door(now);
+        self.watch_link(now);
     }
 
     /// Before the service stops: the engine keeps everything it counted,
     /// and every helper is told to quit.
     pub fn stop(&mut self) {
+        self.stop_link();
         let now = self.os.steady_ms();
         for problem in self.engine.stop(&mut self.hub) {
             self.log_quiet(&format!("problem/{problem}"), &format!("At the stop, the engine met a problem: {problem}"), now);
@@ -772,12 +775,9 @@ impl<O: Os> Service<O> {
         for problem in &orders.problems {
             self.log_quiet(&format!("problem/{problem}"), &format!("The engine met a problem: {problem}"), now);
         }
-        if !orders.prod_devices.is_empty() && !self.told_no_network {
-            self.told_no_network = true;
-            self.os.log(
-                "The family's books asked to hear from a phone. LiMo for Windows has no network yet, so this is ignored (said once).",
-            );
-        }
+        // The phones the books want to hear from, asked to report when
+        // they are in reach.
+        self.prod_phones(&orders.prod_devices, now);
         let test_cap = self.os.test_cap();
         let present: BTreeSet<u32> = orders.sessions.iter().map(|o| o.session_id).collect();
         let is_unlinked_lock = |show: &Show| matches!(show, Show::Locked { screen } if screen.why == LockWhy::AccountNotLinked);

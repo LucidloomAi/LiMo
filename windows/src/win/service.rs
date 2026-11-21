@@ -1,13 +1,15 @@
 //! `limo service`: the service control manager's entry, and the service's
 //! one thread, where the engine and the family's file live. The handler the
 //! service control manager calls runs on another thread, and only tells the
-//! service's thread to stop, through a channel. The console's door wakes
-//! the same thread through the same channel when a console sent something,
-//! and the service answers it between two steps; the steps keep their
-//! cadence whatever the door does.
+//! service's thread to stop, through a channel. The console's door and the
+//! link with the phones wake the same thread through the same channel when
+//! something came, and the service answers it between two steps; the steps
+//! keep their cadence whatever the door and the phones do.
 
 use std::ffi::OsString;
-use std::sync::mpsc::{RecvTimeoutError, channel};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant};
 
 use limo_hub::Hub;
@@ -19,7 +21,9 @@ use windows_service::service_dispatcher;
 use super::launch::enable_launch_privileges;
 use super::logfile::append;
 use super::os::WinOs;
+use crate::announce::MdnsAnnouncer;
 use crate::console::CONSOLE_PIPE_NAME;
+use crate::phones::{LinkServer, SystemClock};
 use crate::quiet::Quiet;
 use crate::service::{STEP_MS, Service, ServiceConfig};
 use crate::settings::{Places, SERVICE_NAME};
@@ -81,8 +85,23 @@ fn service_main(_arguments: Vec<OsString>) {
 enum Wake {
     /// The service control manager asks it to stop.
     Stop,
-    /// Something came to the console's door.
+    /// Something came to the console's door, or from a phone.
     Door,
+}
+
+/// How often the link is tried again while its port cannot be had, in
+/// seconds.
+const LINK_RETRY_SECS: u64 = 60;
+
+/// Starts the link for the phones on every IPv4 address, loopback included
+/// (the USB cable's tunnel arrives there), at the link's port.
+fn start_link(wake_tx: &Sender<Wake>) -> std::io::Result<LinkServer> {
+    let tx = wake_tx.clone();
+    let wake = Arc::new(move || {
+        let _ = tx.send(Wake::Door);
+    });
+    let bind = SocketAddr::from((Ipv4Addr::UNSPECIFIED, limo_link::DEFAULT_PORT));
+    LinkServer::start(bind, Arc::new(SystemClock::new()), wake)
 }
 
 fn run_service(places: &Places) -> windows_service::Result<()> {
@@ -141,18 +160,38 @@ fn run_service(places: &Places) -> windows_service::Result<()> {
             let _ = door_tx.send(Wake::Door);
         });
         let mut service = Service::new(os, hub, config);
+        let mut link_open = false;
+        let mut link_tried: Option<Instant> = None;
         let step = Duration::from_millis(STEP_MS);
         let mut next_step = Instant::now();
         loop {
+            if !link_open && link_tried.is_none_or(|at| at.elapsed() >= Duration::from_secs(LINK_RETRY_SECS)) {
+                match start_link(&wake_tx) {
+                    Ok(server) => {
+                        service.open_link(server, Box::new(MdnsAnnouncer::new()));
+                        link_open = true;
+                    }
+                    Err(problem) if link_tried.is_none() => {
+                        append(places, &format!(
+                            "The link for the family's phones could not listen on port {}: {problem}. Phones cannot reach this PC until it can; LiMo tries again every minute.",
+                            limo_link::DEFAULT_PORT
+                        ));
+                        link_tried = Some(Instant::now());
+                    }
+                    Err(_) => link_tried = Some(Instant::now()),
+                }
+            }
             if Instant::now() >= next_step {
                 service.step();
                 service.door();
+                service.link();
                 // On the cadence, and never more than one step behind it.
                 next_step = (next_step + step).max(Instant::now());
             }
             match stop_rx.recv_timeout(next_step.saturating_duration_since(Instant::now())) {
                 Ok(Wake::Door) => {
                     service.door();
+                    service.link();
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Ok(Wake::Stop) | Err(RecvTimeoutError::Disconnected) => break,

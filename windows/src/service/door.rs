@@ -43,6 +43,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::Service;
+use super::link::OfferNotMade;
 use crate::console::{
     CONSOLE_PROTOCOL_VERSION, FromConsole, HELLO_WAIT_MS, MAX_MESSAGES_PER_SECOND, Problem, ProblemKind, Reply, Request, ToConsole,
     closed_because, encode_to_console,
@@ -225,7 +226,6 @@ fn changes(request: &Request) -> bool {
             | Request::Accounts
             | Request::PcSettings
             | Request::Events { .. }
-            | Request::MakeOffer { .. }
             | Request::DeviceLink { .. }
     )
 }
@@ -507,8 +507,10 @@ impl<O: Os> Service<O> {
         let reply = match result {
             Ok(value) => {
                 if changes(&request) {
-                    // The PC follows at its next step, not within the second.
+                    // The PC follows at its next step, not within the second,
+                    // and the link reads its book again.
                     self.last_tick = None;
+                    self.phones.changed();
                     let text = format!("From LiMo's settings in {session}: {} done.", request.name());
                     self.os.log(&text);
                 }
@@ -697,10 +699,30 @@ impl<O: Os> Service<O> {
                 self.door.removal_allowed_until = None;
                 done()
             }
-            Request::MakeOffer { .. } | Request::DeviceLink { .. } => Err(Fail::Problem(Problem::new(
-                ProblemKind::NotYet,
-                "Adding a phone is not built into LiMo for Windows yet.",
-            ))),
+            Request::MakeOffer { child } => match self.make_offer_for(child, wall) {
+                Ok(made) => {
+                    let offer = &made.offer;
+                    let addresses: Vec<String> = offer.addresses().iter().map(ToString::to_string).collect();
+                    Ok(json!({
+                        "offer": offer.to_text().as_str(),
+                        "offer_id": offer.id().to_hex(),
+                        "expires_at": offer.expires_at(),
+                        "port": offer.port(),
+                        "addresses": addresses,
+                        "master_id": offer.master_id().to_hex(),
+                    }))
+                }
+                Err(OfferNotMade::Hub(error)) => Err(Fail::Hub(error)),
+                Err(OfferNotMade::NoLink) => Err(Fail::Problem(Problem::new(
+                    ProblemKind::Failed,
+                    "The link for phones is not running on this PC, so no phone can pair with it now. The service's log says why.",
+                ))),
+                Err(OfferNotMade::Link(why)) => Err(Fail::Problem(Problem::new(ProblemKind::Failed, why))),
+            },
+            Request::DeviceLink { device } => {
+                self.hub.device(device)?;
+                Ok(json!({ "device_id": device, "sessions": self.phones.sessions_of(device) }))
+            }
         }
     }
 

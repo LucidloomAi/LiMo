@@ -139,6 +139,10 @@ pub(crate) fn run() -> i32 {
                 Some(pin) => Request::SetPin { pin },
                 None => continue,
             },
+            DevLine::RemoveDevice { device } => match read_hidden("Guardian password, to remove it (not shown): ") {
+                Some(password) => Request::RemoveDevice { device, password: Secret::new(password.to_string()) },
+                None => continue,
+            },
             DevLine::Minutes { child, minutes } => match ask(&mut client, &mut next_id, Request::Rules { child: child.clone() }) {
                 Some(Reply::Done { value }) => match serde_json::from_value::<RuleSet>(value) {
                     Ok(rules) => Request::ReplaceRules { child, rules: with_minutes(rules, minutes) },

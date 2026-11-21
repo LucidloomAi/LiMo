@@ -24,6 +24,16 @@ limo-core = { path = "../core" }
 # The screens the helper draws: the lock screen, the time left display and
 # its notices, drawn in software to the agreed design.
 limo-screens = { path = "../screens" }
+# The encrypted link with the family's phones: its frames, handshakes and
+# offers. The service owns the sockets; the link has none.
+limo-link = { path = "../link" }
+# Announcing the master on the home network (mDNS), on the PC's private
+# IPv4 networks only. The version proof four ran; no async runtime, no
+# logging.
+mdns-sd = { version = "=0.22.0", default-features = false }
+# The PC's own IPv4 addresses, for the pairing offer and to choose where to
+# announce: the same crate mdns-sd uses.
+if-addrs = "0.15.0"
 # The channel's messages and the data folder's settings file are JSON.
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -74,9 +84,20 @@ features = [
     "Win32_UI_WindowsAndMessaging",
 ]
 
+[features]
+# A phone played over the link, for the tests and the example program.
+# Never part of the service.
+played-phone = []
+
 [dev-dependencies]
 # A real family file in a temporary folder, for the stories.
 tempfile = "3.27.0"
+# The tests and the example play a phone over real loopback sockets.
+limo-windows = { path = ".", features = ["played-phone"] }
+
+[[example]]
+name = "limo-phone"
+path = "examples/limo-phone.rs"
 
 # The guardian password and the PIN are hashed slowly on purpose. Optimised
 # dependencies in debug and test builds keep them as fast as they are in the

@@ -16,15 +16,24 @@ which the guardian's console, a window in a guardian's own session, asks
 the service for everything it shows and changes, since the service alone
 holds the family's file. See [The console's door](#the-consoles-door).
 
-**What it is not.** It has no network, no window of its own for the
-guardian (the console is a program of its own, not built yet; `limo
-dev-console` knocks on the door by hand meanwhile) and no installer for
-families. It first ran as a service on a real PC on 19 November 2026, with
-the owner, and the drawn display was on the screen then;
-[TESTING.md](TESTING.md) says how it is tried and what was seen. The door
-has been built and tested on the development PC, against the fake PC and
-over a real named pipe in the tester's own account; its run at the PC is
-TESTING.md, part O.
+And it serves the link with the family's phones (`../link`): it listens for
+them on TCP port 47810, pairs a phone with a pairing offer the console asks
+for, answers each phone's reports with the family file's grants, so that a
+phone and the PC spend one budget, asks a phone to report when the books
+want to hear from it, and announces itself on the home network while the
+family has a phone. See [The link with the phones](#the-link-with-the-phones).
+
+**What it is not.** It has no window of its own for the guardian (the
+console is a program of its own, not built yet; `limo dev-console` knocks
+on the door by hand meanwhile), no installer for families, and it adds no
+firewall rule (see [The firewall rule](#the-firewall-rule)). It first ran
+as a service on a real PC on 19 November 2026, with the owner, and the
+drawn display was on the screen then; [TESTING.md](TESTING.md) says how it
+is tried and what was seen. The door has been built and tested on the
+development PC, against the fake PC and over a real named pipe in the
+tester's own account; its run at the PC is TESTING.md, part O. The link has
+been tested over real loopback sockets with a phone played by the link's
+own phone side; its run with a second PC is TESTING.md, part P.
 
 ## Contents
 
@@ -36,6 +45,10 @@ TESTING.md, part O.
 - [The channel](#the-channel)
 - [The console's door](#the-consoles-door)
 - [The lock of an account not set up](#the-lock-of-an-account-not-set-up)
+- [The link with the phones](#the-link-with-the-phones)
+- [The announcement on the home network](#the-announcement-on-the-home-network)
+- [The firewall rule](#the-firewall-rule)
+- [The example phone](#the-example-phone)
 - [The guarded launch](#the-guarded-launch)
 - [Closing programs, and what is never closed](#closing-programs-and-what-is-never-closed)
 - [The fallback](#the-fallback)
@@ -59,7 +72,7 @@ TESTING.md, part O.
 | `limo dev-setup --child NAME --account ACCOUNT [--minutes N] [--block PROGRAM]...` | administrator, service stopped | Scaffolding until the guardian's console exists: a family with a guardian password and PIN typed at the prompt (not shown), one child, the Windows account linked to the child, N minutes a day (10 when not given, 1 to 240), and each program given blocked. Refuses while the service runs, since the service holds the family's file, and when the file already has a family. |
 | `limo dev-code [--minutes 15\|30\|60] [--child NAME]` | administrator, service stopped | Scaffolding until the guardian's phone app exists: makes the next one time code for the test child's device on this PC, worth the minutes given (15 when not given), for the child's day today, and prints it. Each run makes a new code, and the family's file records it; a device takes ten a day. The device is paired first if the engine has not yet seen the child on this PC, as the engine would pair it. `--child` is needed only when the family has more than one child. The log says a code was made, never the code. Refuses while the service runs. |
 | `limo reset-password` | administrator | For a family that forgot the guardian password: a new one, typed twice at the prompt and never shown, checked for its length before anything is touched. The service holds the family's file, so it is stopped for a moment and started again. The wrong guesses and their wait are cleared, the family's events record a reset, and everything else is kept: the PIN, the children, their rules and their devices. Takes nothing on its command line, where a terminal would keep a password. |
-| `limo dev-console` | anyone | Scaffolding until the guardian's console exists: knocks on the door of LiMo's settings from the account it runs in, as the console will, and sends one request for each line typed (`help` lists them: `state`, `create-family`, `sign-in`, `set-pin`, `add-child`, `minutes`, `accounts`, `link`, `free`, `finish`, `today`, `request NAME JSON`). It sends nothing unless the door is served from session 0, where services run. A password or a PIN is asked for at a prompt that does not show it, never taken on the line. |
+| `limo dev-console` | anyone | Scaffolding until the guardian's console exists: knocks on the door of LiMo's settings from the account it runs in, as the console will, and sends one request for each line typed (`help` lists them: `state`, `create-family`, `sign-in`, `set-pin`, `add-child`, `minutes`, `accounts`, `link`, `free`, `finish`, `today`, `offer`, `remove-device`, `request NAME JSON`). It sends nothing unless the door is served from session 0, where services run. A password or a PIN is asked for at a prompt that does not show it, never taken on the line. |
 | `limo service` | the service control manager | The service. Run from a terminal it says so and does nothing. |
 | `limo helper --channel R:W [--plain]` | the service | The helper. Run by hand, without the channel it was born with, it says so and does nothing. `--plain`: show the plain display; the service adds it when the settings file asks. |
 
@@ -268,8 +281,11 @@ service, the engine or the family's file.
 - **`close`**: see [Closing programs](#closing-programs-and-what-is-never-closed).
 - **The lock of an account not set up** takes the guardian PIN; see
   [The lock of an account not set up](#the-lock-of-an-account-not-set-up).
-- **`prod_devices`**: there is no network yet; ignored, and said once in the
-  log. Test: `orders::phones_the_books_want_to_hear_from_are_ignored_and_said_once`.
+- **`prod_devices`**: each phone named, when a session of its is open, is
+  asked to report at once, at most every five seconds; one out of reach is
+  asked when it comes. See [The link with the phones](#the-link-with-the-phones).
+  Tests: `link::a_lock_from_the_console_reaches_the_phone_within_seconds`,
+  `orders::a_phone_the_books_want_to_hear_from_with_no_session_open_changes_nothing_here`.
 - **`problems`**: logged, each one at most once every ten minutes, with a
   count of the times held back. Test:
   `orders::the_engines_problems_are_logged_without_repeating_every_second`.
@@ -478,7 +494,7 @@ the value in the hub's own shapes, or
 `{"outcome":"problem","problem":{"kind":"...","message":"..."}}`, with
 `wait_until`, `tries_before_wait` and `rule_problems` (each with its
 `field`) where they apply. The kinds: `signed_out`, `wrong_password`,
-`must_wait`, `invalid`, `rules`, `not_found`, `refused`, `busy`, `not_yet`,
+`must_wait`, `invalid`, `rules`, `not_found`, `refused`, `busy`, `not_yet` (kept for later requests; none answers it now),
 `unknown_request`, `no_family`, `too_big`, `failed`. A password or a PIN
 travels as a `Secret` (hidden in `Debug`, wiped when dropped); every frame
 read is wiped, as on the helper's channel. What is not wiped: an answer's
@@ -516,7 +532,8 @@ are answered before sign in.
 | `events` | `limit`, `before` | `events` | yes |
 | `allow_removal` | `password` | the password again; removal is allowed for ten minutes, kept in the service's memory for the uninstaller to ask (not built yet) | yes |
 | `delete_family` | `password` | the password again, then `delete_family`; every session ends | yes |
-| `make_offer`, `device_link` | `child`, `device` | not yet: answered `not_yet`, "Adding a phone is not built into LiMo for Windows yet." | yes |
+| `make_offer` | `child` | a pairing offer for a phone of the child's, made by the link with the master's key, the link's port and the PC's home addresses, kept by `keep_offer`: `offer` (its `limo1:` text, which holds its secret: the console hands it to the phone and wipes it), `offer_id`, `expires_at` (ten minutes on), `port`, `addresses`, `master_id`. `failed` while the link is not running | yes |
+| `device_link` | `device` | the device's open session, if it has one: `way` (`cable` or `home_network`), `opened_at`, `last_report_at` | yes |
 
 `accounts` lists every normal account of the PC that is not switched off
 (`NetUserEnum`, then `NetUserGetInfo` at level 23 for its full name and
@@ -597,6 +614,172 @@ The engine still notes once a day that the account was used. Confirming a
 release there is refused with words; a one time code is a child's device's
 and is refused there by the engine. Nothing of the PIN is logged. Test:
 `door::the_lock_of_an_account_not_set_up_takes_the_guardian_pin`.
+
+## The link with the phones
+
+The link (`../link`, `limo-link`) is everything between a phone and the PC
+but the sockets: frames, the two handshakes (`Noise_XXpsk3` to pair with an
+offer, `Noise_KK` for every session after), messages, offers, timings. The
+service owns the sockets (`src/phones.rs`) and answers what needs the
+family's file on its one thread (`src/service/link.rs`).
+
+**The listener.** TCP on port 47810 (`limo_link::DEFAULT_PORT`) on every
+IPv4 address of the PC, loopback included: the USB cable's tunnel (Android's
+`adb reverse`) arrives at the PC's loopback. One thread takes the
+connections; each connection has a thread of its own, running the link's
+master side (`MasterLink`) over a socket that does not block, looking at it,
+at the service's orders and at the clock every 10 ms. A connection from the
+loopback came through the cable (`cable`), any other over the home network
+(`home_network`). While the port cannot be had (another program holds it)
+the service logs it and tries again every minute; the rest of LiMo goes on.
+
+**The family's file stays on the service's one thread.** A connection
+never touches it. What needs it is a call handed to the service, which the
+connection waits for (at most 5 seconds, then the link ends): an offer by
+its id (`Hub::offer`), a pairing (`Hub::pair_device_with_offer`, which pairs
+with the offer's child, keeps the phone's key and marks the offer used in
+one transaction), a session opened, a report (`Hub::handle_report`, its
+grant on the disk before it is sent, the phone's notes kept with it), an
+app list (`Hub::keep_phone_apps`), and the end of a connection.
+`Service::link` answers them between two steps, at most 16 a turn and at
+most one pairing, called by the service's loop whenever something came and
+after every step. A report answered brings the engine's next call forward
+to the next step, so the PC follows a phone's use at once. What every
+handshake reads (the master's key pair, `Hub::master_key`, and every phone
+with its key, `Hub::link_phones`) is a book the service keeps for the
+connections, read again at once after a pairing or a guardian's change and
+at least every 10 seconds; so the cryptography runs on the connections'
+threads, never on the service's.
+
+**What is refused, and how.** An offer used already, or expired (the
+master's clock), is refused with the link's reason (`offer_used`,
+`offer_expired`) once the phone has shown it holds the offer's secret; an
+offer the PC never made gets no answer. A guardian's phone, and a phone key
+the family knows already, `not_supported`. A removed phone opens its
+session and is told at once that it was removed (`removed`); the family's
+file notes that it was told (`Hub::note_released`), and the log says so.
+A report the family's file refuses ends the link with the reason. A newer
+session of a phone takes the place of the older, which is closed.
+
+**Prods.** The engine names the phones the books want to hear from
+(`Orders::prod_devices`, from `Hub::wanted_reports`: time to give back or
+take, new rules, a guardian's lock). Each, when a session of its is open, is
+asked to report at once (`report_now`), at most every five seconds; a lock
+from the console reaches a phone at home within a second or two.
+
+**Hostile input.** Nothing a connection sends reaches the family's file
+unless the link let it through its handshake, and none of it runs on the
+service's thread. Garbage before the handshake, a frame said to be longer
+than a step allows, a session handshake from a key the PC never paired, and
+a peer that connects and says nothing (5 seconds, the link's handshake
+limit) each end the connection, with a line in the log that never quotes
+what was sent. More than four connections at once from one address, or 32
+in all, are closed at once, before anything is read. A paired phone that
+calls on the family's file more than 60 times in a minute is cut off (a
+phone reports about once a minute). The tests run each of these while a
+child's session counts on the PC, and the count goes on second for second.
+
+**Measured** in `link::the_step_time_with_a_phone_talking` (the test build,
+on the development PC, 21 November 2026), with a phone reporting every
+second through the cable (sixty times as often as a phone does) and garbage
+connections coming meanwhile: a step took 0.17 to 0.23 ms on average with
+no phone and 1.3 ms with it, since every report brings the engine's next
+call forward, the longest 14 to 23 ms; the link's turn between two steps
+took 0.6 to 0.8 ms on average, the longest 8 to 73 ms (a report written to
+the disk); and the seconds counted were the same within one.
+
+**The day.** `link::a_whole_day_of_one_budget_shared_by_the_pc_and_a_phone`:
+Asha has 30 minutes. At 07:00 her phone pairs with an offer from the door
+and uses 10 minutes through the cable, reporting every two; at 16:00 the PC
+counts 10; at 18:00 the phone hears what is left, the PC's minutes taken off
+and the PC's use in its grant (`Grant::others_used_secs`), and uses what it
+is given; the PC then uses what it held back for itself (what was left of
+its lease) and locks, "Today's time is used up." The master counted 30
+minutes in all, the phone's and the PC's together.
+
+### What a phone must do
+
+To match this side, LiMo for Android's child form (its link host):
+
+- connects to the PC at 127.0.0.1:47810 while the cable is in (the PC's
+  console sets `adb reverse tcp:47810 tcp:47810`), and otherwise at the
+  address the announcement gives (or the offer's addresses), port 47810;
+- pairs once with the offer it was handed (`PhonePairing`), keeps
+  `PairedMaster` and its `DeviceState` before anything else, and from then
+  on opens a session (`PhoneSession`) whenever the PC is in reach, with a
+  report at once (`Opened`), a report every minute it is in use, and an
+  answer to every `report_now` with a report;
+- sends its app list after pairing and whenever its hash changes;
+- takes `refused: removed` as the PC's word that it was removed: it
+  releases itself, as the family decided (a phone removed on the PC is
+  told so at its next contact, releases itself and says it can be removed);
+- takes a connection closed with nothing said as the PC out of reach
+  (`DeviceState::lost_contact` when a report was waiting) and comes again;
+- never calls on the PC more than 60 times in a minute, and never opens
+  more than four connections at once.
+
+## The announcement on the home network
+
+So that a paired phone finds the PC on the home network, the service
+announces it with multicast DNS service discovery (`mdns-sd`,
+`src/announce.rs`), the way proof four did. It announces only while the
+family has a phone paired (a PC with no phone says nothing on the network),
+and withdraws the announcement, with a goodbye, when the last phone is
+removed and when the service stops.
+
+**Exactly what is announced**, for a master whose id is `1a2b3c4d5e6f7a8b`:
+
+| Record | Value |
+| --- | --- |
+| the service type | `_limo._tcp.local.` |
+| the instance | `LiMo 1a2b3c4d._limo._tcp.local.` |
+| the host | `limo-1a2b3c4d.local.`, port 47810 |
+| TXT | `v=1` (the link's version) and `id=1a2b3c4d5e6f7a8b` (the master id) |
+| the address | the PC's IPv4 address on that network |
+
+The master id is the first 8 bytes of a BLAKE2s hash of the master's public
+key (`limo_link::MasterId::of`): it says nothing of the family, and a phone
+that paired knows it. The PC's name, the family's name, a child, a device or
+a guardian is never in it. mDNS also sends the probes and answers that go
+with those names, and nothing else; it is multicast to 224.0.0.251, port
+5353, which routers do not pass beyond the local network.
+
+**Where it is announced.** Only on the PC's network interfaces whose IPv4
+address is in the private ranges home routers give out (10.0.0.0/8,
+172.16.0.0/12, 192.168.0.0/16): never on loopback, never on a self assigned
+169.254.0.0/16 address, never on the 100.64.0.0/10 that carriers and virtual
+private networks use, never on IPv6, never on a public address. Every
+interface is switched off in `mdns-sd` first and those switched on after.
+What this cannot tell: a laptop taken to a café whose Wi-Fi gives out such
+an address would announce there too, saying that a LiMo PC is present and
+nothing more. A master PC is the family's home PC. The pairing offer
+carries the same addresses.
+
+## The firewall rule
+
+LiMo adds no firewall rule now; the installer will. What it must add, for
+`%ProgramFiles%\LiMo\limo.exe` only, on the Private and Public profiles
+(a family's Wi-Fi is often called Public), from the local subnet only:
+inbound TCP 47810 (the link) and inbound UDP 5353 (the announcement and the
+questions phones ask). Without it, a phone on Wi-Fi does not reach the PC
+(the cable still does: it arrives at the loopback, which the firewall does
+not filter), and Windows either blocks the phone without a word or asks
+whoever is at the PC, a question a family should not meet. The rule is removed
+at uninstall. In this build's tests nothing listens on any address but
+loopback, and nothing is announced.
+
+## The example phone
+
+`cargo run --example limo-phone -- pair --keep FOLDER`, `use --keep FOLDER
+--minutes 5` and `look` (`examples/limo-phone.rs`) play a child's phone from
+another PC on the home network, with the link's own phone side and the
+core's device, as LiMo for Android will run them: it pairs with an offer
+pasted from `dev-console`'s `request make_offer`, keeps what a phone keeps
+in FOLDER (with the phone's private key: delete FOLDER after), opens
+sessions, reports a minute of use every minute and answers `report_now`;
+`look` prints the announcement it finds. The tests play the same phone
+(`src/played_phone.rs`, built only with the `played-phone` feature, never
+in `limo.exe`). TESTING.md, part P, is its run with the owner.
 
 ## The guarded launch
 
@@ -925,8 +1108,13 @@ child", never the child's name); a sign in, right or wrong, never what was
 typed; each request done that changes something, by its name ("replace_rules
 done"); a connection closed, and why; a session that ended after fifteen
 idle minutes; a request that took 500 ms or more; the guardian PIN on the
-lock of an account not set up, and what became of it. Anything that goes on
-happening is logged once and then at most every ten minutes.
+lock of an account not set up, and what became of it; the link listening,
+or its port taken; a phone paired (its device id, through the cable or over
+the home network); a session opened; a removed phone told so; a pairing or
+a report refused, and why; a connection closed, its address and why, never
+what it sent; the announcement made, with what it holds, and withdrawn.
+Anything that goes on happening is logged once and then at most every ten
+minutes. Never logged: a pairing offer's text, a key, a code secret.
 
 Never logged: a PIN, a password or a code; the reason a child typed; a window title, a
 file being edited or a web address (LiMo never has them); any sound, or
@@ -941,10 +1129,10 @@ object's access list, with the user's security identifier in it.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the console's requests read by name and arguments, through a frame and back, one that cannot be read answered by its number, one that is not a message refused saying only where, the longest answer and one too long, a password never in `Debug`; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain`, `dev-code`, `reset-password` and `dev-console`); `dev-console`'s lines, a secret never taken on the line; the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup`, `dev-code` and `reset-password` on a real file, the code tried on the device it was made for, the reset clearing the wait and keeping everything else; an audio session counted as playing only when active, not the system sounds, in this session and above zero, anything unknown counting as no; sound heard held for 3 seconds, then stale; the screen kept awake only by the display bit | 48 |
+| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the console's requests read by name and arguments, through a frame and back, one that cannot be read answered by its number, one that is not a message refused saying only where, the longest answer and one too long, a password never in `Debug`; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain`, `dev-code`, `reset-password` and `dev-console`); `dev-console`'s lines, a secret never taken on the line; the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup`, `dev-code` and `reset-password` on a real file, the code tried on the device it was made for, the reset clearing the wait and keeping everything else; an audio session counted as playing only when active, not the system sounds, in this session and above zero, anything unknown counting as no; sound heard held for 3 seconds, then stale; the screen kept awake only by the display bit; a connection from loopback is the cable's; connections counted in all and by address; the link's clock; only the private ranges of home routers are home addresses, each once, at most eight; the announcement holds the id and the port and nothing of the family, word for word; this PC's home addresses read | 54 |
 | `src/drawn/tests.rs` | The drawn display's decisions, with no window: Windows keys to the lock's keys, with the layout's text handed in; the modifiers and the keyboard state; text and points from Windows; the PC's clock from the time format; where the time left display starts, a drag kept on the screen, where a notice goes; pixels into a bitmap, and only a change saying so; the notices' turns; a way out sent once and only its own answer back to the same lock; an answer for a lock taken down, or one that waited too long, dropped; a PIN moved into its secret with nothing left behind; a reason typed with the layout's text, shortcuts typing nothing; keys reaching nothing but a lock; the same lock again keeping what the child did; the time left display and its notices only while the PC may be used, OK, and the notice by name; the lock drawn on the main monitor and the others; the service's answers as the lock's | 19 |
 | `src/win/*.rs` | Pure functions, harmless reads of the test's own process, and harmless reads of what the PC says of itself, which pass whatever the answer: the time zone offset; the clocks, and this account's own time format; session states and administrators; this process's own account; the order version resources are read in; this process's own entry, file and version resource (none); frames across a pipe inside this process; the three access lists and that they parse for this user; the command line a helper gets, with and without `--plain`; a log line; full screen; a helper run by hand doing nothing; what this process got; the display bit as Windows numbers it; this process's own Windows session, and none for a process that is not there; whether this PC plays sound (twice, with COM started and ended) and keeps the screen awake, read and not judged, on a PC with a sound device or none; the door's access list keeps the right to make an instance from interactive users, and parses; this process's own account; this PC's accounts, read and not judged | 26 |
-| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders, the fallback and the console's door; and the door over a real named pipe (below) | 69 |
+| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders, the fallback and the console's door; the door over a real named pipe; and the link with a played phone over real loopback sockets (below) | 82 |
 | `tests/house_rules.rs` | Unsafe code only in `src/win/`; no allow attributes; no dash punctuation | 3 |
 
 The stories: `facts.rs` (7): no fresh report counts as input just now; a
@@ -1004,7 +1192,28 @@ closed connection's session ended; garbage, a frame too long, a flood and a
 silent client each closed, and the door open for the next; only SYSTEM and
 Administrators able to make an instance; a door whose name is taken not
 opened, and saying so; a fifth connection from one session closed at once,
-and the session served again when the others go.
+and the session served again when the others go. `link.rs` (13), a phone
+played over real loopback sockets with the link's own phone side and the
+core's device: paired with an offer from the door, its key kept, its
+session through the cable with a report and a grant, the door's
+`device_link` saying `cable`, the announcement made with the first phone
+and its words in the log, never the offer's text, its apps kept, its
+goodbye; an offer used twice, an offer expired, an offer for no child; a
+removed phone told so, the family noting it, and the announcement
+withdrawn; a newer session taking the older's place; a lock from the
+console reaching the phone by a prod; the rules changed at the console in
+the phone's next grant; no offer without the link running; the whole day
+of one budget (above); and, while a child's session counts on the PC:
+garbage before the handshake, a handshake with a key never paired, a peer
+that says nothing for five seconds, a flood of connections from one
+address, a frame said to be 4 GiB, and a paired phone reporting more than
+60 times in a minute, each closed or cut off with the count going on; and
+the step time with a phone talking, measured.
+
+The link's tests listen on the loopback address only, at a port the system
+chooses, never on another address; they announce nothing on the network
+(the announcer is a fake that notes what it was asked) and add no firewall
+rule. `cargo test` also builds the example phone.
 
 None of the tests starts or stops a service, installs anything, writes
 under Program Files or ProgramData, ends, suspends or launches a process,
@@ -1030,8 +1239,18 @@ as in the hub and the agent, so the slow password and PIN hashes stay quick.
   its check that the door is served from session 0 by LiMo's own program,
   and its own sign out after fifteen minutes with no input. The door's
   session ends after fifteen minutes too (above), whatever the console does.
-- **Adding a phone**: `make_offer` and `device_link` answer `not_yet` until
-  the service has the link.
+- **The phone's own half of the link** is LiMo for Android's: its
+  sockets, its search on the network, and the cable door that hands it the
+  offer (see [What a phone must do](#what-a-phone-must-do)).
+- **The firewall rule** is the installer's, not built yet.
+- **The cable comes in at the loopback,** with every program on this PC:
+  a program in a child's account that keeps opening connections to
+  127.0.0.1:47810, saying nothing, could keep the cable's connection out
+  while a guardian adds a phone (four from one address at once, each
+  closed after five seconds). It cannot pair anything (an offer's secret is
+  needed) nor pose as a phone (a phone's key is). Telling the cable's
+  connections from the PC's own programs is left for the work on the
+  cable.
 - **Removal allowed** (`allow_removal`) is kept in the service's memory for
   ten minutes; nothing asks for it yet: the uninstaller that will is not
   built.
@@ -1095,11 +1314,22 @@ as in the hub and the agent, so the slow password and PIN hashes stay quick.
 | windows, windows-core, windows-result, windows-strings, windows-link, windows-numerics, windows-collections, windows-future, windows-threading | 0.62.2, 0.62.2, 0.4.1, 0.5.1, 0.2.1, 0.3.1, 0.3.2, 0.3.2, 0.2.1 | MIT or Apache-2.0 | calling Windows; the same version as the first spike. The console's door added one of its features, `Win32_NetworkManagement_NetManagement`, for the accounts of the PC; no crate was added |
 | windows-implement, windows-interface | 0.60.2, 0.59.3 | MIT or Apache-2.0 | used by windows-core when building |
 | windows-service | 0.8.1 | MIT or Apache-2.0 | the service control manager; the same version as the first spike |
+| limo-link | 0.1.0 (path) | Apache-2.0 | the link with the phones; its own crates (snow, curve25519-dalek, chacha20poly1305, blake2, getrandom and their parts) are listed with their licences in its README; curve25519-dalek and subtle are BSD-3-Clause |
+| mdns-sd | 0.22.0 | Apache-2.0 or MIT | the announcement on the home network (no default features: no async runtime, no logging). On the network it sends only what [The announcement](#the-announcement-on-the-home-network) says |
+| flume, spin, lock_api, scopeguard | 0.12.0, 0.9.9, 0.4.14, 1.2.0 | Apache-2.0 or MIT; spin MIT | parts of mdns-sd |
+| mio | 1.2.5 | MIT | part of mdns-sd: its sockets |
+| socket2, socket-pktinfo | 0.6.5, 0.4.2 | MIT or Apache-2.0; socket-pktinfo MIT | parts of mdns-sd: multicast sockets |
+| if-addrs | 0.15.0 | MIT or BSD-3-Clause (taken as MIT) | the PC's addresses, for the offer and to choose where to announce; also used by mdns-sd |
+| fastrand | 2.5.0 | Apache-2.0 or MIT | part of mdns-sd (and tempfile) |
 | windows-sys, widestring, bitflags | 0.61.2, 1.2.1, 2.13.2 | MIT or Apache-2.0 | parts of windows-service |
 | zeroize | 1.9.2 | Apache-2.0 or MIT | wiping a typed PIN or code, and the frames that carried it |
 | serde, serde_json | 1.0.229, 1.0.154 | MIT or Apache-2.0 | the channel's messages and the settings file |
 | syn | 2.0.119 | MIT or Apache-2.0 | used by windows-implement and windows-interface when building |
 | tempfile | 3.27.0 | MIT or Apache-2.0 | tests only: a family file in a temporary folder |
+
+`Cargo.lock` also names wasi (for mio on WebAssembly only) and fiat-crypto
+(a backend of curve25519-dalek built only when asked for); neither is built
+for Windows.
 
 Everything else under these is listed, with its licence, in the hub's, the
 core's and the screens' READMEs; what limo-screens brings resolves to the
@@ -1126,7 +1356,12 @@ windows/
     service.rs    the service's work: facts, orders, helpers, fallback
     service/
       door.rs       the console's door: who, sign in, sessions, requests
+      link.rs       the link's calls on the family's file, sessions, prods,
+                    offers, the announcement
       unlinked.rs   the guardian PIN on the lock of an account not set up
+    phones.rs     the link's listener and its connections' threads
+    announce.rs   the home addresses and the announcement (mdns-sd)
+    played_phone.rs a phone played over the link (feature played-phone)
     protocol.rs   the channel: messages, frames, limits, Secret
     console.rs    the console's door: messages, frames, limits
     devconsole.rs dev-console's lines
@@ -1169,5 +1404,8 @@ windows/
   tests/
     house_rules.rs
     service/      main.rs, common.rs (the fake PC), facts.rs, helpers.rs,
-                  channel.rs, orders.rs, fallback.rs, door.rs, pipe.rs
+                  channel.rs, orders.rs, fallback.rs, door.rs, pipe.rs,
+                  link.rs
+  examples/
+    limo-phone.rs a phone played from another PC
 ```

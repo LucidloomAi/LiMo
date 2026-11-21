@@ -201,4 +201,8 @@ impl Os for WinOs {
     fn accounts(&mut self) -> Result<Vec<AccountSeen>, String> {
         accounts::local_accounts()
     }
+
+    fn home_addresses(&mut self) -> Vec<std::net::Ipv4Addr> {
+        crate::announce::home_addresses()
+    }
 }
