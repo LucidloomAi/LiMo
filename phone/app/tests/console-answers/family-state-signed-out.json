@@ -12,6 +12,7 @@
         "children": 1,
         "has_family": true,
         "has_pin": true,
+        "removal_allowed_until": null,
         "signed_in": false,
         "unlinked_accounts": "locked"
       }

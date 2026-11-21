@@ -1,12 +1,14 @@
 //! The door's test host, as another crate's tests use it: the real service
-//! and door on a pipe of the test's own, knocked on with a real client.
+//! and door on a pipe of the test's own, knocked on with a real client; and
+//! the uninstaller's own line to the door, over the same real pipe.
 
 #![cfg(windows)]
 
 use std::time::{Duration, Instant};
 
 use limo_hub::AgeBand;
-use limo_windows::DoorClient;
+use limo_windows::installer::DoorOpen;
+use limo_windows::{DoorClient, DoorLine};
 use limo_windows::console::{CONSOLE_PROTOCOL_VERSION, FromConsole, Reply, Request, ToConsole};
 use limo_windows::door_host::{DoorHost, DoorHostSetup, HOST_PASSWORD};
 use limo_windows::protocol::Secret;
@@ -84,4 +86,32 @@ fn a_host_with_no_family_starts_where_the_first_start_does_and_never_takes_the_r
     assert!(matches!(ask(&mut client, 3, Request::FamilyState), Reply::Done { value } if value["has_family"] == true && value["signed_in"] == true));
     let real = DoorHostSetup::new(r"\\.\pipe\limo.console", folder.path());
     assert!(DoorHost::start(real).unwrap_err().contains("never takes the real door"));
+}
+
+#[test]
+fn the_uninstallers_line_refuses_a_door_not_served_by_a_service_and_checks_the_password_through_a_real_one() {
+    let folder = tempfile::tempdir().unwrap();
+    let host = DoorHost::start(DoorHostSetup::new(&pipe("line"), folder.path())).unwrap();
+    // The host runs in this test's own session, not session 0: as the
+    // uninstaller opens the door, it is refused before anything is sent.
+    match DoorLine::open(host.pipe_name(), true) {
+        Err(DoorOpen::NotTheService(why)) => assert!(why.contains("not a service"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+    assert!(host.log().iter().all(|line| !line.contains("sign_in")));
+    // Opened as a test may, the same line asks and is answered.
+    let (mut line, version) = DoorLine::open(host.pipe_name(), false).unwrap();
+    assert_eq!(version, limo_windows::windows_version());
+    assert!(matches!(line.ask(Request::FamilyState).unwrap(), Reply::Done { value } if value["has_family"] == true && value["removal_allowed_until"].is_null()));
+    let wrong = line.ask(Request::SignIn { password: Secret::new("not the password".into()) }).unwrap();
+    assert!(matches!(&wrong, Reply::Problem { problem } if problem.message == "That password is not right. 4 more tries before a wait."), "{wrong:?}");
+    // The next secret waits for the door's second.
+    let started = Instant::now();
+    assert!(matches!(line.ask(Request::SignIn { password: Secret::new(HOST_PASSWORD.into()) }).unwrap(), Reply::Done { .. }));
+    assert!(started.elapsed() >= Duration::from_millis(1_000));
+    // Allowed removal shows in the family's state for the next line.
+    assert!(matches!(line.ask(Request::AllowRemoval { password: Secret::new(HOST_PASSWORD.into()) }).unwrap(), Reply::Done { .. }));
+    drop(line);
+    let (mut next, _) = DoorLine::open(host.pipe_name(), false).unwrap();
+    assert!(matches!(next.ask(Request::FamilyState).unwrap(), Reply::Done { value } if value["removal_allowed_until"].is_i64()));
 }

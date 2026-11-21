@@ -74,8 +74,10 @@ use zeroize::{Zeroize, Zeroizing};
 use super::sessions::token_user_sid;
 use super::{Owned, error_text, win32_code, wide};
 use crate::console::{
-    ConsoleIncoming, ConsoleReader, FromConsole, HELLO_WAIT_MS, MAX_MESSAGES_PER_SECOND, ToConsole, answer_decoder, encode_from_console,
+    CONSOLE_PROTOCOL_VERSION, ConsoleIncoming, ConsoleReader, FromConsole, HELLO_WAIT_MS, MAX_MESSAGES_PER_SECOND, Reply, Request, ToConsole,
+    answer_decoder, encode_from_console,
 };
+use crate::installer::DoorOpen;
 use crate::os::{ClientSeen, DoorEvent, DoorId, SendProblem};
 use crate::protocol::{ChannelProblem, Decoder, Frame};
 
@@ -981,6 +983,75 @@ fn open_pipe(name: &str, access: u32, wait_ms: u32) -> Result<Owned, (u32, Strin
                 let _ = unsafe { WaitNamedPipeW(PCWSTR(path.as_ptr()), u32::try_from(left).unwrap_or(1).max(1)) };
             }
             Err(e) => return Err((win32_code(&e), error_text(&e))),
+        }
+    }
+}
+
+/// How long an answer through a [`DoorLine`] may take, in milliseconds.
+const LINE_ANSWER_MS: u32 = 10_000;
+
+/// A console's line to the door, as `limo uninstall` uses it to ask for the
+/// guardian password: the pipe opened, who serves it checked, hello said,
+/// and requests numbered, a secret never sooner than a second after the
+/// last (the door's own rule).
+pub struct DoorLine {
+    client: DoorClient,
+    next_id: u32,
+    last_secret: Option<Instant>,
+}
+
+impl std::fmt::Debug for DoorLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DoorLine").field("next_id", &self.next_id).finish_non_exhaustive()
+    }
+}
+
+impl DoorLine {
+    /// Opens the door at `pipe` and says hello: the line and the running
+    /// LiMo's version, or what was found instead. With `service_only`, a
+    /// door served from anywhere but session 0, where services run, is
+    /// refused before anything is sent, so that a program posing as the
+    /// door in a user's session is never told a password.
+    pub fn open(pipe: &str, service_only: bool) -> Result<(DoorLine, String), DoorOpen> {
+        let mut client = DoorClient::connect(pipe, 2_000).map_err(DoorOpen::Absent)?;
+        let server = client.server();
+        if service_only && server.session_id != Some(0) {
+            return Err(DoorOpen::NotTheService(format!(
+                "The door of LiMo’s settings is served by a process that is not a service (pid {:?}, session {:?}); LiMo’s service runs in session 0.",
+                server.pid, server.session_id
+            )));
+        }
+        client.send(&FromConsole::Hello { protocol: CONSOLE_PROTOCOL_VERSION }).map_err(DoorOpen::Absent)?;
+        match client.read(LINE_ANSWER_MS) {
+            Ok(Some(ToConsole::Hello { version, .. })) => Ok((DoorLine { client, next_id: 0, last_secret: None }, version)),
+            Ok(Some(ToConsole::Refused { message })) => Err(DoorOpen::Refused(message)),
+            Ok(Some(_)) | Ok(None) => Err(DoorOpen::Absent("no hello came back".to_string())),
+            Err(problem) => Err(DoorOpen::Absent(problem)),
+        }
+    }
+
+    /// A request, and its answer.
+    pub fn ask(&mut self, request: Request) -> Result<Reply, String> {
+        if request.carries_a_secret() {
+            if let Some(last) = self.last_secret {
+                let spacing = Duration::from_millis(1_100);
+                let waited = last.elapsed();
+                if waited < spacing {
+                    std::thread::sleep(spacing - waited);
+                }
+            }
+            self.last_secret = Some(Instant::now());
+        }
+        self.next_id += 1;
+        let id = self.next_id;
+        self.client.send(&FromConsole::Request { id, request })?;
+        loop {
+            match self.client.read(LINE_ANSWER_MS)? {
+                Some(ToConsole::Answer { id: got, reply }) if got == id => return Ok(reply),
+                Some(ToConsole::Refused { message }) => return Err(message),
+                Some(_) => {}
+                None => return Err(format!("no answer came within {} seconds", LINE_ANSWER_MS / 1_000)),
+            }
         }
     }
 }

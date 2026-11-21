@@ -139,6 +139,10 @@ pub(crate) fn run() -> i32 {
                 Some(pin) => Request::SetPin { pin },
                 None => continue,
             },
+            DevLine::AllowRemoval => match read_hidden("Guardian password, to allow LiMo’s removal (not shown): ") {
+                Some(password) => Request::AllowRemoval { password: Secret::new(password.to_string()) },
+                None => continue,
+            },
             DevLine::RemoveDevice { device } => match read_hidden("Guardian password, to remove it (not shown): ") {
                 Some(password) => Request::RemoveDevice { device, password: Secret::new(password.to_string()) },
                 None => continue,

@@ -2,7 +2,9 @@
 //!
 //! The Windows service on the master PC, around the agent's engine, and the
 //! helper it starts in each signed in session that needs one. One program,
-//! `limo.exe`, does both, and installs and removes itself for testing.
+//! `limo.exe`, does both, and does the real work of installing, upgrading
+//! and removing LiMo, for an installer that only copies files (see
+//! [`installer`]).
 //!
 //! - The **service** runs as LocalSystem. About once a second it gathers the
 //!   facts (the clocks, the sessions, the programs running in each, and what
@@ -56,6 +58,7 @@ pub mod devconsole;
 pub mod door_host;
 pub mod drawn;
 pub mod helper;
+pub mod installer;
 pub mod os;
 #[cfg(feature = "played-phone")]
 pub mod played_phone;
@@ -75,7 +78,7 @@ mod win;
 /// process's own account: for the tests over a real named pipe, and for
 /// `limo dev-console`.
 #[cfg(windows)]
-pub use win::door::{CLIENT_ACCESS, DOOR_SDDL, DoorClient, RealDoor, ServerSeen, this_account};
+pub use win::door::{CLIENT_ACCESS, DOOR_SDDL, DoorClient, DoorLine, RealDoor, ServerSeen, this_account};
 
 /// True when this process runs elevated: for the tests of the door, whose
 /// access list an elevated administrator passes.

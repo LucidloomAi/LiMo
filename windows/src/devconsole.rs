@@ -28,6 +28,9 @@ pub enum DevLine {
         /// The device's id.
         device: String,
     },
+    /// Allows LiMo's removal for ten minutes: the password is asked for, not
+    /// shown.
+    AllowRemoval,
     /// A child's minutes a day, every day: the rules are read, changed and
     /// sent back.
     Minutes {
@@ -67,6 +70,8 @@ pub fn dev_console_help() -> String {
         "  today                     every child’s day",
         "  offer CHILD_ID            a pairing offer for a phone of the child’s",
         "  remove-device DEVICE_ID   remove a device (the password is asked for, not shown)",
+        "  allow-removal             allow LiMo to be removed in the next ten minutes, with no",
+        "                            password (the password is asked for, not shown)",
         "  about                     LiMo for Windows' version",
         "  request NAME [JSON]       any other request, such as: request lift {\"child\":\"...\"}",
         "  quit                      close and end",
@@ -106,6 +111,7 @@ pub fn parse_dev_line(line: &str) -> Result<DevLine, String> {
         ("free", [account]) => DevLine::Send(Request::LinkAccount { account: (*account).to_string(), link: AccountLink::NotLimited }),
         ("offer", [child]) => DevLine::Send(Request::MakeOffer { child: (*child).to_string() }),
         ("remove-device", [device]) => DevLine::RemoveDevice { device: (*device).to_string() },
+        ("allow-removal", []) => DevLine::AllowRemoval,
         ("request", _) if !rest.is_empty() => {
             let (name, args) = rest.split_once(char::is_whitespace).map_or((rest, ""), |(n, a)| (n, a.trim()));
             let mut json = serde_json::json!({ "name": name });
@@ -185,6 +191,8 @@ mod tests {
         assert_eq!(parse_dev_line("request waiting_requests"), Ok(DevLine::Raw { json: serde_json::json!({"name": "waiting_requests"}) }));
         assert_eq!(parse_dev_line("offer c1"), Ok(DevLine::Send(Request::MakeOffer { child: "c1".into() })));
         assert_eq!(parse_dev_line("remove-device d1"), Ok(DevLine::RemoveDevice { device: "d1".into() }));
+        assert_eq!(parse_dev_line("allow-removal"), Ok(DevLine::AllowRemoval));
+        assert!(dev_console_help().contains("allow-removal"));
         assert!(parse_dev_line("take over").is_err());
         assert!(dev_console_help().contains("sign-in"));
     }

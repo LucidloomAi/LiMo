@@ -26,16 +26,21 @@ want to hear from it, and announces itself on the home network while the
 family has a phone. See [The link with the phones](#the-link-with-the-phones).
 
 **What it is not.** It has no window of its own for the guardian (the
-console is a program of its own, not built yet; `limo dev-console` knocks
-on the door by hand meanwhile), no installer for families, and it adds no
-firewall rule (see [The firewall rule](#the-firewall-rule)). It first ran
+console is a program of its own; `limo dev-console` knocks on the door by
+hand meanwhile), and it is not the installer: an installer copies the files
+and calls `limo install`, `limo stop-for-upgrade` and `limo uninstall`,
+which do the rest (see
+[Installing, upgrading and removing](#installing-upgrading-and-removing)).
+It first ran
 as a service on a real PC on 19 November 2026, with the owner, and the
 drawn display was on the screen then; [TESTING.md](TESTING.md) says how it
 is tried and what was seen. The door has been built and tested on the
 development PC, against the fake PC and over a real named pipe in the
 tester's own account; its run at the PC is TESTING.md, part O. The link has
 been tested over real loopback sockets with a phone played by the link's
-own phone side; its run with a second PC is TESTING.md, part P.
+own phone side; its run with a second PC is TESTING.md, part P. The
+installer's work has been tested against the fake PC; its elevated run is
+TESTING.md, part Q.
 
 ## Contents
 
@@ -49,7 +54,8 @@ own phone side; its run with a second PC is TESTING.md, part P.
 - [The lock of an account not set up](#the-lock-of-an-account-not-set-up)
 - [The link with the phones](#the-link-with-the-phones)
 - [The announcement on the home network](#the-announcement-on-the-home-network)
-- [The firewall rule](#the-firewall-rule)
+- [Installing, upgrading and removing](#installing-upgrading-and-removing)
+- [The firewall rules](#the-firewall-rules)
 - [The example phone](#the-example-phone)
 - [The door's test host, for other crates' tests](#the-doors-test-host-for-other-crates-tests)
 - [The door's answers, for the screens' tests](#the-doors-answers-for-the-screens-tests)
@@ -71,17 +77,19 @@ own phone side; its run with a second PC is TESTING.md, part P.
 
 | Command | Who | What |
 | --- | --- | --- |
-| `limo install [--dev]` | administrator | Copies the program to `%ProgramFiles%\LiMo`, makes `%ProgramData%\LiMo` for SYSTEM and Administrators only, creates the service `LiMo` (LocalSystem, automatic, restarted 1, 1 and then 10 seconds after a failure), and starts it. `--dev` also switches the test cap on. Refuses, changing nothing, when the service is installed or the data folder already exists. |
-| `limo uninstall` | administrator | Stops and deletes the service and removes both folders, the family's file with them. Safe to run twice. Refuses to run from the installed copy, which cannot delete itself. |
+| `limo install [--dev]` | administrator | A new install, or over the one that is there (an upgrade, or the same version again), keeping the family's file and everything in it: see [Installing, upgrading and removing](#installing-upgrading-and-removing). The data folder made for SYSTEM and Administrators only (or the one there kept, when SYSTEM or an administrator made it), the service `LiMo` (LocalSystem, automatic, restarted 1, 1 and then 10 seconds after a failure) made or updated, LiMo's two firewall rules, the console's shortcut for every account, and the service started. Run from a build folder, it copies `limo.exe` (and a `limo-console.exe` beside it) into `%ProgramFiles%\LiMo` first. `--dev` also switches the test cap on. Says what it replaces, and refuses to replace a newer LiMo. |
+| `limo stop-for-upgrade` | administrator, run from outside the program folder | For an installer, before it copies new files: stops the service and ends every LiMo program running from `%ProgramFiles%\LiMo` (the helpers, the console), so that their files can be replaced. Nothing else. |
+| `limo uninstall [--keep-family-file\|--delete-family-file]` | administrator | When there is a family, asks for the guardian password and checks it through the console's door (or in the family's file when the service does not run) before it removes anything, unless a guardian allowed the removal in LiMo's settings in the ten minutes before. Then removes the service, ends LiMo's programs, removes the firewall rules, the shortcut and the program folder (when run from elsewhere: run from it, the installer removes it), and keeps or deletes `%ProgramData%\LiMo` with the family's file, as the flag says or as it asks. Safe to run twice. |
 | `limo status` | anyone | The service's state; whether this terminal is elevated; the test cap; and the last 20 lines of the log, when this account may read them. |
 | `limo dev-setup --child NAME --account ACCOUNT [--minutes N] [--block PROGRAM]...` | administrator, service stopped | Scaffolding until the guardian's console exists: a family with a guardian password and PIN typed at the prompt (not shown), one child, the Windows account linked to the child, N minutes a day (10 when not given, 1 to 240), and each program given blocked. Refuses while the service runs, since the service holds the family's file, and when the file already has a family. |
 | `limo dev-code [--minutes 15\|30\|60] [--child NAME]` | administrator, service stopped | Scaffolding until the guardian's phone app exists: makes the next one time code for the test child's device on this PC, worth the minutes given (15 when not given), for the child's day today, and prints it. Each run makes a new code, and the family's file records it; a device takes ten a day. The device is paired first if the engine has not yet seen the child on this PC, as the engine would pair it. `--child` is needed only when the family has more than one child. The log says a code was made, never the code. Refuses while the service runs. |
 | `limo reset-password` | administrator | For a family that forgot the guardian password: a new one, typed twice at the prompt and never shown, checked for its length before anything is touched. The service holds the family's file, so it is stopped for a moment and started again. The wrong guesses and their wait are cleared, the family's events record a reset, and everything else is kept: the PIN, the children, their rules and their devices. Takes nothing on its command line, where a terminal would keep a password. |
-| `limo dev-console` | anyone | Scaffolding until the guardian's console exists: knocks on the door of LiMo's settings from the account it runs in, as the console will, and sends one request for each line typed (`help` lists them: `state`, `create-family`, `sign-in`, `set-pin`, `add-child`, `minutes`, `accounts`, `link`, `free`, `finish`, `today`, `offer`, `remove-device`, `request NAME JSON`). It sends nothing unless the door is served from session 0, where services run. A password or a PIN is asked for at a prompt that does not show it, never taken on the line. |
+| `limo dev-console` | anyone | Scaffolding until the guardian's console exists: knocks on the door of LiMo's settings from the account it runs in, as the console will, and sends one request for each line typed (`help` lists them: `state`, `create-family`, `sign-in`, `set-pin`, `add-child`, `minutes`, `accounts`, `link`, `free`, `finish`, `today`, `offer`, `remove-device`, `allow-removal`, `request NAME JSON`). It sends nothing unless the door is served from session 0, where services run. A password or a PIN is asked for at a prompt that does not show it, never taken on the line. |
 | `limo service` | the service control manager | The service. Run from a terminal it says so and does nothing. |
 | `limo helper --channel R:W [--plain]` | the service | The helper. Run by hand, without the channel it was born with, it says so and does nothing. `--plain`: show the plain display; the service adds it when the settings file asks. |
 
-Exit codes: 0 done, 1 failed, 2 refused.
+Exit codes: 0 done, 1 failed (said, and written in the setup log), 2
+refused, with nothing changed.
 
 ## How it is put together
 
@@ -798,20 +806,199 @@ an address would announce there too, saying that a LiMo PC is present and
 nothing more. A master PC is the family's home PC. The pairing offer
 carries the same addresses.
 
-## The firewall rule
+## Installing, upgrading and removing
 
-LiMo adds no firewall rule now; the installer will. What it must add, for
-`%ProgramFiles%\LiMo\limo.exe` only, on the Private and Public profiles
-(a family's Wi-Fi is often called Public), from the local subnet only:
-inbound TCP 47810 (the link) and inbound UDP 5353 (the announcement and the
-questions phones ask). Without it, a phone on Wi-Fi does not reach the PC
-(the cable still does: it arrives at the loopback, which the firewall does
-not filter), and Windows either blocks the phone without a word or asks
-whoever is at the PC, a question a family should not meet. The rule is removed
-at uninstall. The listener binds the home addresses only once the family
-has a phone, so the rule matters only then. In this build's tests nothing
-listens on any address but loopback (a test's home address is a loopback
-listener standing in for it), and nothing is announced.
+The installer copies the files and calls `limo.exe`; everything else is
+done, and decided, in `limo.exe` (`src/installer.rs`, over a seam that the
+real PC in `src/win/machine.rs` and the tests' fake PC both implement).
+What the installer must call, and in what order:
+
+1. **Before it copies anything:** `limo stop-for-upgrade`, from a copy of
+   the new `limo.exe` outside `%ProgramFiles%\LiMo` (its own temporary
+   folder), since a program running from the folder holds its own file and
+   the copy refuses to run from it. On a PC without LiMo it says so and is
+   done (exit 0); otherwise it stops the service, gives the helpers a moment
+   to end with it, ends what is left running from the program folder (the
+   helpers in every session, the console), and says each. The service is
+   not started again until step 3, so a child's session is not limited for
+   those seconds.
+2. **It copies the files** into `%ProgramFiles%\LiMo`: `limo.exe`,
+   `limo-console.exe`, `phone\limo-child.apk`, `notices\`.
+3. **`limo install`**, from `%ProgramFiles%\LiMo\limo.exe`. In order:
+   - it checks that it runs elevated, and says so in plain words when not;
+   - it reads the service and the data folder, and says what this is: a new
+     install; this version again over itself; an upgrade ("This replaces
+     LiMo 0.1.0 with LiMo 0.2.0", read from `installed.json` in the data
+     folder); over an earlier test install whose version was not recorded;
+     or a data folder kept by an earlier uninstall, whose family's file is
+     used again. A newer LiMo is never replaced by an older one (its
+     family's file may be newer than the older can read): refused, nothing
+     changed;
+   - a data folder made by anyone but SYSTEM or the Administrators group is
+     never used (a standard account can make folders in ProgramData, so one
+     there may be a child's, who could then read the family's file):
+     refused, nothing changed. One made by an administrator whose access
+     list was changed is set back to LiMo's;
+   - it stops what runs (as step 1), copies the program when run from a
+     build folder, and says which of the console, the phone app and the
+     notices are not in the program folder;
+   - the data folder: made with its protection from the first moment, or
+     the one there kept, with its owner and access list said as Windows has
+     them;
+   - the settings file's test cap: on for `--dev`, off otherwise ("The test
+     cap of the earlier test install is now off"); the switch for the plain
+     display is kept. `installed.json` records this version;
+   - the service: created, or updated when it is there (the program it
+     runs, automatic start, LocalSystem, the restarts after a failure);
+   - LiMo's two firewall rules (below), each removed first if it is there,
+     so that a rule is never there twice;
+   - the console's shortcut, `LiMo settings`, in the Start menu of every
+     account (`%ProgramData%\Microsoft\Windows\Start Menu\Programs`):
+     the door refuses a child's account whatever shortcut is used, so it can
+     be for everyone, and a child who opens it reads the refusal;
+   - the service started. It starts a helper in each signed in session that
+     needs one, so nothing is installed for each account.
+
+   A failure is said, written in the setup log, and gives exit 1; a failure
+   after the service was stopped starts it again, so that the family is not
+   left unlimited. A firewall rule or the shortcut that could not be made is
+   said as NOT DONE, everything else is still done, and the exit code is 1.
+
+Its uninstaller calls **`limo uninstall`** before it removes the program
+folder, and goes on only when it returns 0:
+
+- elevated, or refused in plain words;
+- the guardian's word, before anything is removed. With the service
+  running, it knocks on the console's door as the console does (refusing a
+  door not served from session 0, and knocking again for a few seconds on a
+  service that has just started), asks whether there is a family, and
+  whether a guardian allowed LiMo's removal in its settings in the ten
+  minutes before (`allow_removal`; the door's `family_state` now says
+  `removal_allowed_until`). Otherwise it asks for the guardian password at a
+  prompt that does not show it, three tries in one run, and signs in with it:
+  the door's own answers and waits ("That password is not right. 4 more
+  tries before a wait."), the same for every console. With the service
+  stopped, it checks the password in the family's file itself, with the
+  same waits. From a child's account, the door's refusal. Nothing typed, or
+  no console to type in: refused, nothing removed, and it says how a
+  guardian can allow the removal, or set a new password with
+  `limo reset-password`;
+- whether the family's file is kept or deleted: as `--keep-family-file` or
+  `--delete-family-file` say, or asked plainly ("Kept, LiMo installed again
+  has the children, their rules, their devices and the guardian password as
+  they are now. Deleted, they are gone for good."). With no answer it is
+  kept, so that nothing is lost;
+- then the service stopped and deleted, LiMo's programs ended, the two
+  firewall rules removed, the shortcut removed, the program folder removed
+  when run from a build folder (run from the program folder, it says the
+  installer removes it), and the data folder kept or deleted.
+
+Against a person with an administrator's account all of this is a courtesy,
+not a lock: an administrator can stop the service and delete the folders by
+hand. It keeps a removal from happening by a slip, or by a child who knows
+an administrator's password but not the guardian's.
+
+**The setup log.** Every step said is written, with its time, to
+`%ProgramData%\LiMo\setup.log` (readable by administrators, kept with the
+data folder), a run after another, each ending with its exit code. After an
+uninstall that deleted the data folder it goes to `LiMo setup.log` in the
+temporary folder of the account that ran it, and the last line said tells
+where. A person can send it to us: it holds no password, PIN or code (they
+are never said, and a test checks the log), only steps, paths, versions,
+process ids and the firewall rules' names.
+
+**What `--dev` changes.** One thing: the test cap is switched on (any single
+lock is lifted after 120 seconds, and the log says so each time); without
+`--dev` it is switched off, also over a test install. Everything else is the
+same in both, including the firewall rules, the shortcut (made when a
+console is in the program folder) and the password at uninstall. Before
+this, the install had none of what a family needs beyond the service and
+the folder, `--dev` or not: no firewall rule, no shortcut, no install over
+an install (it refused), no version recorded, no setup log, and an uninstall
+that asked nothing and deleted the family's file. Copying `limo.exe` into the
+program folder is not `--dev`'s: it is what any install run from outside the
+program folder does.
+
+**What only a real, elevated run proves.** The tests decide every step
+against the fake PC, and try the parts that need no elevation for real (a
+shortcut made in a temporary folder and read back; a folder made with
+LiMo's protection by a standard account, judged not LiMo's; the uninstall's
+line to the door over a real pipe, refused by a door not served from
+session 0). Only a run by an administrator at a PC shows:
+
+- the service created, updated, started, stopped and deleted by the service
+  control manager, and started at boot;
+- the data folder's owner and access list as Windows applies them (owner
+  Administrators), and an access list set back;
+- the two firewall rules as Windows keeps them (in its window, group LiMo),
+  that they let a paired phone in over the home network on a Private and on
+  a Public network, and that nothing else gets in;
+- the shortcut in the Start menu of every account, opening the console;
+- the helpers and a console in other sessions ended, and their files then
+  replaceable;
+- the uninstall's hidden prompt in a console window an installer opened,
+  its answer read, and the door answering an elevated process in a
+  guardian's session;
+- the setup log written in the protected folder, and in the account's
+  temporary folder after a deleting uninstall;
+- what the installer shows for each exit code.
+
+TESTING.md, part Q, is that run with the owner.
+
+**What the installer's side must do to match.**
+
+- Per machine, elevated (Windows' elevation prompt), into
+  `%ProgramFiles%\LiMo`.
+- Before copying: extract the new `limo.exe` to its own temporary folder and
+  run `limo.exe stop-for-upgrade` from there; go on when it returns 0, and
+  otherwise stop and show its last lines.
+- After copying: run `%ProgramFiles%\LiMo\limo.exe install` (never
+  `--dev`); 0 is done, 1 is done with a step not done or failed (show it,
+  with the place of the setup log), 2 is refused (show it; nothing changed).
+- Its uninstaller: run `%ProgramFiles%\LiMo\limo.exe uninstall` in a
+  console window the person can type in (the password prompt reads the
+  console: an installer's hidden run gives it nothing, and the uninstall is
+  then refused), with `--keep-family-file` or `--delete-family-file` when
+  the installer asked that question in its own window; remove the program
+  folder only when it returns 0, and abort otherwise.
+- If the installer, on an upgrade, runs the old version's uninstaller
+  first, that run must not call `limo uninstall` (which would ask for the
+  password and offer to delete the family's file), only
+  `limo stop-for-upgrade`.
+- No Start menu shortcut of its own for the console, or one with the same
+  name in the same folder (`LiMo settings` in the Start menu of every
+  account), since `limo install` makes it and `limo uninstall` removes it.
+- WebView2's check and bootstrapper are the installer's.
+
+## The firewall rules
+
+`limo install` adds two inbound rules to Windows' firewall, through the
+firewall's own interface (`INetFwPolicy2`), never through a command line;
+`limo uninstall` removes them. Each allows one thing:
+
+| Name | Allows | For |
+| --- | --- | --- |
+| `LiMo, the family’s phones (TCP 47810)` | inbound TCP to local port 47810 | the link: a paired phone's encrypted session |
+| `LiMo, found by the family’s phones (UDP 5353)` | inbound UDP to local port 5353 | the announcement, and the questions phones ask to find the PC (multicast DNS) |
+
+Both are for the program `%ProgramFiles%\LiMo\limo.exe` only (no other
+program on the PC is let in by them), from the local subnet only (a device
+on a network this PC is on, never one beyond a router), on the Private and
+Public profiles (Windows calls a new Wi-Fi network Public until someone says
+otherwise, and a family's often stays so; never on an organisation's Domain
+network). They are in the group `LiMo` in Windows' firewall window (Windows
+Defender Firewall with Advanced Security, Inbound Rules), where a person
+finds them, with a description saying what they are for; PowerShell lists
+them with `Get-NetFirewallRule -Group LiMo`. They allow nothing outbound and
+open nothing by themselves: what listens is the service, which binds the
+home addresses only once the family has a phone, and answers only paired
+phones and the pairing offer's one phone. Without them, a phone on Wi-Fi
+does not reach the PC (the cable still does: it arrives at the loopback,
+which the firewall does not filter), and Windows either blocks the phone
+without a word or asks whoever is at the PC, a question a family should not
+meet. In this build's tests nothing listens on any address but loopback (a
+test's home address is a loopback listener standing in for it), nothing is
+announced, and the firewall is never touched.
 
 ## The example phone
 
@@ -1167,13 +1354,15 @@ program was closed." with the service's sentence under it.
 
 ## The data folder, and what each account can see
 
-`limo install` makes `%ProgramData%\LiMo` itself, refusing if it already
-exists (a standard account can make folders in ProgramData, so one that is
-there may not be LiMo's), with its protection set from the first moment:
+`limo install` makes `%ProgramData%\LiMo` itself, and uses one that is
+there only when SYSTEM or the Administrators group made it (a standard
+account can make folders in ProgramData, so one made by anyone else is
+refused), with its protection set from the first moment:
 `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`, SYSTEM and Administrators full
 control, nothing inherited from ProgramData, and nobody else anything. The
-family's file (with the PIN record and the code secrets), the log and the
-settings file are made inside it and get the same.
+family's file (with the PIN record and the code secrets), the log, the
+settings file, `installed.json` (the version installed) and `setup.log` are
+made inside it and get the same.
 
 `limo status` from:
 
@@ -1243,11 +1432,11 @@ object's access list, with the user's security identifier in it.
 
 | Where | What | Count |
 | --- | --- | --- |
-| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the console's requests read by name and arguments, through a frame and back, one that cannot be read answered by its number, one that is not a message refused saying only where, the longest answer and one too long, a password never in `Debug`; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain`, `dev-code`, `reset-password` and `dev-console`); `dev-console`'s lines, a secret never taken on the line; the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup`, `dev-code` and `reset-password` on a real file, the code tried on the device it was made for, the reset clearing the wait and keeping everything else; an audio session counted as playing only when active, not the system sounds, in this session and above zero, anything unknown counting as no; sound heard held for 3 seconds, then stale; the screen kept awake only by the display bit; a connection from loopback is the cable's; connections counted in all and by address; the link's clock; only the private ranges of home routers are home addresses, each once, at most eight; the announcement holds the id and the port and nothing of the family, word for word; this PC's home addresses read | 54 |
+| `src/*.rs` | The channel's frames and limits, wiping and hiding secrets; the console's requests read by name and arguments, through a frame and back, one that cannot be read answered by its number, one that is not a message refused saying only where, the longest answer and one too long, a password never in `Debug`; the helper's side and the outbox; the choice of display and the fallback to the plain one; the command line (with `--plain`, `dev-code`, `reset-password` and `dev-console`); `dev-console`'s lines, a secret never taken on the line; the never close list and paths; names from version resources; a description trimmed, collapsed, cleaned and cut, and the name a notice shows, by description or file name; quiet logging; settings and places, and the switch for the plain display; the plain display's words; what a helper got; `dev-setup`, `dev-code` and `reset-password` on a real file, the code tried on the device it was made for, the reset clearing the wait and keeping everything else; an audio session counted as playing only when active, not the system sounds, in this session and above zero, anything unknown counting as no; sound heard held for 3 seconds, then stale; the screen kept awake only by the display bit; a connection from loopback is the cable's; connections counted in all and by address; the link's clock; only the private ranges of home routers are home addresses, each once, at most eight; the announcement holds the id and the port and nothing of the family, word for word; this PC's home addresses read; the installer's judgement of a data folder that is there (made by SYSTEM or an administrator with LiMo's protection, or not), versions read and compared, the two firewall rules for `limo.exe` only from the local subnet; the command line's `uninstall` with its choice and `stop-for-upgrade`, a password never taken on it; `dev-console`'s `allow-removal` | 57 |
 | `src/drawn/tests.rs` | The drawn display's decisions, with no window: Windows keys to the lock's keys, with the layout's text handed in; the modifiers and the keyboard state; text and points from Windows; the PC's clock from the time format; where the time left display starts, a drag kept on the screen, where a notice goes; pixels into a bitmap, and only a change saying so; the notices' turns; a way out sent once and only its own answer back to the same lock; an answer for a lock taken down, or one that waited too long, dropped; a PIN moved into its secret with nothing left behind; a reason typed with the layout's text, shortcuts typing nothing; keys reaching nothing but a lock; the same lock again keeping what the child did; the time left display and its notices only while the PC may be used, OK, and the notice by name; the lock drawn on the main monitor and the others; the service's answers as the lock's | 19 |
-| `src/win/*.rs` | Pure functions, harmless reads of the test's own process, and harmless reads of what the PC says of itself, which pass whatever the answer: the time zone offset; the clocks, and this account's own time format; session states and administrators; this process's own account; the order version resources are read in; this process's own entry, file and version resource (none); frames across a pipe inside this process; the three access lists and that they parse for this user; the command line a helper gets, with and without `--plain`; a log line; full screen; a helper run by hand doing nothing; what this process got; the display bit as Windows numbers it; this process's own Windows session, and none for a process that is not there; whether this PC plays sound (twice, with COM started and ended) and keeps the screen awake, read and not judged, on a PC with a sound device or none; the door's access list keeps the right to make an instance from interactive users, and parses; this process's own account; this PC's accounts, read and not judged; the other end's own row of the TCP table naming the process; a loopback connection inside this test process found to be this account's | 28 |
-| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders, the fallback and the console's door; the door over a real named pipe; and the link with a played phone over real loopback sockets; and the door's answers written for the screens' tests (below) | 85 |
-| `tests/door_host.rs` | The door's test host, as another crate's tests use it: a sign in, a child added and the day read over its pipe, the door gone with the host; a host with no family taking the first start's requests; the real door's name refused | 2 |
+| `src/win/*.rs` | Pure functions, harmless reads of the test's own process, and harmless reads of what the PC says of itself, which pass whatever the answer: the time zone offset; the clocks, and this account's own time format; session states and administrators; this process's own account; the order version resources are read in; this process's own entry, file and version resource (none); frames across a pipe inside this process; the three access lists and that they parse for this user; the command line a helper gets, with and without `--plain`; a log line; full screen; a helper run by hand doing nothing; what this process got; the display bit as Windows numbers it; this process's own Windows session, and none for a process that is not there; whether this PC plays sound (twice, with COM started and ended) and keeps the screen awake, read and not judged, on a PC with a sound device or none; the door's access list keeps the right to make an instance from interactive users, and parses; this process's own account; this PC's accounts, read and not judged; the other end's own row of the TCP table naming the process; a loopback connection inside this test process found to be this account's; the firewall profiles as Windows numbers them; a shortcut made in the test's own temporary folder and read back, opening its program, and the Start menu of every account found (nothing made there); an owner and access list read apart; a folder made with LiMo's protection by the test's standard account, judged not LiMo's, given back to its owner and removed | 33 |
+| `tests/service/` | The stories, against a fake PC with the real engine and a real family file: facts, helpers, the channel, the orders, the fallback and the console's door; the door over a real named pipe; and the link with a played phone over real loopback sockets; and the door's answers written for the screens' tests; and the installer's work against a fake PC whose door is the real service's (below) | 104 |
+| `tests/door_host.rs` | The door's test host, as another crate's tests use it: a sign in, a child added and the day read over its pipe, the door gone with the host; a host with no family taking the first start's requests; the real door's name refused; the uninstaller's line to the door refusing a door not served from session 0 before it sends anything, and over the host's real pipe the family's state, a wrong password in the door's words, the next secret a second later, the right one, and the allowed removal seen by the next line | 3 |
 | `tests/house_rules.rs` | Unsafe code only in `src/win/`; no allow attributes; no dash punctuation; the typographic apostrophe in the crate's own words | 4 |
 | `src/door_host.rs` | Its example, built (never run) | 1 |
 
@@ -1334,7 +1523,35 @@ listener standing in for each home address); and a program in a child's
 account that opens loopback connections as fast as it can, each closed at
 once, while a phone pairs and opens its session through the cable at once.
 `answers.rs` (1): the small family through the real door, its answers
-written for the screens' tests (above).
+written for the screens' tests (above). `installer.rs` (19), against a fake
+PC whose door is the stories' real service: without elevation install, stop
+and uninstall refused, nothing changed, the run still written down; a new
+install from the installer making every part in order (the data folder
+before the service, the service started last) and every step in the setup
+log with its time; a test install from a build folder copying the program
+(and a console beside it), the test cap on, the missing parts said and no
+shortcut; installed again over itself, the family kept, LiMo's programs
+ended and nothing else, the service updated not made, each rule there once;
+over a test install whose version was not recorded, the test cap off and
+the plain display kept; an older LiMo replaced and a newer one never; a data
+folder made by a child's account refused, and one whose list was opened set
+back; a family's file kept at uninstall used again; a failing step said and
+logged, the service started again, the firewall's failure leaving the rest
+done; `stop-for-upgrade` stopping the service and ending LiMo's programs
+only, refusing to run from the program folder, and nothing to do without
+LiMo; the uninstall removing nothing without the password (no console, or
+Enter alone), the family's file not asked about before it; a wrong password
+in the door's words then the right one, everything but the family's file
+removed and the program folder left to the installer; three wrong, then
+two more and the family's wait, during which even the right one waits; a
+removal allowed in the settings needing no password, the log going to the
+temporary folder with the data folder deleted; with the service stopped,
+the password checked in the family's file; an uninstall from a child's
+account refused at the door; no family, no password, and the question asked
+plainly until keep or delete, kept with no answer; from a build folder the
+program folder removed too, and a second run saying there is nothing left;
+a door that does not answer knocked on again, then nothing removed. No
+password is said or written in any of them.
 
 The link's tests listen on the loopback address only, at a port the system
 chooses, never on another address; they announce nothing on the network
@@ -1355,6 +1572,11 @@ The one window made is
 the band check's, 1 by 1 pixel, off screen, never shown, and destroyed at
 once, as the spike's `bandcheck` did.
 
+No test touches the service control manager, Windows' firewall, the Start
+menu, Program Files or ProgramData: the installer's steps run against the
+fake PC, and the real calls are tried only where they need no elevation and
+stay in the test's own temporary folder.
+
 `cargo build`, `cargo test`, `cargo doc --no-deps` and
 `cargo clippy --all-targets -- -D warnings` pass with no warnings and no
 allow attributes. Dependencies are built optimised in debug and test builds,
@@ -1370,7 +1592,6 @@ as in the hub and the agent, so the slow password and PIN hashes stay quick.
 - **The phone's own half of the link** is LiMo for Android's: its
   sockets, its search on the network, and the cable door that hands it the
   offer (see [What a phone must do](#what-a-phone-must-do)).
-- **The firewall rule** is the installer's, not built yet.
 - **The loopback and accounts not linked to a child.** A program in an
   account that is in no family (a visitor's, before the first start locks
   such accounts) or in a guardian's could still open connections to the
@@ -1440,7 +1661,7 @@ as in the hub and the agent, so the slow password and PIN hashes stay quick.
 | read-fonts, font-types | 0.47.0, 0.12.7 | MIT or Apache-2.0 | through limo-screens: reading the fonts |
 | ab_glyph_rasterizer | 0.1.10 | Apache-2.0 | through limo-screens: glyphs into pixels |
 | the fonts Fraunces, Instrument Sans and Spline Sans Mono | as Google Fonts publishes them | SIL Open Font License 1.1 | through limo-screens, built into the program: the design's type |
-| windows, windows-core, windows-result, windows-strings, windows-link, windows-numerics, windows-collections, windows-future, windows-threading | 0.62.2, 0.62.2, 0.4.1, 0.5.1, 0.2.1, 0.3.1, 0.3.2, 0.3.2, 0.2.1 | MIT or Apache-2.0 | calling Windows; the same version as the first spike. The console's door added one of its features, `Win32_NetworkManagement_NetManagement`, for the accounts of the PC, and the link another, `Win32_NetworkManagement_IpHelper`, for who is at the other end of a loopback connection; no crate was added for either |
+| windows, windows-core, windows-result, windows-strings, windows-link, windows-numerics, windows-collections, windows-future, windows-threading | 0.62.2, 0.62.2, 0.4.1, 0.5.1, 0.2.1, 0.3.1, 0.3.2, 0.3.2, 0.2.1 | MIT or Apache-2.0 | calling Windows; the same version as the first spike. The console's door added one of its features, `Win32_NetworkManagement_NetManagement`, for the accounts of the PC, the link another, `Win32_NetworkManagement_IpHelper`, for who is at the other end of a loopback connection, and the installer's work a third, `Win32_NetworkManagement_WindowsFirewall`, for LiMo's two firewall rules (its shortcut and COM use features that were there); no crate was added for any of them |
 | windows-implement, windows-interface | 0.60.2, 0.59.3 | MIT or Apache-2.0 | used by windows-core when building |
 | windows-service | 0.8.1 | MIT or Apache-2.0 | the service control manager; the same version as the first spike |
 | limo-link | 0.1.0 (path) | Apache-2.0 | the link with the phones; its own crates (snow, curve25519-dalek, chacha20poly1305, blake2, getrandom and their parts) are listed with their licences in its README; curve25519-dalek and subtle are BSD-3-Clause |
@@ -1494,6 +1715,8 @@ windows/
     played_phone.rs a phone played over the link (feature played-phone)
     door_host.rs  the door's test host for other crates' tests (feature
                   door-host)
+    installer.rs  what install, stop-for-upgrade and uninstall decide, and
+                  the Machine trait: the installer's seam
     protocol.rs   the channel: messages, frames, limits, Secret
     console.rs    the console's door: messages, frames, limits
     devconsole.rs dev-console's lines
@@ -1532,14 +1755,21 @@ windows/
       clock.rs      the clocks and local times
       logfile.rs    the log
       console.rs    typing without it showing
-      install.rs    install, uninstall, status, dev-setup, dev-code,
+      install.rs    install, stop-for-upgrade and uninstall (calling
+                    installer.rs), status, dev-setup, dev-code,
                     reset-password
+      machine.rs    WinMachine, the real PC behind the installer's seam
+      firewall.rs   LiMo's rules in Windows' firewall
+      shortcut.rs   the console's shortcut, and the Start menu of every
+                    account
+      com.rs        COM for one call
   tests/
     house_rules.rs
     door_host.rs  the door's test host, used as another crate would
     service/      main.rs, common.rs (the fake PC), facts.rs, helpers.rs,
                   channel.rs, orders.rs, fallback.rs, door.rs, pipe.rs,
-                  link.rs, answers.rs (the door's answers as files)
+                  link.rs, answers.rs (the door's answers as files),
+                  installer.rs (the installer's work, on a fake PC)
   examples/
     limo-phone.rs a phone played from another PC
 ```

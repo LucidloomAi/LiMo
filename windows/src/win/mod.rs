@@ -20,15 +20,18 @@ macro_rules! say {
 mod about;
 mod accounts;
 mod clock;
+mod com;
 mod console;
 mod devconsole;
 mod display;
 pub(crate) mod door;
 mod drawn;
+mod firewall;
 mod helper;
 pub(crate) mod install;
 mod launch;
 mod logfile;
+mod machine;
 mod os;
 mod peers;
 mod pipe;
@@ -36,6 +39,7 @@ mod playing;
 mod processes;
 mod service;
 mod sessions;
+mod shortcut;
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 
@@ -51,7 +55,8 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Ok(Command::Service) => service::run(),
         Ok(Command::Helper { channel, plain }) => helper::run(channel, plain),
         Ok(Command::Install { dev }) => install::install(dev),
-        Ok(Command::Uninstall) => install::uninstall(),
+        Ok(Command::Uninstall { family_file }) => install::uninstall(family_file),
+        Ok(Command::StopForUpgrade) => install::stop_for_upgrade(),
         Ok(Command::Status) => install::status(),
         Ok(Command::DevSetup { child, account, minutes, block }) => install::dev_setup(&child, &account, minutes, &block),
         Ok(Command::DevCode { child, minutes }) => install::dev_code(child.as_deref(), minutes),

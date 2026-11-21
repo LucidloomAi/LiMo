@@ -1,12 +1,15 @@
 //! Names, places and the data folder's settings file.
 //!
-//! When installed, LiMo for Windows is one program and one folder of data:
+//! When installed, LiMo for Windows is one folder of programs and one folder
+//! of data:
 //!
-//! - `%ProgramFiles%\LiMo\limo.exe`, the program;
+//! - `%ProgramFiles%\LiMo\`, the programs: `limo.exe`, and from the
+//!   installer `limo-console.exe`, `phone\limo-child.apk` and `notices\`;
 //! - `%ProgramData%\LiMo\`, for SYSTEM and Administrators only, holding
 //!   `family.limo` (the family's file), `limo.log` (the service's log, and
-//!   `limo.log.old` before it) and `settings.json` (the test cap, and the
-//!   switch that forces the plain display).
+//!   `limo.log.old` before it), `settings.json` (the test cap, and the
+//!   switch that forces the plain display), and the installer's
+//!   `installed.json` (the version installed) and `setup.log`.
 
 #![forbid(unsafe_code)]
 

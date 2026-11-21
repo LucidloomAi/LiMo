@@ -1,7 +1,7 @@
-//! `limo install`, `uninstall`, `status`, `dev-setup`, `dev-code` and
-//! `reset-password`: for testing with the owner at the PC, and for a family
-//! that forgot the guardian password. Ported from the first spike, with the
-//! data folder closed to everyone but SYSTEM and Administrators.
+//! `limo install`, `stop-for-upgrade` and `uninstall` (their steps are
+//! decided in `crate::installer`, over `machine.rs`), `status`, `dev-setup`,
+//! `dev-code` and `reset-password`: for the installer, for testing with the
+//! owner at the PC, and for a family that forgot the guardian password.
 
 use std::ffi::{OsString, c_void};
 use std::path::Path;
@@ -10,31 +10,24 @@ use std::time::{Duration, Instant};
 
 use limo_hub::Hub;
 use windows::Win32::Foundation::{HANDLE, HLOCAL, LocalFree};
-use windows::Win32::Security::Authorization::{
-    ConvertSecurityDescriptorToStringSecurityDescriptorW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetNamedSecurityInfoW,
-    SDDL_REVISION_1, SE_FILE_OBJECT,
-};
+use windows::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
 use windows::Win32::Security::{
-    DACL_SECURITY_INFORMATION, GetTokenInformation, LookupAccountNameW, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, SID_NAME_USE,
-    SidTypeUser, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
+    GetTokenInformation, LookupAccountNameW, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, SID_NAME_USE, SidTypeUser, TOKEN_ELEVATION,
+    TOKEN_QUERY, TokenElevation,
 };
 use windows::Win32::Storage::FileSystem::CreateDirectoryW;
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::core::{PCWSTR, PWSTR};
-use windows_service::service::{
-    ServiceAccess, ServiceAction, ServiceActionType, ServiceErrorControl, ServiceFailureActions, ServiceFailureResetPeriod, ServiceInfo,
-    ServiceStartType, ServiceState, ServiceType,
-};
+use windows_service::service::{ServiceAccess, ServiceState};
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 use super::clock::{utc_offset_secs, wall_secs};
 use super::console::read_hidden;
 use super::logfile::{append, tail};
+use super::machine::WinMachine;
 use super::{Owned, error_text, wide};
-use crate::close::path_is_inside;
-use crate::settings::{
-    DATA_FOLDER_SDDL, Places, SERVICE_DESCRIPTION, SERVICE_DISPLAY, SERVICE_NAME, Settings, read_settings, settings_text,
-};
+use crate::installer::{FamilyFile, InstallRecord, RECORD_FILE};
+use crate::settings::{DATA_FOLDER_SDDL, Places, SERVICE_NAME, read_settings};
 use crate::setup::{DevFamily, make_dev_code, make_dev_family};
 
 const ERROR_SERVICE_DOES_NOT_EXIST: i32 = 1060;
@@ -76,7 +69,7 @@ fn service_state() -> Result<Option<ServiceState>, String> {
 
 /// Makes the data folder with its protection from the first moment: SYSTEM
 /// and Administrators only, nothing inherited.
-fn make_data_folder(path: &Path) -> Result<(), String> {
+pub(crate) fn make_data_folder(path: &Path) -> Result<(), String> {
     let sddl = wide(DATA_FOLDER_SDDL);
     let folder = wide(&path.to_string_lossy());
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
@@ -96,197 +89,19 @@ fn make_data_folder(path: &Path) -> Result<(), String> {
     }
 }
 
-/// A folder's access list, as SDDL, to show what was applied.
-fn folder_access(path: &Path) -> Option<String> {
-    let folder = wide(&path.to_string_lossy());
-    let mut descriptor = PSECURITY_DESCRIPTOR::default();
-    // SAFETY: both buffers come from Windows and are freed with LocalFree
-    // once read.
-    unsafe {
-        let found = GetNamedSecurityInfoW(PCWSTR(folder.as_ptr()), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, None, None, None, None, &mut descriptor);
-        if found.is_err() {
-            return None;
-        }
-        let mut text = PWSTR::null();
-        let converted =
-            ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &mut text, None);
-        let _ = LocalFree(Some(HLOCAL(descriptor.0)));
-        converted.ok()?;
-        let sddl = text.to_string().ok();
-        let _ = LocalFree(Some(HLOCAL(text.0 as *mut c_void)));
-        sddl
-    }
-}
-
-/// `limo install [--dev]`.
+/// `limo install [--dev]`: see `crate::installer`.
 pub(crate) fn install(dev: bool) -> i32 {
-    if !is_elevated() {
-        say!("install must be run from an administrator terminal. Nothing was changed.");
-        return 2;
-    }
-    match service_state() {
-        Ok(None) => {}
-        Ok(Some(_)) => {
-            say!("LiMo is already installed. Run limo uninstall first. Nothing was changed.");
-            return 2;
-        }
-        Err(problem) => {
-            say!("The service control manager could not be asked whether LiMo is installed: {problem}. Nothing was changed.");
-            return 1;
-        }
-    }
-    let places = Places::here();
-    if places.data_dir.exists() {
-        say!(
-            "The data folder {} already exists. LiMo makes it itself, so that nobody else can have made it first. \
-             If it is left from an earlier test, run limo uninstall, which removes it. Nothing was changed.",
-            places.data_dir.display()
-        );
-        return 2;
-    }
-    match do_install(&places, dev) {
-        Ok(()) => 0,
-        Err(problem) => {
-            say!("install failed: {problem}.");
-            say!("Run limo uninstall to remove what was done.");
-            1
-        }
-    }
+    crate::installer::install(&mut WinMachine::new(), dev)
 }
 
-fn do_install(places: &Places, dev: bool) -> Result<(), String> {
-    let source = std::env::current_exe().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&places.install_dir).map_err(|e| format!("making {}: {e}", places.install_dir.display()))?;
-    std::fs::copy(&source, places.installed_exe()).map_err(|e| format!("copying the program: {e}"))?;
-    say!("Copied the program to {}.", places.installed_exe().display());
-
-    make_data_folder(&places.data_dir).map_err(|e| format!("making the data folder {}: {e}", places.data_dir.display()))?;
-    say!("Made the data folder {}, for SYSTEM and Administrators only.", places.data_dir.display());
-    if let Some(access) = folder_access(&places.data_dir) {
-        say!("  Its access list, as Windows applied it: {access}");
-    }
-    if dev {
-        std::fs::write(places.settings_file(), settings_text(&Settings { test_cap: true, ..Settings::default() }))
-            .map_err(|e| format!("writing the settings: {e}"))?;
-        say!("TEST CAP ON: this is a test install. Any single lock is lifted after 120 seconds, and the log says so each time.");
-    }
-
-    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE)
-        .map_err(|e| e.to_string())?;
-    let info = ServiceInfo {
-        name: OsString::from(SERVICE_NAME),
-        display_name: OsString::from(SERVICE_DISPLAY),
-        service_type: ServiceType::OWN_PROCESS,
-        start_type: ServiceStartType::AutoStart,
-        error_control: ServiceErrorControl::Normal,
-        executable_path: places.installed_exe(),
-        launch_arguments: vec![OsString::from("service")],
-        dependencies: vec![],
-        account_name: None,
-        account_password: None,
-    };
-    let access = ServiceAccess::QUERY_STATUS | ServiceAccess::START | ServiceAccess::CHANGE_CONFIG;
-    let service = manager.create_service(&info, access).map_err(|e| format!("creating the service: {e}"))?;
-    let _ = service.set_description(SERVICE_DESCRIPTION);
-    let restart = |secs| ServiceAction { action_type: ServiceActionType::Restart, delay: Duration::from_secs(secs) };
-    let failure = ServiceFailureActions {
-        reset_period: ServiceFailureResetPeriod::After(Duration::from_secs(86_400)),
-        reboot_msg: None,
-        command: None,
-        actions: Some(vec![restart(1), restart(1), restart(10)]),
-    };
-    if let Err(e) = service.update_failure_actions(failure) {
-        say!("The service’s restart on failure could not be set: {e}.");
-    }
-    let _ = service.set_failure_actions_on_non_crash_failures(true);
-    let no_arguments: [OsString; 0] = [];
-    service.start(&no_arguments).map_err(|e| format!("starting the service: {e}"))?;
-    say!("Created the service {SERVICE_NAME} (LocalSystem, automatic, restarted on failure) and started it.");
-    append(places, &format!("Installed{}.", if dev { " for testing, with the test cap on" } else { "" }));
-    Ok(())
+/// `limo stop-for-upgrade`: see `crate::installer`.
+pub(crate) fn stop_for_upgrade() -> i32 {
+    crate::installer::stop_for_upgrade(&mut WinMachine::new())
 }
 
-/// True when this program runs from the installed folder, which uninstall
-/// could not then delete.
-fn running_installed(places: &Places) -> bool {
-    std::env::current_exe().is_ok_and(|me| {
-        path_is_inside(&me.to_string_lossy(), &places.install_dir.to_string_lossy())
-            || std::fs::canonicalize(&me)
-                .ok()
-                .zip(std::fs::canonicalize(&places.install_dir).ok())
-                .is_some_and(|(me, dir)| path_is_inside(&me.to_string_lossy(), &dir.to_string_lossy()))
-    })
-}
-
-/// Removes a folder, trying for ten seconds while a stopping process lets
-/// go of its files.
-fn remove_folder(path: &Path) {
-    let give_up = Instant::now() + Duration::from_secs(10);
-    loop {
-        match std::fs::remove_dir_all(path) {
-            Ok(()) => {
-                say!("Removed {}.", path.display());
-                return;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
-            Err(e) if Instant::now() >= give_up => {
-                say!("Could not remove {}: {e}. A LiMo process may still be closing; run uninstall again in a moment.", path.display());
-                return;
-            }
-            Err(_) => sleep(Duration::from_millis(500)),
-        }
-    }
-}
-
-/// `limo uninstall`.
-pub(crate) fn uninstall() -> i32 {
-    let places = Places::here();
-    if running_installed(&places) {
-        say!(
-            "uninstall cannot run from the installed copy in {}, which cannot delete itself. Run it from the build folder’s copy. Nothing was changed.",
-            places.install_dir.display()
-        );
-        return 2;
-    }
-    if !is_elevated() {
-        say!("uninstall must be run from an administrator terminal. Nothing was changed.");
-        return 2;
-    }
-    let manager = match ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT) {
-        Ok(manager) => manager,
-        Err(e) => {
-            say!("The service control manager could not be reached: {e}.");
-            return 1;
-        }
-    };
-    match manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE) {
-        Ok(service) => {
-            if service.query_status().is_ok_and(|s| s.current_state != ServiceState::Stopped) {
-                let _ = service.stop();
-            }
-            let _ = service.delete();
-            drop(service);
-            let give_up = Instant::now() + Duration::from_secs(10);
-            while Instant::now() < give_up {
-                match manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS) {
-                    Err(windows_service::Error::Winapi(e)) if e.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST) => break,
-                    _ => sleep(Duration::from_millis(500)),
-                }
-            }
-            say!("Stopped and removed the service {SERVICE_NAME}.");
-        }
-        Err(windows_service::Error::Winapi(e)) if e.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST) => {
-            say!("The service {SERVICE_NAME} was not installed.");
-        }
-        Err(e) => {
-            say!("The service could not be opened: {e}.");
-            return 1;
-        }
-    }
-    remove_folder(&places.install_dir);
-    remove_folder(&places.data_dir);
-    say!("Uninstall complete.");
-    0
+/// `limo uninstall`: see `crate::installer`.
+pub(crate) fn uninstall(choice: Option<FamilyFile>) -> i32 {
+    crate::installer::uninstall(&mut WinMachine::new(), choice)
 }
 
 /// `limo status`.
@@ -298,6 +113,12 @@ pub(crate) fn status() -> i32 {
     }
     say!("This terminal is {}.", if is_elevated() { "elevated" } else { "not elevated" });
     let places = Places::here();
+    if let Some(record) = std::fs::read_to_string(places.data_dir.join(RECORD_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str::<InstallRecord>(&text).ok())
+    {
+        say!("Installed: LiMo {}.", record.version);
+    }
     match std::fs::read_to_string(places.settings_file()) {
         Ok(text) => {
             let settings = read_settings(&text);

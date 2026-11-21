@@ -144,8 +144,9 @@ fn done() -> Result<Value, Fail> {
 }
 
 /// What a password that was not right means for the guardian, in the
-/// words of the sign in screen.
-fn password_problem(outcome: PasswordOutcome) -> Problem {
+/// words of the sign in screen. The uninstaller says the same when it checks
+/// the password in the family's file itself.
+pub(crate) fn password_problem(outcome: PasswordOutcome) -> Problem {
     match outcome {
         PasswordOutcome::Wrong { wait_until: Some(until), .. } | PasswordOutcome::MustWait { until } => {
             let kind = if matches!(outcome, PasswordOutcome::MustWait { .. }) { ProblemKind::MustWait } else { ProblemKind::WrongPassword };
@@ -622,12 +623,16 @@ impl<O: Os> Service<O> {
                 let children = if has_family { self.hub.children().map(|c| c.len()).unwrap_or(0) } else { 0 };
                 let unlinked = self.hub.pc_settings().map(|s| s.unlinked_accounts).unwrap_or(UnlinkedAccounts::Free);
                 let signed_in = self.door.conns.get(&id).is_some_and(|c| c.signed_in.is_some());
+                // Whether a guardian allowed LiMo's removal a moment ago:
+                // the uninstaller asks, and asks for no password then.
+                let removal_allowed_until = self.door.removal_allowed_until.filter(|until| wall < *until);
                 Ok(json!({
                     "has_family": has_family,
                     "has_pin": has_pin,
                     "children": children,
                     "unlinked_accounts": unlinked,
                     "signed_in": signed_in,
+                    "removal_allowed_until": removal_allowed_until,
                 }))
             }
             Request::CreateFamily { password } => {

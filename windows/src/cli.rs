@@ -30,8 +30,14 @@ pub enum Command {
         /// `--dev`: switch the test cap on.
         dev: bool,
     },
-    /// Remove the service and both folders.
-    Uninstall,
+    /// Remove LiMo, after the guardian password when there is a family.
+    Uninstall {
+        /// Kept or deleted, as the command line said; asked when None.
+        family_file: Option<crate::installer::FamilyFile>,
+    },
+    /// Stop the service and LiMo's programs, before an installer copies
+    /// new files.
+    StopForUpgrade,
     /// The service's state and the end of its log.
     Status,
     /// Make a family for testing, until the guardian's console exists.
@@ -66,6 +72,8 @@ pub enum Command {
 /// The minutes `dev-code` makes a code for when not told.
 pub const DEFAULT_CODE_MINUTES: u32 = 15;
 
+use crate::installer::FamilyFile;
+
 /// The value after a flag, if the flag is there.
 fn value_of<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
     let at = args.iter().position(|a| a == flag)?;
@@ -96,7 +104,16 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             [flag] if flag == "--dev" => Ok(Command::Install { dev: true }),
             _ => Err("install takes nothing, or --dev for a test install with the test cap.".to_string()),
         },
-        Some("uninstall") => Ok(Command::Uninstall),
+        Some("uninstall") => match rest {
+            [] => Ok(Command::Uninstall { family_file: None }),
+            [flag] if flag == "--keep-family-file" => Ok(Command::Uninstall { family_file: Some(FamilyFile::Keep) }),
+            [flag] if flag == "--delete-family-file" => Ok(Command::Uninstall { family_file: Some(FamilyFile::Delete) }),
+            _ => Err("uninstall takes nothing, --keep-family-file or --delete-family-file.".to_string()),
+        },
+        Some("stop-for-upgrade") => match rest {
+            [] => Ok(Command::StopForUpgrade),
+            _ => Err("stop-for-upgrade takes nothing.".to_string()),
+        },
         Some("status") => Ok(Command::Status),
         Some("reset-password") => match rest {
             [] => Ok(Command::ResetPassword),
@@ -160,11 +177,20 @@ pub fn usage() -> String {
     [
         "limo: LiMo for Windows, a free screen time limiter for children.",
         "",
-        "  limo install [--dev]   install and start the service (administrator).",
-        "                         --dev also switches on the test cap: any single",
-        "                         lock is lifted after 120 seconds. For testing only.",
-        "  limo uninstall         stop and remove the service, the program and the",
-        "                         data folder with the family’s file (administrator).",
+        "  limo install [--dev]   (administrator) install LiMo, or install it again",
+        "                         over itself, keeping the family’s file: the data",
+        "                         folder, the service, the firewall rules, the",
+        "                         console’s shortcut. --dev also switches on the test",
+        "                         cap: any single lock is lifted after 120 seconds.",
+        "  limo stop-for-upgrade  (administrator) for an installer, before it copies",
+        "                         new files: stops the service and every LiMo program",
+        "                         running from the program folder.",
+        "  limo uninstall [--keep-family-file|--delete-family-file]",
+        "                         (administrator) asks for the guardian password when",
+        "                         there is a family, then removes the service, the",
+        "                         firewall rules, the shortcut and the programs, and",
+        "                         keeps or deletes the family’s file (asked when not",
+        "                         given).",
         "  limo status            the service’s state, and the end of its log when",
         "                         this account may read it.",
         "  limo reset-password    (administrator) sets a new guardian password when",
@@ -210,7 +236,13 @@ mod tests {
         assert_eq!(parse(&args("install")), Ok(Command::Install { dev: false }));
         assert_eq!(parse(&args("install --dev")), Ok(Command::Install { dev: true }));
         assert!(parse(&args("install --helper-as system")).is_err());
-        assert_eq!(parse(&args("uninstall")), Ok(Command::Uninstall));
+        assert_eq!(parse(&args("uninstall")), Ok(Command::Uninstall { family_file: None }));
+        assert_eq!(parse(&args("uninstall --keep-family-file")), Ok(Command::Uninstall { family_file: Some(FamilyFile::Keep) }));
+        assert_eq!(parse(&args("uninstall --delete-family-file")), Ok(Command::Uninstall { family_file: Some(FamilyFile::Delete) }));
+        assert!(parse(&args("uninstall --keep-family-file --delete-family-file")).is_err());
+        assert!(parse(&args("uninstall --password hunter22")).is_err(), "a password is never taken on the command line");
+        assert_eq!(parse(&args("stop-for-upgrade")), Ok(Command::StopForUpgrade));
+        assert!(parse(&args("stop-for-upgrade now")).is_err());
         assert_eq!(parse(&args("status")), Ok(Command::Status));
         assert_eq!(
             parse(&args("dev-setup --child Asha --account asha")),

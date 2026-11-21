@@ -6,9 +6,12 @@ its last lines say. Every part says what to look for, and the results go in
 the table at the end. They were first run on 19 November 2026: what was seen
 is in that table, with notes under it.
 
-Everything is undone by `limo uninstall`, run from the build folder in an
-administrator terminal: it stops and removes the service and deletes both
-folders, the family's file with them.
+Everything is undone by `limo uninstall --delete-family-file`, run from the
+build folder in an administrator terminal: when there is a family it asks
+for the guardian password first (Enter alone refuses, and nothing is
+removed); then it removes the service, LiMo's firewall rules and shortcut,
+and both folders, the family's file with them. Without the flag it asks
+whether to keep the family's file. Each "Undo" below means this.
 
 ## Before starting
 
@@ -53,8 +56,9 @@ From an ordinary (not elevated) PowerShell:
    its channel. Run by hand it does nothing.` Exit code 2 (`$LASTEXITCODE`).
 4. `.\limo service`: it says it is the service control manager's entry and
    does nothing. Exit code 2.
-5. `.\limo install`: `install must be run from an administrator terminal.
-   Nothing was changed.`
+5. `.\limo install`: `Installing LiMo needs an administrator: run it from an
+   administrator terminal, or let the installer ask Windows for one.
+   Nothing was changed.` Exit code 2.
 
 Undo: nothing to undo.
 
@@ -64,17 +68,20 @@ Undo: nothing to undo.
    run `.\limo install --dev`. Look for:
    - `Copied the program to C:\Program Files\LiMo\limo.exe.`
    - `Made the data folder C:\ProgramData\LiMo, for SYSTEM and Administrators
-     only.` and the next line, `Its access list, as Windows applied it:`.
-     Write that access list down exactly. It should name only `SY` and `BA`,
-     each with `FA` (full access), and begin `D:P` (protected: nothing
-     inherited). Windows may print extra flags after the `P`; note them.
+     only.` and the next line, `Its owner and access list, as Windows has
+     them: O:...`. Write that line down exactly. The owner should be `BA`
+     (or `SY`); the access list should name only `SY` and `BA`, each with
+     `FA` (full access), and begin `D:P` (protected: nothing inherited).
+     Windows may print extra flags after the `P`; note them.
    - `TEST CAP ON: ...`
-   - `Created the service LiMo (LocalSystem, automatic, restarted on
-     failure) and started it.`
-2. `.\limo status` (still elevated): `Service LiMo: Running.`, `TEST CAP ON`,
-   and the log ending with `Installed for testing, with the test cap on.`
-   and `The service started (LiMo for Windows 0.1.0).` There is no family
-   yet, so every account is free: nothing of LiMo shows anywhere.
+   - `Created the service LiMo: it runs C:\Program Files\LiMo\limo.exe as
+     LocalSystem, ...`, two lines `Windows’ firewall lets in, by the rule
+     ...`, `No shortcut was made: there is no console in the program
+     folder.` and `Started the service LiMo.`
+2. `.\limo status` (still elevated): `Service LiMo: Running.`, `Installed:
+   LiMo 0.1.0.`, `TEST CAP ON`, and the log ending with `The service started
+   (LiMo for Windows 0.1.0).` There is no family yet, so every account is
+   free: nothing of LiMo shows anywhere.
 3. From an ordinary PowerShell (not elevated): `.\limo status` shows the
    service Running, and says the log is in a folder only SYSTEM and
    Administrators may read. `dir C:\ProgramData\LiMo` says access is denied.
@@ -443,8 +450,9 @@ from session 0, where services run. Every answer is printed as it came;
 `help` lists what can be typed. About 30 minutes. It needs a fresh install,
 with no family.
 
-1. Elevated, from the build folder: `.\limo uninstall` if LiMo is
-   installed, then `.\limo install --dev`. Do not run `dev-setup`.
+1. Elevated, from the build folder: `.\limo uninstall --delete-family-file`
+   if LiMo is installed (the guardian password, if it has a family), then
+   `.\limo install --dev`. Do not run `dev-setup`.
    `.\limo status`: the log ends with `The service started` and `The door
    for LiMo’s settings is open.`
 2. **Opened from your own account.** From an ordinary PowerShell (not
@@ -522,8 +530,8 @@ makes, reports use every minute, and is limited from the same budget as
 the PC. About 30 minutes. It needs part O's family (or one from
 `dev-setup`), and a second Windows PC on the same home Wi-Fi.
 
-LiMo adds no firewall rule yet; the installer will. For this part a rule is
-added by hand, and removed at its end.
+`limo install` made LiMo's two firewall rules (see "The firewall rules" in
+README.md): nothing is added by hand.
 
 1. Here, in the `windows` folder: `cargo build --release --example
    limo-phone`. Copy `target\release\examples\limo-phone.exe` to the second
@@ -532,9 +540,9 @@ added by hand, and removed at its end.
    listens on port 47810.` If it says the port could not be had, copy the
    line: another program holds 47810. There is no `announces` line yet: the
    family has no phone, and LiMo says nothing on the network.
-3. Elevated, the firewall rule for this test only, both lines:
-   `New-NetFirewallRule -DisplayName "LiMo test link" -Direction Inbound -Program "C:\Program Files\LiMo\limo.exe" -Protocol TCP -LocalPort 47810 -RemoteAddress LocalSubnet -Profile Private,Public -Action Allow`
-   `New-NetFirewallRule -DisplayName "LiMo test mdns" -Direction Inbound -Program "C:\Program Files\LiMo\limo.exe" -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Private,Public -Action Allow`
+3. Elevated: `Get-NetFirewallRule -Group LiMo`. Two rules, enabled,
+   inbound, allow, on the Private and Public profiles, as part Q, step 3
+   checks in full.
 4. In `.\limo dev-console` from your own account, signed in (`sign-in`):
    `today`, and copy Asha's `child_id`. Then `offer CHILD_ID`: `Done:` with
    `"offer": "limo1:..."`, `"addresses"` (this PC's address on the home
@@ -583,14 +591,138 @@ added by hand, and removed at its end.
 
 Undo: on the second PC, delete the folder `asha-phone` (it holds the played
 phone's private key) and `limo-phone.exe`. Here, elevated:
-`Remove-NetFirewallRule -DisplayName "LiMo test link"` and
-`Remove-NetFirewallRule -DisplayName "LiMo test mdns"`; then `.\limo
-uninstall`.
+`.\limo uninstall --delete-family-file`, which removes the firewall rules
+with the rest.
+
+## Part Q: installing over the test install, upgrading, removing
+
+This part tries what `limo.exe` does for the installer (see "Installing,
+upgrading and removing" in README.md): an install over the test install of
+an earlier part, keeping its family; the same version again over itself; the
+stop before an upgrade; the uninstall refused without the guardian password,
+then done with it, the family's file kept once and deleted once. There is
+no installer yet: its calls are typed by hand. About 40 minutes. It needs a
+test install (`install --dev`) with a family whose guardian password you
+know (part O's), and the child's test account.
+
+1. **Refused without elevation.** From an ordinary PowerShell, in the build
+   folder: `.\limo install`, `.\limo stop-for-upgrade` and `.\limo
+   uninstall`. Each says it needs an administrator, ends with `Nothing was
+   changed.`, `Nothing was stopped.` or `Nothing was removed.`, and exit
+   code 2. `.\limo status`: still Running.
+2. **Installed over the test install.** Elevated, from the build folder:
+   `.\limo install` (no `--dev`). Look for, in order:
+   `This replaces an earlier LiMo whose version was not recorded (a test
+   install made before LiMo kept it) with LiMo 0.1.0.`; `Stopped the service
+   LiMo.`; perhaps `Ended limo.exe (pid P) in session N.` for a helper that
+   had not ended yet; `Copied the program to C:\Program Files\LiMo\limo.exe.`;
+   three `Not in the program folder:` lines (the console, the phone app and
+   the notices: there is no installer yet); `Kept the data folder
+   C:\ProgramData\LiMo, and the family’s file in it.` and its owner and
+   access list (write them down); `The test cap of the earlier test install
+   is now off.`; `Updated the service LiMo: ...`; two `Windows’ firewall lets
+   in, by the rule ...` lines; `No shortcut was made: ...`; `Started the
+   service LiMo. ...`; `LiMo 0.1.0 is installed.`; `The steps of this run are
+   written in C:\ProgramData\LiMo\setup.log.` Exit code 0. Then:
+   `.\limo status`: `Running`, `Installed: LiMo 0.1.0.`, `Test cap: off.` In
+   `.\limo dev-console` (ordinary PowerShell), `state` has `"has_family":
+   true` and `sign-in` takes the same password: the family was kept. Switch
+   to the child's account: the time left display is back within seconds,
+   with the day's minutes going on from where they were, not started again.
+3. **The firewall rules.** Elevated:
+   `Get-NetFirewallRule -Group LiMo | Format-Table DisplayName, Enabled, Direction, Action, Profile`:
+   two rules, `LiMo, the family’s phones (TCP 47810)` and `LiMo, found by the
+   family’s phones (UDP 5353)`, `True`, `Inbound`, `Allow`, `Private,
+   Public`. Then each of
+   `Get-NetFirewallRule -Group LiMo | Get-NetFirewallApplicationFilter`
+   (`Program`: `C:\Program Files\LiMo\limo.exe` for both),
+   `Get-NetFirewallRule -Group LiMo | Get-NetFirewallPortFilter` (TCP,
+   local port 47810; UDP, local port 5353) and
+   `Get-NetFirewallRule -Group LiMo | Get-NetFirewallAddressFilter`
+   (`RemoteAddress`: `LocalSubnet`). Open Windows Defender Firewall with
+   Advanced Security, Inbound Rules: both are listed in the group `LiMo`,
+   with their descriptions. If the second PC of part P is at hand, its
+   `limo-phone` reaches this PC over the home network as in part P, with
+   no rule added by hand.
+4. **The setup log.** Elevated: `Get-Content C:\ProgramData\LiMo\setup.log`:
+   each line of step 2, each beginning with its date and time, ending with
+   `The run ended with exit code 0.` No password, PIN or code anywhere in it.
+5. **Installed again over itself.** Elevated: `.\limo install` again:
+   `LiMo 0.1.0 is installed: it is installed again over itself.`, the service
+   stopped and started again, `LiMo 0.1.0 is installed.` Exit code 0. Step
+   3's first command still shows exactly two rules. In the child's account
+   the time left display is back within seconds.
+6. **The stop before an upgrade.** Elevated:
+   `Copy-Item .\limo.exe $env:TEMP\limo-upgrade.exe`, then
+   `& $env:TEMP\limo-upgrade.exe stop-for-upgrade`: `Stopped the service
+   LiMo.`, perhaps `Ended limo.exe (pid P) in session N.`, and `Nothing of
+   LiMo runs from C:\Program Files\LiMo now, so its files can be
+   replaced.` Exit code 0. `.\limo status`: `Stopped`. In Task Manager,
+   Details, no `limo.exe` runs (as an administrator, show the processes of
+   all users). Then `& "C:\Program Files\LiMo\limo.exe" stop-for-upgrade`:
+   refused, it runs from inside the program folder, exit code 2. Then, as
+   the installer will after copying, `& "C:\Program Files\LiMo\limo.exe"
+   install`: `The programs are in C:\Program Files\LiMo, put there by the
+   installer.`, the service started, exit code 0. Then
+   `Remove-Item $env:TEMP\limo-upgrade.exe`.
+7. **The uninstall refused without the password.** Elevated, from the build
+   folder: `.\limo uninstall`. It asks `Guardian password, to remove LiMo
+   (not shown):`. Press Enter alone: `No password was typed. Nothing was
+   removed. ...`, exit code 2. Run it again and type a wrong password:
+   `That password is not right. 4 more tries before a wait.`, asked again;
+   press Enter: refused, exit code 2. Each time: `.\limo status` Running,
+   step 3's two rules there, `C:\ProgramData\LiMo` there (elevated `dir`).
+8. **The removal allowed in the settings, the family's file kept.** In
+   `.\limo dev-console` (ordinary PowerShell): `sign-in`, then
+   `allow-removal` and the guardian password: `Done:` with `"until"`; `quit`.
+   Within ten minutes, elevated: `.\limo uninstall --keep-family-file`: `A
+   guardian allowed LiMo’s removal in its settings a moment ago, so no
+   password is needed.`, `The family’s file is kept, as the command line
+   asked.`, the service stopped and removed, `Removed the firewall rule
+   ...` twice, `Removed C:\Program Files\LiMo.`, `Kept
+   C:\ProgramData\LiMo: ...`, `LiMo is removed.` Exit code 0. Then:
+   `.\limo status`: not installed; `Get-NetFirewallRule -Group LiMo` finds
+   nothing; elevated `dir C:\ProgramData\LiMo` shows `family.limo` and
+   `setup.log`; the child's account is not limited.
+9. **The kept family's file used again.** Elevated: `.\limo install`: `The
+   data folder of an earlier LiMo 0.1.0 is here, with the family’s file: it
+   is used again.`, and installed. `dev-console`'s `sign-in` takes the same
+   password; the child is limited again.
+10. **The uninstall with the password, the family's file deleted.** Elevated:
+    `.\limo uninstall`, the guardian password: `The guardian password is
+    right.`; then it asks `Keep the family’s file? ... Type keep or
+    delete:`; type `delete`: `The family’s file is deleted.`, everything
+    removed, `Deleted C:\ProgramData\LiMo, with the family’s file in it.`,
+    `LiMo is removed.`, and `The steps of this run are written in ...\LiMo
+    setup.log.` (your account's temporary folder). Exit code 0. Open that
+    file: this run's steps, no password in it. Run `.\limo uninstall`
+    again: `There is no family’s file, so no password is needed.`, `The
+    service LiMo was not installed.`, `LiMo is removed.`, nothing asked.
+
+Undo: nothing is left of LiMo. Delete `LiMo setup.log` from your temporary
+folder if you like (`Remove-Item "$env:TEMP\LiMo setup.log"`), and install
+again (`.\limo install --dev`) for any part after this one.
+
+**What a Windows 10 PC might do differently.** From Microsoft's
+documentation only; none of it has been tried. The firewall's interface,
+its profiles, `LocalSubnet` and PowerShell's `Get-NetFirewallRule` are the
+same in Windows 10. On a network's first connection Windows 10 asks whether
+the PC may be discoverable, and a "No" makes the network Public (Windows 11
+makes a new one Public without asking): the rules cover both. The Start menu
+of every account is the same folder, and the service control manager, the
+elevation prompt and ProgramData's default access (any user may make a
+folder there) are the same. Windows 10 in S mode runs only programs from the
+Microsoft Store, so `limo.exe` does not run there at all. Smart App Control
+is Windows 11's only; on Windows 10 a downloaded unsigned installer meets
+SmartScreen. Windows 10's support ended on 14 October 2025, and a PC gets
+updates only through Extended Security Updates.
 
 ## Finish
 
-1. Elevated, from the build folder: `.\limo uninstall`. It stops and removes
-   the service and removes `C:\Program Files\LiMo` and `C:\ProgramData\LiMo`.
+1. Elevated, from the build folder: `.\limo uninstall --delete-family-file`,
+   and the guardian password when there is a family. It stops and removes
+   the service, removes LiMo's firewall rules, and removes
+   `C:\Program Files\LiMo` and `C:\ProgramData\LiMo`.
 2. Run it again: `The service LiMo was not installed.`, and it finishes.
 3. `.\limo status`: `Service LiMo: not installed.`
 4. Remove the child's test account if it was made for this.
@@ -670,6 +802,18 @@ uninstall`.
 | P10 one budget: the PC's minutes off the phone's, and the phone's off the PC's | yes | |
 | P11 a removed phone told so; the announcement withdrawn | yes | |
 | P12 nothing found after the last phone is removed | yes | |
+| Q1 install, stop-for-upgrade, uninstall refused without elevation, exit 2, nothing changed | yes | |
+| Q2 over the test install: version not recorded, family kept, test cap off, programs copied, service updated, exit 0 | yes | |
+| Q2 the data folder's owner and access list as said | owner BA or SY; only SY and BA, FA, begins D:P | |
+| Q2 the family kept: same password; the child's minutes go on | yes | |
+| Q3 two rules, group LiMo: limo.exe only, TCP 47810 and UDP 5353, LocalSubnet, Private and Public | yes | |
+| Q4 setup.log: every step with its time, exit code 0, no secret | yes | |
+| Q5 again over itself: said so, still two rules, helper back | yes | |
+| Q6 stop-for-upgrade from a copy: stopped, nothing of LiMo runs; refused from the program folder; install from it starts again | yes | |
+| Q7 uninstall: Enter alone refused; a wrong password in the door's words; nothing removed | yes | |
+| Q8 removal allowed in dev-console: no password asked; everything but the data folder removed; rules gone | yes | |
+| Q9 the kept family's file used again by the next install | yes | |
+| Q10 the password right, delete: both folders gone; the log in the temporary folder, no secret; a second run asks nothing | yes | |
 | Finish: uninstall twice, status not installed | yes | yes |
 
 ## Notes from the first run, 19 November 2026
